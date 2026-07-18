@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Runner - Pitch & Volume Controlled</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+
+        .back-button {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background-color: #374151;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            z-index: 1000;
+        }
+
+        .back-button:hover {
+            background-color: #1f2937;
+        }
+
+        .container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .title {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0, 255, 100, 0.5);
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: #aaa;
+            margin-bottom: 20px;
+        }
+
+        .game-wrapper {
+            position: relative;
+            width: 100%;
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+        }
+
+        canvas {
+            background: linear-gradient(180deg, #0f0f1e 0%, #1a1a2e 100%);
+            border: 3px solid #00ff64;
+            border-radius: 8px;
+            max-width: 100%;
+            max-height: 100%;
+            box-shadow: 0 0 30px rgba(0, 255, 100, 0.3);
+        }
+
+        .info-panel {
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #00ff64;
+            border-radius: 8px;
+            padding: 20px;
+            width: 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            font-size: 0.9rem;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .info-label {
+            color: #00ff64;
+            font-weight: bold;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+
+        .info-value {
+            font-size: 1.1rem;
+            color: #fff;
+        }
+
+        .visualizer-small {
+            width: 100%;
+            height: 60px;
+            background: rgba(0, 255, 100, 0.1);
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pitch-indicator {
+            position: absolute;
+            top: 0;
+            width: 3px;
+            height: 100%;
+            background: #00ff64;
+            transition: left 0.05s;
+        }
+
+        .status {
+            padding: 10px;
+            background: rgba(0, 255, 100, 0.2);
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.85rem;
+            color: #00ff64;
+            font-weight: bold;
+        }
+
+        .game-over-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            gap: 20px;
+        }
+
+        .game-over-screen.active {
+            display: flex;
+        }
+
+        .game-over-text {
+            font-size: 3rem;
+            color: #ff4444;
+            font-weight: bold;
+            text-shadow: 0 0 20px rgba(255, 68, 68, 0.5);
+        }
+
+        .game-over-score {
+            font-size: 2rem;
+            color: #00ff64;
+        }
+
+        .game-over-restart {
+            padding: 15px 30px;
+            background: #00ff64;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        .game-over-restart:hover {
+            background: #00dd55;
+        }
+
+        @media (max-width: 1024px) {
+            .game-wrapper {
+                flex-direction: column;
+            }
+
+            .info-panel {
+                width: 100%;
+                flex-direction: row;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .info-item {
+                flex: 1;
+                min-width: 150px;
+            }
+        }
+
+        .start-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2001;
+            gap: 30px;
+        }
+
+        .start-screen.hidden {
+            display: none;
+        }
+
+        .start-title {
+            font-size: 3rem;
+            color: #00ff64;
+            text-shadow: 0 0 20px rgba(0, 255, 100, 0.5);
+            font-weight: bold;
+        }
+
+        .start-instructions {
+            max-width: 500px;
+            text-align: center;
+            font-size: 1rem;
+            color: #aaa;
+            line-height: 1.6;
+        }
+
+        .start-instructions h3 {
+            color: #00ff64;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+
+        .control-list {
+            text-align: left;
+            display: inline-block;
+            color: #00ff64;
+            font-size: 0.95rem;
+            line-height: 2;
+        }
+
+        .control-list span {
+            color: #aaa;
+        }
+
+        .mic-permission-btn {
+            padding: 15px 40px;
+            background: #00ff64;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        .mic-permission-btn:hover {
+            background: #00dd55;
+        }
+
+        .mic-permission-btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <a href="index.html" class="back-button">← Back to Hub</a>
+
+    <div class="start-screen" id="startScreen">
+        <div class="start-title">🎤 VOICE RUNNER</div>
+        <div class="start-instructions">
+            <h3>How to Play</h3>
+            <div class="control-list">
+                <div>🔊 <span>Volume (Loud)</span> = Move Up</div>
+                <div>🔇 <span>Volume (Quiet)</span> = Move Down</div>
+                <div>🎵 <span>Pitch (High)</span> = Move Right</div>
+                <div>🎵 <span>Pitch (Low)</span> = Move Left</div>
+                <div>⏸️ <span>Silence</span> = Stay Still</div>
+                <div style="margin-top: 15px; font-size: 0.9rem;">Octaves loop for accessibility</div>
+            </div>
+        </div>
+        <button class="mic-permission-btn" id="startBtn">Enable Microphone & Start Game</button>
+    </div>
+
+    <div class="container">
+        <div class="title">🎤 VOICE RUNNER</div>
+        <div class="subtitle">Control the triangle with your voice</div>
+
+        <div class="game-wrapper">
+            <canvas id="gameCanvas"></canvas>
+            <div class="info-panel">
+                <div class="info-item">
+                    <div class="info-label">Score</div>
+                    <div class="info-value" id="scoreDisplay">0</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Cubes Dodged</div>
+                    <div class="info-value" id="cubesDisplay">0</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Volume</div>
+                    <div class="visualizer-small">
+                        <div class="pitch-indicator" id="volumeIndicator" style="left: 50%; height: 100%;"></div>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Pitch</div>
+                    <div class="visualizer-small">
+                        <div class="pitch-indicator" id="pitchIndicator"></div>
+                    </div>
+                </div>
+                <div class="status" id="statusDisplay">Initializing...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="game-over-screen" id="gameOverScreen">
+        <div class="game-over-text">GAME OVER</div>
+        <div class="game-over-score">Score: <span id="finalScore">0</span></div>
+        <button class="game-over-restart" id="restartBtn">Play Again</button>
+    </div>
+
+    <script>
+        // ============== AUDIO SETUP ==============
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let micStream;
+        let isGameRunning = false;
+
+        // ============== GAME SETUP ==============
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const startBtn = document.getElementById('startBtn');
+        const restartBtn = document.getElementById('restartBtn');
+
+        // Resize canvas to fill available space
+        function resizeCanvas() {
+            const wrapper = document.querySelector('.game-wrapper');
+            canvas.width = Math.min(wrapper.clientWidth * 0.6, 800);
+            canvas.height = Math.min(wrapper.clientHeight * 0.8, 600);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // ============== PLAYER ==============
+        const player = {
+            x: 0,
+            y: 0,
+            size: 15,
+            targetX: 0,
+            targetY: 0,
+            color: '#00ff64'
+        };
+
+        function resetPlayer() {
+            player.x = canvas.width / 2;
+            player.y = canvas.height - 40;
+            player.targetX = player.x;
+            player.targetY = player.y;
+        }
+
+        function drawPlayer() {
+            ctx.fillStyle = player.color;
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y - player.size);
+            ctx.lineTo(player.x - player.size, player.y + player.size);
+            ctx.lineTo(player.x + player.size, player.y + player.size);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = '#00ff64';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // ============== CUBES ==============
+        let cubes = [];
+        let score = 0;
+        let cubesDodged = 0;
+        let gameSpeed = 3;
+        let spawnRate = 0.98;
+
+        const Cube = function(x, y, size, color) {
+            this.x = x;
+            this.y = y;
+            this.size = size;
+            this.color = color;
+            this.speed = gameSpeed;
+        };
+
+        function spawnCube() {
+            const size = 25 + Math.random() * 15;
+            const x = Math.random() * (canvas.width - size);
+            const colors = ['#ff4444', '#4444ff', '#ffff44', '#44ff44', '#ff44ff', '#44ffff'];
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            cubes.push(new Cube(x, -size, size, color));
+        }
+
+        function updateCubes() {
+            for (let i = cubes.length - 1; i >= 0; i--) {
+                cubes[i].y += cubes[i].speed;
+
+                // Check collision
+                if (checkCollision(player, cubes[i])) {
+                    endGame();
+                    return;
+                }
+
+                // Remove if off screen
+                if (cubes[i].y > canvas.height) {
+                    cubes.splice(i, 1);
+                    cubesDodged++;
+                    score += 10;
+                    gameSpeed = 3 + (cubesDodged / 5);
+                }
+            }
+        }
+
+        function drawCubes() {
+            for (let cube of cubes) {
+                ctx.fillStyle = cube.color;
+                ctx.fillRect(cube.x, cube.y, cube.size, cube.size);
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(cube.x, cube.y, cube.size, cube.size);
+            }
+        }
+
+        function checkCollision(player, cube) {
+            return player.x + player.size > cube.x &&
+                   player.x - player.size < cube.x + cube.size &&
+                   player.y + player.size > cube.y &&
+                   player.y - player.size < cube.y + cube.size;
+        }
+
+        // ============== VOICE ANALYSIS ==============
+        let currentVolume = 0;
+        let currentPitch = 0;
+
+        function analyzeAudio() {
+            analyser.getByteFrequencyData(dataArray);
+
+            // Calculate volume (RMS of frequency data)
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += (dataArray[i] * dataArray[i]);
+            }
+            currentVolume = Math.sqrt(sum / dataArray.length) / 255;
+
+            // Detect pitch using autocorrelation (simplified)
+            const correlations = autoCorrelate(dataArray);
+            if (correlations > 0) {
+                // Normalize pitch to 0-1 range and allow octave wrapping
+                currentPitch = (Math.log2(correlations / 82) % 1 + 1) % 1; // Base freq ~82Hz
+            }
+
+            updatePlayerPosition();
+            updateUI();
+        }
+
+        function autoCorrelate(buffer) {
+            // Simplified pitch detection
+            const MIN_SAMPLES_SQUARE = 4096;
+            let rms = 0;
+
+            for (let i = 0; i < buffer.length; i++) {
+                const val = buffer[i] / 255;
+                rms += val * val;
+            }
+            rms = Math.sqrt(rms / buffer.length);
+
+            if (rms < 0.01) return -1; // Too quiet
+
+            let shift = 0;
+            const maxShift = Math.min(3000, buffer.length / 2);
+
+            for (shift = 40; shift < maxShift; shift++) {
+                let sumx = 0, sumSq = 0;
+                for (let i = 0; i < maxShift; i++) {
+                    const val1 = buffer[i] / 255;
+                    const val2 = buffer[i + shift] / 255;
+                    sumx += val1 * val2;
+                    sumSq += val1 * val1 + val2 * val2;
+                }
+                const corr = (2 * sumx) / sumSq;
+                if (corr > 0.9) {
+                    return 22050 / shift; // Estimated frequency
+                }
+            }
+
+            return -1;
+        }
+
+        function updatePlayerPosition() {
+            if (currentVolume < 0.05) {
+                // Silence - don't move
+                player.targetY = player.y;
+            } else {
+                // Volume controls vertical movement
+                // High volume = up, low volume = down
+                player.targetY = canvas.height - 40 - (currentVolume * 200);
+                player.targetY = Math.max(player.size, Math.min(canvas.height - player.size - 20, player.targetY));
+            }
+
+            if (currentVolume > 0.05) {
+                // Pitch controls horizontal movement
+                // Left = low pitch, right = high pitch
+                player.targetX = currentPitch * (canvas.width - player.size * 2) + player.size;
+            }
+
+            // Smooth movement
+            player.x += (player.targetX - player.x) * 0.1;
+            player.y += (player.targetY - player.y) * 0.1;
+
+            // Clamp to bounds
+            player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
+            player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+        }
+
+        function updateUI() {
+            document.getElementById('scoreDisplay').textContent = score;
+            document.getElementById('cubesDisplay').textContent = cubesDodged;
+
+            // Volume indicator
+            const volumePercent = currentVolume * 100;
+            const volumeIndicator = document.getElementById('volumeIndicator');
+            volumeIndicator.style.width = Math.max(3, volumePercent) + '%';
+            volumeIndicator.style.height = '100%';
+
+            // Pitch indicator
+            const pitchPercent = currentPitch * 100;
+            const pitchIndicator = document.getElementById('pitchIndicator');
+            pitchIndicator.style.left = pitchPercent + '%';
+
+            // Status
+            const status = document.getElementById('statusDisplay');
+            if (currentVolume < 0.05) {
+                status.textContent = '🔇 Silent';
+            } else {
+                status.textContent = `🎤 Active (${Math.round(currentVolume * 100)}%)`;
+            }
+        }
+
+        // ============== GAME LOOP ==============
+        let spawnCounter = 0;
+
+        function gameLoop() {
+            if (!isGameRunning) return;
+
+            // Clear canvas with fade effect
+            ctx.fillStyle = 'rgba(15, 15, 30, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw background
+            ctx.fillStyle = 'rgba(15, 15, 30, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Game logic
+            if (analyser && dataArray) {
+                analyzeAudio();
+            }
+
+            updateCubes();
+            spawnCounter++;
+            if (spawnCounter > 100 - (cubesDodged * 2)) {
+                spawnCube();
+                spawnCounter = 0;
+            }
+
+            // Draw
+            drawCubes();
+            drawPlayer();
+
+            // Draw grid
+            ctx.strokeStyle = 'rgba(0, 255, 100, 0.1)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < canvas.width; i += 40) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, canvas.height);
+                ctx.stroke();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ============== GAME STATES ==============
+        async function initMicrophone() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                micStream = stream;
+
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                source.connect(analyser);
+
+                return true;
+            } catch (err) {
+                console.error('Microphone access denied:', err);
+                alert('Microphone access is required to play this game.');
+                return false;
+            }
+        }
+
+        function startGame() {
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.remove('active');
+            isGameRunning = true;
+            score = 0;
+            cubesDodged = 0;
+            cubes = [];
+            gameSpeed = 3;
+            resetPlayer();
+            gameLoop();
+        }
+
+        function endGame() {
+            isGameRunning = false;
+            document.getElementById('finalScore').textContent = score;
+            gameOverScreen.classList.add('active');
+        }
+
+        function restart() {
+            startGame();
+        }
+
+        // ============== EVENT LISTENERS ==============
+        startBtn.addEventListener('click', async () => {
+            startBtn.disabled = true;
+            startBtn.textContent = 'Requesting microphone...';
+
+            const success = await initMicrophone();
+            if (success) {
+                startGame();
+            } else {
+                startBtn.disabled = false;
+                startBtn.textContent = 'Enable Microphone & Start Game';
+            }
+        });
+
+        restartBtn.addEventListener('click', restart);
+
+        // Stop microphone on page unload
+        window.addEventListener('beforeunload', () => {
+            if (micStream) {
+                micStream.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
+</body>
+</html>
