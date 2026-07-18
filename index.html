@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Games Hub</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000000;
+            color: #9bbc0f;
+            font-family: 'Press Start 2P', Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+            border-bottom: 4px solid #9bbc0f;
+            padding-bottom: 30px;
+        }
+
+        h1 {
+            font-size: clamp(2rem, 8vw, 4rem);
+            color: #9bbc0f;
+            text-shadow: 0 0 20px rgba(155, 188, 15, 0.5);
+            margin-bottom: 10px;
+            letter-spacing: 3px;
+        }
+
+        .subtitle {
+            font-size: 0.8rem;
+            color: #8bac0f;
+            margin-top: 10px;
+        }
+
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .game-card {
+            background: linear-gradient(135deg, #306230 0%, #0f380f 100%);
+            border: 3px solid #9bbc0f;
+            padding: 30px 20px;
+            text-decoration: none;
+            color: #ffffff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .game-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(155, 188, 15, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .game-card:hover::before {
+            left: 100%;
+        }
+
+        .game-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 0 30px rgba(155, 188, 15, 0.5);
+            background: linear-gradient(135deg, #8bac0f 0%, #306230 100%);
+            border-color: #ffffff;
+        }
+
+        .game-card:active {
+            transform: translateY(-5px);
+        }
+
+        .game-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+
+        .game-title {
+            font-size: 1.2rem;
+            text-align: center;
+            line-height: 1.4;
+            text-shadow: 0 0 10px rgba(155, 188, 15, 0.3);
+        }
+
+        .game-description {
+            font-size: 0.6rem;
+            color: #8bac0f;
+            margin-top: 10px;
+            text-align: center;
+            font-style: italic;
+        }
+
+        footer {
+            text-align: center;
+            color: #8bac0f;
+            font-size: 0.7rem;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #306230;
+            width: 100%;
+        }
+
+        .instructions {
+            background: #306230;
+            border: 2px solid #9bbc0f;
+            padding: 20px;
+            margin-bottom: 30px;
+            font-size: 0.7rem;
+            line-height: 1.6;
+        }
+
+        .instructions h2 {
+            color: #9bbc0f;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .games-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .game-card {
+                min-height: 150px;
+                padding: 20px;
+            }
+
+            .game-icon {
+                font-size: 2rem;
+            }
+
+            .game-title {
+                font-size: 1rem;
+            }
+        }
+
+        /* Blinking effect for new games */
+        @keyframes blink {
+            0%, 49% {
+                border-color: #9bbc0f;
+            }
+            50%, 100% {
+                border-color: #ff6b6b;
+            }
+        }
+
+        .game-card.new {
+            animation: blink 1s infinite;
+        }
+
+        .new-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #ff6b6b;
+            color: #000;
+            padding: 4px 8px;
+            font-size: 0.6rem;
+            font-weight: bold;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 GAME HUB</h1>
+            <p class="subtitle">~ Click to Play ~</p>
+        </header>
+
+        <div class="instructions">
+            <h2>📖 HOW TO PLAY</h2>
+            <p>
+                Select a game below to start playing! All games are playable directly in your browser.
+                Use the controls shown in each game to play. Most games are designed for 1v1 multiplayer.
+            </p>
+        </div>
+
+        <div class="games-grid">
+            <!-- GAME 1: Javelin Battle -->
+            <a href="javelin-battle.html" class="game-card">
+                <div class="game-icon">⚔️</div>
+                <div class="game-title">Javelin Battle</div>
+                <div class="game-description">2-Player Combat Arena</div>
+            </a>
+
+            <!-- GAME 2: Add your second game -->
+            <a href="game2.html" class="game-card new">
+                <div class="new-badge">NEW</div>
+                <div class="game-icon">🎮</div>
+                <div class="game-title">Game 2</div>
+                <div class="game-description">Coming Soon</div>
+            </a>
+
+            <!-- GAME 3: Add your third game -->
+            <a href="game3.html" class="game-card">
+                <div class="game-icon">🕹️</div>
+                <div class="game-title">Game 3</div>
+                <div class="game-description">Coming Soon</div>
+            </a>
+
+            <!-- GAME 4: Add your fourth game -->
+            <a href="game4.html" class="game-card">
+                <div class="game-icon">👾</div>
+                <div class="game-title">Game 4</div>
+                <div class="game-description">Coming Soon</div>
+            </a>
+        </div>
+
+        <footer>
+            <p>Made with ❤️ | All games run locally in your browser</p>
+            <p>No installation required • No ads • Open source</p>
+        </footer>
+    </div>
+</body>
+</html>
