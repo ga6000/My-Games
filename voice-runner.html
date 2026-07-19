@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Runner - Dual Mode</title>
+    <title>Voice Runner - Pitch Control</title>
     <style>
         * {
             margin: 0;
@@ -192,7 +192,7 @@
             background: #00dd55;
         }
 
-        .mode-selector-screen {
+        .calibration-screen {
             position: fixed;
             top: 0;
             left: 0;
@@ -204,10 +204,122 @@
             align-items: center;
             justify-content: center;
             z-index: 2001;
-            gap: 40px;
+            gap: 30px;
         }
 
-        .mode-selector-screen.hidden {
+        .calibration-screen.hidden {
+            display: none;
+        }
+
+        .calibration-title {
+            font-size: 2.5rem;
+            color: #00ff64;
+            text-shadow: 0 0 20px rgba(0, 255, 100, 0.5);
+            font-weight: bold;
+        }
+
+        .calibration-instruction {
+            font-size: 1.1rem;
+            color: #aaa;
+            max-width: 600px;
+            text-align: center;
+            line-height: 1.8;
+        }
+
+        .calibration-container {
+            display: flex;
+            gap: 40px;
+            align-items: flex-start;
+            margin-top: 20px;
+        }
+
+        .calibration-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .calibration-label {
+            font-size: 1.2rem;
+            color: #00ff64;
+            font-weight: bold;
+        }
+
+        .calibration-range {
+            width: 300px;
+            height: 400px;
+            background: rgba(0, 255, 100, 0.1);
+            border: 2px solid #00ff64;
+            border-radius: 8px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 10px;
+        }
+
+        .calibration-end {
+            text-align: center;
+            color: #00ff64;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .calibration-indicator {
+            position: absolute;
+            left: 50%;
+            width: 20px;
+            height: 8px;
+            background: #ff4444;
+            border-radius: 4px;
+            transform: translateX(-50%);
+            transition: top 0.1s;
+        }
+
+        .calibration-button {
+            padding: 15px 40px;
+            background: #00ff64;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 30px;
+        }
+
+        .calibration-button:hover {
+            background: #00dd55;
+        }
+
+        .calibration-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .calibration-status {
+            font-size: 0.9rem;
+            color: #aaa;
+            margin-top: 20px;
+        }
+
+        .start-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2001;
+            gap: 30px;
+        }
+
+        .start-screen.hidden {
             display: none;
         }
 
@@ -216,51 +328,6 @@
             color: #00ff64;
             text-shadow: 0 0 20px rgba(0, 255, 100, 0.5);
             font-weight: bold;
-        }
-
-        .mode-description {
-            font-size: 1.1rem;
-            color: #aaa;
-            margin-bottom: 20px;
-        }
-
-        .mode-buttons {
-            display: flex;
-            gap: 30px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-
-        .mode-button {
-            padding: 20px 40px;
-            border: 2px solid #00ff64;
-            background: transparent;
-            color: #00ff64;
-            border-radius: 8px;
-            font-size: 1.1rem;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 10px;
-            min-width: 200px;
-        }
-
-        .mode-button:hover {
-            background: #00ff64;
-            color: #000;
-            transform: scale(1.05);
-        }
-
-        .mode-icon {
-            font-size: 2rem;
-        }
-
-        .mode-subtitle {
-            font-size: 0.8rem;
-            opacity: 0.8;
         }
 
         .start-instructions {
@@ -285,25 +352,6 @@
             color: #aaa;
         }
 
-        .start-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.95);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 2001;
-            gap: 30px;
-        }
-
-        .start-screen.hidden {
-            display: none;
-        }
-
         @media (max-width: 1024px) {
             .game-wrapper {
                 flex-direction: column;
@@ -320,18 +368,19 @@
                 flex: 1;
                 min-width: 150px;
             }
-        }
 
-        @media (max-width: 768px) {
-            .mode-buttons {
+            .calibration-container {
                 flex-direction: column;
                 gap: 20px;
             }
 
-            .mode-button {
-                min-width: 100%;
+            .calibration-range {
+                width: 200px;
+                height: 300px;
             }
+        }
 
+        @media (max-width: 768px) {
             .title {
                 font-size: 1.8rem;
             }
@@ -339,54 +388,51 @@
             .mode-title {
                 font-size: 2rem;
             }
+
+            .calibration-title {
+                font-size: 1.8rem;
+            }
+
+            .calibration-range {
+                width: 150px;
+                height: 250px;
+            }
         }
     </style>
 </head>
 <body>
     <a href="index.html" class="back-button">← Back to Hub</a>
 
-    <!-- MODE SELECTOR SCREEN -->
-    <div class="mode-selector-screen" id="modeSelector">
-        <div class="mode-title">🎤 VOICE RUNNER</div>
-        <div class="mode-description">Choose Your Game Mode</div>
-
-        <div class="start-instructions">
-            <p>Two unique ways to control your character with sound:</p>
+    <!-- CALIBRATION SCREEN -->
+    <div class="calibration-screen" id="calibrationScreen">
+        <div class="calibration-title">🎶 CALIBRATE YOUR PITCH</div>
+        <div class="calibration-instruction">
+            <p>Whistle to calibrate your pitch range for left/right movement.</p>
+            <p style="margin-top: 15px; font-size: 0.95rem; color: #666;">Whistle a LOW pitch and move to the left range, then whistle a HIGH pitch to reach the right range.</p>
         </div>
 
-        <div class="mode-buttons">
-            <button class="mode-button" id="voiceModeBtn">
-                <div class="mode-icon">🎵</div>
-                <div>Voice Mode</div>
-                <div class="mode-subtitle">Frequency Detection</div>
-            </button>
-            <button class="mode-button" id="whistleModeBtn">
-                <div class="mode-icon">🎶</div>
-                <div>Whistling Mode</div>
-                <div class="mode-subtitle">Pitch Detection</div>
-            </button>
-        </div>
-
-        <div class="start-instructions" style="margin-top: 40px; font-size: 0.8rem;">
-            <strong>Voice Mode:</strong> Speak naturally. Bright/high sounds go right, dark/low sounds go left.<br>
-            <strong>Whistling Mode:</strong> Whistle. Higher pitch goes right, lower pitch goes left.
-        </div>
-    </div>
-
-    <!-- VOICE MODE START SCREEN -->
-    <div class="start-screen" id="voiceStartScreen">
-        <div class="mode-title">🎵 VOICE MODE</div>
-        <div class="start-instructions">
-            <h3 style="color: #00ff64; margin-bottom: 15px;">How to Play</h3>
-            <div class="control-list">
-                <div>🔊 <span>Loud Volume</span> = Move UP</div>
-                <div>🔇 <span>Quiet Volume</span> = Move DOWN</div>
-                <div>🎵 <span>Bright/High Sound</span> = Move RIGHT</div>
-                <div>🎵 <span>Dark/Low Sound</span> = Move LEFT</div>
+        <div class="calibration-container">
+            <div class="calibration-column">
+                <div class="calibration-label">LOW PITCH</div>
+                <div class="calibration-range">
+                    <div class="calibration-end">LEFT</div>
+                    <div class="calibration-indicator" id="calibLeftIndicator"></div>
+                    <div class="calibration-end">← Whistle Low</div>
+                </div>
             </div>
-            <p style="margin-top: 20px; color: #00ff64;">Speak naturally - your voice's frequency character controls movement!</p>
+            <div class="calibration-column">
+                <div class="calibration-label">HIGH PITCH</div>
+                <div class="calibration-range">
+                    <div class="calibration-end">RIGHT</div>
+                    <div class="calibration-indicator" id="calibRightIndicator"></div>
+                    <div class="calibration-end">Whistle High →</div>
+                </div>
+            </div>
         </div>
-        <button class="game-over-restart" id="voiceStartBtn">Enable Microphone & Start</button>
+
+        <div class="calibration-status" id="calibrationStatus">Ready to calibrate...</div>
+        <button class="calibration-button" id="startCalibrationBtn">Start Calibration</button>
+        <button class="calibration-button" id="skipCalibrationBtn">Skip & Play</button>
     </div>
 
     <!-- WHISTLING MODE START SCREEN -->
@@ -395,8 +441,6 @@
         <div class="start-instructions">
             <h3 style="color: #00ff64; margin-bottom: 15px;">How to Play</h3>
             <div class="control-list">
-                <div>🔊 <span>Loud Whistle</span> = Move UP</div>
-                <div>🔇 <span>Quiet Whistle</span> = Move DOWN</div>
                 <div>🎵 <span>Higher Pitch</span> = Move RIGHT</div>
                 <div>🎵 <span>Lower Pitch</span> = Move LEFT</div>
             </div>
@@ -407,7 +451,7 @@
 
     <div class="container">
         <div class="title">🎤 VOICE RUNNER</div>
-        <div class="subtitle" id="modeDisplay">Select Mode</div>
+        <div class="subtitle" id="modeDisplay">Whistling Mode - Pitch Control</div>
 
         <div class="game-wrapper">
             <canvas id="gameCanvas"></canvas>
@@ -421,18 +465,12 @@
                     <div class="info-value" id="cubesDisplay">0</div>
                 </div>
                 <div class="info-item">
-                    <div class="info-label">Volume</div>
+                    <div class="info-label">Pitch</div>
                     <div class="visualizer-small">
-                        <div class="indicator" id="volumeIndicator" style="left: 50%; height: 100%;"></div>
+                        <div class="indicator" id="pitchIndicator"></div>
                     </div>
                 </div>
-                <div class="info-item">
-                    <div class="info-label" id="freqLabel">Frequency</div>
-                    <div class="visualizer-small">
-                        <div class="indicator" id="freqIndicator"></div>
-                    </div>
-                </div>
-                <div class="status" id="statusDisplay">Select a mode to start</div>
+                <div class="status" id="statusDisplay">Select mode to start</div>
             </div>
         </div>
     </div>
@@ -446,29 +484,32 @@
     <script>
         // ============== GAME CONFIG ==============
         const gameConfig = {
-            mode: null, // 'voice' or 'whistle'
+            mode: 'whistle', // Always whistling mode
             isRunning: false,
             audioContext: null,
             analyser: null,
             dataArray: null,
-            micStream: null
+            micStream: null,
+            calibrationMode: false,
+            lowPitchMin: Infinity,
+            lowPitchMax: -Infinity,
+            highPitchMin: Infinity,
+            highPitchMax: -Infinity
         };
 
         // ============== DOM ELEMENTS ==============
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const modeSelector = document.getElementById('modeSelector');
-        const voiceStartScreen = document.getElementById('voiceStartScreen');
+        const calibrationScreen = document.getElementById('calibrationScreen');
         const whistleStartScreen = document.getElementById('whistleStartScreen');
         const gameOverScreen = document.getElementById('gameOverScreen');
         const modeDisplay = document.getElementById('modeDisplay');
 
         // Buttons
-        const voiceModeBtn = document.getElementById('voiceModeBtn');
-        const whistleModeBtn = document.getElementById('whistleModeBtn');
-        const voiceStartBtn = document.getElementById('voiceStartBtn');
         const whistleStartBtn = document.getElementById('whistleStartBtn');
         const restartBtn = document.getElementById('restartBtn');
+        const startCalibrationBtn = document.getElementById('startCalibrationBtn');
+        const skipCalibrationBtn = document.getElementById('skipCalibrationBtn');
 
         // ============== CANVAS SETUP ==============
         function resizeCanvas() {
@@ -491,7 +532,7 @@
 
         function resetPlayer() {
             player.x = canvas.width / 2;
-            player.y = canvas.height - 40;
+            player.y = canvas.height / 2; // Center vertically (no vertical movement)
             player.targetX = player.x;
             player.targetY = player.y;
         }
@@ -568,53 +609,27 @@
         }
 
         // ============== AUDIO ANALYSIS ==============
-        let currentVolume = 0;
-        let currentFreqBalance = 0;
+        let currentPitch = 0;
 
         function analyzeAudio() {
             gameConfig.analyser.getByteFrequencyData(gameConfig.dataArray);
-
-            // Calculate volume (RMS of frequency data)
-            let sum = 0;
-            for (let i = 0; i < gameConfig.dataArray.length; i++) {
-                sum += (gameConfig.dataArray[i] * gameConfig.dataArray[i]);
-            }
-            currentVolume = Math.sqrt(sum / gameConfig.dataArray.length) / 255;
-
-            if (gameConfig.mode === 'voice') {
-                analyzeVoiceMode();
-            } else if (gameConfig.mode === 'whistle') {
-                analyzeWhistleMode();
+            
+            // Detect pitch using autocorrelation
+            const pitch = autoCorrelate(gameConfig.dataArray);
+            if (pitch > 0) {
+                currentPitch = pitch;
             }
 
-            updatePlayerPosition();
+            if (gameConfig.calibrationMode) {
+                updateCalibration();
+            } else {
+                updatePlayerPosition();
+            }
+            
             updateUI();
         }
 
-        // ============== VOICE MODE (Frequency Spectrum) ==============
-        function analyzeVoiceMode() {
-            // Get low and high frequency energy
-            const lowEndBins = gameConfig.dataArray.slice(0, Math.floor(gameConfig.dataArray.length * 0.25));
-            const highEndBins = gameConfig.dataArray.slice(Math.floor(gameConfig.dataArray.length * 0.75));
-
-            const lowEnergy = lowEndBins.reduce((a, b) => a + b) / lowEndBins.length;
-            const highEnergy = highEndBins.reduce((a, b) => a + b) / highEndBins.length;
-
-            // Calculate brightness: -1 (dark/low) to +1 (bright/high)
-            currentFreqBalance = (highEnergy - lowEnergy) / (highEnergy + lowEnergy + 0.01);
-        }
-
-        // ============== WHISTLING MODE (Pitch Detection) ==============
-        function analyzeWhistleMode() {
-            // Autocorrelation for pure whistle tones
-            const correlations = autoCorrelate(gameConfig.dataArray);
-            if (correlations > 0) {
-                // Normalize pitch to 0-1 range with octave wrapping
-                currentFreqBalance = (Math.log2(correlations / 82) % 1 + 1) % 1;
-                currentFreqBalance = currentFreqBalance * 2 - 1; // Convert to -1 to 1
-            }
-        }
-
+        // ============== PITCH DETECTION ==============
         function autoCorrelate(buffer) {
             const MIN_SAMPLES = 4096;
             let rms = 0;
@@ -647,21 +662,63 @@
             return -1;
         }
 
-        function updatePlayerPosition() {
-            if (currentVolume < 0.05) {
-                // Silence - don't move
-                player.targetY = player.y;
-            } else {
-                // Volume controls vertical movement
-                player.targetY = canvas.height - 40 - (currentVolume * 200);
-                player.targetY = Math.max(player.size, Math.min(canvas.height - player.size - 20, player.targetY));
+        // ============== CALIBRATION ==============
+        function updateCalibration() {
+            if (currentPitch > 0) {
+                // Track low pitch range (left side)
+                gameConfig.lowPitchMin = Math.min(gameConfig.lowPitchMin, currentPitch);
+                gameConfig.lowPitchMax = Math.max(gameConfig.lowPitchMax, currentPitch);
+
+                // Simulate high pitch tracking when available
+                if (currentPitch > 400) {
+                    gameConfig.highPitchMin = Math.min(gameConfig.highPitchMin, currentPitch);
+                    gameConfig.highPitchMax = Math.max(gameConfig.highPitchMax, currentPitch);
+                }
+
+                // Update calibration indicators
+                updateCalibrationUI();
+            }
+        }
+
+        function updateCalibrationUI() {
+            const leftRange = document.querySelector('.calibration-range:nth-child(1)');
+            const rightRange = document.querySelector('.calibration-range:nth-child(2)');
+
+            if (gameConfig.lowPitchMin !== Infinity) {
+                const leftPercent = ((currentPitch - gameConfig.lowPitchMin) / (gameConfig.lowPitchMax - gameConfig.lowPitchMin + 0.01)) * 100;
+                const leftIndicator = document.getElementById('calibLeftIndicator');
+                leftIndicator.style.top = Math.max(10, Math.min(380, leftPercent * 3.7)) + 'px';
             }
 
-            if (currentVolume > 0.05) {
-                // Frequency balance controls horizontal movement
-                // -1 (low/dark) = left, +1 (high/bright) = right
-                player.targetX = (canvas.width / 2) + (currentFreqBalance * canvas.width * 0.35);
+            if (gameConfig.highPitchMin !== Infinity) {
+                const highRange = gameConfig.highPitchMax - gameConfig.highPitchMin + 0.01;
+                const rightPercent = ((currentPitch - gameConfig.highPitchMin) / highRange) * 100;
+                const rightIndicator = document.getElementById('calibRightIndicator');
+                rightIndicator.style.top = Math.max(10, Math.min(380, rightPercent * 3.7)) + 'px';
             }
+
+            const status = document.getElementById('calibrationStatus');
+            status.textContent = `Current Pitch: ${Math.round(currentPitch)} Hz`;
+        }
+
+        function updatePlayerPosition() {
+            if (currentPitch < 50) {
+                // Too quiet or no pitch detected
+                player.targetX = player.x;
+            } else {
+                // Map pitch to horizontal position
+                // Assuming typical whistle range: 300-1000 Hz
+                // Lower pitches = left, higher pitches = right
+                const minPitch = 200;
+                const maxPitch = 1000;
+                const pitchPercent = (currentPitch - minPitch) / (maxPitch - minPitch);
+                const clampedPercent = Math.max(0, Math.min(1, pitchPercent));
+                
+                player.targetX = player.size + (clampedPercent * (canvas.width - player.size * 2));
+            }
+
+            // Keep vertical position centered
+            player.targetY = canvas.height / 2;
 
             // Smooth movement
             player.x += (player.targetX - player.x) * 0.1;
@@ -669,31 +726,24 @@
 
             // Clamp to bounds
             player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
-            player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
         }
 
         function updateUI() {
             document.getElementById('scoreDisplay').textContent = score;
             document.getElementById('cubesDisplay').textContent = cubesDodged;
 
-            // Volume indicator
-            const volumePercent = currentVolume * 100;
-            const volumeIndicator = document.getElementById('volumeIndicator');
-            volumeIndicator.style.width = Math.max(3, volumePercent) + '%';
-            volumeIndicator.style.height = '100%';
-
-            // Frequency indicator
-            const freqPercent = ((currentFreqBalance + 1) / 2) * 100;
-            const freqIndicator = document.getElementById('freqIndicator');
-            freqIndicator.style.left = freqPercent + '%';
+            // Pitch indicator
+            const pitchPercent = Math.max(0, Math.min(100, (currentPitch / 1000) * 100));
+            const pitchIndicator = document.getElementById('pitchIndicator');
+            pitchIndicator.style.left = pitchPercent + '%';
 
             // Status
             const status = document.getElementById('statusDisplay');
-            if (currentVolume < 0.05) {
+            if (currentPitch < 50) {
                 status.textContent = '🔇 Silent';
             } else {
-                const direction = currentFreqBalance > 0 ? '🔆 Bright' : '🌑 Dark';
-                status.textContent = `🎤 Active - ${direction} (${Math.round(currentVolume * 100)}%)`;
+                const direction = currentPitch > 500 ? '🔆 High Pitch' : '🌑 Low Pitch';
+                status.textContent = `🎵 ${direction} (${Math.round(currentPitch)} Hz)`;
             }
         }
 
@@ -736,6 +786,16 @@
             requestAnimationFrame(gameLoop);
         }
 
+        function calibrationLoop() {
+            if (!gameConfig.calibrationMode) return;
+
+            if (gameConfig.analyser && gameConfig.dataArray) {
+                analyzeAudio();
+            }
+
+            requestAnimationFrame(calibrationLoop);
+        }
+
         // ============== MICROPHONE ACCESS ==============
         async function initMicrophone() {
             try {
@@ -760,11 +820,11 @@
 
         // ============== GAME STATE MANAGEMENT ==============
         function startGame() {
-            voiceStartScreen.classList.add('hidden');
             whistleStartScreen.classList.add('hidden');
-            modeSelector.classList.add('hidden');
+            calibrationScreen.classList.add('hidden');
             gameOverScreen.classList.remove('active');
             gameConfig.isRunning = true;
+            gameConfig.calibrationMode = false;
             score = 0;
             cubesDodged = 0;
             cubes = [];
@@ -773,65 +833,62 @@
             gameLoop();
         }
 
+        function startCalibration() {
+            calibrationScreen.classList.remove('hidden');
+            whistleStartScreen.classList.add('hidden');
+            gameConfig.calibrationMode = true;
+            gameConfig.lowPitchMin = Infinity;
+            gameConfig.lowPitchMax = -Infinity;
+            gameConfig.highPitchMin = Infinity;
+            gameConfig.highPitchMax = -Infinity;
+            startCalibrationBtn.disabled = true;
+            startCalibrationBtn.textContent = 'Calibrating... Whistle!';
+            skipCalibrationBtn.disabled = true;
+            
+            setTimeout(() => {
+                gameConfig.calibrationMode = false;
+                startCalibrationBtn.disabled = false;
+                startCalibrationBtn.textContent = 'Calibration Complete!';
+            }, 10000);
+
+            calibrationLoop();
+        }
+
         function endGame() {
             gameConfig.isRunning = false;
             document.getElementById('finalScore').textContent = score;
             gameOverScreen.classList.add('active');
         }
 
-        function selectVoiceMode() {
-            gameConfig.mode = 'voice';
-            modeSelector.classList.add('hidden');
-            voiceStartScreen.classList.remove('hidden');
-            whistleStartScreen.classList.add('hidden');
-            document.getElementById('freqLabel').textContent = 'Frequency';
-            modeDisplay.textContent = 'Voice Mode - Frequency Detection';
-        }
-
-        function selectWhistleMode() {
-            gameConfig.mode = 'whistle';
-            modeSelector.classList.add('hidden');
-            whistleStartScreen.classList.remove('hidden');
-            voiceStartScreen.classList.add('hidden');
-            document.getElementById('freqLabel').textContent = 'Pitch';
-            modeDisplay.textContent = 'Whistling Mode - Pitch Detection';
-        }
-
         // ============== EVENT LISTENERS ==============
-        voiceModeBtn.addEventListener('click', selectVoiceMode);
-        whistleModeBtn.addEventListener('click', selectWhistleMode);
-
-        voiceStartBtn.addEventListener('click', async () => {
-            voiceStartBtn.disabled = true;
-            voiceStartBtn.textContent = 'Requesting microphone...';
-
-            const success = await initMicrophone();
-            if (success) {
-                startGame();
-            } else {
-                voiceStartBtn.disabled = false;
-                voiceStartBtn.textContent = 'Enable Microphone & Start';
-            }
-        });
-
         whistleStartBtn.addEventListener('click', async () => {
             whistleStartBtn.disabled = true;
             whistleStartBtn.textContent = 'Requesting microphone...';
 
             const success = await initMicrophone();
             if (success) {
-                startGame();
+                whistleStartScreen.classList.add('hidden');
+                calibrationScreen.classList.remove('hidden');
+                startCalibrationBtn.disabled = false;
+                startCalibrationBtn.textContent = 'Start Calibration';
+                skipCalibrationBtn.disabled = false;
             } else {
                 whistleStartBtn.disabled = false;
                 whistleStartBtn.textContent = 'Enable Microphone & Start';
             }
         });
 
+        startCalibrationBtn.addEventListener('click', startCalibration);
+
+        skipCalibrationBtn.addEventListener('click', () => {
+            gameConfig.calibrationMode = false;
+            calibrationScreen.classList.add('hidden');
+            startGame();
+        });
+
         restartBtn.addEventListener('click', () => {
             gameOverScreen.classList.remove('active');
-            modeSelector.classList.remove('hidden');
-            gameConfig.mode = null;
-            startGame();
+            whistleStartScreen.classList.remove('hidden');
         });
 
         window.addEventListener('beforeunload', () => {
