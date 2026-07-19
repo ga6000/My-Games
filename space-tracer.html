@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Gyro Space</title>
+
+<style>
+html,body{
+    margin:0;
+    overflow:hidden;
+    background:black;
+    touch-action:none;
+}
+canvas{
+    display:block;
+}
+#msg{
+    position:absolute;
+    top:20px;
+    width:100%;
+    text-align:center;
+    color:white;
+    font-family:sans-serif;
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.165/build/three.min.js"></script>
+</head>
+<body>
+
+<div id="msg">Tap once to enable gyro (iPhone). Tap screen anytime to pause/resume.</div>
+
+<script>
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(
+60,
+window.innerWidth/window.innerHeight,
+0.1,
+5000
+);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth,window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// ---------- Stars ----------
+
+const starGeo = new THREE.BufferGeometry();
+const starCount = 2000;
+
+const stars = [];
+
+for(let i=0;i<starCount;i++){
+
+    const r = 1500;
+
+    const theta = Math.random()*Math.PI*2;
+    const phi = Math.acos(2*Math.random()-1);
+
+    const x = r*Math.sin(phi)*Math.cos(theta);
+    const y = r*Math.sin(phi)*Math.sin(theta);
+    const z = r*Math.cos(phi);
+
+    stars.push(x,y,z);
+}
+
+starGeo.setAttribute(
+'position',
+new THREE.Float32BufferAttribute(stars,3)
+);
+
+const starMat = new THREE.PointsMaterial({
+color:0xffffff,
+size:3,
+sizeAttenuation:false
+});
+
+scene.add(new THREE.Points(starGeo,starMat));
+
+// ---------- Ship ----------
+
+const ship = new THREE.Mesh(
+
+new THREE.ConeGeometry(.5,2,16),
+
+new THREE.MeshBasicMaterial({
+color:0x00ffcc
+})
+
+);
+
+ship.rotation.x=Math.PI/2;
+
+scene.add(ship);
+
+// ---------- Trail ----------
+
+let trailPoints=[];
+
+const trailGeo=new THREE.BufferGeometry();
+
+const trailMat=new THREE.LineBasicMaterial({
+color:0xffffff
+});
+
+const trail=new THREE.Line(trailGeo,trailMat);
+
+scene.add(trail);
+
+// ---------- Motion ----------
+
+let moving=true;
+let speed=.6;
+
+let heading=new THREE.Vector3(0,0,-1);
+
+let beta=0;
+let gamma=0;
+
+// Gyro
+
+async function enableGyro(){
+
+if(typeof DeviceOrientationEvent!=="undefined" &&
+DeviceOrientationEvent.requestPermission){
+
+try{
+await DeviceOrientationEvent.requestPermission();
+}catch(e){}
+}
+
+window.addEventListener("deviceorientation",e=>{
+
+beta=e.beta||0;
+gamma=e.gamma||0;
+
+});
+
+document.getElementById("msg").style.display="none";
+
+}
+
+window.addEventListener("click",async()=>{
+
+if(document.getElementById("msg").style.display!="none"){
+await enableGyro();
+return;
+}
+
+moving=!moving;
+
+});
+
+// ---------- Animate ----------
+
+function animate(){
+
+requestAnimationFrame(animate);
+
+heading.x += gamma*0.0008;
+heading.y += -beta*0.0008;
+
+heading.normalize();
+
+ship.lookAt(
+ship.position.clone().add(heading)
+);
+
+if(moving){
+
+ship.position.add(
+heading.clone().multiplyScalar(speed)
+);
+
+trailPoints.push(ship.position.clone());
+
+trailGeo.setFromPoints(trailPoints);
+
+}
+
+camera.position.copy(
+ship.position.clone()
+.sub(heading.clone().multiplyScalar(8))
+.add(new THREE.Vector3(0,2,0))
+);
+
+camera.lookAt(ship.position);
+
+renderer.render(scene,camera);
+
+}
+
+animate();
+
+window.addEventListener("resize",()=>{
+
+camera.aspect=window.innerWidth/window.innerHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(window.innerWidth,window.innerHeight);
+
+});
+
+</script>
+
+</body>
+</html>
