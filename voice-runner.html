@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Runner - Pitch & Volume Controlled</title>
+    <title>Voice Runner - Dual Mode</title>
     <style>
         * {
             margin: 0;
@@ -127,9 +127,8 @@
             overflow: hidden;
         }
 
-        .pitch-indicator {
+        .indicator {
             position: absolute;
-            top: 0;
             width: 3px;
             height: 100%;
             background: #00ff64;
@@ -193,22 +192,97 @@
             background: #00dd55;
         }
 
-        @media (max-width: 1024px) {
-            .game-wrapper {
-                flex-direction: column;
-            }
+        .mode-selector-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2001;
+            gap: 40px;
+        }
 
-            .info-panel {
-                width: 100%;
-                flex-direction: row;
-                flex-wrap: wrap;
-                gap: 10px;
-            }
+        .mode-selector-screen.hidden {
+            display: none;
+        }
 
-            .info-item {
-                flex: 1;
-                min-width: 150px;
-            }
+        .mode-title {
+            font-size: 3rem;
+            color: #00ff64;
+            text-shadow: 0 0 20px rgba(0, 255, 100, 0.5);
+            font-weight: bold;
+        }
+
+        .mode-description {
+            font-size: 1.1rem;
+            color: #aaa;
+            margin-bottom: 20px;
+        }
+
+        .mode-buttons {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .mode-button {
+            padding: 20px 40px;
+            border: 2px solid #00ff64;
+            background: transparent;
+            color: #00ff64;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            min-width: 200px;
+        }
+
+        .mode-button:hover {
+            background: #00ff64;
+            color: #000;
+            transform: scale(1.05);
+        }
+
+        .mode-icon {
+            font-size: 2rem;
+        }
+
+        .mode-subtitle {
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+
+        .start-instructions {
+            max-width: 600px;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #aaa;
+            line-height: 1.8;
+            margin-bottom: 30px;
+        }
+
+        .control-list {
+            text-align: left;
+            display: inline-block;
+            color: #00ff64;
+            font-size: 0.9rem;
+            line-height: 1.8;
+            margin-bottom: 20px;
+        }
+
+        .control-list span {
+            color: #aaa;
         }
 
         .start-screen {
@@ -230,83 +304,110 @@
             display: none;
         }
 
-        .start-title {
-            font-size: 3rem;
-            color: #00ff64;
-            text-shadow: 0 0 20px rgba(0, 255, 100, 0.5);
-            font-weight: bold;
+        @media (max-width: 1024px) {
+            .game-wrapper {
+                flex-direction: column;
+            }
+
+            .info-panel {
+                width: 100%;
+                flex-direction: row;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .info-item {
+                flex: 1;
+                min-width: 150px;
+            }
         }
 
-        .start-instructions {
-            max-width: 500px;
-            text-align: center;
-            font-size: 1rem;
-            color: #aaa;
-            line-height: 1.6;
-        }
+        @media (max-width: 768px) {
+            .mode-buttons {
+                flex-direction: column;
+                gap: 20px;
+            }
 
-        .start-instructions h3 {
-            color: #00ff64;
-            margin-bottom: 15px;
-            font-size: 1.2rem;
-        }
+            .mode-button {
+                min-width: 100%;
+            }
 
-        .control-list {
-            text-align: left;
-            display: inline-block;
-            color: #00ff64;
-            font-size: 0.95rem;
-            line-height: 2;
-        }
+            .title {
+                font-size: 1.8rem;
+            }
 
-        .control-list span {
-            color: #aaa;
-        }
-
-        .mic-permission-btn {
-            padding: 15px 40px;
-            background: #00ff64;
-            color: #000;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.1rem;
-            font-weight: bold;
-            cursor: pointer;
-            margin-top: 20px;
-        }
-
-        .mic-permission-btn:hover {
-            background: #00dd55;
-        }
-
-        .mic-permission-btn:disabled {
-            background: #666;
-            cursor: not-allowed;
+            .mode-title {
+                font-size: 2rem;
+            }
         }
     </style>
 </head>
 <body>
     <a href="index.html" class="back-button">← Back to Hub</a>
 
-    <div class="start-screen" id="startScreen">
-        <div class="start-title">🎤 VOICE RUNNER</div>
+    <!-- MODE SELECTOR SCREEN -->
+    <div class="mode-selector-screen" id="modeSelector">
+        <div class="mode-title">🎤 VOICE RUNNER</div>
+        <div class="mode-description">Choose Your Game Mode</div>
+
         <div class="start-instructions">
-            <h3>How to Play</h3>
-            <div class="control-list">
-                <div>🔊 <span>Volume (Loud)</span> = Move Up</div>
-                <div>🔇 <span>Volume (Quiet)</span> = Move Down</div>
-                <div>🎵 <span>Pitch (High)</span> = Move Right</div>
-                <div>🎵 <span>Pitch (Low)</span> = Move Left</div>
-                <div>⏸️ <span>Silence</span> = Stay Still</div>
-                <div style="margin-top: 15px; font-size: 0.9rem;">Octaves loop for accessibility</div>
-            </div>
+            <p>Two unique ways to control your character with sound:</p>
         </div>
-        <button class="mic-permission-btn" id="startBtn">Enable Microphone & Start Game</button>
+
+        <div class="mode-buttons">
+            <button class="mode-button" id="voiceModeBtn">
+                <div class="mode-icon">🎵</div>
+                <div>Voice Mode</div>
+                <div class="mode-subtitle">Frequency Detection</div>
+            </button>
+            <button class="mode-button" id="whistleModeBtn">
+                <div class="mode-icon">🎶</div>
+                <div>Whistling Mode</div>
+                <div class="mode-subtitle">Pitch Detection</div>
+            </button>
+        </div>
+
+        <div class="start-instructions" style="margin-top: 40px; font-size: 0.8rem;">
+            <strong>Voice Mode:</strong> Speak naturally. Bright/high sounds go right, dark/low sounds go left.<br>
+            <strong>Whistling Mode:</strong> Whistle. Higher pitch goes right, lower pitch goes left.
+        </div>
+    </div>
+
+    <!-- VOICE MODE START SCREEN -->
+    <div class="start-screen" id="voiceStartScreen">
+        <div class="mode-title">🎵 VOICE MODE</div>
+        <div class="start-instructions">
+            <h3 style="color: #00ff64; margin-bottom: 15px;">How to Play</h3>
+            <div class="control-list">
+                <div>🔊 <span>Loud Volume</span> = Move UP</div>
+                <div>🔇 <span>Quiet Volume</span> = Move DOWN</div>
+                <div>🎵 <span>Bright/High Sound</span> = Move RIGHT</div>
+                <div>🎵 <span>Dark/Low Sound</span> = Move LEFT</div>
+            </div>
+            <p style="margin-top: 20px; color: #00ff64;">Speak naturally - your voice's frequency character controls movement!</p>
+        </div>
+        <button class="game-over-restart" id="voiceStartBtn">Enable Microphone & Start</button>
+    </div>
+
+    <!-- WHISTLING MODE START SCREEN -->
+    <div class="start-screen" id="whistleStartScreen">
+        <div class="mode-title">🎶 WHISTLING MODE</div>
+        <div class="start-instructions">
+            <h3 style="color: #00ff64; margin-bottom: 15px;">How to Play</h3>
+            <div class="control-list">
+                <div>🔊 <span>Loud Whistle</span> = Move UP</div>
+                <div>🔇 <span>Quiet Whistle</span> = Move DOWN</div>
+                <div>🎵 <span>Higher Pitch</span> = Move RIGHT</div>
+                <div>🎵 <span>Lower Pitch</span> = Move LEFT</div>
+            </div>
+            <p style="margin-top: 20px; color: #00ff64;">Whistle clearly - your pitch controls horizontal movement!</p>
+        </div>
+        <button class="game-over-restart" id="whistleStartBtn">Enable Microphone & Start</button>
     </div>
 
     <div class="container">
         <div class="title">🎤 VOICE RUNNER</div>
-        <div class="subtitle">Control the triangle with your voice</div>
+        <div class="subtitle" id="modeDisplay">Select Mode</div>
 
         <div class="game-wrapper">
             <canvas id="gameCanvas"></canvas>
@@ -322,16 +423,16 @@
                 <div class="info-item">
                     <div class="info-label">Volume</div>
                     <div class="visualizer-small">
-                        <div class="pitch-indicator" id="volumeIndicator" style="left: 50%; height: 100%;"></div>
+                        <div class="indicator" id="volumeIndicator" style="left: 50%; height: 100%;"></div>
                     </div>
                 </div>
                 <div class="info-item">
-                    <div class="info-label">Pitch</div>
+                    <div class="info-label" id="freqLabel">Frequency</div>
                     <div class="visualizer-small">
-                        <div class="pitch-indicator" id="pitchIndicator"></div>
+                        <div class="indicator" id="freqIndicator"></div>
                     </div>
                 </div>
-                <div class="status" id="statusDisplay">Initializing...</div>
+                <div class="status" id="statusDisplay">Select a mode to start</div>
             </div>
         </div>
     </div>
@@ -343,22 +444,33 @@
     </div>
 
     <script>
-        // ============== AUDIO SETUP ==============
-        let audioContext;
-        let analyser;
-        let dataArray;
-        let micStream;
-        let isGameRunning = false;
+        // ============== GAME CONFIG ==============
+        const gameConfig = {
+            mode: null, // 'voice' or 'whistle'
+            isRunning: false,
+            audioContext: null,
+            analyser: null,
+            dataArray: null,
+            micStream: null
+        };
 
-        // ============== GAME SETUP ==============
+        // ============== DOM ELEMENTS ==============
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const startScreen = document.getElementById('startScreen');
+        const modeSelector = document.getElementById('modeSelector');
+        const voiceStartScreen = document.getElementById('voiceStartScreen');
+        const whistleStartScreen = document.getElementById('whistleStartScreen');
         const gameOverScreen = document.getElementById('gameOverScreen');
-        const startBtn = document.getElementById('startBtn');
+        const modeDisplay = document.getElementById('modeDisplay');
+
+        // Buttons
+        const voiceModeBtn = document.getElementById('voiceModeBtn');
+        const whistleModeBtn = document.getElementById('whistleModeBtn');
+        const voiceStartBtn = document.getElementById('voiceStartBtn');
+        const whistleStartBtn = document.getElementById('whistleStartBtn');
         const restartBtn = document.getElementById('restartBtn');
 
-        // Resize canvas to fill available space
+        // ============== CANVAS SETUP ==============
         function resizeCanvas() {
             const wrapper = document.querySelector('.game-wrapper');
             canvas.width = Math.min(wrapper.clientWidth * 0.6, 800);
@@ -403,7 +515,6 @@
         let score = 0;
         let cubesDodged = 0;
         let gameSpeed = 3;
-        let spawnRate = 0.98;
 
         const Cube = function(x, y, size, color) {
             this.x = x;
@@ -425,13 +536,11 @@
             for (let i = cubes.length - 1; i >= 0; i--) {
                 cubes[i].y += cubes[i].speed;
 
-                // Check collision
                 if (checkCollision(player, cubes[i])) {
                     endGame();
                     return;
                 }
 
-                // Remove if off screen
                 if (cubes[i].y > canvas.height) {
                     cubes.splice(i, 1);
                     cubesDodged++;
@@ -458,34 +567,56 @@
                    player.y - player.size < cube.y + cube.size;
         }
 
-        // ============== VOICE ANALYSIS ==============
+        // ============== AUDIO ANALYSIS ==============
         let currentVolume = 0;
-        let currentPitch = 0;
+        let currentFreqBalance = 0;
 
         function analyzeAudio() {
-            analyser.getByteFrequencyData(dataArray);
+            gameConfig.analyser.getByteFrequencyData(gameConfig.dataArray);
 
             // Calculate volume (RMS of frequency data)
             let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-                sum += (dataArray[i] * dataArray[i]);
+            for (let i = 0; i < gameConfig.dataArray.length; i++) {
+                sum += (gameConfig.dataArray[i] * gameConfig.dataArray[i]);
             }
-            currentVolume = Math.sqrt(sum / dataArray.length) / 255;
+            currentVolume = Math.sqrt(sum / gameConfig.dataArray.length) / 255;
 
-            // Detect pitch using autocorrelation (simplified)
-            const correlations = autoCorrelate(dataArray);
-            if (correlations > 0) {
-                // Normalize pitch to 0-1 range and allow octave wrapping
-                currentPitch = (Math.log2(correlations / 82) % 1 + 1) % 1; // Base freq ~82Hz
+            if (gameConfig.mode === 'voice') {
+                analyzeVoiceMode();
+            } else if (gameConfig.mode === 'whistle') {
+                analyzeWhistleMode();
             }
 
             updatePlayerPosition();
             updateUI();
         }
 
+        // ============== VOICE MODE (Frequency Spectrum) ==============
+        function analyzeVoiceMode() {
+            // Get low and high frequency energy
+            const lowEndBins = gameConfig.dataArray.slice(0, Math.floor(gameConfig.dataArray.length * 0.25));
+            const highEndBins = gameConfig.dataArray.slice(Math.floor(gameConfig.dataArray.length * 0.75));
+
+            const lowEnergy = lowEndBins.reduce((a, b) => a + b) / lowEndBins.length;
+            const highEnergy = highEndBins.reduce((a, b) => a + b) / highEndBins.length;
+
+            // Calculate brightness: -1 (dark/low) to +1 (bright/high)
+            currentFreqBalance = (highEnergy - lowEnergy) / (highEnergy + lowEnergy + 0.01);
+        }
+
+        // ============== WHISTLING MODE (Pitch Detection) ==============
+        function analyzeWhistleMode() {
+            // Autocorrelation for pure whistle tones
+            const correlations = autoCorrelate(gameConfig.dataArray);
+            if (correlations > 0) {
+                // Normalize pitch to 0-1 range with octave wrapping
+                currentFreqBalance = (Math.log2(correlations / 82) % 1 + 1) % 1;
+                currentFreqBalance = currentFreqBalance * 2 - 1; // Convert to -1 to 1
+            }
+        }
+
         function autoCorrelate(buffer) {
-            // Simplified pitch detection
-            const MIN_SAMPLES_SQUARE = 4096;
+            const MIN_SAMPLES = 4096;
             let rms = 0;
 
             for (let i = 0; i < buffer.length; i++) {
@@ -494,7 +625,7 @@
             }
             rms = Math.sqrt(rms / buffer.length);
 
-            if (rms < 0.01) return -1; // Too quiet
+            if (rms < 0.02) return -1; // Too quiet
 
             let shift = 0;
             const maxShift = Math.min(3000, buffer.length / 2);
@@ -509,7 +640,7 @@
                 }
                 const corr = (2 * sumx) / sumSq;
                 if (corr > 0.9) {
-                    return 22050 / shift; // Estimated frequency
+                    return 22050 / shift;
                 }
             }
 
@@ -522,15 +653,14 @@
                 player.targetY = player.y;
             } else {
                 // Volume controls vertical movement
-                // High volume = up, low volume = down
                 player.targetY = canvas.height - 40 - (currentVolume * 200);
                 player.targetY = Math.max(player.size, Math.min(canvas.height - player.size - 20, player.targetY));
             }
 
             if (currentVolume > 0.05) {
-                // Pitch controls horizontal movement
-                // Left = low pitch, right = high pitch
-                player.targetX = currentPitch * (canvas.width - player.size * 2) + player.size;
+                // Frequency balance controls horizontal movement
+                // -1 (low/dark) = left, +1 (high/bright) = right
+                player.targetX = (canvas.width / 2) + (currentFreqBalance * canvas.width * 0.35);
             }
 
             // Smooth movement
@@ -552,17 +682,18 @@
             volumeIndicator.style.width = Math.max(3, volumePercent) + '%';
             volumeIndicator.style.height = '100%';
 
-            // Pitch indicator
-            const pitchPercent = currentPitch * 100;
-            const pitchIndicator = document.getElementById('pitchIndicator');
-            pitchIndicator.style.left = pitchPercent + '%';
+            // Frequency indicator
+            const freqPercent = ((currentFreqBalance + 1) / 2) * 100;
+            const freqIndicator = document.getElementById('freqIndicator');
+            freqIndicator.style.left = freqPercent + '%';
 
             // Status
             const status = document.getElementById('statusDisplay');
             if (currentVolume < 0.05) {
                 status.textContent = '🔇 Silent';
             } else {
-                status.textContent = `🎤 Active (${Math.round(currentVolume * 100)}%)`;
+                const direction = currentFreqBalance > 0 ? '🔆 Bright' : '🌑 Dark';
+                status.textContent = `🎤 Active - ${direction} (${Math.round(currentVolume * 100)}%)`;
             }
         }
 
@@ -570,18 +701,15 @@
         let spawnCounter = 0;
 
         function gameLoop() {
-            if (!isGameRunning) return;
+            if (!gameConfig.isRunning) return;
 
-            // Clear canvas with fade effect
             ctx.fillStyle = 'rgba(15, 15, 30, 0.1)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Draw background
             ctx.fillStyle = 'rgba(15, 15, 30, 0.3)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Game logic
-            if (analyser && dataArray) {
+            if (gameConfig.analyser && gameConfig.dataArray) {
                 analyzeAudio();
             }
 
@@ -592,7 +720,6 @@
                 spawnCounter = 0;
             }
 
-            // Draw
             drawCubes();
             drawPlayer();
 
@@ -609,19 +736,19 @@
             requestAnimationFrame(gameLoop);
         }
 
-        // ============== GAME STATES ==============
+        // ============== MICROPHONE ACCESS ==============
         async function initMicrophone() {
             try {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                gameConfig.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                micStream = stream;
+                gameConfig.micStream = stream;
 
-                const source = audioContext.createMediaStreamSource(stream);
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 2048;
-                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                const source = gameConfig.audioContext.createMediaStreamSource(stream);
+                gameConfig.analyser = gameConfig.audioContext.createAnalyser();
+                gameConfig.analyser.fftSize = 2048;
+                gameConfig.dataArray = new Uint8Array(gameConfig.analyser.frequencyBinCount);
 
-                source.connect(analyser);
+                source.connect(gameConfig.analyser);
 
                 return true;
             } catch (err) {
@@ -631,10 +758,13 @@
             }
         }
 
+        // ============== GAME STATE MANAGEMENT ==============
         function startGame() {
-            startScreen.classList.add('hidden');
+            voiceStartScreen.classList.add('hidden');
+            whistleStartScreen.classList.add('hidden');
+            modeSelector.classList.add('hidden');
             gameOverScreen.classList.remove('active');
-            isGameRunning = true;
+            gameConfig.isRunning = true;
             score = 0;
             cubesDodged = 0;
             cubes = [];
@@ -644,35 +774,69 @@
         }
 
         function endGame() {
-            isGameRunning = false;
+            gameConfig.isRunning = false;
             document.getElementById('finalScore').textContent = score;
             gameOverScreen.classList.add('active');
         }
 
-        function restart() {
-            startGame();
+        function selectVoiceMode() {
+            gameConfig.mode = 'voice';
+            modeSelector.classList.add('hidden');
+            voiceStartScreen.classList.remove('hidden');
+            whistleStartScreen.classList.add('hidden');
+            document.getElementById('freqLabel').textContent = 'Frequency';
+            modeDisplay.textContent = 'Voice Mode - Frequency Detection';
+        }
+
+        function selectWhistleMode() {
+            gameConfig.mode = 'whistle';
+            modeSelector.classList.add('hidden');
+            whistleStartScreen.classList.remove('hidden');
+            voiceStartScreen.classList.add('hidden');
+            document.getElementById('freqLabel').textContent = 'Pitch';
+            modeDisplay.textContent = 'Whistling Mode - Pitch Detection';
         }
 
         // ============== EVENT LISTENERS ==============
-        startBtn.addEventListener('click', async () => {
-            startBtn.disabled = true;
-            startBtn.textContent = 'Requesting microphone...';
+        voiceModeBtn.addEventListener('click', selectVoiceMode);
+        whistleModeBtn.addEventListener('click', selectWhistleMode);
+
+        voiceStartBtn.addEventListener('click', async () => {
+            voiceStartBtn.disabled = true;
+            voiceStartBtn.textContent = 'Requesting microphone...';
 
             const success = await initMicrophone();
             if (success) {
                 startGame();
             } else {
-                startBtn.disabled = false;
-                startBtn.textContent = 'Enable Microphone & Start Game';
+                voiceStartBtn.disabled = false;
+                voiceStartBtn.textContent = 'Enable Microphone & Start';
             }
         });
 
-        restartBtn.addEventListener('click', restart);
+        whistleStartBtn.addEventListener('click', async () => {
+            whistleStartBtn.disabled = true;
+            whistleStartBtn.textContent = 'Requesting microphone...';
 
-        // Stop microphone on page unload
+            const success = await initMicrophone();
+            if (success) {
+                startGame();
+            } else {
+                whistleStartBtn.disabled = false;
+                whistleStartBtn.textContent = 'Enable Microphone & Start';
+            }
+        });
+
+        restartBtn.addEventListener('click', () => {
+            gameOverScreen.classList.remove('active');
+            modeSelector.classList.remove('hidden');
+            gameConfig.mode = null;
+            startGame();
+        });
+
         window.addEventListener('beforeunload', () => {
-            if (micStream) {
-                micStream.getTracks().forEach(track => track.stop());
+            if (gameConfig.micStream) {
+                gameConfig.micStream.getTracks().forEach(track => track.stop());
             }
         });
     </script>
