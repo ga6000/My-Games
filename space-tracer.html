@@ -85,24 +85,44 @@ let paused = false;
 let lastFrame = performance.now();
 let fps = 0;
 
+// Assign a random vibrant color on spawn
+const myColor = `hsl(${Math.floor(Math.random() * 360)}, 100%, 60%)`;
+
 // ===================================================
 //                     SHIP
 // ===================================================
 const ship = {
-    x:0,
-    y:0,
-    angle:0,
-    speed:3,
-    size:18
+    x: 0,
+    y: 0,
+    angle: 0,
+    speed: 3,
+    size: 18,
+    color: myColor
 };
 
 // ===================================================
 //               CAMERA / WORLD POSITION
 // ===================================================
 const camera = {
-    x:0,
-    y:0
+    x: 0,
+    y: 0
 };
+
+// ===================================================
+//                    PROJECTILES
+// ===================================================
+const bullets = [];
+
+function fireLaser(x, y, angle, color) {
+    bullets.push({
+        x: x,
+        y: y,
+        vx: Math.cos(angle) * 12,
+        vy: Math.sin(angle) * 12,
+        life: 60, // frames to live
+        color: color
+    });
+}
 
 // ===================================================
 //                    GYROSCOPE
@@ -116,11 +136,11 @@ let gamma = 0;
 //                     INPUT
 // ===================================================
 const mouse = {
-    x:centerX,
-    y:centerY
+    x: centerX,
+    y: centerY
 };
 
-window.addEventListener("mousemove",e=>{
+window.addEventListener("mousemove", e => {
     mouse.x = e.clientX;
     mouse.y = e.clientY;
 });
@@ -142,13 +162,11 @@ const trail = [];
 const socket = new WebSocket("wss://my-games-faxi.onrender.com");
 const remotePlayers = {}; 
 
-// Rate limiting settings for outbound messages
 let lastSendTime = 0;
-const SEND_INTERVAL = 1000 / 20; // 20 updates per second (~50ms)
+const SEND_INTERVAL = 1000 / 20; // 20 updates per sec
 
 socket.onmessage = event => {
     try {
-        // Handle server JSON messages (like initial welcome or disconnects)
         if (event.data.startsWith("{")) {
             const data = JSON.parse(event.data);
             if (data.type === "welcome") {
@@ -156,45 +174,63 @@ socket.onmessage = event => {
             } else if (data.type === "leave") {
                 delete remotePlayers[data.id];
             } else if (data.type === "update" && data.player) {
-                // Backward compatibility if server forwards raw JSON updates
-                updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle);
+                updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color);
             }
             return;
         }
 
-        // [REVISION 3] Lightweight Payload parsing: "u,id,x,y,angle"
         const parts = event.data.split(",");
-        if (parts[0] === "u" && parts.length >= 5) {
+        
+        // Handle incoming move updates: "u,id,x,y,angle,color"
+        if (parts[0] === "u" && parts.length >= 6) {
             const id = parts[1];
             const x = parseFloat(parts[2]);
             const y = parseFloat(parts[3]);
             const angle = parseFloat(parts[4]);
-            updateRemotePlayer(id, x, y, angle);
+            const color = parts[5];
+            updateRemotePlayer(id, x, y, angle, color);
+        }
+        
+        // Handle incoming laser shots: "b,x,y,angle,color"
+        if (parts[0] === "b" && parts.length >= 5) {
+            const bx = parseFloat(parts[1]);
+            const by = parseFloat(parts[2]);
+            const bangle = parseFloat(parts[3]);
+            const bcolor = parts[4];
+            fireLaser(bx, by, bangle, bcolor);
         }
     } catch(e) {
         console.error("Error parsing server message", e);
     }
 };
 
-function updateRemotePlayer(id, x, y, angle) {
+function updateRemotePlayer(id, x, y, angle, color) {
     let p = remotePlayers[id];
     if (!p) {
-        remotePlayers[id] = { x: x, y: y, targetX: x, targetY: y, angle: angle };
+        remotePlayers[id] = { 
+            x: x, 
+            y: y, 
+            targetX: x, 
+            targetY: y, 
+            angle: angle, 
+            color: color || "#ff0055",
+            trail: [] 
+        };
     } else {
-        // [REVISION 2] Set target position for lerping
         p.targetX = x;
         p.targetY = y;
         p.angle = angle;
+        if (color) p.color = color;
+        
+        // Add points to remote player trail
+        p.trail.push({ x: x, y: y });
+        if (p.trail.length > 500) p.trail.shift(); // keep reasonable length
     }
 }
 
 // ===================================================
 //                   HELPERS
 // ===================================================
-function clamp(v,min,max){
-    return Math.max(min,Math.min(max,v));
-}
-
 function lerp(a,b,t){
     return a+(b-a)*t;
 }
@@ -212,8 +248,8 @@ function drawShip(){
     ctx.save();
     ctx.translate(centerX,centerY);
     ctx.rotate(ship.angle);
-    ctx.strokeStyle="white";
-    ctx.lineWidth=2;
+    ctx.strokeStyle = ship.color;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(ship.size,0);
     ctx.lineTo(-ship.size*.8,-ship.size*.6);
@@ -275,10 +311,19 @@ function onOrientation(event){
 }
 
 // ===================================================
-//              TAP TO PAUSE / RESUME
+//            CLICK / TAP TO FIRE BLASTER
 // ===================================================
-canvas.addEventListener("click",()=>{
-    paused = !paused;
+canvas.addEventListener("click", (e) => {
+    // Avoid triggering laser if clicking overlay button
+    if (e.target !== canvas) return;
+
+    // Spawn local bullet
+    fireLaser(ship.x, ship.y, ship.angle, ship.color);
+
+    // Broadcast laser to other players: "b,x,y,angle,color"
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(`b,${ship.x.toFixed(1)},${ship.y.toFixed(1)},${ship.angle.toFixed(2)},${ship.color}`);
+    }
 });
 
 // ===================================================
@@ -340,7 +385,7 @@ function updateTrail(dt){
 function drawTrail(){
     if(trail.length < 2) return;
 
-    ctx.strokeStyle = "white";
+    ctx.strokeStyle = ship.color;
     ctx.lineWidth = 2;
     ctx.beginPath();
 
@@ -353,6 +398,31 @@ function drawTrail(){
         else ctx.lineTo(sx,sy);
     }
     ctx.stroke();
+}
+
+// ===================================================
+//               PROJECTILE LOGIC
+// ===================================================
+function updateAndDrawBullets() {
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.x += b.vx;
+        b.y += b.vy;
+        b.life--;
+
+        if (b.life <= 0) {
+            bullets.splice(i, 1);
+            continue;
+        }
+
+        const sx = centerX + (b.x - camera.x);
+        const sy = centerY + (b.y - camera.y);
+
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
 }
 
 // ===================================================
@@ -374,19 +444,34 @@ function drawStars(){
 }
 
 // ===================================================
-//            DRAW OTHER MULTIPLAYER SHIPS
+//            DRAW OTHER MULTIPLAYER SHIPS & TRAILS
 // ===================================================
 function drawRemotePlayers(){
     for (const id in remotePlayers) {
         const p = remotePlayers[id];
 
-        // [REVISION 2] Smoothly interpolate current coordinates toward the target
+        // Smoothly interpolate position
         if (p.targetX !== undefined) {
             p.x = lerp(p.x, p.targetX, 0.2);
             p.y = lerp(p.y, p.targetY, 0.2);
         }
+
+        // 1. Draw Remote Player Trail
+        if (p.trail && p.trail.length > 1) {
+            ctx.strokeStyle = p.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let i = 0; i < p.trail.length; i++) {
+                const pt = p.trail[i];
+                const tsx = centerX + (pt.x - camera.x);
+                const tsy = centerY + (pt.y - camera.y);
+                if (i === 0) ctx.moveTo(tsx, tsy);
+                else ctx.lineTo(tsx, tsy);
+            }
+            ctx.stroke();
+        }
         
-        // Calculate screen coordinates relative to camera
+        // 2. Draw Remote Player Ship
         const sx = centerX + (p.x - camera.x);
         const sy = centerY + (p.y - camera.y);
         
@@ -394,7 +479,7 @@ function drawRemotePlayers(){
         ctx.translate(sx, sy);
         ctx.rotate(p.angle);
         
-        ctx.strokeStyle = "red";
+        ctx.strokeStyle = p.color;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(ship.size, 0);
@@ -419,6 +504,7 @@ function drawScene(){
     drawTrail();
     drawRemotePlayers();
     drawShip();
+    updateAndDrawBullets();
 }
 
 // ===================================================
@@ -451,11 +537,10 @@ function animate(now){
     updateShip(dt);
     updateTrail(dt);
 
-    // [REVISION 1 & 3] Send throttled, compressed updates (~20 per sec)
+    // Send position + color updates (~20 per sec)
     if (now - lastSendTime >= SEND_INTERVAL) {
         if (socket.readyState === WebSocket.OPEN) {
-            // Compressed format: "u,x,y,angle" rounded to 1 decimal place
-            const msg = `u,${ship.x.toFixed(1)},${ship.y.toFixed(1)},${ship.angle.toFixed(2)}`;
+            const msg = `u,${ship.x.toFixed(1)},${ship.y.toFixed(1)},${ship.angle.toFixed(2)},${ship.color}`;
             socket.send(msg);
         }
         lastSendTime = now;
@@ -500,6 +585,6 @@ document.body.addEventListener("touchend", function(e){
 updateOverlay();
 console.log("Gyro Space Prototype Ready");
 </script>
-
+    
 </body>
 </html>
