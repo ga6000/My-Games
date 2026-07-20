@@ -119,7 +119,7 @@ function fireLaser(x, y, angle, color) {
         y: y,
         vx: Math.cos(angle) * 12,
         vy: Math.sin(angle) * 12,
-        life: 60, // frames to live
+        life: 60,
         color: color
     });
 }
@@ -165,47 +165,42 @@ const remotePlayers = {};
 let lastSendTime = 0;
 const SEND_INTERVAL = 1000 / 20; // 20 updates per sec
 
+// Helper to derive a deterministic color if server doesn't broadcast custom colors
+function getColorFromId(id) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    return `hsl(${Math.abs(hash) % 360}, 100%, 60%)`;
+}
+
 socket.onmessage = event => {
     try {
-        if (event.data.startsWith("{")) {
-            const data = JSON.parse(event.data);
-            if (data.type === "welcome") {
-                console.log("Connected! My ID is:", data.id);
-            } else if (data.type === "leave") {
-                delete remotePlayers[data.id];
-            } else if (data.type === "update" && data.player) {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "welcome") {
+            console.log("Connected! My ID is:", data.id);
+        } else if (data.type === "leave") {
+            delete remotePlayers[data.id];
+        } else if (data.type === "join") {
+            if (data.player) {
                 updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color);
             }
-            return;
-        }
-
-        const parts = event.data.split(",");
-        
-        // Handle incoming move updates: "u,id,x,y,angle,color"
-        if (parts[0] === "u" && parts.length >= 6) {
-            const id = parts[1];
-            const x = parseFloat(parts[2]);
-            const y = parseFloat(parts[3]);
-            const angle = parseFloat(parts[4]);
-            const color = parts[5];
-            updateRemotePlayer(id, x, y, angle, color);
-        }
-        
-        // Handle incoming laser shots: "b,x,y,angle,color"
-        if (parts[0] === "b" && parts.length >= 5) {
-            const bx = parseFloat(parts[1]);
-            const by = parseFloat(parts[2]);
-            const bangle = parseFloat(parts[3]);
-            const bcolor = parts[4];
-            fireLaser(bx, by, bangle, bcolor);
+        } else if (data.type === "players") {
+            // Initial list of players already connected
+            if (Array.isArray(data.players)) {
+                data.players.forEach(p => updateRemotePlayer(p.id, p.x, p.y, p.angle, p.color));
+            }
+        } else if (data.type === "update" && data.player) {
+            updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, data.player.shot);
         }
     } catch(e) {
         console.error("Error parsing server message", e);
     }
 };
 
-function updateRemotePlayer(id, x, y, angle, color) {
+function updateRemotePlayer(id, x, y, angle, color, shot) {
     let p = remotePlayers[id];
+    const playerColor = color || getColorFromId(id);
+
     if (!p) {
         remotePlayers[id] = { 
             x: x, 
@@ -213,18 +208,23 @@ function updateRemotePlayer(id, x, y, angle, color) {
             targetX: x, 
             targetY: y, 
             angle: angle, 
-            color: color || "#ff0055",
+            color: playerColor,
             trail: [] 
         };
     } else {
         p.targetX = x;
         p.targetY = y;
         p.angle = angle;
-        if (color) p.color = color;
+        p.color = playerColor;
         
-        // Add points to remote player trail
+        // Add to trail
         p.trail.push({ x: x, y: y });
-        if (p.trail.length > 500) p.trail.shift(); // keep reasonable length
+        if (p.trail.length > 500) p.trail.shift();
+    }
+
+    // Trigger laser if player fired a shot
+    if (shot) {
+        fireLaser(shot.x, shot.y, shot.angle, playerColor);
     }
 }
 
@@ -310,20 +310,24 @@ function onOrientation(event){
     gamma = event.gamma || 0;
 }
 
+// Queue laser shot to transmit on next update tick
+let pendingShot = null;
+
 // ===================================================
 //            CLICK / TAP TO FIRE BLASTER
 // ===================================================
 canvas.addEventListener("click", (e) => {
-    // Avoid triggering laser if clicking overlay button
     if (e.target !== canvas) return;
 
-    // Spawn local bullet
+    // Fire local shot immediately
     fireLaser(ship.x, ship.y, ship.angle, ship.color);
 
-    // Broadcast laser to other players: "b,x,y,angle,color"
-    if (socket.readyState === WebSocket.OPEN) {
-        socket.send(`b,${ship.x.toFixed(1)},${ship.y.toFixed(1)},${ship.angle.toFixed(2)},${ship.color}`);
-    }
+    // Queue for network update
+    pendingShot = {
+        x: Number(ship.x.toFixed(1)),
+        y: Number(ship.y.toFixed(1)),
+        angle: Number(ship.angle.toFixed(2))
+    };
 });
 
 // ===================================================
@@ -450,13 +454,13 @@ function drawRemotePlayers(){
     for (const id in remotePlayers) {
         const p = remotePlayers[id];
 
-        // Smoothly interpolate position
+        // Smoothly lerp position
         if (p.targetX !== undefined) {
             p.x = lerp(p.x, p.targetX, 0.2);
             p.y = lerp(p.y, p.targetY, 0.2);
         }
 
-        // 1. Draw Remote Player Trail
+        // Draw remote trail
         if (p.trail && p.trail.length > 1) {
             ctx.strokeStyle = p.color;
             ctx.lineWidth = 2;
@@ -471,7 +475,7 @@ function drawRemotePlayers(){
             ctx.stroke();
         }
         
-        // 2. Draw Remote Player Ship
+        // Draw remote ship
         const sx = centerX + (p.x - camera.x);
         const sy = centerY + (p.y - camera.y);
         
@@ -537,11 +541,23 @@ function animate(now){
     updateShip(dt);
     updateTrail(dt);
 
-    // Send position + color updates (~20 per sec)
+    // Send valid JSON update payload to server (~20 per sec)
     if (now - lastSendTime >= SEND_INTERVAL) {
         if (socket.readyState === WebSocket.OPEN) {
-            const msg = `u,${ship.x.toFixed(1)},${ship.y.toFixed(1)},${ship.angle.toFixed(2)},${ship.color}`;
-            socket.send(msg);
+            const payload = {
+                type: "update",
+                x: Number(ship.x.toFixed(1)),
+                y: Number(ship.y.toFixed(1)),
+                angle: Number(ship.angle.toFixed(2)),
+                color: ship.color
+            };
+
+            if (pendingShot) {
+                payload.shot = pendingShot;
+                pendingShot = null;
+            }
+
+            socket.send(JSON.stringify(payload));
         }
         lastSendTime = now;
     }
