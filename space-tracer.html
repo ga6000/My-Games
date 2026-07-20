@@ -142,21 +142,51 @@ const trail = [];
 const socket = new WebSocket("wss://my-games-faxi.onrender.com");
 const remotePlayers = {}; 
 
+// Rate limiting settings for outbound messages
+let lastSendTime = 0;
+const SEND_INTERVAL = 1000 / 20; // 20 updates per second (~50ms)
+
 socket.onmessage = event => {
     try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === "welcome") {
-            console.log("Connected! My ID is:", data.id);
-        } else if (data.type === "update") {
-            remotePlayers[data.player.id] = data.player;
-        } else if (data.type === "leave") {
-            delete remotePlayers[data.id];
+        // Handle server JSON messages (like initial welcome or disconnects)
+        if (event.data.startsWith("{")) {
+            const data = JSON.parse(event.data);
+            if (data.type === "welcome") {
+                console.log("Connected! My ID is:", data.id);
+            } else if (data.type === "leave") {
+                delete remotePlayers[data.id];
+            } else if (data.type === "update" && data.player) {
+                // Backward compatibility if server forwards raw JSON updates
+                updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle);
+            }
+            return;
+        }
+
+        // [REVISION 3] Lightweight Payload parsing: "u,id,x,y,angle"
+        const parts = event.data.split(",");
+        if (parts[0] === "u" && parts.length >= 5) {
+            const id = parts[1];
+            const x = parseFloat(parts[2]);
+            const y = parseFloat(parts[3]);
+            const angle = parseFloat(parts[4]);
+            updateRemotePlayer(id, x, y, angle);
         }
     } catch(e) {
         console.error("Error parsing server message", e);
     }
 };
+
+function updateRemotePlayer(id, x, y, angle) {
+    let p = remotePlayers[id];
+    if (!p) {
+        remotePlayers[id] = { x: x, y: y, targetX: x, targetY: y, angle: angle };
+    } else {
+        // [REVISION 2] Set target position for lerping
+        p.targetX = x;
+        p.targetY = y;
+        p.angle = angle;
+    }
+}
 
 // ===================================================
 //                   HELPERS
@@ -349,17 +379,22 @@ function drawStars(){
 function drawRemotePlayers(){
     for (const id in remotePlayers) {
         const p = remotePlayers[id];
+
+        // [REVISION 2] Smoothly interpolate current coordinates toward the target
+        if (p.targetX !== undefined) {
+            p.x = lerp(p.x, p.targetX, 0.2);
+            p.y = lerp(p.y, p.targetY, 0.2);
+        }
         
-        // Calculate screen coordinates relative to our camera
+        // Calculate screen coordinates relative to camera
         const sx = centerX + (p.x - camera.x);
         const sy = centerY + (p.y - camera.y);
         
-        // Draw other player as a simple shape
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(p.angle);
         
-        ctx.strokeStyle = "red"; // Distinct color for opposing players
+        ctx.strokeStyle = "red";
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(ship.size, 0);
@@ -382,7 +417,7 @@ function drawScene(){
 
     drawStars();
     drawTrail();
-    drawRemotePlayers(); // Draws the other players behind your ship
+    drawRemotePlayers();
     drawShip();
 }
 
@@ -416,14 +451,14 @@ function animate(now){
     updateShip(dt);
     updateTrail(dt);
 
-    // Broadcast our updated data continuously if the network connection is live
-    if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-            type: "update",
-            x: ship.x,
-            y: ship.y,
-            angle: ship.angle
-        }));
+    // [REVISION 1 & 3] Send throttled, compressed updates (~20 per sec)
+    if (now - lastSendTime >= SEND_INTERVAL) {
+        if (socket.readyState === WebSocket.OPEN) {
+            // Compressed format: "u,x,y,angle" rounded to 1 decimal place
+            const msg = `u,${ship.x.toFixed(1)},${ship.y.toFixed(1)},${ship.angle.toFixed(2)}`;
+            socket.send(msg);
+        }
+        lastSendTime = now;
     }
 
     drawScene();
