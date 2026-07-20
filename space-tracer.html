@@ -2,13 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport"
-      content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 
 <title>Gyro Space Trail</title>
 
 <style>
-
 html,body{
     margin:0;
     padding:0;
@@ -42,40 +40,23 @@ button{
     padding:8px 12px;
     font-size:14px;
 }
-
 </style>
-
 </head>
 <body>
 
 <canvas id="game"></canvas>
 
 <div id="overlay">
-
-<div><b>Gyro Space Prototype</b></div>
-
-<div id="status">
-Waiting...
-</div>
-
-<button id="gyroButton">
-Enable Gyroscope
-</button>
-
-<div style="margin-top:8px;">
-Tap anywhere to pause/resume.
-</div>
-
+    <div><b>Gyro Space Prototype</b></div>
+    <div id="status">Waiting...</div>
+    <button id="gyroButton">Enable Gyroscope</button>
+    <div style="margin-top:8px;">Tap anywhere to pause/resume.</div>
 </div>
 
 <script>
-
-//
 // ===================================================
 //                 GLOBAL VARIABLES
 // ===================================================
-//
-
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -88,187 +69,135 @@ let centerX = 0;
 let centerY = 0;
 
 function resize(){
-
     width = canvas.width = window.innerWidth;
     height = canvas.height = window.innerHeight;
-
     centerX = width/2;
     centerY = height/2;
-
 }
 
 window.addEventListener("resize",resize);
 resize();
 
-
-//
 // ===================================================
-//                    GAME STATE
+//                     GAME STATE
 // ===================================================
-//
-
 let paused = false;
-
 let lastFrame = performance.now();
-
 let fps = 0;
 
-
-//
 // ===================================================
-//                    SHIP
+//                     SHIP
 // ===================================================
-//
-
 const ship = {
-
     x:0,
     y:0,
-
     angle:0,
-
     speed:3,
-
     size:18
-
 };
 
-
-//
 // ===================================================
-//             CAMERA / WORLD POSITION
+//               CAMERA / WORLD POSITION
 // ===================================================
-//
-
 const camera = {
-
     x:0,
     y:0
-
 };
 
-
-//
 // ===================================================
-//                  GYROSCOPE
+//                    GYROSCOPE
 // ===================================================
-//
-
 let gyroSupported = false;
-
 let gyroEnabled = false;
-
 let beta = 0;
 let gamma = 0;
 
-
-//
 // ===================================================
-//                  INPUT
+//                     INPUT
 // ===================================================
-//
-
 const mouse = {
-
     x:centerX,
     y:centerY
-
 };
 
 window.addEventListener("mousemove",e=>{
-
     mouse.x = e.clientX;
     mouse.y = e.clientY;
-
 });
 
-
-//
 // ===================================================
 //                  STARFIELD
 // ===================================================
-//
-
 const STAR_COUNT = 2500;
-
 const stars = [];
 
-
-//
 // ===================================================
-//                  TRAIL
+//                    TRAIL
 // ===================================================
-//
-
 const trail = [];
 
-
-//
 // ===================================================
-//                  HELPERS
+//                 MULTIPLAYER STATE
 // ===================================================
-//
+const socket = new WebSocket("wss://my-games-faxi.onrender.com");
+const remotePlayers = {}; 
 
+socket.onmessage = event => {
+    try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === "welcome") {
+            console.log("Connected! My ID is:", data.id);
+        } else if (data.type === "update") {
+            remotePlayers[data.player.id] = data.player;
+        } else if (data.type === "leave") {
+            delete remotePlayers[data.id];
+        }
+    } catch(e) {
+        console.error("Error parsing server message", e);
+    }
+};
+
+// ===================================================
+//                   HELPERS
+// ===================================================
 function clamp(v,min,max){
-
     return Math.max(min,Math.min(max,v));
-
 }
 
 function lerp(a,b,t){
-
     return a+(b-a)*t;
-
 }
 
 function wrapAngle(a){
-
     while(a>Math.PI) a-=Math.PI*2;
     while(a<-Math.PI) a+=Math.PI*2;
-
     return a;
-
 }
 
-//
 // ===================================================
-//            DRAW SHIP (WHITE CONE)
+//              DRAW SHIP (WHITE CONE)
 // ===================================================
-//
-
 function drawShip(){
-
     ctx.save();
-
     ctx.translate(centerX,centerY);
-
     ctx.rotate(ship.angle);
-
     ctx.strokeStyle="white";
     ctx.lineWidth=2;
-
     ctx.beginPath();
-
     ctx.moveTo(ship.size,0);
     ctx.lineTo(-ship.size*.8,-ship.size*.6);
     ctx.lineTo(-ship.size*.35,0);
     ctx.lineTo(-ship.size*.8,ship.size*.6);
     ctx.closePath();
-
     ctx.stroke();
-
     ctx.restore();
-
 }
 
-//
 // ===================================================
-//            DRAW DEBUG INFORMATION
+//              DRAW DEBUG INFORMATION
 // ===================================================
-//
-
 function updateOverlay(){
-
     statusText.innerHTML=
 `FPS: ${fps.toFixed(0)}<br>
 Paused: ${paused}<br>
@@ -276,324 +205,207 @@ Gyro Supported: ${gyroSupported}<br>
 Gyro Enabled: ${gyroEnabled}<br>
 Beta: ${beta.toFixed(1)}<br>
 Gamma: ${gamma.toFixed(1)}<br>
-Trail Points: ${trail.length}`;
-
+Trail Points: ${trail.length}<br>
+Players Online: ${Object.keys(remotePlayers).length + 1}`;
 }
-//
-// ===================================================
-//          GYROSCOPE PERMISSION & EVENTS
-// ===================================================
-//
 
+// ===================================================
+//           GYROSCOPE PERMISSION & EVENTS
+// ===================================================
 async function enableGyroscope(){
-
     if(gyroEnabled) return;
 
     try{
-
         if(
             typeof DeviceOrientationEvent !== "undefined" &&
             typeof DeviceOrientationEvent.requestPermission === "function"
         ){
-
-            const result =
-                await DeviceOrientationEvent.requestPermission();
-
+            const result = await DeviceOrientationEvent.requestPermission();
             if(result !== "granted"){
                 alert("Gyroscope permission was denied.");
                 return;
             }
-
         }
 
-        window.addEventListener(
-            "deviceorientation",
-            onOrientation,
-            true
-        );
-
+        window.addEventListener("deviceorientation", onOrientation, true);
         gyroSupported = true;
         gyroEnabled = true;
-
         gyroButton.style.display = "none";
-
     }catch(err){
-
         console.error(err);
-
         alert("Unable to access gyroscope.");
-
     }
-
 }
 
-gyroButton.addEventListener(
-    "click",
-    enableGyroscope
-);
+gyroButton.addEventListener("click", enableGyroscope);
 
 function onOrientation(event){
-
     beta = event.beta || 0;
     gamma = event.gamma || 0;
-
 }
 
-
-//
 // ===================================================
 //              TAP TO PAUSE / RESUME
 // ===================================================
-//
-
 canvas.addEventListener("click",()=>{
-
     paused = !paused;
-
 });
 
-
-//
 // ===================================================
-//           GENERATE RANDOM STARFIELD
+//            GENERATE RANDOM STARFIELD
 // ===================================================
-//
-
 for(let i=0;i<STAR_COUNT;i++){
-
     stars.push({
-
         x:(Math.random()-0.5)*30000,
         y:(Math.random()-0.5)*30000,
-
         size:Math.random()*2+0.4
-
     });
-
 }
 
-
-//
 // ===================================================
-//             SHIP MOVEMENT
+//                  SHIP MOVEMENT
 // ===================================================
-//
-
 function updateShip(dt){
-
     let desiredAngle;
 
     if(gyroEnabled){
-
-        desiredAngle =
-            Math.atan2(
-                gamma,
-                -beta
-            );
-
+        desiredAngle = Math.atan2(gamma, -beta);
     }else{
-
-        desiredAngle =
-            Math.atan2(
-                mouse.y-centerY,
-                mouse.x-centerX
-            );
-
+        desiredAngle = Math.atan2(mouse.y-centerY, mouse.x-centerX);
     }
 
-    let difference =
-        wrapAngle(desiredAngle-ship.angle);
-
+    let difference = wrapAngle(desiredAngle-ship.angle);
     ship.angle += difference*0.06;
 
     if(!paused){
-
-        ship.x +=
-            Math.cos(ship.angle)
-            *ship.speed;
-
-        ship.y +=
-            Math.sin(ship.angle)
-            *ship.speed;
-
+        ship.x += Math.cos(ship.angle) * ship.speed;
+        ship.y += Math.sin(ship.angle) * ship.speed;
     }
 
     camera.x = ship.x;
     camera.y = ship.y;
-
 }
 
-
-//
 // ===================================================
-//             UPDATE TRAIL
+//                  UPDATE TRAIL
 // ===================================================
-//
-
 let trailAccumulator = 0;
 
 function updateTrail(dt){
-
     if(paused) return;
 
     trailAccumulator += dt;
-
-    if(trailAccumulator < 0.03)
-        return;
-
+    if(trailAccumulator < 0.03) return;
     trailAccumulator = 0;
 
     trail.push({
-
         x:ship.x,
         y:ship.y
-
     });
-
 }
 
-
-//
 // ===================================================
-//             DRAW TRAIL
+//                  DRAW TRAIL
 // ===================================================
-//
-
 function drawTrail(){
-
-    if(trail.length < 2)
-        return;
+    if(trail.length < 2) return;
 
     ctx.strokeStyle = "white";
     ctx.lineWidth = 2;
-
     ctx.beginPath();
 
     for(let i=0;i<trail.length;i++){
-
         const p = trail[i];
+        const sx = centerX + (p.x-camera.x);
+        const sy = centerY + (p.y-camera.y);
 
-        const sx =
-            centerX +
-            (p.x-camera.x);
-
-        const sy =
-            centerY +
-            (p.y-camera.y);
-
-        if(i===0)
-            ctx.moveTo(sx,sy);
-        else
-            ctx.lineTo(sx,sy);
-
+        if(i===0) ctx.moveTo(sx,sy);
+        else ctx.lineTo(sx,sy);
     }
-
     ctx.stroke();
-
 }
 
-
-//
 // ===================================================
-//             DRAW STARFIELD
+//                  DRAW STARFIELD
 // ===================================================
-//
-
 function drawStars(){
-
     ctx.fillStyle="white";
 
     for(const star of stars){
+        const sx = centerX + (star.x-camera.x*0.05);
+        const sy = centerY + (star.y-camera.y*0.05);
 
-        const sx =
-            centerX +
-            (star.x-camera.x*0.05);
-
-        const sy =
-            centerY +
-            (star.y-camera.y*0.05);
-
-        if(
-            sx<0 ||
-            sy<0 ||
-            sx>width ||
-            sy>height
-        ) continue;
+        if(sx<0 || sy<0 || sx>width || sy>height) continue;
 
         ctx.beginPath();
-
-        ctx.arc(
-            sx,
-            sy,
-            star.size,
-            0,
-            Math.PI*2
-        );
-
+        ctx.arc(sx, sy, star.size, 0, Math.PI*2);
         ctx.fill();
-
     }
-
 }
 
-
-//
 // ===================================================
-//              DRAW ENTIRE SCENE
+//            DRAW OTHER MULTIPLAYER SHIPS
 // ===================================================
-//
+function drawRemotePlayers(){
+    for (const id in remotePlayers) {
+        const p = remotePlayers[id];
+        
+        // Calculate screen coordinates relative to our camera
+        const sx = centerX + (p.x - camera.x);
+        const sy = centerY + (p.y - camera.y);
+        
+        // Draw other player as a simple shape
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(p.angle);
+        
+        ctx.strokeStyle = "red"; // Distinct color for opposing players
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(ship.size, 0);
+        ctx.lineTo(-ship.size*.8, -ship.size*.6);
+        ctx.lineTo(-ship.size*.35, 0);
+        ctx.lineTo(-ship.size*.8, ship.size*.6);
+        ctx.closePath();
+        ctx.stroke();
+        
+        ctx.restore();
+    }
+}
 
+// ===================================================
+//               DRAW ENTIRE SCENE
+// ===================================================
 function drawScene(){
-
     ctx.fillStyle="black";
-    ctx.fillRect(
-        0,
-        0,
-        width,
-        height
-    );
+    ctx.fillRect(0, 0, width, height);
 
     drawStars();
-
     drawTrail();
-
+    drawRemotePlayers(); // Draws the other players behind your ship
     drawShip();
-
 }
 
-
-//
 // ===================================================
-//              AUTO DETECT GYRO
+//               AUTO DETECT GYRO
 // ===================================================
-//
-
 if ("DeviceOrientationEvent" in window) {
     gyroSupported = true;
 }
 
-//
 // ===================================================
-//               OPTIONAL KEYBOARD TESTING
+//             OPTIONAL KEYBOARD TESTING
 // ===================================================
-//
-
 window.addEventListener("keydown", e => {
-
     if (e.code === "Space") {
         paused = !paused;
     }
-
 });
 
-//
 // ===================================================
-//              MAIN ANIMATION LOOP
+//               MAIN ANIMATION LOOP
 // ===================================================
-//
-
 function animate(now){
-
     requestAnimationFrame(animate);
 
     const dt = Math.min((now - lastFrame) / 1000, 0.05);
@@ -602,77 +414,56 @@ function animate(now){
     fps = lerp(fps, 1 / Math.max(dt, 0.0001), 0.08);
 
     updateShip(dt);
-
     updateTrail(dt);
 
+    // Broadcast our updated data continuously if the network connection is live
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: "update",
+            x: ship.x,
+            y: ship.y,
+            angle: ship.angle
+        }));
+    }
+
     drawScene();
-
     updateOverlay();
-
 }
 
 requestAnimationFrame(animate);
 
-//
 // ===================================================
-//          INITIAL SHIP/TRAIL SETUP
+//            INITIAL SHIP/TRAIL SETUP
 // ===================================================
-//
-
 trail.push({
     x: ship.x,
     y: ship.y
 });
 
-//
 // ===================================================
-//              PREVENT PAGE SCROLL
+//               PREVENT PAGE SCROLL
 // ===================================================
-//
+document.body.addEventListener("touchmove", function(e){
+    e.preventDefault();
+}, { passive:false });
 
-document.body.addEventListener(
-    "touchmove",
-    function(e){
-        e.preventDefault();
-    },
-    { passive:false }
-);
-
-//
 // ===================================================
-//          DOUBLE TAP ZOOM DISABLE
+//             DOUBLE TAP ZOOM DISABLE
 // ===================================================
-//
-
 let lastTouch = 0;
-
 document.body.addEventListener("touchend", function(e){
-
     const now = Date.now();
-
     if(now-lastTouch<300){
         e.preventDefault();
     }
-
     lastTouch = now;
-
 }, {passive:false});
 
-//
 // ===================================================
-//          INITIAL OVERLAY TEXT
+//              INITIAL OVERLAY TEXT
 // ===================================================
-//
-
 updateOverlay();
-
 console.log("Gyro Space Prototype Ready");
-
-//
-// ===================================================
-//                      END
-// ===================================================
-
 </script>
 
 </body>
