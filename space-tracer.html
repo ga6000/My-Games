@@ -428,7 +428,25 @@ function updateAndDrawBullets() {
         ctx.fill();
     }
 }
+    
+// ===================================================
+//             AUTOMATIC BACKGROUND MUSIC
+// ===================================================
+const bgMusic = new Audio("Gyro Music.mp3");
+bgMusic.volume = 0.3; // 30% background volume
+bgMusic.loop = true;  // Repeat infinitely
 
+// Start music on the first tap/click anywhere (handles browser autoplay rules)
+function startAudio() {
+    bgMusic.play().then(() => {
+        window.removeEventListener("click", startAudio);
+        window.removeEventListener("touchstart", startAudio);
+    }).catch(() => {});
+}
+
+window.addEventListener("click", startAudio);
+window.addEventListener("touchstart", startAudio);
+    
 // ===================================================
 //                  DRAW STARFIELD
 // ===================================================
