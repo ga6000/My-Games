@@ -113,14 +113,18 @@ const camera = {
 // ===================================================
 const bullets = [];
 
-function fireLaser(x, y, angle, color) {
+function fireLaser(x, y, angle, color, shotType = "standard") {
     bullets.push({
         x: x,
         y: y,
         vx: Math.cos(angle) * 12,
         vy: Math.sin(angle) * 12,
         life: 60,
-        color: color
+        color: color,
+        type: shotType,
+        firedAt: { x, y },
+        firedTime: performance.now(),
+        maxDistance: 500  // bullets fade after traveling 500 units
     });
 }
 
@@ -224,7 +228,7 @@ function updateRemotePlayer(id, x, y, angle, color, shot) {
 
     // Trigger laser if player fired a shot
     if (shot) {
-        fireLaser(shot.x, shot.y, shot.angle, playerColor);
+        fireLaser(shot.x, shot.y, shot.angle, playerColor, shot.type || "standard");
     }
 }
 
@@ -242,21 +246,20 @@ function wrapAngle(a){
 }
 
 // ===================================================
-//              DRAW SHIP (WHITE CONE)
+//              DRAW SHIP (SOLID)
 // ===================================================
 function drawShip(){
     ctx.save();
     ctx.translate(centerX,centerY);
     ctx.rotate(ship.angle);
-    ctx.strokeStyle = ship.color;
-    ctx.lineWidth = 2;
+    ctx.fillStyle = ship.color;
     ctx.beginPath();
     ctx.moveTo(ship.size,0);
     ctx.lineTo(-ship.size*.8,-ship.size*.6);
     ctx.lineTo(-ship.size*.35,0);
     ctx.lineTo(-ship.size*.8,ship.size*.6);
     ctx.closePath();
-    ctx.stroke();
+    ctx.fill();
     ctx.restore();
 }
 
@@ -272,6 +275,7 @@ Gyro Enabled: ${gyroEnabled}<br>
 Beta: ${beta.toFixed(1)}<br>
 Gamma: ${gamma.toFixed(1)}<br>
 Trail Points: ${trail.length}<br>
+Bullets: ${bullets.length}<br>
 Players Online: ${Object.keys(remotePlayers).length + 1}`;
 }
 
@@ -320,13 +324,14 @@ canvas.addEventListener("click", (e) => {
     if (e.target !== canvas) return;
 
     // Fire local shot immediately
-    fireLaser(ship.x, ship.y, ship.angle, ship.color);
+    fireLaser(ship.x, ship.y, ship.angle, ship.color, "standard");
 
     // Queue for network update
     pendingShot = {
         x: Number(ship.x.toFixed(1)),
         y: Number(ship.y.toFixed(1)),
-        angle: Number(ship.angle.toFixed(2))
+        angle: Number(ship.angle.toFixed(2)),
+        type: "standard"
     };
 });
 
@@ -419,13 +424,25 @@ function updateAndDrawBullets() {
             continue;
         }
 
+        // Calculate distance traveled from spawn point
+        const distTraveled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
+        
+        // Fade if past max distance
+        let opacity = 1.0;
+        if (distTraveled > b.maxDistance) {
+            // Fade over 100 units past max distance
+            opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
+        }
+
         const sx = centerX + (b.x - camera.x);
         const sy = centerY + (b.y - camera.y);
 
         ctx.fillStyle = b.color;
+        ctx.globalAlpha = opacity;
         ctx.beginPath();
         ctx.arc(sx, sy, 4, 0, Math.PI * 2);
         ctx.fill();
+        ctx.globalAlpha = 1.0;
     }
 }
     
@@ -493,7 +510,7 @@ function drawRemotePlayers(){
             ctx.stroke();
         }
         
-        // Draw remote ship
+        // Draw remote ship (SOLID)
         const sx = centerX + (p.x - camera.x);
         const sy = centerY + (p.y - camera.y);
         
@@ -501,15 +518,14 @@ function drawRemotePlayers(){
         ctx.translate(sx, sy);
         ctx.rotate(p.angle);
         
-        ctx.strokeStyle = p.color;
-        ctx.lineWidth = 2;
+        ctx.fillStyle = p.color;
         ctx.beginPath();
         ctx.moveTo(ship.size, 0);
         ctx.lineTo(-ship.size*.8, -ship.size*.6);
         ctx.lineTo(-ship.size*.35, 0);
         ctx.lineTo(-ship.size*.8, ship.size*.6);
         ctx.closePath();
-        ctx.stroke();
+        ctx.fill();
         
         ctx.restore();
     }
@@ -617,7 +633,7 @@ document.body.addEventListener("touchend", function(e){
 //              INITIAL OVERLAY TEXT
 // ===================================================
 updateOverlay();
-console.log("Gyro Space Prototype Ready");
+console.log("Gyro Space Prototype Ready - Stages 1 & 2");
 </script>
     
 </body>
