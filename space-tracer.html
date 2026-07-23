@@ -13,6 +13,7 @@ html,body{
     overflow:hidden;
     background:#000;
     touch-action:none;
+    font-family: Arial, sans-serif;
 }
 
 canvas{
@@ -33,6 +34,73 @@ canvas{
     padding:10px;
     border-radius:8px;
     user-select:none;
+    pointer-events:none;
+}
+
+#menuOverlay{
+    position:absolute;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.85);
+    backdrop-filter:blur(4px);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:1000;
+    flex-direction:column;
+}
+
+#menuOverlay.hidden{
+    display:none;
+}
+
+.menu-container{
+    text-align:center;
+    color:white;
+}
+
+.menu-container h1{
+    font-size:48px;
+    margin:0 0 30px 0;
+    text-shadow:0 0 20px rgba(255,100,150,0.8);
+}
+
+.menu-container p{
+    font-size:18px;
+    margin:0 0 40px 0;
+    color:#aaa;
+}
+
+.button-group{
+    display:flex;
+    gap:20px;
+    justify-content:center;
+}
+
+.menu-btn{
+    padding:15px 40px;
+    font-size:18px;
+    border:2px solid #fff;
+    background:rgba(255,255,255,0.1);
+    color:white;
+    cursor:pointer;
+    border-radius:8px;
+    transition:all 0.3s ease;
+    text-transform:uppercase;
+    font-weight:bold;
+    letter-spacing:2px;
+}
+
+.menu-btn:hover{
+    background:rgba(255,100,150,0.3);
+    border-color:#ff6496;
+    box-shadow:0 0 15px rgba(255,100,150,0.5);
+}
+
+.menu-btn:active{
+    transform:scale(0.98);
 }
 
 button{
@@ -45,6 +113,17 @@ button{
 <body>
 
 <canvas id="game"></canvas>
+
+<div id="menuOverlay">
+    <div class="menu-container">
+        <h1>GYRO SPACE</h1>
+        <p>Select your control scheme</p>
+        <div class="button-group">
+            <button class="menu-btn" id="mobileBtn">Mobile</button>
+            <button class="menu-btn" id="computerBtn">Computer</button>
+        </div>
+    </div>
+</div>
 
 <div id="overlay">
     <div><b>Gyro Space Prototype</b></div>
@@ -62,6 +141,9 @@ const ctx = canvas.getContext("2d");
 
 const statusText = document.getElementById("status");
 const gyroButton = document.getElementById("gyroButton");
+const menuOverlay = document.getElementById("menuOverlay");
+const mobileBtn = document.getElementById("mobileBtn");
+const computerBtn = document.getElementById("computerBtn");
 
 let width = 0;
 let height = 0;
@@ -79,11 +161,13 @@ window.addEventListener("resize",resize);
 resize();
 
 // ===================================================
-//                     GAME STATE
+//                  GAME STATE
 // ===================================================
 let paused = false;
 let lastFrame = performance.now();
 let fps = 0;
+let gameStarted = false;
+let controlMode = null; // "mobile" or "computer"
 
 // Assign a random vibrant color on spawn
 const myColor = `hsl(${Math.floor(Math.random() * 360)}, 100%, 60%)`;
@@ -206,6 +290,8 @@ let gyroSupported = false;
 let gyroEnabled = false;
 let beta = 0;
 let gamma = 0;
+let lastBeta = 0;
+let lastGamma = 0;
 
 // ===================================================
 //                     INPUT
@@ -364,7 +450,7 @@ function updateOverlay(){
     
     statusText.innerHTML=
 `FPS: ${fps.toFixed(0)}<br>
-Paused: ${paused}<br>
+Mode: ${controlMode}<br>
 Gyro Enabled: ${gyroEnabled}<br>
 Trail Points: ${trail.length}<br>
 Bullets: ${bullets.length}<br>
@@ -414,12 +500,12 @@ let pendingShot = null;
 //       MOUSE DOWN/UP FOR CHARGED BEAM
 // ===================================================
 canvas.addEventListener("mousedown", (e) => {
-    if (e.target !== canvas) return;
+    if (e.target !== canvas || !gameStarted) return;
     mouseDownTime = Date.now();
 });
 
 canvas.addEventListener("mouseup", (e) => {
-    if (e.target !== canvas) return;
+    if (e.target !== canvas || !gameStarted) return;
 
     const holdTime = Date.now() - mouseDownTime;
     const shotType = holdTime >= 3000 ? "beam" : "standard";
@@ -454,13 +540,13 @@ canvas.addEventListener("mouseup", (e) => {
 let touchStartTime = 0;
 
 canvas.addEventListener("touchstart", (e) => {
-    if (e.target !== canvas) return;
+    if (e.target !== canvas || !gameStarted) return;
     touchStartTime = Date.now();
     e.preventDefault();
 }, { passive: false });
 
 canvas.addEventListener("touchend", (e) => {
-    if (e.target !== canvas) return;
+    if (e.target !== canvas || !gameStarted) return;
 
     const holdTime = Date.now() - touchStartTime;
     const shotType = holdTime >= 3000 ? "beam" : "standard";
@@ -487,6 +573,29 @@ canvas.addEventListener("touchend", (e) => {
 }, { passive: false });
 
 // ===================================================
+//            MENU BUTTON HANDLERS
+// ===================================================
+mobileBtn.addEventListener("click", () => {
+    controlMode = "mobile";
+    gameStarted = true;
+    menuOverlay.classList.add("hidden");
+    if (gyroSupported) {
+        gyroButton.style.display = "block";
+    } else {
+        gyroButton.style.display = "none";
+    }
+    console.log("Mobile mode selected");
+});
+
+computerBtn.addEventListener("click", () => {
+    controlMode = "computer";
+    gameStarted = true;
+    menuOverlay.classList.add("hidden");
+    gyroButton.style.display = "none";
+    console.log("Computer mode selected");
+});
+
+// ===================================================
 //            GENERATE RANDOM STARFIELD
 // ===================================================
 for(let i=0;i<STAR_COUNT;i++){
@@ -503,14 +612,23 @@ for(let i=0;i<STAR_COUNT;i++){
 function updateShip(dt){
     let desiredAngle;
 
-    if(gyroEnabled){
-        desiredAngle = Math.atan2(gamma, -beta);
-    }else{
+    if(controlMode === "mobile" && gyroEnabled){
+        // TILT-BASED GYRO: Use delta (tilt rate) instead of absolute orientation
+        const betaDelta = beta - lastBeta;
+        const gammaDelta = gamma - lastGamma;
+        
+        // Apply tilt as rotation: tilt right (positive gamma) = turn right
+        const tiltStrength = 0.05;
+        ship.angle += gammaDelta * tiltStrength;
+        
+        lastBeta = beta;
+        lastGamma = gamma;
+    }else if(controlMode === "computer"){
+        // MOUSE-BASED: Point towards mouse cursor
         desiredAngle = Math.atan2(mouse.y-centerY, mouse.x-centerX);
+        let difference = wrapAngle(desiredAngle-ship.angle);
+        ship.angle += difference*0.06;
     }
-
-    let difference = wrapAngle(desiredAngle-ship.angle);
-    ship.angle += difference*0.06;
 
     if(!paused){
         ship.x += Math.cos(ship.angle) * ship.speed;
@@ -755,28 +873,31 @@ function animate(now){
 
     fps = lerp(fps, 1 / Math.max(dt, 0.0001), 0.08);
 
-    updateShip(dt);
-    updateTrail(dt);
+    // Only update game if started
+    if(gameStarted){
+        updateShip(dt);
+        updateTrail(dt);
 
-    // Send valid JSON update payload to server (~20 per sec)
-    if (now - lastSendTime >= SEND_INTERVAL) {
-        if (socket.readyState === WebSocket.OPEN) {
-            const payload = {
-                type: "update",
-                x: Number(ship.x.toFixed(1)),
-                y: Number(ship.y.toFixed(1)),
-                angle: Number(ship.angle.toFixed(2)),
-                color: ship.color
-            };
+        // Send valid JSON update payload to server (~20 per sec)
+        if (now - lastSendTime >= SEND_INTERVAL) {
+            if (socket.readyState === WebSocket.OPEN) {
+                const payload = {
+                    type: "update",
+                    x: Number(ship.x.toFixed(1)),
+                    y: Number(ship.y.toFixed(1)),
+                    angle: Number(ship.angle.toFixed(2)),
+                    color: ship.color
+                };
 
-            if (pendingShot) {
-                payload.shot = pendingShot;
-                pendingShot = null;
+                if (pendingShot) {
+                    payload.shot = pendingShot;
+                    pendingShot = null;
+                }
+
+                socket.send(JSON.stringify(payload));
             }
-
-            socket.send(JSON.stringify(payload));
+            lastSendTime = now;
         }
-        lastSendTime = now;
     }
 
     drawScene();
@@ -817,7 +938,7 @@ document.body.addEventListener("touchend", function(e){
 //              INITIAL OVERLAY TEXT
 // ===================================================
 updateOverlay();
-console.log("Gyro Space Prototype Ready - Stages 1-5 Complete");
+console.log("Gyro Space Prototype Ready - Stages 1-7 Complete");
 </script>
     
 </body>
