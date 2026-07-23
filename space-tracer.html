@@ -462,27 +462,37 @@ Players Online: ${Object.keys(remotePlayers).length + 1}`;
 //           GYROSCOPE PERMISSION & EVENTS
 // ===================================================
 async function enableGyroscope(){
-    if(gyroEnabled) return;
+    if(gyroEnabled) {
+        console.log("Gyroscope already enabled");
+        return true;
+    }
 
     try{
+        // iOS 13+ requires explicit permission request
         if(
             typeof DeviceOrientationEvent !== "undefined" &&
             typeof DeviceOrientationEvent.requestPermission === "function"
         ){
+            console.log("Requesting gyroscope permission...");
             const result = await DeviceOrientationEvent.requestPermission();
+            console.log("Permission result:", result);
+            
             if(result !== "granted"){
-                alert("Gyroscope permission was denied.");
-                return;
+                console.log("Gyroscope permission was denied.");
+                return false;
             }
         }
 
+        // Add listener for all browsers
         window.addEventListener("deviceorientation", onOrientation, true);
         gyroSupported = true;
         gyroEnabled = true;
         gyroButton.style.display = "none";
+        console.log("Gyroscope enabled successfully");
+        return true;
     }catch(err){
-        console.error(err);
-        alert("Unable to access gyroscope.");
+        console.error("Gyroscope error:", err);
+        return false;
     }
 }
 
@@ -575,16 +585,23 @@ canvas.addEventListener("touchend", (e) => {
 // ===================================================
 //            MENU BUTTON HANDLERS
 // ===================================================
-mobileBtn.addEventListener("click", () => {
+mobileBtn.addEventListener("click", async () => {
     controlMode = "mobile";
     gameStarted = true;
     menuOverlay.classList.add("hidden");
+    
     if (gyroSupported) {
-        gyroButton.style.display = "block";
+        // Try to auto-enable gyroscope immediately
+        await enableGyroscope();
+        if (!gyroEnabled) {
+            // If auto-enable failed, show button for manual retry
+            gyroButton.style.display = "block";
+        }
     } else {
         gyroButton.style.display = "none";
+        console.log("Gyroscope not supported on this device");
     }
-    console.log("Mobile mode selected");
+    console.log("Mobile mode selected, gyro enabled:", gyroEnabled);
 });
 
 computerBtn.addEventListener("click", () => {
