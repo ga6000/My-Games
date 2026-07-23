@@ -141,16 +141,32 @@ function fireLaser(x, y, angle, color, shotType = "standard") {
 //                    AUDIO SYSTEM
 // ===================================================
 const sounds = {
-    standardShot: new Audio("pit-pit-pit.mp3"),
+    standardShot: [
+        new Audio("pit-pit-pit-1.mp3"),
+        new Audio("pit-pit-pit-2.mp3"),
+        new Audio("pit-pit-pit-3.mp3")
+    ],
     chargedBeam: new Audio("thwop.mp3")
 };
 
 // Preload sounds
-sounds.standardShot.preload = "auto";
+sounds.standardShot.forEach(sound => sound.preload = "auto");
 sounds.chargedBeam.preload = "auto";
 
+function getRandomStandardShot() {
+    const index = Math.floor(Math.random() * sounds.standardShot.length);
+    return sounds.standardShot[index];
+}
+
 function playLocalSound(shotType) {
-    const sound = sounds[shotType];
+    let sound;
+    
+    if (shotType === "standard") {
+        sound = getRandomStandardShot();
+    } else {
+        sound = sounds.chargedBeam;
+    }
+    
     sound.currentTime = 0;
     sound.volume = 1.0;
     sound.play().catch(e => {
@@ -165,7 +181,13 @@ function playRemoteShotSound(remoteX, remoteY, shotType) {
     
     if (dist > maxHearRange) return; // Too far, don't play
     
-    const sound = sounds[shotType];
+    let sound;
+    
+    if (shotType === "standard") {
+        sound = getRandomStandardShot();
+    } else {
+        sound = sounds.chargedBeam;
+    }
     
     // Volume fades with distance
     const volume = Math.max(0.1, 1 - (dist / maxHearRange));
