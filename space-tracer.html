@@ -138,6 +138,46 @@ function fireLaser(x, y, angle, color, shotType = "standard") {
 }
 
 // ===================================================
+//                    AUDIO SYSTEM
+// ===================================================
+const sounds = {
+    standardShot: new Audio("pit-pit-pit.mp3"),
+    chargedBeam: new Audio("thwop.mp3")
+};
+
+// Preload sounds
+sounds.standardShot.preload = "auto";
+sounds.chargedBeam.preload = "auto";
+
+function playLocalSound(shotType) {
+    const sound = sounds[shotType];
+    sound.currentTime = 0;
+    sound.volume = 1.0;
+    sound.play().catch(e => {
+        // Silently fail - audio might be blocked by browser
+    });
+}
+
+function playRemoteShotSound(remoteX, remoteY, shotType) {
+    // Distance from your ship
+    const dist = Math.hypot(remoteX - ship.x, remoteY - ship.y);
+    const maxHearRange = 5000;
+    
+    if (dist > maxHearRange) return; // Too far, don't play
+    
+    const sound = sounds[shotType];
+    
+    // Volume fades with distance
+    const volume = Math.max(0.1, 1 - (dist / maxHearRange));
+    sound.volume = volume;
+    
+    sound.currentTime = 0;
+    sound.play().catch(e => {
+        // Silently fail
+    });
+}
+
+// ===================================================
 //                    GYROSCOPE
 // ===================================================
 let gyroSupported = false;
@@ -238,6 +278,7 @@ function updateRemotePlayer(id, x, y, angle, color, shot) {
     // Trigger laser if player fired a shot
     if (shot) {
         fireLaser(shot.x, shot.y, shot.angle, playerColor, shot.type || "standard");
+        playRemoteShotSound(shot.x, shot.y, shot.type || "standard");
     }
 }
 
@@ -369,6 +410,7 @@ canvas.addEventListener("mouseup", (e) => {
 
     // Fire local shot immediately
     fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType);
+    playLocalSound(shotType);
 
     // Queue for network update
     pendingShot = {
@@ -406,6 +448,7 @@ canvas.addEventListener("touchend", (e) => {
     }
 
     fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType);
+    playLocalSound(shotType);
 
     pendingShot = {
         x: Number(ship.x.toFixed(1)),
@@ -752,7 +795,7 @@ document.body.addEventListener("touchend", function(e){
 //              INITIAL OVERLAY TEXT
 // ===================================================
 updateOverlay();
-console.log("Gyro Space Prototype Ready - Stages 1-4");
+console.log("Gyro Space Prototype Ready - Stages 1-5 Complete");
 </script>
     
 </body>
