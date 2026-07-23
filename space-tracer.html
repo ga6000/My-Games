@@ -34,7 +34,36 @@ canvas{
     padding:10px;
     border-radius:8px;
     user-select:none;
-    pointer-events:none;
+    pointer-events:auto;
+}
+
+#overlay.hidden{
+    display:none;
+}
+
+#guiToggle{
+    position:absolute;
+    top:12px;
+    left:12px;
+    width:24px;
+    height:24px;
+    border-radius:50%;
+    background:rgba(100,200,255,0.7);
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:12px;
+    font-weight:bold;
+    color:white;
+    z-index:999;
+    border:2px solid rgba(100,200,255,1);
+    transition:all 0.2s ease;
+}
+
+#guiToggle:hover{
+    background:rgba(100,200,255,0.9);
+    transform:scale(1.1);
 }
 
 #menuOverlay{
@@ -114,6 +143,8 @@ button{
 
 <canvas id="game"></canvas>
 
+<div id="guiToggle">⚙</div>
+
 <div id="menuOverlay">
     <div class="menu-container">
         <h1>GYRO SPACE</h1>
@@ -129,6 +160,7 @@ button{
     <div><b>Gyro Space Prototype</b></div>
     <div id="status">Waiting...</div>
     <button id="gyroButton">Enable Gyroscope</button>
+    <button id="musicToggle">Music: ON</button>
     <div style="margin-top:8px;">Click to fire. Hold 3 sec for charged beam.</div>
 </div>
 
@@ -141,7 +173,10 @@ const ctx = canvas.getContext("2d");
 
 const statusText = document.getElementById("status");
 const gyroButton = document.getElementById("gyroButton");
+const musicToggleBtn = document.getElementById("musicToggle");
+const guiToggleBtn = document.getElementById("guiToggle");
 const menuOverlay = document.getElementById("menuOverlay");
+const overlay = document.getElementById("overlay");
 const mobileBtn = document.getElementById("mobileBtn");
 const computerBtn = document.getElementById("computerBtn");
 
@@ -168,6 +203,8 @@ let lastFrame = performance.now();
 let fps = 0;
 let gameStarted = false;
 let controlMode = null; // "mobile" or "computer"
+let guiVisible = true;
+let musicPlaying = true;
 
 // Assign a random vibrant color on spawn
 const myColor = `hsl(${Math.floor(Math.random() * 360)}, 100%, 60%)`;
@@ -290,8 +327,6 @@ let gyroSupported = false;
 let gyroEnabled = false;
 let beta = 0;
 let gamma = 0;
-let lastBeta = 0;
-let lastGamma = 0;
 
 // ===================================================
 //                     INPUT
@@ -378,8 +413,8 @@ function updateRemotePlayer(id, x, y, angle, color, shot) {
         p.angle = angle;
         p.color = playerColor;
         
-        // Add to trail
-        p.trail.push({ x: x, y: y, timestamp: Date.now() });
+        // Add to trail (without timestamp)
+        p.trail.push({ x: x, y: y });
         if (p.trail.length > 500) p.trail.shift();
     }
 
@@ -613,6 +648,34 @@ computerBtn.addEventListener("click", () => {
 });
 
 // ===================================================
+//            MUSIC TOGGLE HANDLER
+// ===================================================
+musicToggleBtn.addEventListener("click", () => {
+    musicPlaying = !musicPlaying;
+    if (musicPlaying) {
+        bgMusic.play();
+        musicToggleBtn.textContent = "Music: ON";
+    } else {
+        bgMusic.pause();
+        musicToggleBtn.textContent = "Music: OFF";
+    }
+});
+
+// ===================================================
+//            GUI TOGGLE HANDLER
+// ===================================================
+guiToggleBtn.addEventListener("click", () => {
+    guiVisible = !guiVisible;
+    if (guiVisible) {
+        overlay.classList.remove("hidden");
+        guiToggleBtn.style.opacity = "1";
+    } else {
+        overlay.classList.add("hidden");
+        guiToggleBtn.style.opacity = "0.3";
+    }
+});
+
+// ===================================================
 //            GENERATE RANDOM STARFIELD
 // ===================================================
 for(let i=0;i<STAR_COUNT;i++){
@@ -630,16 +693,19 @@ function updateShip(dt){
     let desiredAngle;
 
     if(controlMode === "mobile" && gyroEnabled){
-        // TILT-BASED GYRO: Use delta (tilt rate) instead of absolute orientation
-        const betaDelta = beta - lastBeta;
-        const gammaDelta = gamma - lastGamma;
+        // PHONE ORIENTATION-BASED GYRO
+        // beta: rotation around X axis (0 = upright, ±90 = tilted front/back)
+        // gamma: rotation around Z axis (-90 to +90, -90 = left tilt, +90 = right tilt)
+        // Map gamma directly to ship rotation: tilt right = turn right, tilt left = turn left
         
-        // Apply tilt as rotation: tilt right (positive gamma) = turn right
-        const tiltStrength = 0.05;
-        ship.angle += gammaDelta * tiltStrength;
+        // Normalize gamma to ship angle
+        // gamma -90 to +90 maps to a reasonable turn range
+        // Use gamma as primary control for left/right turns
+        desiredAngle = (gamma * Math.PI) / 180; // Convert degrees to radians
         
-        lastBeta = beta;
-        lastGamma = gamma;
+        // Smooth out the angle transitions
+        let difference = wrapAngle(desiredAngle - ship.angle);
+        ship.angle += difference * 0.12; // Slightly faster response than mouse
     }else if(controlMode === "computer"){
         // MOUSE-BASED: Point towards mouse cursor
         desiredAngle = Math.atan2(mouse.y-centerY, mouse.x-centerX);
@@ -670,13 +736,11 @@ function updateTrail(dt){
 
     trail.push({
         x: ship.x,
-        y: ship.y,
-        timestamp: Date.now()
+        y: ship.y
     });
 
-    // Clean up old trail points (5 second lifespan)
-    const now = Date.now();
-    while (trail.length > 0 && now - trail[0].timestamp > 5000) {
+    // Keep trail at reasonable size (no time-based cleanup)
+    if (trail.length > 1000) {
         trail.shift();
     }
 }
@@ -687,30 +751,19 @@ function updateTrail(dt){
 function drawTrail(){
     if(trail.length < 2) return;
 
-    const now = Date.now();
     ctx.strokeStyle = ship.color;
     ctx.lineWidth = 2;
     ctx.beginPath();
 
     for(let i=0;i<trail.length;i++){
         const p = trail[i];
-        const age = now - p.timestamp;
-        
-        // Fade in last 1 second of 5 second lifespan
-        let opacity = 1.0;
-        if (age > 4000) {
-            opacity = Math.max(0, 1 - (age - 4000) / 1000);
-        }
-        
         const sx = centerX + (p.x-camera.x);
         const sy = centerY + (p.y-camera.y);
 
-        ctx.globalAlpha = opacity;
         if(i===0) ctx.moveTo(sx,sy);
         else ctx.lineTo(sx,sy);
     }
     ctx.stroke();
-    ctx.globalAlpha = 1.0;
 }
 
 // ===================================================
@@ -790,8 +843,6 @@ function drawStars(){
 //            DRAW OTHER MULTIPLAYER SHIPS & TRAILS
 // ===================================================
 function drawRemotePlayers(){
-    const now = Date.now();
-
     for (const id in remotePlayers) {
         const p = remotePlayers[id];
 
@@ -801,30 +852,20 @@ function drawRemotePlayers(){
             p.y = lerp(p.y, p.targetY, 0.2);
         }
 
-        // Draw remote trail with fade
+        // Draw remote trail without fade
         if (p.trail && p.trail.length > 1) {
             ctx.strokeStyle = p.color;
             ctx.lineWidth = 2;
             ctx.beginPath();
             for (let i = 0; i < p.trail.length; i++) {
                 const pt = p.trail[i];
-                const age = now - pt.timestamp;
-                
-                // Fade in last 1 second of 5 second lifespan
-                let opacity = 1.0;
-                if (age > 4000) {
-                    opacity = Math.max(0, 1 - (age - 4000) / 1000);
-                }
-                
                 const tsx = centerX + (pt.x - camera.x);
                 const tsy = centerY + (pt.y - camera.y);
                 
-                ctx.globalAlpha = opacity;
                 if (i === 0) ctx.moveTo(tsx, tsy);
                 else ctx.lineTo(tsx, tsy);
             }
             ctx.stroke();
-            ctx.globalAlpha = 1.0;
         }
         
         // Draw remote ship (SOLID)
@@ -928,8 +969,7 @@ requestAnimationFrame(animate);
 // ===================================================
 trail.push({
     x: ship.x,
-    y: ship.y,
-    timestamp: Date.now()
+    y: ship.y
 });
 
 // ===================================================
