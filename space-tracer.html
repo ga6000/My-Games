@@ -230,6 +230,50 @@ const camera = {
 };
 
 // ===================================================
+//           SPATIAL GRID SYSTEM
+// ===================================================
+const GRID_SIZE = 500; // Each cell is 500x500 units
+const grid = {};
+
+function getGridKey(x, y) {
+    const cellX = Math.floor(x / GRID_SIZE);
+    const cellY = Math.floor(y / GRID_SIZE);
+    return `${cellX},${cellY}`;
+}
+
+function getVisibleGridCells() {
+    // Get cells visible on camera (with 1 cell buffer for objects at edges)
+    const minCellX = Math.floor(camera.x / GRID_SIZE) - 1;
+    const minCellY = Math.floor(camera.y / GRID_SIZE) - 1;
+    const maxCellX = Math.floor((camera.x + width) / GRID_SIZE) + 1;
+    const maxCellY = Math.floor((camera.y + height) / GRID_SIZE) + 1;
+    
+    const cells = [];
+    for (let x = minCellX; x <= maxCellX; x++) {
+        for (let y = minCellY; y <= maxCellY; y++) {
+            cells.push(`${x},${y}`);
+        }
+    }
+    return cells;
+}
+
+function addToGrid(key, object) {
+    if (!grid[key]) {
+        grid[key] = [];
+    }
+    grid[key].push(object);
+}
+
+function removeFromGrid(key, object) {
+    if (grid[key]) {
+        const idx = grid[key].indexOf(object);
+        if (idx > -1) {
+            grid[key].splice(idx, 1);
+        }
+    }
+}
+
+// ===================================================
 //              CHARGED BEAM STATE
 // ===================================================
 let mouseDownTime = 0;
@@ -239,8 +283,8 @@ let beamCooldownEnd = 0;
 //                    PROJECTILES
 // ===================================================
 const bullets = [];
-const bulletPool = []; // Reusable bullet objects
-const MAX_BULLETS = 20; // Cap bullets on mobile
+const bulletPool = [];
+const MAX_BULLETS = 200;
 
 // Pre-allocate bullet pool
 for (let i = 0; i < MAX_BULLETS; i++) {
@@ -256,7 +300,8 @@ for (let i = 0; i < MAX_BULLETS; i++) {
         firedAt: { x: 0, y: 0 },
         maxDistance: 500,
         size: 3,
-        active: false
+        active: false,
+        gridKey: null
     });
 }
 
@@ -269,17 +314,13 @@ function fireLaser(x, y, angle, color, shotType = "standard") {
     const maxDist = shotType === "beam" ? 1500 : 500;
     const maxLife = shotType === "beam" ? 150 : 60;
     
-    // Get bullet from pool (or create if pool empty, but this shouldn't happen)
     let bullet;
     if (bulletPool.length > 0) {
         bullet = bulletPool.pop();
     } else {
-        bullet = {
-            firedAt: { x: 0, y: 0 }
-        };
+        bullet = { firedAt: { x: 0, y: 0 }, gridKey: null };
     }
     
-    // Recycle/update bullet
     bullet.x = x;
     bullet.y = y;
     bullet.vx = Math.cos(angle) * 12;
@@ -293,7 +334,9 @@ function fireLaser(x, y, angle, color, shotType = "standard") {
     bullet.maxDistance = maxDist;
     bullet.size = shotType === "beam" ? 5 : 3;
     bullet.active = true;
+    bullet.gridKey = getGridKey(x, y);
     
+    addToGrid(bullet.gridKey, bullet);
     bullets.push(bullet);
 }
 
@@ -309,7 +352,6 @@ const sounds = {
     chargedBeam: new Audio("thwop.mp3")
 };
 
-// Preload sounds
 sounds.standardShot.forEach(sound => sound.preload = "auto");
 sounds.chargedBeam.preload = "auto";
 
@@ -329,17 +371,14 @@ function playLocalSound(shotType) {
     
     sound.currentTime = 0;
     sound.volume = 1.0;
-    sound.play().catch(e => {
-        // Silently fail - audio might be blocked by browser
-    });
+    sound.play().catch(e => {});
 }
 
 function playRemoteShotSound(remoteX, remoteY, shotType) {
-    // Distance from your ship
     const dist = Math.hypot(remoteX - ship.x, remoteY - ship.y);
     const maxHearRange = 5000;
     
-    if (dist > maxHearRange) return; // Too far, don't play
+    if (dist > maxHearRange) return;
     
     let sound;
     
@@ -349,14 +388,11 @@ function playRemoteShotSound(remoteX, remoteY, shotType) {
         sound = sounds.chargedBeam;
     }
     
-    // Volume fades with distance
     const volume = Math.max(0.1, 1 - (dist / maxHearRange));
     sound.volume = volume;
     
     sound.currentTime = 0;
-    sound.play().catch(e => {
-        // Silently fail
-    });
+    sound.play().catch(e => {});
 }
 
 // ===================================================
@@ -366,7 +402,7 @@ let gyroSupported = false;
 let gyroEnabled = false;
 let beta = 0;
 let gamma = 0;
-let neutralGamma = null; // Calibrated "upright" gamma value
+let neutralGamma = null;
 let lastGamma = 0;
 
 // ===================================================
@@ -402,7 +438,6 @@ const remotePlayers = {};
 let lastSendTime = 0;
 const SEND_INTERVAL = 1000 / 20; // 20 updates per sec
 
-// Helper to derive a deterministic color if server doesn't broadcast custom colors
 function getColorFromId(id) {
     let hash = 0;
     for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
@@ -422,7 +457,6 @@ socket.onmessage = event => {
                 updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color);
             }
         } else if (data.type === "players") {
-            // Initial list of players already connected
             if (Array.isArray(data.players)) {
                 data.players.forEach(p => updateRemotePlayer(p.id, p.x, p.y, p.angle, p.color));
             }
@@ -454,12 +488,10 @@ function updateRemotePlayer(id, x, y, angle, color, shot) {
         p.angle = angle;
         p.color = playerColor;
         
-        // Add to trail (without timestamp)
         p.trail.push({ x: x, y: y });
         if (p.trail.length > 500) p.trail.shift();
     }
 
-    // Trigger laser if player fired a shot
     if (shot) {
         fireLaser(shot.x, shot.y, shot.angle, playerColor, shot.type || "standard");
         playRemoteShotSound(shot.x, shot.y, shot.type || "standard");
@@ -504,7 +536,7 @@ function drawCooldownRing() {
     const now = Date.now();
     if (now < beamCooldownEnd) {
         const remainingMs = beamCooldownEnd - now;
-        const progress = 1 - (remainingMs / 5000); // 0 to 1
+        const progress = 1 - (remainingMs / 5000);
         
         ctx.save();
         ctx.translate(centerX, centerY);
@@ -535,6 +567,7 @@ Mode: ${controlMode}<br>
 Gyro Enabled: ${gyroEnabled}${gyroInfo}<br>
 Bullets: ${bullets.length}/${MAX_BULLETS}<br>
 Pool: ${bulletPool.length}<br>
+Grid Cells: ${Object.keys(grid).length}<br>
 Beam Cooldown: ${beamCooldownRemaining}s<br>
 Players Online: ${Object.keys(remotePlayers).length + 1}`;
 }
@@ -549,7 +582,6 @@ async function enableGyroscope(){
     }
 
     try{
-        // iOS 13+ requires explicit permission request
         if(
             typeof DeviceOrientationEvent !== "undefined" &&
             typeof DeviceOrientationEvent.requestPermission === "function"
@@ -564,7 +596,6 @@ async function enableGyroscope(){
             }
         }
 
-        // Add listener for all browsers
         window.addEventListener("deviceorientation", onOrientation, true);
         gyroSupported = true;
         gyroEnabled = true;
@@ -583,14 +614,12 @@ function onOrientation(event){
     beta = event.beta || 0;
     gamma = event.gamma || 0;
     
-    // Auto-calibrate neutral gamma on first movement
     if (neutralGamma === null && Math.abs(gamma) < 90) {
         neutralGamma = gamma;
         console.log("Gyro calibrated! Neutral gamma:", neutralGamma);
     }
 }
 
-// Queue laser shot to transmit on next update tick
 let pendingShot = null;
 
 // ===================================================
@@ -607,17 +636,14 @@ canvas.addEventListener("mouseup", (e) => {
     const holdTime = Date.now() - mouseDownTime;
     const shotType = holdTime >= 3000 ? "beam" : "standard";
     
-    // Check cooldown for beam shots
     if (shotType === "beam" && Date.now() < beamCooldownEnd) {
         console.log("Beam still on cooldown!");
         return;
     }
 
-    // Fire local shot immediately
     fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType);
     playLocalSound(shotType);
 
-    // Queue for network update
     pendingShot = {
         x: Number(ship.x.toFixed(1)),
         y: Number(ship.y.toFixed(1)),
@@ -625,7 +651,6 @@ canvas.addEventListener("mouseup", (e) => {
         type: shotType
     };
 
-    // Set cooldown if beam
     if (shotType === "beam") {
         beamCooldownEnd = Date.now() + 5000;
     }
@@ -678,10 +703,8 @@ mobileBtn.addEventListener("click", async () => {
     menuOverlay.classList.add("hidden");
     
     if (gyroSupported) {
-        // Try to auto-enable gyroscope immediately
         await enableGyroscope();
         if (!gyroEnabled) {
-            // If auto-enable failed, show button for manual retry
             gyroButton.style.display = "block";
         }
     } else {
@@ -745,20 +768,12 @@ function updateShip(dt){
     let desiredAngle;
 
     if(controlMode === "mobile" && gyroEnabled){
-        // TILT-BASED GYRO CONTROL
-        // Use delta from neutral position, not absolute orientation
         if (neutralGamma !== null) {
-            // Calculate how far tilted from neutral
             const gammaDelta = gamma - neutralGamma;
-            
-            // Map tilt to rotation rate:
-            // Small tilt (±5°) = slow turn
-            // Large tilt (±45°) = faster turn
-            const turnStrength = 0.08; // degrees per frame per degree of tilt
+            const turnStrength = 0.08;
             ship.angle += (gammaDelta * Math.PI / 180) * turnStrength;
         }
     }else if(controlMode === "computer"){
-        // MOUSE-BASED: Point towards mouse cursor
         desiredAngle = Math.atan2(mouse.y-centerY, mouse.x-centerX);
         let difference = wrapAngle(desiredAngle-ship.angle);
         ship.angle += difference*0.06;
@@ -790,7 +805,6 @@ function updateTrail(dt){
         y: ship.y
     });
 
-    // Keep trail at reasonable size (no time-based cleanup)
     if (trail.length > 1000) {
         trail.shift();
     }
@@ -818,49 +832,107 @@ function drawTrail(){
 }
 
 // ===================================================
-//               PROJECTILE LOGIC
+//            BATCH RENDER BULLETS BY TYPE
 // ===================================================
 function updateAndDrawBullets() {
-    ctx.fillStyle = "white"; // Default, will be overridden
+    const visibleCells = getVisibleGridCells();
+    const bulletsToRender = [];
     
+    // Collect bullets from visible grid cells only
+    for (const cellKey of visibleCells) {
+        if (grid[cellKey]) {
+            bulletsToRender.push(...grid[cellKey]);
+        }
+    }
+
+    // Separate bullets by type for batch rendering
+    const standardBullets = [];
+    const beamBullets = [];
+
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
+        
+        // Update position
         b.x += b.vx;
         b.y += b.vy;
         b.life--;
 
         if (b.life <= 0) {
-            // Return bullet to pool instead of deleting
-            b.active = false;
+            // Return to pool
+            removeFromGrid(b.gridKey, b);
             bulletPool.push(b);
             bullets.splice(i, 1);
             continue;
         }
 
-        // Calculate distance traveled from spawn point
-        const distTraveled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
-        
-        // Fade if past max distance
-        let opacity = 1.0;
-        if (distTraveled > b.maxDistance) {
-            opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
+        // Update grid if bullet moved to different cell
+        const newGridKey = getGridKey(b.x, b.y);
+        if (newGridKey !== b.gridKey) {
+            removeFromGrid(b.gridKey, b);
+            b.gridKey = newGridKey;
+            addToGrid(newGridKey, b);
         }
 
-        const sx = centerX + (b.x - camera.x);
-        const sy = centerY + (b.y - camera.y);
-
-        // Skip rendering if off-screen (optimization for mobile)
-        if (sx < -50 || sx > width + 50 || sy < -50 || sy > height + 50) {
-            continue;
+        // Collect for batch rendering
+        if (b.type === "beam") {
+            beamBullets.push(b);
+        } else {
+            standardBullets.push(b);
         }
-
-        ctx.fillStyle = b.color;
-        ctx.globalAlpha = opacity;
-        ctx.beginPath();
-        ctx.arc(sx, sy, b.size, 0, Math.PI * 2);
-        ctx.fill();
     }
+
+    // Batch render standard bullets
+    if (standardBullets.length > 0) {
+        renderBulletBatch(standardBullets, false);
+    }
+
+    // Batch render beam bullets
+    if (beamBullets.length > 0) {
+        renderBulletBatch(beamBullets, true);
+    }
+}
+
+function renderBulletBatch(bulletArray, isBeam) {
+    // Group by color for even more optimization
+    const byColor = {};
     
+    for (const b of bulletArray) {
+        if (!byColor[b.color]) {
+            byColor[b.color] = [];
+        }
+        byColor[b.color].push(b);
+    }
+
+    // Render each color group
+    for (const color in byColor) {
+        const bullets = byColor[color];
+        ctx.fillStyle = color;
+
+        for (const b of bullets) {
+            // Calculate distance traveled
+            const distTraveled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
+            
+            // Linear fade (simplified)
+            let opacity = 1.0;
+            if (distTraveled > b.maxDistance) {
+                opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
+            }
+
+            const sx = centerX + (b.x - camera.x);
+            const sy = centerY + (b.y - camera.y);
+
+            // Skip if off-screen
+            if (sx < -50 || sx > width + 50 || sy < -50 || sy > height + 50) {
+                continue;
+            }
+
+            ctx.globalAlpha = opacity;
+            ctx.beginPath();
+            ctx.arc(sx, sy, b.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
     ctx.globalAlpha = 1.0;
 }
     
@@ -868,10 +940,9 @@ function updateAndDrawBullets() {
 //             AUTOMATIC BACKGROUND MUSIC
 // ===================================================
 const bgMusic = new Audio("Gyro Music.mp3");
-bgMusic.volume = 0.3; // 30% background volume
-bgMusic.loop = true;  // Repeat infinitely
+bgMusic.volume = 0.3;
+bgMusic.loop = true;
 
-// Start music on the first tap/click anywhere (handles browser autoplay rules)
 function startAudio() {
     bgMusic.play().then(() => {
         window.removeEventListener("click", startAudio);
@@ -907,13 +978,11 @@ function drawRemotePlayers(){
     for (const id in remotePlayers) {
         const p = remotePlayers[id];
 
-        // Smoothly lerp position
         if (p.targetX !== undefined) {
             p.x = lerp(p.x, p.targetX, 0.2);
             p.y = lerp(p.y, p.targetY, 0.2);
         }
 
-        // Draw remote trail without fade
         if (p.trail && p.trail.length > 1) {
             ctx.strokeStyle = p.color;
             ctx.lineWidth = 2;
@@ -929,7 +998,6 @@ function drawRemotePlayers(){
             ctx.stroke();
         }
         
-        // Draw remote ship (SOLID)
         const sx = centerX + (p.x - camera.x);
         const sy = centerY + (p.y - camera.y);
         
@@ -992,12 +1060,10 @@ function animate(now){
 
     fps = lerp(fps, 1 / Math.max(dt, 0.0001), 0.08);
 
-    // Only update game if started
     if(gameStarted){
         updateShip(dt);
         updateTrail(dt);
 
-        // Send valid JSON update payload to server (~20 per sec)
         if (now - lastSendTime >= SEND_INTERVAL) {
             if (socket.readyState === WebSocket.OPEN) {
                 const payload = {
@@ -1056,7 +1122,7 @@ document.body.addEventListener("touchend", function(e){
 //              INITIAL OVERLAY TEXT
 // ===================================================
 updateOverlay();
-console.log("Gyro Space Prototype Ready - Stages 1-7 Complete");
+console.log("Gyro Space Prototype Ready - Phase 1 Scalability");
 </script>
     
 </body>
