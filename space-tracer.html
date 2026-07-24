@@ -160,7 +160,7 @@ button{
     <div><b>Gyro Space Prototype</b></div>
     <div id="status">Waiting...</div>
     <button id="gyroButton">Enable Gyroscope</button>
-    <button id="musicToggle">Music: ON</button>
+    <button id="audioToggleBtn">Audio: ALL ON</button>
     <div style="margin-top:8px;">Click to fire. Hold 3 sec for charged beam.</div>
 </div>
 
@@ -173,7 +173,7 @@ const ctx = canvas.getContext("2d");
 
 const statusText = document.getElementById("status");
 const gyroButton = document.getElementById("gyroButton");
-const musicToggleBtn = document.getElementById("musicToggle");
+const audioToggleBtn = document.getElementById("audioToggleBtn");
 const guiToggleBtn = document.getElementById("guiToggle");
 const menuOverlay = document.getElementById("menuOverlay");
 const overlay = document.getElementById("overlay");
@@ -200,11 +200,12 @@ resize();
 // ===================================================
 let paused = false;
 let lastFrame = performance.now();
+let frameTime = 0;
 let fps = 0;
 let gameStarted = false;
 let controlMode = null; // "mobile" or "computer"
 let guiVisible = true;
-let musicPlaying = true;
+let audioEnabled = true;
 
 // Assign a random vibrant color on spawn
 const myColor = `hsl(${Math.floor(Math.random() * 360)}, 100%, 60%)`;
@@ -242,7 +243,6 @@ function getGridKey(x, y) {
 }
 
 function getVisibleGridCells() {
-    // Get cells visible on camera (with 1 cell buffer for objects at edges)
     const minCellX = Math.floor(camera.x / GRID_SIZE) - 1;
     const minCellY = Math.floor(camera.y / GRID_SIZE) - 1;
     const maxCellX = Math.floor((camera.x + width) / GRID_SIZE) + 1;
@@ -306,7 +306,6 @@ for (let i = 0; i < MAX_BULLETS; i++) {
 }
 
 function fireLaser(x, y, angle, color, shotType = "standard") {
-    // Don't spawn if at max bullets
     if (bullets.length >= MAX_BULLETS) {
         return;
     }
@@ -361,33 +360,23 @@ function getRandomStandardShot() {
 }
 
 function playLocalSound(shotType) {
-    let sound;
-    
-    if (shotType === "standard") {
-        sound = getRandomStandardShot();
-    } else {
-        sound = sounds.chargedBeam;
-    }
-    
+    if (!audioEnabled) return;
+
+    let sound = shotType === "standard" ? getRandomStandardShot() : sounds.chargedBeam;
     sound.currentTime = 0;
     sound.volume = 1.0;
     sound.play().catch(e => {});
 }
 
 function playRemoteShotSound(remoteX, remoteY, shotType) {
+    if (!audioEnabled) return;
+
     const dist = Math.hypot(remoteX - ship.x, remoteY - ship.y);
     const maxHearRange = 5000;
     
     if (dist > maxHearRange) return;
     
-    let sound;
-    
-    if (shotType === "standard") {
-        sound = getRandomStandardShot();
-    } else {
-        sound = sounds.chargedBeam;
-    }
-    
+    let sound = shotType === "standard" ? getRandomStandardShot() : sounds.chargedBeam;
     const volume = Math.max(0.1, 1 - (dist / maxHearRange));
     sound.volume = volume;
     
@@ -403,7 +392,6 @@ let gyroEnabled = false;
 let beta = 0;
 let gamma = 0;
 let neutralGamma = null;
-let lastGamma = 0;
 
 // ===================================================
 //                     INPUT
@@ -436,7 +424,7 @@ const socket = new WebSocket("wss://my-games-faxi.onrender.com");
 const remotePlayers = {}; 
 
 let lastSendTime = 0;
-const SEND_INTERVAL = 1000 / 20; // 20 updates per sec
+const SEND_INTERVAL = 1000 / 20;
 
 function getColorFromId(id) {
     let hash = 0;
@@ -561,8 +549,8 @@ function updateOverlay(){
         gyroInfo = `<br>Beta: ${beta.toFixed(1)}°<br>Gamma: ${gamma.toFixed(1)}°<br>Neutral: ${neutralGamma?.toFixed(1) || "?"}°`;
     }
     
-    statusText.innerHTML=
-`FPS: ${fps.toFixed(0)}<br>
+    statusText.innerHTML =
+`FPS: ${fps.toFixed(0)} | ${frameTime.toFixed(1)}ms<br>
 Mode: ${controlMode}<br>
 Gyro Enabled: ${gyroEnabled}${gyroInfo}<br>
 Bullets: ${bullets.length}/${MAX_BULLETS}<br>
@@ -576,31 +564,21 @@ Players Online: ${Object.keys(remotePlayers).length + 1}`;
 //           GYROSCOPE PERMISSION & EVENTS
 // ===================================================
 async function enableGyroscope(){
-    if(gyroEnabled) {
-        console.log("Gyroscope already enabled");
-        return true;
-    }
+    if(gyroEnabled) return true;
 
     try{
         if(
             typeof DeviceOrientationEvent !== "undefined" &&
             typeof DeviceOrientationEvent.requestPermission === "function"
         ){
-            console.log("Requesting gyroscope permission...");
             const result = await DeviceOrientationEvent.requestPermission();
-            console.log("Permission result:", result);
-            
-            if(result !== "granted"){
-                console.log("Gyroscope permission was denied.");
-                return false;
-            }
+            if(result !== "granted") return false;
         }
 
         window.addEventListener("deviceorientation", onOrientation, true);
         gyroSupported = true;
         gyroEnabled = true;
         gyroButton.style.display = "none";
-        console.log("Gyroscope enabled successfully");
         return true;
     }catch(err){
         console.error("Gyroscope error:", err);
@@ -616,7 +594,6 @@ function onOrientation(event){
     
     if (neutralGamma === null && Math.abs(gamma) < 90) {
         neutralGamma = gamma;
-        console.log("Gyro calibrated! Neutral gamma:", neutralGamma);
     }
 }
 
@@ -637,7 +614,6 @@ canvas.addEventListener("mouseup", (e) => {
     const shotType = holdTime >= 3000 ? "beam" : "standard";
     
     if (shotType === "beam" && Date.now() < beamCooldownEnd) {
-        console.log("Beam still on cooldown!");
         return;
     }
 
@@ -709,9 +685,7 @@ mobileBtn.addEventListener("click", async () => {
         }
     } else {
         gyroButton.style.display = "none";
-        console.log("Gyroscope not supported on this device");
     }
-    console.log("Mobile mode selected, gyro enabled:", gyroEnabled);
 });
 
 computerBtn.addEventListener("click", () => {
@@ -719,20 +693,19 @@ computerBtn.addEventListener("click", () => {
     gameStarted = true;
     menuOverlay.classList.add("hidden");
     gyroButton.style.display = "none";
-    console.log("Computer mode selected");
 });
 
 // ===================================================
-//            MUSIC TOGGLE HANDLER
+//            AUDIO TOGGLE HANDLER
 // ===================================================
-musicToggleBtn.addEventListener("click", () => {
-    musicPlaying = !musicPlaying;
-    if (musicPlaying) {
-        bgMusic.play();
-        musicToggleBtn.textContent = "Music: ON";
+audioToggleBtn.addEventListener("click", () => {
+    audioEnabled = !audioEnabled;
+    if (audioEnabled) {
+        bgMusic.play().catch(() => {});
+        audioToggleBtn.textContent = "Audio: ALL ON";
     } else {
         bgMusic.pause();
-        musicToggleBtn.textContent = "Music: OFF";
+        audioToggleBtn.textContent = "Audio: ALL OFF";
     }
 });
 
@@ -838,34 +811,29 @@ function updateAndDrawBullets() {
     const visibleCells = getVisibleGridCells();
     const bulletsToRender = [];
     
-    // Collect bullets from visible grid cells only
     for (const cellKey of visibleCells) {
         if (grid[cellKey]) {
             bulletsToRender.push(...grid[cellKey]);
         }
     }
 
-    // Separate bullets by type for batch rendering
     const standardBullets = [];
     const beamBullets = [];
 
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         
-        // Update position
         b.x += b.vx;
         b.y += b.vy;
         b.life--;
 
         if (b.life <= 0) {
-            // Return to pool
             removeFromGrid(b.gridKey, b);
             bulletPool.push(b);
             bullets.splice(i, 1);
             continue;
         }
 
-        // Update grid if bullet moved to different cell
         const newGridKey = getGridKey(b.x, b.y);
         if (newGridKey !== b.gridKey) {
             removeFromGrid(b.gridKey, b);
@@ -873,7 +841,6 @@ function updateAndDrawBullets() {
             addToGrid(newGridKey, b);
         }
 
-        // Collect for batch rendering
         if (b.type === "beam") {
             beamBullets.push(b);
         } else {
@@ -881,19 +848,16 @@ function updateAndDrawBullets() {
         }
     }
 
-    // Batch render standard bullets
     if (standardBullets.length > 0) {
         renderBulletBatch(standardBullets, false);
     }
 
-    // Batch render beam bullets
     if (beamBullets.length > 0) {
         renderBulletBatch(beamBullets, true);
     }
 }
 
 function renderBulletBatch(bulletArray, isBeam) {
-    // Group by color for even more optimization
     const byColor = {};
     
     for (const b of bulletArray) {
@@ -903,16 +867,13 @@ function renderBulletBatch(bulletArray, isBeam) {
         byColor[b.color].push(b);
     }
 
-    // Render each color group
     for (const color in byColor) {
         const bullets = byColor[color];
         ctx.fillStyle = color;
 
         for (const b of bullets) {
-            // Calculate distance traveled
             const distTraveled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
             
-            // Linear fade (simplified)
             let opacity = 1.0;
             if (distTraveled > b.maxDistance) {
                 opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
@@ -921,7 +882,6 @@ function renderBulletBatch(bulletArray, isBeam) {
             const sx = centerX + (b.x - camera.x);
             const sy = centerY + (b.y - camera.y);
 
-            // Skip if off-screen
             if (sx < -50 || sx > width + 50 || sy < -50 || sy > height + 50) {
                 continue;
             }
@@ -944,6 +904,7 @@ bgMusic.volume = 0.3;
 bgMusic.loop = true;
 
 function startAudio() {
+    if (!audioEnabled) return;
     bgMusic.play().then(() => {
         window.removeEventListener("click", startAudio);
         window.removeEventListener("touchstart", startAudio);
@@ -1055,6 +1016,8 @@ window.addEventListener("keydown", e => {
 function animate(now){
     requestAnimationFrame(animate);
 
+    const frameStartTime = performance.now();
+
     const dt = Math.min((now - lastFrame) / 1000, 0.05);
     lastFrame = now;
 
@@ -1086,6 +1049,10 @@ function animate(now){
     }
 
     drawScene();
+    
+    // Calculate frame time spent executing update + draw logic
+    frameTime = performance.now() - frameStartTime;
+    
     updateOverlay();
 }
 
@@ -1122,7 +1089,6 @@ document.body.addEventListener("touchend", function(e){
 //              INITIAL OVERLAY TEXT
 // ===================================================
 updateOverlay();
-console.log("Gyro Space Prototype Ready - Phase 1 Scalability");
 </script>
     
 </body>
