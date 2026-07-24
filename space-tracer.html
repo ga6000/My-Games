@@ -327,6 +327,8 @@ let gyroSupported = false;
 let gyroEnabled = false;
 let beta = 0;
 let gamma = 0;
+let neutralGamma = null; // Calibrated "upright" gamma value
+let lastGamma = 0;
 
 // ===================================================
 //                     INPUT
@@ -483,10 +485,15 @@ function updateOverlay(){
     const now = Date.now();
     const beamCooldownRemaining = Math.max(0, Math.ceil((beamCooldownEnd - now) / 1000));
     
+    let gyroInfo = "";
+    if (gyroEnabled) {
+        gyroInfo = `<br>Beta: ${beta.toFixed(1)}°<br>Gamma: ${gamma.toFixed(1)}°<br>Neutral: ${neutralGamma?.toFixed(1) || "?"}°`;
+    }
+    
     statusText.innerHTML=
 `FPS: ${fps.toFixed(0)}<br>
 Mode: ${controlMode}<br>
-Gyro Enabled: ${gyroEnabled}<br>
+Gyro Enabled: ${gyroEnabled}${gyroInfo}<br>
 Trail Points: ${trail.length}<br>
 Bullets: ${bullets.length}<br>
 Beam Cooldown: ${beamCooldownRemaining}s<br>
@@ -536,6 +543,12 @@ gyroButton.addEventListener("click", enableGyroscope);
 function onOrientation(event){
     beta = event.beta || 0;
     gamma = event.gamma || 0;
+    
+    // Auto-calibrate neutral gamma on first movement
+    if (neutralGamma === null && Math.abs(gamma) < 90) {
+        neutralGamma = gamma;
+        console.log("Gyro calibrated! Neutral gamma:", neutralGamma);
+    }
 }
 
 // Queue laser shot to transmit on next update tick
@@ -693,19 +706,18 @@ function updateShip(dt){
     let desiredAngle;
 
     if(controlMode === "mobile" && gyroEnabled){
-        // PHONE ORIENTATION-BASED GYRO
-        // beta: rotation around X axis (0 = upright, ±90 = tilted front/back)
-        // gamma: rotation around Z axis (-90 to +90, -90 = left tilt, +90 = right tilt)
-        // Map gamma directly to ship rotation: tilt right = turn right, tilt left = turn left
-        
-        // Normalize gamma to ship angle
-        // gamma -90 to +90 maps to a reasonable turn range
-        // Use gamma as primary control for left/right turns
-        desiredAngle = (gamma * Math.PI) / 180; // Convert degrees to radians
-        
-        // Smooth out the angle transitions
-        let difference = wrapAngle(desiredAngle - ship.angle);
-        ship.angle += difference * 0.12; // Slightly faster response than mouse
+        // TILT-BASED GYRO CONTROL
+        // Use delta from neutral position, not absolute orientation
+        if (neutralGamma !== null) {
+            // Calculate how far tilted from neutral
+            const gammaDelta = gamma - neutralGamma;
+            
+            // Map tilt to rotation rate:
+            // Small tilt (±5°) = slow turn
+            // Large tilt (±45°) = faster turn
+            const turnStrength = 0.08; // degrees per frame per degree of tilt
+            ship.angle += (gammaDelta * Math.PI / 180) * turnStrength;
+        }
     }else if(controlMode === "computer"){
         // MOUSE-BASED: Point towards mouse cursor
         desiredAngle = Math.atan2(mouse.y-centerY, mouse.x-centerX);
