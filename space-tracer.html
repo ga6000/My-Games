@@ -240,7 +240,7 @@ let beamCooldownEnd = 0;
 // ===================================================
 const bullets = [];
 const bulletPool = []; // Reusable bullet objects
-const MAX_BULLETS = 100; // Cap bullets on mobile
+const MAX_BULLETS = 20; // Cap bullets on mobile
 
 // Pre-allocate bullet pool
 for (let i = 0; i < MAX_BULLETS; i++) {
@@ -255,7 +255,7 @@ for (let i = 0; i < MAX_BULLETS; i++) {
         type: "standard",
         firedAt: { x: 0, y: 0 },
         maxDistance: 500,
-        size: 4,
+        size: 3,
         active: false
     });
 }
@@ -291,7 +291,7 @@ function fireLaser(x, y, angle, color, shotType = "standard") {
     bullet.firedAt.x = x;
     bullet.firedAt.y = y;
     bullet.maxDistance = maxDist;
-    bullet.size = shotType === "beam" ? 6 : 4;
+    bullet.size = shotType === "beam" ? 5 : 3;
     bullet.active = true;
     
     bullets.push(bullet);
