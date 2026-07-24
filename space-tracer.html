@@ -239,23 +239,62 @@ let beamCooldownEnd = 0;
 //                    PROJECTILES
 // ===================================================
 const bullets = [];
+const bulletPool = []; // Reusable bullet objects
+const MAX_BULLETS = 100; // Cap bullets on mobile
+
+// Pre-allocate bullet pool
+for (let i = 0; i < MAX_BULLETS; i++) {
+    bulletPool.push({
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        life: 0,
+        maxLife: 0,
+        color: "#fff",
+        type: "standard",
+        firedAt: { x: 0, y: 0 },
+        maxDistance: 500,
+        size: 4,
+        active: false
+    });
+}
 
 function fireLaser(x, y, angle, color, shotType = "standard") {
-    const maxDist = shotType === "beam" ? 1500 : 500;
+    // Don't spawn if at max bullets
+    if (bullets.length >= MAX_BULLETS) {
+        return;
+    }
     
-    bullets.push({
-        x: x,
-        y: y,
-        vx: Math.cos(angle) * 12,
-        vy: Math.sin(angle) * 12,
-        life: shotType === "beam" ? 150 : 60,
-        color: color,
-        type: shotType,
-        firedAt: { x, y },
-        firedTime: performance.now(),
-        maxDistance: maxDist,
-        size: shotType === "beam" ? 6 : 4
-    });
+    const maxDist = shotType === "beam" ? 1500 : 500;
+    const maxLife = shotType === "beam" ? 150 : 60;
+    
+    // Get bullet from pool (or create if pool empty, but this shouldn't happen)
+    let bullet;
+    if (bulletPool.length > 0) {
+        bullet = bulletPool.pop();
+    } else {
+        bullet = {
+            firedAt: { x: 0, y: 0 }
+        };
+    }
+    
+    // Recycle/update bullet
+    bullet.x = x;
+    bullet.y = y;
+    bullet.vx = Math.cos(angle) * 12;
+    bullet.vy = Math.sin(angle) * 12;
+    bullet.life = maxLife;
+    bullet.maxLife = maxLife;
+    bullet.color = color;
+    bullet.type = shotType;
+    bullet.firedAt.x = x;
+    bullet.firedAt.y = y;
+    bullet.maxDistance = maxDist;
+    bullet.size = shotType === "beam" ? 6 : 4;
+    bullet.active = true;
+    
+    bullets.push(bullet);
 }
 
 // ===================================================
@@ -494,8 +533,8 @@ function updateOverlay(){
 `FPS: ${fps.toFixed(0)}<br>
 Mode: ${controlMode}<br>
 Gyro Enabled: ${gyroEnabled}${gyroInfo}<br>
-Trail Points: ${trail.length}<br>
-Bullets: ${bullets.length}<br>
+Bullets: ${bullets.length}/${MAX_BULLETS}<br>
+Pool: ${bulletPool.length}<br>
 Beam Cooldown: ${beamCooldownRemaining}s<br>
 Players Online: ${Object.keys(remotePlayers).length + 1}`;
 }
@@ -782,6 +821,8 @@ function drawTrail(){
 //               PROJECTILE LOGIC
 // ===================================================
 function updateAndDrawBullets() {
+    ctx.fillStyle = "white"; // Default, will be overridden
+    
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.x += b.vx;
@@ -789,6 +830,9 @@ function updateAndDrawBullets() {
         b.life--;
 
         if (b.life <= 0) {
+            // Return bullet to pool instead of deleting
+            b.active = false;
+            bulletPool.push(b);
             bullets.splice(i, 1);
             continue;
         }
@@ -799,20 +843,25 @@ function updateAndDrawBullets() {
         // Fade if past max distance
         let opacity = 1.0;
         if (distTraveled > b.maxDistance) {
-            // Fade over 100 units past max distance
             opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
         }
 
         const sx = centerX + (b.x - camera.x);
         const sy = centerY + (b.y - camera.y);
 
+        // Skip rendering if off-screen (optimization for mobile)
+        if (sx < -50 || sx > width + 50 || sy < -50 || sy > height + 50) {
+            continue;
+        }
+
         ctx.fillStyle = b.color;
         ctx.globalAlpha = opacity;
         ctx.beginPath();
         ctx.arc(sx, sy, b.size, 0, Math.PI * 2);
         ctx.fill();
-        ctx.globalAlpha = 1.0;
     }
+    
+    ctx.globalAlpha = 1.0;
 }
     
 // ===================================================
