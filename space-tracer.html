@@ -286,7 +286,8 @@ function removeFromGrid(key, object) {
 // ===================================================
 //              CHARGED BEAM STATE
 // ===================================================
-let mouseDownTime = 0;
+let isChargingBeam = false;
+let beamChargeStartTime = 0;
 let beamCooldownEnd = 0;
 
 // ===================================================
@@ -357,11 +358,13 @@ const sounds = {
         new Audio("pit-pit-pit-2.mp3"),
         new Audio("pit-pit-pit-3.mp3")
     ],
-    chargedBeam: new Audio("thwop.mp3")
+    chargedBeam: new Audio("thwop.mp3"),
+    chargeSound: new Audio("thwop-charge.mp3")
 };
 
 sounds.standardShot.forEach(sound => sound.preload = "auto");
 sounds.chargedBeam.preload = "auto";
+sounds.chargeSound.preload = "auto";
 
 function getRandomStandardShot() {
     const index = Math.floor(Math.random() * sounds.standardShot.length);
@@ -393,6 +396,30 @@ function playRemoteShotSound(remoteX, remoteY, shotType) {
     sound.play().catch(e => {});
 }
 
+function startBeamChargeAudio() {
+    if (!audioEnabled) return;
+    sounds.chargeSound.currentTime = 0;
+    sounds.chargeSound.volume = 1.0;
+    sounds.chargeSound.play().catch(e => {});
+}
+
+function updateBeamChargeAudio() {
+    if (!audioEnabled || !isChargingBeam) return;
+    
+    // Cycle last 0.5s of charge sound effect if held beyond sound duration
+    if (sounds.chargeSound.duration > 0.5) {
+        const loopStart = sounds.chargeSound.duration - 0.5;
+        if (sounds.chargeSound.currentTime >= sounds.chargeSound.duration - 0.05) {
+            sounds.chargeSound.currentTime = loopStart;
+        }
+    }
+}
+
+function stopBeamChargeAudio() {
+    sounds.chargeSound.pause();
+    sounds.chargeSound.currentTime = 0;
+}
+
 // ===================================================
 //                    GYROSCOPE
 // ===================================================
@@ -416,7 +443,7 @@ window.addEventListener("mousemove", e => {
 });
 
 // ===================================================
-//                  STARFIELD (20X Boost = 50,000)
+//                  STARFIELD (50,000)
 // ===================================================
 const STAR_COUNT = 50000;
 const stars = [];
@@ -535,10 +562,30 @@ function drawShip(){
 }
 
 // ===================================================
-//           DRAW BEAM COOLDOWN RING
+//   DRAW CHARGE-UP & BEAM COOLDOWN RINGS
 // ===================================================
 function drawCooldownRing() {
     const now = Date.now();
+    
+    // 1. Draw Charge-Up Animation (Reverse cooldown)
+    if (isChargingBeam) {
+        const chargeTime = Math.min(3000, now - beamChargeStartTime);
+        const chargeProgress = chargeTime / 3000;
+        
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.strokeStyle = `rgba(100, 220, 255, ${0.4 + chargeProgress * 0.6})`;
+        ctx.lineWidth = 3 + chargeProgress * 2;
+        ctx.beginPath();
+        // Reverse closing arc towards top
+        const startAngle = -Math.PI / 2 - Math.PI * (1 - chargeProgress);
+        const endAngle = -Math.PI / 2 + Math.PI * (1 - chargeProgress);
+        ctx.arc(0, 0, 40 - chargeProgress * 10, startAngle, endAngle);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // 2. Cooldown Ring After Beam Shot
     if (now < beamCooldownEnd) {
         const remainingMs = beamCooldownEnd - now;
         const progress = 1 - (remainingMs / 5000);
@@ -571,7 +618,7 @@ function updateOverlay(){
         if (isDashing) {
             dashInfo = `<br>Dash ACTIVE: ${dashTimeRemaining.toFixed(1)}s (3x Speed)`;
         } else if (spaceHeld) {
-            dashInfo = `<br>Dash Charging: ${dashChargeDuration.toFixed(1)}s / 10s`;
+            dashInfo = `<br>Dash Charging: ${dashChargeDuration.toFixed(1)}s (-40% Speed Penalty)`;
         } else {
             dashInfo = `<br>Dash Ready (Hold SPACE)`;
         }
@@ -633,13 +680,18 @@ let pendingShot = null;
 // ===================================================
 canvas.addEventListener("mousedown", (e) => {
     if (e.target !== canvas || !gameStarted) return;
-    mouseDownTime = Date.now();
+    isChargingBeam = true;
+    beamChargeStartTime = Date.now();
+    startBeamChargeAudio();
 });
 
 canvas.addEventListener("mouseup", (e) => {
     if (e.target !== canvas || !gameStarted) return;
 
-    const holdTime = Date.now() - mouseDownTime;
+    const holdTime = Date.now() - beamChargeStartTime;
+    isChargingBeam = false;
+    stopBeamChargeAudio();
+
     const shotType = holdTime >= 3000 ? "beam" : "standard";
     
     if (shotType === "beam" && Date.now() < beamCooldownEnd) {
@@ -664,18 +716,21 @@ canvas.addEventListener("mouseup", (e) => {
 // ===================================================
 //      TOUCH SUPPORT FOR CHARGED BEAM
 // ===================================================
-let touchStartTime = 0;
-
 canvas.addEventListener("touchstart", (e) => {
     if (e.target !== canvas || !gameStarted) return;
-    touchStartTime = Date.now();
+    isChargingBeam = true;
+    beamChargeStartTime = Date.now();
+    startBeamChargeAudio();
     e.preventDefault();
 }, { passive: false });
 
 canvas.addEventListener("touchend", (e) => {
     if (e.target !== canvas || !gameStarted) return;
 
-    const holdTime = Date.now() - touchStartTime;
+    const holdTime = Date.now() - beamChargeStartTime;
+    isChargingBeam = false;
+    stopBeamChargeAudio();
+
     const shotType = holdTime >= 3000 ? "beam" : "standard";
     
     if (shotType === "beam" && Date.now() < beamCooldownEnd) {
@@ -734,6 +789,7 @@ audioToggleBtn.addEventListener("click", () => {
         audioToggleBtn.textContent = "Audio: ALL ON";
     } else {
         bgMusic.pause();
+        stopBeamChargeAudio();
         audioToggleBtn.textContent = "Audio: ALL OFF";
     }
 });
@@ -769,9 +825,12 @@ function updateShip(dt){
         let difference = wrapAngle(desiredAngle-ship.angle);
         ship.angle += difference*0.06;
 
-        // Computer Dash charging/activation calculation
+        // Computer Dash charging & 40% speed reduction penalty
         if (spaceHeld && !isDashing) {
             dashChargeDuration = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+            ship.speed = ship.baseSpeed * 0.6; // Reduced 40% while charging
+        } else if (!isDashing) {
+            ship.speed = ship.baseSpeed;
         }
 
         if (isDashing) {
@@ -844,7 +903,7 @@ function updateAndDrawBullets() {
     
     for (const cellKey of visibleCells) {
         if (grid[cellKey]) {
-            // Cell exists
+            // Cell active
         }
     }
 
@@ -1048,10 +1107,11 @@ window.addEventListener("keyup", e => {
         spaceHeld = false;
         const holdDurationSec = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
         if (holdDurationSec > 0.1) {
-            // Dash duration scales with charge held: 10s hold -> 5s max dash
             dashTimeRemaining = (holdDurationSec / 10) * 5;
             isDashing = true;
             ship.speed = ship.baseSpeed * 3;
+        } else {
+            ship.speed = ship.baseSpeed;
         }
         dashChargeDuration = 0;
     }
@@ -1073,6 +1133,7 @@ function animate(now){
     if(gameStarted){
         updateShip(dt);
         updateTrail(dt);
+        updateBeamChargeAudio();
 
         if (now - lastSendTime >= SEND_INTERVAL) {
             if (socket.readyState === WebSocket.OPEN) {
