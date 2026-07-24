@@ -161,7 +161,7 @@ button{
     <div id="status">Waiting...</div>
     <button id="gyroButton">Enable Gyroscope</button>
     <button id="audioToggleBtn">Audio: ALL ON</button>
-    <div style="margin-top:8px;">Click to fire. Hold 3 sec for charged beam.</div>
+    <div style="margin-top:8px;">Click to fire. Hold 3 sec for charged beam.<br>Computer: Hold [SPACE] to charge Dash.</div>
 </div>
 
 <script>
@@ -217,10 +217,20 @@ const ship = {
     x: 0,
     y: 0,
     angle: 0,
+    baseSpeed: 3,
     speed: 3,
     size: 18,
     color: myColor
 };
+
+// ===================================================
+//               DASH MECHANICS (SPACE)
+// ===================================================
+let spaceHeld = false;
+let spaceHoldStartTime = 0;
+let dashChargeDuration = 0; // seconds held (up to 10)
+let dashTimeRemaining = 0;   // active dash time remaining (up to 5)
+let isDashing = false;
 
 // ===================================================
 //               CAMERA / WORLD POSITION
@@ -233,7 +243,7 @@ const camera = {
 // ===================================================
 //           SPATIAL GRID SYSTEM
 // ===================================================
-const GRID_SIZE = 500; // Each cell is 500x500 units
+const GRID_SIZE = 500;
 const grid = {};
 
 function getGridKey(x, y) {
@@ -286,7 +296,6 @@ const bullets = [];
 const bulletPool = [];
 const MAX_BULLETS = 200;
 
-// Pre-allocate bullet pool
 for (let i = 0; i < MAX_BULLETS; i++) {
     bulletPool.push({
         x: 0,
@@ -407,10 +416,18 @@ window.addEventListener("mousemove", e => {
 });
 
 // ===================================================
-//                  STARFIELD
+//                  STARFIELD (20X Boost = 50,000)
 // ===================================================
-const STAR_COUNT = 2500;
+const STAR_COUNT = 50000;
 const stars = [];
+
+for(let i=0; i<STAR_COUNT; i++){
+    stars.push({
+        x: (Math.random()-0.5)*30000,
+        y: (Math.random()-0.5)*30000,
+        size: Math.random()*2+0.4
+    });
+}
 
 // ===================================================
 //                    TRAIL
@@ -548,10 +565,22 @@ function updateOverlay(){
     if (gyroEnabled) {
         gyroInfo = `<br>Beta: ${beta.toFixed(1)}°<br>Gamma: ${gamma.toFixed(1)}°<br>Neutral: ${neutralGamma?.toFixed(1) || "?"}°`;
     }
+
+    let dashInfo = "";
+    if (controlMode === "computer") {
+        if (isDashing) {
+            dashInfo = `<br>Dash ACTIVE: ${dashTimeRemaining.toFixed(1)}s (3x Speed)`;
+        } else if (spaceHeld) {
+            dashInfo = `<br>Dash Charging: ${dashChargeDuration.toFixed(1)}s / 10s`;
+        } else {
+            dashInfo = `<br>Dash Ready (Hold SPACE)`;
+        }
+    }
     
     statusText.innerHTML =
 `FPS: ${fps.toFixed(0)} | ${frameTime.toFixed(1)}ms<br>
-Mode: ${controlMode}<br>
+Pos: X: ${Math.round(ship.x)} | Y: ${Math.round(ship.y)}<br>
+Mode: ${controlMode}${dashInfo}<br>
 Gyro Enabled: ${gyroEnabled}${gyroInfo}<br>
 Bullets: ${bullets.length}/${MAX_BULLETS}<br>
 Pool: ${bulletPool.length}<br>
@@ -724,17 +753,6 @@ guiToggleBtn.addEventListener("click", () => {
 });
 
 // ===================================================
-//            GENERATE RANDOM STARFIELD
-// ===================================================
-for(let i=0;i<STAR_COUNT;i++){
-    stars.push({
-        x:(Math.random()-0.5)*30000,
-        y:(Math.random()-0.5)*30000,
-        size:Math.random()*2+0.4
-    });
-}
-
-// ===================================================
 //                  SHIP MOVEMENT
 // ===================================================
 function updateShip(dt){
@@ -750,6 +768,20 @@ function updateShip(dt){
         desiredAngle = Math.atan2(mouse.y-centerY, mouse.x-centerX);
         let difference = wrapAngle(desiredAngle-ship.angle);
         ship.angle += difference*0.06;
+
+        // Computer Dash charging/activation calculation
+        if (spaceHeld && !isDashing) {
+            dashChargeDuration = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+        }
+
+        if (isDashing) {
+            dashTimeRemaining -= dt;
+            if (dashTimeRemaining <= 0) {
+                dashTimeRemaining = 0;
+                isDashing = false;
+                ship.speed = ship.baseSpeed;
+            }
+        }
     }
 
     if(!paused){
@@ -809,11 +841,10 @@ function drawTrail(){
 // ===================================================
 function updateAndDrawBullets() {
     const visibleCells = getVisibleGridCells();
-    const bulletsToRender = [];
     
     for (const cellKey of visibleCells) {
         if (grid[cellKey]) {
-            bulletsToRender.push(...grid[cellKey]);
+            // Cell exists
         }
     }
 
@@ -920,9 +951,10 @@ window.addEventListener("touchstart", startAudio);
 function drawStars(){
     ctx.fillStyle="white";
 
-    for(const star of stars){
-        const sx = centerX + (star.x-camera.x*0.05);
-        const sy = centerY + (star.y-camera.y*0.05);
+    for(let i=0; i<STAR_COUNT; i++){
+        const star = stars[i];
+        const sx = centerX + (star.x - camera.x*0.05);
+        const sy = centerY + (star.y - camera.y*0.05);
 
         if(sx<0 || sy<0 || sx>width || sy>height) continue;
 
@@ -1002,11 +1034,26 @@ if ("DeviceOrientationEvent" in window) {
 }
 
 // ===================================================
-//             OPTIONAL KEYBOARD TESTING
+//          KEYBOARD CONTROL FOR COMPUTER DASH
 // ===================================================
 window.addEventListener("keydown", e => {
-    if (e.code === "Space") {
-        paused = !paused;
+    if (e.code === "Space" && controlMode === "computer" && !spaceHeld && !e.repeat) {
+        spaceHeld = true;
+        spaceHoldStartTime = performance.now();
+    }
+});
+
+window.addEventListener("keyup", e => {
+    if (e.code === "Space" && controlMode === "computer" && spaceHeld) {
+        spaceHeld = false;
+        const holdDurationSec = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+        if (holdDurationSec > 0.1) {
+            // Dash duration scales with charge held: 10s hold -> 5s max dash
+            dashTimeRemaining = (holdDurationSec / 10) * 5;
+            isDashing = true;
+            ship.speed = ship.baseSpeed * 3;
+        }
+        dashChargeDuration = 0;
     }
 });
 
@@ -1050,9 +1097,7 @@ function animate(now){
 
     drawScene();
     
-    // Calculate frame time spent executing update + draw logic
     frameTime = performance.now() - frameStartTime;
-    
     updateOverlay();
 }
 
