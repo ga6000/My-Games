@@ -622,6 +622,7 @@ function updateRemotePlayer(id, x, y, angle, color, shot) {
     }
 
     if (shot) {
+        console.log("Remote shot received:", shot);
         fireLaser(shot.x, shot.y, shot.angle, playerColor, shot.type || "standard");
         playRemoteShotSound(shot.x, shot.y, shot.type || "standard");
     }
@@ -832,12 +833,15 @@ canvas.addEventListener("mouseup", (e) => {
     fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType);
     playLocalSound(shotType); // Plays thwop on release of beam
 
+    // IMPORTANT: Queue shot for network broadcast
     pendingShot = {
         x: Number(ship.x.toFixed(1)),
         y: Number(ship.y.toFixed(1)),
         angle: Number(ship.angle.toFixed(2)),
         type: shotType
     };
+    
+    console.log("Shot fired:", pendingShot);
 
     if (shotType === "beam") {
         beamCooldownEnd = Date.now() + 5000;
@@ -1317,7 +1321,10 @@ function animate(now){
 
                 if (pendingShot) {
                     payload.shot = pendingShot;
+                    console.log("Sending payload with shot:", payload);
                     pendingShot = null;
+                } else {
+                    console.log("Sending payload (no shot):", payload);
                 }
 
                 socket.send(JSON.stringify(payload));
