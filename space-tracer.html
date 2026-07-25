@@ -225,7 +225,9 @@ const ship = {
     baseSpeed: 3,
     speed: 3,
     size: 18,
-    color: myColor
+    color: myColor,
+    isAlive: true,
+    deathTime: 0
 };
 
 // ===================================================
@@ -485,8 +487,80 @@ for(let i=0; i<STAR_COUNT; i++){
 const trail = [];
 
 // ===================================================
-//                 MULTIPLAYER STATE
+//                  EXPLOSIONS
 // ===================================================
+const explosions = [];
+const explosionPool = [];
+const MAX_EXPLOSIONS = 50;
+
+for (let i = 0; i < MAX_EXPLOSIONS; i++) {
+    explosionPool.push({
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        life: 0,
+        maxLife: 30,
+        size: 2,
+        color: "#fff",
+        active: false
+    });
+}
+
+function createExplosion(x, y, count = 12) {
+    for (let i = 0; i < count; i++) {
+        if (explosionPool.length === 0) break;
+        
+        const particle = explosionPool.pop();
+        const angle = (i / count) * Math.PI * 2;
+        const speed = 3 + Math.random() * 4;
+        
+        particle.x = x;
+        particle.y = y;
+        particle.vx = Math.cos(angle) * speed;
+        particle.vy = Math.sin(angle) * speed;
+        particle.life = 30;
+        particle.maxLife = 30;
+        particle.size = 2 + Math.random() * 2;
+        particle.color = ship.color;
+        particle.active = true;
+        
+        explosions.push(particle);
+    }
+}
+
+function updateAndDrawExplosions() {
+    for (let i = explosions.length - 1; i >= 0; i--) {
+        const p = explosions[i];
+        
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        
+        if (p.life <= 0) {
+            explosionPool.push(p);
+            explosions.splice(i, 1);
+            continue;
+        }
+        
+        // Fade out
+        const opacity = p.life / p.maxLife;
+        
+        const sx = centerX + (p.x - camera.x);
+        const sy = centerY + (p.y - camera.y);
+        
+        if (sx < -50 || sx > width + 50 || sy < -50 || sy > height + 50) {
+            continue;
+        }
+        
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = opacity;
+        ctx.beginPath();
+        ctx.arc(sx, sy, p.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1.0;
+}
 const socket = new WebSocket("wss://my-games-faxi.onrender.com");
 const remotePlayers = {}; 
 
@@ -570,6 +644,8 @@ function wrapAngle(a){
 //              DRAW SHIP (SOLID)
 // ===================================================
 function drawShip(){
+    if (!ship.isAlive) return; // Don't draw if dead
+    
     ctx.save();
     ctx.translate(centerX,centerY);
     ctx.rotate(ship.angle);
@@ -876,6 +952,26 @@ guiToggleBtn.addEventListener("click", () => {
 //                  SHIP MOVEMENT
 // ===================================================
 function updateShip(dt){
+    // Handle respawn
+    if (!ship.isAlive) {
+        const now = Date.now();
+        const timeSinceDeath = now - ship.deathTime;
+        
+        if (timeSinceDeath >= 2000) {
+            // Respawn at origin
+            ship.x = 0;
+            ship.y = 0;
+            ship.angle = 0;
+            ship.isAlive = true;
+            
+            // Broadcast respawn to other players
+            pendingShot = null; // Clear any pending shots
+        } else {
+            // Dead, don't move
+            return;
+        }
+    }
+    
     let desiredAngle;
 
     if(controlMode === "mobile" && gyroEnabled){
@@ -973,6 +1069,22 @@ function updateAndDrawBullets() {
         b.x += b.vx;
         b.y += b.vy;
         b.life--;
+
+        // Check collision with player ship
+        if (ship.isAlive) {
+            const dist = Math.hypot(b.x - ship.x, b.y - ship.y);
+            if (dist < ship.size + b.size) {
+                // Hit! Create explosion and kill player
+                createExplosion(ship.x, ship.y, 15);
+                ship.isAlive = false;
+                ship.deathTime = Date.now();
+                
+                removeFromGrid(b.gridKey, b);
+                bulletPool.push(b);
+                bullets.splice(i, 1);
+                continue;
+            }
+        }
 
         if (b.life <= 0) {
             removeFromGrid(b.gridKey, b);
@@ -1135,11 +1247,12 @@ function drawScene(){
     ctx.fillRect(0, 0, width, height);
 
     drawStars();
-    drawTrail();
-    drawRemotePlayers();
+    drawTrail();           // Draw trail first (behind)
+    drawRemotePlayers();   // Draw remote players on top of trail
     drawCooldownRing();
-    drawShip();
+    drawShip();            // Draw your ship on top
     updateAndDrawBullets();
+    updateAndDrawExplosions(); // Draw explosions on top of everything
 }
 
 // ===================================================
