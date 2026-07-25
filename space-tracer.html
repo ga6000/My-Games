@@ -488,6 +488,39 @@ for(let i=0; i<STAR_COUNT; i++){
 const trail = [];
 
 // ===================================================
+//              WORLD BOUNDS & SAFE ZONE
+// ===================================================
+const WORLD_BOUNDS = {
+    min: -1000,
+    max: 1000,
+    size: 2000,
+    borderThickness: 30
+};
+
+const SAFE_ZONE = {
+    x: 0,
+    y: 0,
+    radius: 50
+};
+
+function isInSafeZone(x, y) {
+    const dist = Math.hypot(x - SAFE_ZONE.x, y - SAFE_ZONE.y);
+    return dist <= SAFE_ZONE.radius;
+}
+
+function isOutOfBounds(x, y) {
+    return x < WORLD_BOUNDS.min || x > WORLD_BOUNDS.max || 
+           y < WORLD_BOUNDS.min || y > WORLD_BOUNDS.max;
+}
+
+function clampToBounds(x, y) {
+    return {
+        x: Math.max(WORLD_BOUNDS.min, Math.min(WORLD_BOUNDS.max, x)),
+        y: Math.max(WORLD_BOUNDS.min, Math.min(WORLD_BOUNDS.max, y))
+    };
+}
+
+// ===================================================
 //                  EXPLOSIONS
 // ===================================================
 const explosions = [];
@@ -566,7 +599,7 @@ const socket = new WebSocket("wss://my-games-faxi.onrender.com");
 const remotePlayers = {}; 
 
 let lastSendTime = 0;
-const SEND_INTERVAL = 1000 / 20;
+const SEND_INTERVAL = 1000 / 10; // 10 updates per sec (reduced from 20 for latency optimization)
 
 function getColorFromId(id) {
     let hash = 0;
@@ -1039,6 +1072,26 @@ function updateShip(dt){
         ship.y += Math.sin(ship.angle) * ship.speed;
     }
 
+    // Check border collision - bounce back and explode if hitting border
+    if (isOutOfBounds(ship.x, ship.y) && !isInSafeZone(ship.x, ship.y)) {
+        // Only explode if we just crossed the border
+        const prevX = ship.x - Math.cos(ship.angle) * ship.speed;
+        const prevY = ship.y - Math.sin(ship.angle) * ship.speed;
+        
+        if (!isOutOfBounds(prevX, prevY)) {
+            // Just hit the border - kill player
+            createExplosion(ship.x, ship.y, 15);
+            ship.isAlive = false;
+            ship.deathTime = Date.now();
+            trail = []; // Clear trail immediately
+        } else {
+            // Clamp position to bounds
+            const clamped = clampToBounds(ship.x, ship.y);
+            ship.x = clamped.x;
+            ship.y = clamped.y;
+        }
+    }
+
     camera.x = ship.x;
     camera.y = ship.y;
 }
@@ -1102,14 +1155,25 @@ function updateAndDrawBullets() {
         b.y += b.vy;
         b.life--;
 
-        // Check collision with player ship (only from remote shots)
-        if (ship.isAlive && !b.isLocalShot) {
+        // Check collision with world border
+        if (isOutOfBounds(b.x, b.y)) {
+            // Bullet hit border - explode
+            createExplosion(b.x, b.y, 8);
+            removeFromGrid(b.gridKey, b);
+            bulletPool.push(b);
+            bullets.splice(i, 1);
+            continue;
+        }
+
+        // Check collision with player ship (only from remote shots, not in safe zone)
+        if (ship.isAlive && !b.isLocalShot && !isInSafeZone(ship.x, ship.y)) {
             const dist = Math.hypot(b.x - ship.x, b.y - ship.y);
             if (dist < ship.size + b.size) {
                 // Hit! Create explosion and kill player
                 createExplosion(ship.x, ship.y, 15);
                 ship.isAlive = false;
                 ship.deathTime = Date.now();
+                trail = []; // Clear trail immediately on death
                 
                 removeFromGrid(b.gridKey, b);
                 bulletPool.push(b);
@@ -1277,6 +1341,55 @@ function drawRemotePlayers(){
 }
 
 // ===================================================
+//          DRAW WORLD BORDER & SAFE ZONE
+// ===================================================
+function drawWorldBorder() {
+    // Draw outer fade border (30px with opacity fade)
+    const outerX = centerX + (WORLD_BOUNDS.min - camera.x);
+    const outerY = centerY + (WORLD_BOUNDS.min - camera.y);
+    const outerSize = (WORLD_BOUNDS.max - WORLD_BOUNDS.min);
+    const innerX = outerX + WORLD_BOUNDS.borderThickness;
+    const innerY = outerY + WORLD_BOUNDS.borderThickness;
+    const innerSize = outerSize - (WORLD_BOUNDS.borderThickness * 2);
+    
+    // Draw outer border (fully opaque white line)
+    ctx.strokeStyle = "rgba(255, 255, 255, 1)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(outerX, outerY, outerSize, outerSize);
+    
+    // Draw fade zone (30px border with opacity fade)
+    const gradient = ctx.createLinearGradient(outerX, outerY, innerX, innerY);
+    gradient.addColorStop(0, "rgba(255, 255, 255, 0.3)");
+    gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+    
+    // Draw four fade borders (top, right, bottom, left)
+    ctx.fillStyle = gradient;
+    ctx.fillRect(outerX, outerY, outerSize, WORLD_BOUNDS.borderThickness); // Top
+    
+    ctx.fillRect(outerX + outerSize - WORLD_BOUNDS.borderThickness, outerY, WORLD_BOUNDS.borderThickness, outerSize); // Right
+    
+    ctx.fillRect(outerX, outerY + outerSize - WORLD_BOUNDS.borderThickness, outerSize, WORLD_BOUNDS.borderThickness); // Bottom
+    
+    ctx.fillRect(outerX, outerY, WORLD_BOUNDS.borderThickness, outerSize); // Left
+}
+
+function drawSafeZone() {
+    const sx = centerX + (SAFE_ZONE.x - camera.x);
+    const sy = centerY + (SAFE_ZONE.y - camera.y);
+    
+    // Draw safe zone circle with 20% opaque white fill
+    ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.beginPath();
+    ctx.arc(sx, sy, SAFE_ZONE.radius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Draw circle outline
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
+// ===================================================
 //               DRAW ENTIRE SCENE
 // ===================================================
 function drawScene(){
@@ -1284,6 +1397,8 @@ function drawScene(){
     ctx.fillRect(0, 0, width, height);
 
     drawStars();
+    drawWorldBorder();     // Draw world border
+    drawSafeZone();        // Draw safe zone
     drawTrail();           // Draw trail first (behind)
     drawRemotePlayers();   // Draw remote players on top of trail
     drawCooldownRing();
