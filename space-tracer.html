@@ -294,6 +294,7 @@ function removeFromGrid(key, object) {
 let isChargingBeam = false;
 let beamChargeStartTime = 0;
 let beamCooldownEnd = 0;
+const MIN_CHARGE_TIME = 500; // 0.5 seconds before animation shows
 
 // ===================================================
 //                    PROJECTILES
@@ -411,10 +412,27 @@ function startBeamChargeAudio() {
 function updateBeamChargeAudio() {
     if (!audioEnabled || !isChargingBeam) return;
     
-    // Loop last 0.5s of charge sound if held past end
+    // Check if we should be playing charge sound (only after 0.5s hold)
+    const now = Date.now();
+    const holdTime = now - beamChargeStartTime;
+    
+    if (holdTime < MIN_CHARGE_TIME) {
+        // Don't play charge sound yet
+        return;
+    }
+    
+    // If audio is not currently playing, start it
+    if (sounds.chargeSound.paused) {
+        sounds.chargeSound.currentTime = 0;
+        sounds.chargeSound.volume = 1.0;
+        sounds.chargeSound.play().catch(e => {});
+    }
+    
+    // Loop last 0.5s of charge sound continuously
     if (sounds.chargeSound.duration > 0.5) {
         const loopStart = sounds.chargeSound.duration - 0.5;
-        if (sounds.chargeSound.currentTime >= sounds.chargeSound.duration - 0.05) {
+        // If reached end or near end, reset to loop point
+        if (sounds.chargeSound.currentTime >= sounds.chargeSound.duration - 0.1) {
             sounds.chargeSound.currentTime = loopStart;
         }
     }
@@ -573,9 +591,11 @@ function drawCooldownRing() {
     const now = Date.now();
     
     // 1. Draw Charge-Up Animation (Inverse white expanding arc)
-    if (isChargingBeam) {
-        const chargeTime = Math.min(3000, now - beamChargeStartTime);
-        const chargeProgress = chargeTime / 3000;
+    // Only show if held for at least MIN_CHARGE_TIME and cooldown is complete
+    if (isChargingBeam && now >= beamCooldownEnd) {
+        const chargeTime = Math.max(0, now - beamChargeStartTime - MIN_CHARGE_TIME);
+        const maxChargeTime = 3000 - MIN_CHARGE_TIME;
+        const chargeProgress = Math.min(1, chargeTime / maxChargeTime);
         
         ctx.save();
         ctx.translate(centerX, centerY);
@@ -707,9 +727,15 @@ let pendingShot = null;
 // ===================================================
 canvas.addEventListener("mousedown", (e) => {
     if (e.target !== canvas || !gameStarted) return;
+    
+    // Can only start charging if cooldown is complete
+    const now = Date.now();
+    if (now < beamCooldownEnd) {
+        return;
+    }
+    
     isChargingBeam = true;
     beamChargeStartTime = Date.now();
-    startBeamChargeAudio();
 });
 
 canvas.addEventListener("mouseup", (e) => {
@@ -719,8 +745,10 @@ canvas.addEventListener("mouseup", (e) => {
     isChargingBeam = false;
     stopBeamChargeAudio();
 
+    // Only fire if held long enough
     const shotType = holdTime >= 3000 ? "beam" : "standard";
     
+    // Check cooldown (should not happen if we prevented charging, but safety check)
     if (shotType === "beam" && Date.now() < beamCooldownEnd) {
         return;
     }
@@ -745,9 +773,16 @@ canvas.addEventListener("mouseup", (e) => {
 // ===================================================
 canvas.addEventListener("touchstart", (e) => {
     if (e.target !== canvas || !gameStarted) return;
+    
+    // Can only start charging if cooldown is complete
+    const now = Date.now();
+    if (now < beamCooldownEnd) {
+        e.preventDefault();
+        return;
+    }
+    
     isChargingBeam = true;
     beamChargeStartTime = Date.now();
-    startBeamChargeAudio();
     e.preventDefault();
 }, { passive: false });
 
@@ -758,9 +793,11 @@ canvas.addEventListener("touchend", (e) => {
     isChargingBeam = false;
     stopBeamChargeAudio();
 
+    // Only fire if held long enough
     const shotType = holdTime >= 3000 ? "beam" : "standard";
     
     if (shotType === "beam" && Date.now() < beamCooldownEnd) {
+        e.preventDefault();
         return;
     }
 
