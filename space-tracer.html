@@ -352,6 +352,7 @@ function fireLaser(x, y, angle, color, shotType = "standard") {
     bullet.size = shotType === "beam" ? 6 : 3; // 2x beam size (3 * 2 = 6)
     bullet.active = true;
     bullet.gridKey = getGridKey(x, y);
+    bullet.isLocalShot = true; // Mark as our shot (don't collide with us)
     
     addToGrid(bullet.gridKey, bullet);
     bullets.push(bullet);
@@ -623,7 +624,12 @@ function updateRemotePlayer(id, x, y, angle, color, shot) {
 
     if (shot) {
         console.log("Remote shot received:", shot);
+        // Fire remote shot - isLocalShot will be false (undefined = false)
         fireLaser(shot.x, shot.y, shot.angle, playerColor, shot.type || "standard");
+        // Clear isLocalShot flag on the last bullet (it's a remote shot)
+        if (bullets.length > 0) {
+            bullets[bullets.length - 1].isLocalShot = false;
+        }
         playRemoteShotSound(shot.x, shot.y, shot.type || "standard");
     }
 }
@@ -1074,8 +1080,8 @@ function updateAndDrawBullets() {
         b.y += b.vy;
         b.life--;
 
-        // Check collision with player ship
-        if (ship.isAlive) {
+        // Check collision with player ship (only from remote shots)
+        if (ship.isAlive && !b.isLocalShot) {
             const dist = Math.hypot(b.x - ship.x, b.y - ship.y);
             if (dist < ship.size + b.size) {
                 // Hit! Create explosion and kill player
