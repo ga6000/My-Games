@@ -581,24 +581,31 @@ socket.onmessage = event => {
         if (data.type === "welcome") {
             console.log("Connected! My ID is:", data.id);
         } else if (data.type === "leave") {
+            console.log("Player left:", data.id);
             delete remotePlayers[data.id];
         } else if (data.type === "join") {
+            console.log("Player joined:", data.player?.id);
             if (data.player) {
                 updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color);
             }
         } else if (data.type === "players") {
+            console.log("Initial players list:", data.players?.length);
             if (Array.isArray(data.players)) {
                 data.players.forEach(p => updateRemotePlayer(p.id, p.x, p.y, p.angle, p.color));
             }
         } else if (data.type === "update" && data.player) {
-            updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, data.player.shot);
+            // Log update with shot info
+            if (data.player.shot) {
+                console.log("Received update with shot from", data.player.id, ":", data.player.shot);
+            }
+            updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, data.player.shot, data.player.isAlive);
         }
     } catch(e) {
         console.error("Error parsing server message", e);
     }
 };
 
-function updateRemotePlayer(id, x, y, angle, color, shot) {
+function updateRemotePlayer(id, x, y, angle, color, shot, isAlive) {
     let p = remotePlayers[id];
     const playerColor = color || getColorFromId(id);
 
@@ -610,7 +617,8 @@ function updateRemotePlayer(id, x, y, angle, color, shot) {
             targetY: y, 
             angle: angle, 
             color: playerColor,
-            trail: [] 
+            trail: [],
+            isAlive: isAlive !== false  // Default to alive if not specified
         };
     } else {
         p.targetX = x;
@@ -618,8 +626,21 @@ function updateRemotePlayer(id, x, y, angle, color, shot) {
         p.angle = angle;
         p.color = playerColor;
         
-        p.trail.push({ x: x, y: y });
-        if (p.trail.length > 500) p.trail.shift();
+        // Handle death state change
+        if (isAlive === false && p.isAlive === true) {
+            // Player just died - create explosion
+            createExplosion(p.x, p.y, 15);
+            p.trail = []; // Clear trail immediately
+            console.log("Remote player died:", id);
+        }
+        
+        p.isAlive = isAlive !== false;
+        
+        // Only add to trail if alive
+        if (isAlive !== false) {
+            p.trail.push({ x: x, y: y });
+            if (p.trail.length > 500) p.trail.shift();
+        }
     }
 
     if (shot) {
@@ -1209,6 +1230,11 @@ function drawRemotePlayers(){
     for (const id in remotePlayers) {
         const p = remotePlayers[id];
 
+        // Skip dead players
+        if (!p.isAlive) {
+            continue;
+        }
+
         if (p.targetX !== undefined) {
             p.x = lerp(p.x, p.targetX, 0.2);
             p.y = lerp(p.y, p.targetY, 0.2);
@@ -1322,7 +1348,8 @@ function animate(now){
                     x: Number(ship.x.toFixed(1)),
                     y: Number(ship.y.toFixed(1)),
                     angle: Number(ship.angle.toFixed(2)),
-                    color: ship.color
+                    color: ship.color,
+                    isAlive: ship.isAlive  // ✅ ADD THIS LINE to broadcast alive state
                 };
 
                 if (pendingShot) {
