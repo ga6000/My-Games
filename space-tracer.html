@@ -586,12 +586,12 @@ socket.onmessage = event => {
         } else if (data.type === "join") {
             console.log("Player joined:", data.player?.id);
             if (data.player) {
-                updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color);
+                updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, null, data.player.isAlive);
             }
         } else if (data.type === "players") {
             console.log("Initial players list:", data.players?.length);
             if (Array.isArray(data.players)) {
-                data.players.forEach(p => updateRemotePlayer(p.id, p.x, p.y, p.angle, p.color));
+                data.players.forEach(p => updateRemotePlayer(p.id, p.x, p.y, p.angle, p.color, null, p.isAlive));
             }
         } else if (data.type === "update" && data.player) {
             // Log update with shot info
@@ -620,6 +620,7 @@ function updateRemotePlayer(id, x, y, angle, color, shot, isAlive) {
             trail: [],
             isAlive: isAlive !== false  // Default to alive if not specified
         };
+        console.log("Remote player created:", id, "isAlive:", isAlive);
     } else {
         p.targetX = x;
         p.targetY = y;
@@ -629,9 +630,9 @@ function updateRemotePlayer(id, x, y, angle, color, shot, isAlive) {
         // Handle death state change
         if (isAlive === false && p.isAlive === true) {
             // Player just died - create explosion
+            console.log("Remote player DIED:", id, "at", x, y);
             createExplosion(p.x, p.y, 15);
             p.trail = []; // Clear trail immediately
-            console.log("Remote player died:", id);
         }
         
         p.isAlive = isAlive !== false;
