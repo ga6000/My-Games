@@ -248,7 +248,23 @@ let controlMode = null;
 let guiVisible = true;
 let audioEnabled = true;
 
-const myColor = `hsl(${Math.floor(Math.random() * 360)}, 100%, 60%)`;
+// Predefined color palette (consistent across all clients)
+const COLOR_PALETTE = [
+    "hsl(0, 100%, 60%)",     // Red
+    "hsl(30, 100%, 60%)",    // Orange
+    "hsl(60, 100%, 60%)",    // Yellow
+    "hsl(120, 100%, 60%)",   // Green
+    "hsl(180, 100%, 60%)",   // Cyan
+    "hsl(240, 100%, 60%)",   // Blue
+    "hsl(270, 100%, 60%)",   // Violet
+    "hsl(300, 100%, 60%)",   // Magenta
+    "hsl(15, 100%, 60%)",    // Orange-Red
+    "hsl(45, 100%, 60%)"     // Yellow-Orange
+];
+
+// Assign color based on player ID (consistent across all clients)
+let myColor = COLOR_PALETTE[0]; // Will be set from server after welcome message
+let myPlayerId = null;
 
 // ===================================================
 //                     SHIP
@@ -279,7 +295,15 @@ let isDashing = false;
 // ===================================================
 const camera = {
     x: 0,
-    y: 0
+    y: 0,
+    zoom: 1.0  // 1.0 = normal, <1.0 = zoomed out
+};
+
+const ZOOM_SETTINGS = {
+    desktop: 1.0,
+    mobile: 0.7,  // Mobile zoomed out to see more (desktop parity)
+    minZoom: 0.5,
+    maxZoom: 2.0
 };
 
 // ===================================================
@@ -529,7 +553,7 @@ const WORLD_BOUNDS = {
     min: -1000,
     max: 1000,
     size: 2000,
-    borderThickness: 300  // Increased from 30 (10x)
+    borderThickness: 100  // Solid 100px border
 };
 
 const SAFE_ZONE = {
@@ -637,9 +661,9 @@ let lastSendTime = 0;
 const SEND_INTERVAL = 1000 / 10; // 10 updates per sec (reduced from 20 for latency optimization)
 
 function getColorFromId(id) {
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
-    return `hsl(${Math.abs(hash) % 360}, 100%, 60%)`;
+    // Use consistent color palette based on first character of ID
+    const colorIndex = id.charCodeAt(0) % COLOR_PALETTE.length;
+    return COLOR_PALETTE[colorIndex];
 }
 
 socket.onmessage = event => {
@@ -647,7 +671,11 @@ socket.onmessage = event => {
         const data = JSON.parse(event.data);
 
         if (data.type === "welcome") {
-            console.log("Connected! My ID is:", data.id);
+            myPlayerId = data.id;
+            // Assign color based on player ID (deterministic, same on all clients)
+            const colorIndex = data.id.charCodeAt(0) % COLOR_PALETTE.length;
+            myColor = COLOR_PALETTE[colorIndex];
+            console.log("Connected! My ID is:", data.id, "Color:", myColor);
         } else if (data.type === "leave") {
             console.log("Player left:", data.id);
             delete remotePlayers[data.id];
@@ -738,13 +766,26 @@ function wrapAngle(a){
 }
 
 // ===================================================
+//           COORDINATE TRANSFORMATION
+// ===================================================
+function worldToScreen(worldX, worldY) {
+    const relX = worldX - camera.x;
+    const relY = worldY - camera.y;
+    return {
+        x: centerX + (relX * camera.zoom),
+        y: centerY + (relY * camera.zoom)
+    };
+}
+
+// ===================================================
 //              DRAW SHIP (SOLID)
 // ===================================================
 function drawShip(){
     if (!ship.isAlive) return; // Don't draw if dead
     
     ctx.save();
-    ctx.translate(centerX,centerY);
+    ctx.translate(centerX, centerY);
+    ctx.scale(camera.zoom, camera.zoom);
     ctx.rotate(ship.angle);
     ctx.fillStyle = ship.color;
     ctx.beginPath();
@@ -772,6 +813,7 @@ function drawCooldownRing() {
         
         ctx.save();
         ctx.translate(centerX, centerY);
+        ctx.scale(camera.zoom, camera.zoom);
         ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + chargeProgress * 0.7})`;
         ctx.lineWidth = 2 + chargeProgress * 3;
         ctx.beginPath();
@@ -790,6 +832,7 @@ function drawCooldownRing() {
         
         ctx.save();
         ctx.translate(centerX, centerY);
+        ctx.scale(camera.zoom, camera.zoom);
         ctx.strokeStyle = "rgba(255, 100, 100, 0.6)";
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -1002,6 +1045,7 @@ mobileBtn.addEventListener("click", async () => {
     gameStarted = true;
     menuOverlay.classList.add("hidden");
     mobileDashButton.style.display = "flex"; // Show mobile dash button
+    camera.zoom = ZOOM_SETTINGS.mobile; // Zoom out for mobile
     
     if (gyroSupported) {
         await enableGyroscope();
@@ -1019,6 +1063,7 @@ computerBtn.addEventListener("click", () => {
     menuOverlay.classList.add("hidden");
     gyroButton.style.display = "none";
     mobileDashButton.style.display = "none"; // Hide mobile dash button
+    camera.zoom = ZOOM_SETTINGS.desktop; // Normal zoom for desktop
 });
 
 // ===================================================
@@ -1413,45 +1458,13 @@ function drawWorldBorder() {
     const outerX = centerX + (WORLD_BOUNDS.min - camera.x);
     const outerY = centerY + (WORLD_BOUNDS.min - camera.y);
     const outerSize = (WORLD_BOUNDS.max - WORLD_BOUNDS.min);
-    const innerX = outerX + WORLD_BOUNDS.borderThickness;
-    const innerY = outerY + WORLD_BOUNDS.borderThickness;
-    const innerSize = outerSize - (WORLD_BOUNDS.borderThickness * 2);
     
-    // Draw solid inner rectangle (100% opaque)
+    // Draw solid white border (100px thick)
     ctx.fillStyle = "rgba(255, 255, 255, 1)";
     ctx.fillRect(outerX, outerY, outerSize, WORLD_BOUNDS.borderThickness); // Top
     ctx.fillRect(outerX + outerSize - WORLD_BOUNDS.borderThickness, outerY, WORLD_BOUNDS.borderThickness, outerSize); // Right
     ctx.fillRect(outerX, outerY + outerSize - WORLD_BOUNDS.borderThickness, outerSize, WORLD_BOUNDS.borderThickness); // Bottom
     ctx.fillRect(outerX, outerY, WORLD_BOUNDS.borderThickness, outerSize); // Left
-    
-    // Draw fade zones (outward fade from solid border)
-    // Top fade
-    const topGradient = ctx.createLinearGradient(outerY, outerY + WORLD_BOUNDS.borderThickness, outerY - WORLD_BOUNDS.borderThickness, outerY);
-    topGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
-    topGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-    ctx.fillStyle = topGradient;
-    ctx.fillRect(outerX, outerY - WORLD_BOUNDS.borderThickness, outerSize, WORLD_BOUNDS.borderThickness);
-    
-    // Bottom fade
-    const bottomGradient = ctx.createLinearGradient(outerY + outerSize - WORLD_BOUNDS.borderThickness, outerY + outerSize, outerY + outerSize + WORLD_BOUNDS.borderThickness, outerY + outerSize);
-    bottomGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
-    bottomGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-    ctx.fillStyle = bottomGradient;
-    ctx.fillRect(outerX, outerY + outerSize, outerSize, WORLD_BOUNDS.borderThickness);
-    
-    // Left fade
-    const leftGradient = ctx.createLinearGradient(outerX + WORLD_BOUNDS.borderThickness, outerY, outerX - WORLD_BOUNDS.borderThickness, outerY);
-    leftGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
-    leftGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-    ctx.fillStyle = leftGradient;
-    ctx.fillRect(outerX - WORLD_BOUNDS.borderThickness, outerY, WORLD_BOUNDS.borderThickness, outerSize);
-    
-    // Right fade
-    const rightGradient = ctx.createLinearGradient(outerX + outerSize - WORLD_BOUNDS.borderThickness, outerY, outerX + outerSize + WORLD_BOUNDS.borderThickness, outerY);
-    rightGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
-    rightGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-    ctx.fillStyle = rightGradient;
-    ctx.fillRect(outerX + outerSize, outerY, WORLD_BOUNDS.borderThickness, outerSize);
 }
 
 function drawSafeZone() {
