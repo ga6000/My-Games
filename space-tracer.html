@@ -190,6 +190,10 @@ button{
     align-items: center;
     justify-content: center;
     transition: opacity 0.3s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 .start-screen.hidden {
@@ -217,6 +221,7 @@ button{
 /* Screen 1: Title */
 #screen1-title {
     background: linear-gradient(135deg, #000 0%, #1a1a2e 100%);
+    cursor: pointer;
 }
 
 .game-title {
@@ -262,37 +267,43 @@ button{
     color: #64c8ff;
 }
 
+/* 4-sided pyramid: top point, front triangle, back triangle, left triangle, right triangle */
 .pyramid-face-front {
-    background: rgba(100, 200, 255, 0.2);
+    background: rgba(100, 200, 255, 0.25);
+    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
     transform: translateZ(30px);
+    width: 60px;
+    height: 60px;
 }
 
 .pyramid-face-back {
     background: rgba(100, 200, 255, 0.15);
+    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
     transform: rotateY(180deg) translateZ(30px);
 }
 
 .pyramid-face-right {
-    background: rgba(100, 200, 255, 0.25);
+    background: rgba(100, 200, 255, 0.3);
+    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
     transform: rotateY(90deg) translateZ(30px);
 }
 
 .pyramid-face-left {
-    background: rgba(100, 200, 255, 0.25);
+    background: rgba(100, 200, 255, 0.3);
+    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
     transform: rotateY(-90deg) translateZ(30px);
 }
 
 .pyramid-face-bottom {
-    background: rgba(100, 200, 255, 0.1);
-    transform: rotateX(-90deg) translateZ(30px);
+    display: none; /* Hide base for pyramid */
 }
 
 @keyframes pyramidRotate {
     from {
-        transform: rotateX(20deg) rotateY(0deg) rotateZ(0deg);
+        transform: rotateX(15deg) rotateY(0deg) rotateZ(0deg);
     }
     to {
-        transform: rotateX(20deg) rotateY(360deg) rotateZ(0deg);
+        transform: rotateX(15deg) rotateY(360deg) rotateZ(0deg);
     }
 }
 
@@ -1039,7 +1050,8 @@ function updateRemotePlayer(id, x, y, angle, color, shot, isAlive) {
             angle: angle, 
             color: playerColor,
             trail: [],
-            isAlive: isAlive !== false  // Default to alive if not specified
+            isAlive: isAlive !== false,  // Default to alive if not specified
+            name: ""  // Remote players start with no name (server doesn't send yet)
         };
         console.log("Remote player created:", id, "isAlive:", isAlive);
     } else {
@@ -1121,6 +1133,16 @@ function drawShip(){
     ctx.closePath();
     ctx.fill();
     ctx.restore();
+    
+    // Draw player name above ship
+    if (ship.name) {
+        ctx.save();
+        ctx.fillStyle = ship.color;
+        ctx.font = "12px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(ship.name, centerX, centerY - 35);
+        ctx.restore();
+    }
 }
 
 // ===================================================
@@ -1381,7 +1403,8 @@ const screen4EnterBtn = document.getElementById("screen4-enter-btn");
 let playerName = "";
 
 // Screen 1: Click to advance
-screen1.addEventListener("click", () => {
+screen1.addEventListener("click", (e) => {
+    e.stopPropagation();
     screen1.classList.add("hidden");
     screen2.classList.remove("hidden");
 });
@@ -1875,6 +1898,16 @@ function drawRemotePlayers(){
         ctx.fill();
         
         ctx.restore();
+        
+        // Draw remote player name above ship
+        if (p.name) {
+            ctx.save();
+            ctx.fillStyle = p.color;
+            ctx.font = "12px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText(p.name, sx, sy - 35);
+            ctx.restore();
+        }
     }
 }
 
