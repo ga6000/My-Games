@@ -178,6 +178,7 @@ button{
     width: 100vw;
     height: 100vh;
     z-index: 2000;
+    pointer-events: auto;
 }
 
 .start-screen {
@@ -222,6 +223,8 @@ button{
 #screen1-title {
     background: linear-gradient(135deg, #000 0%, #1a1a2e 100%);
     cursor: pointer;
+    z-index: 2001;
+    pointer-events: auto;
 }
 
 .game-title {
@@ -247,8 +250,8 @@ button{
 }
 
 .pyramid {
-    width: 60px;
-    height: 60px;
+    width: 80px;
+    height: 80px;
     position: relative;
     transform-style: preserve-3d;
     animation: pyramidRotate 4s linear infinite;
@@ -256,54 +259,58 @@ button{
 
 .pyramid-face {
     position: absolute;
-    width: 60px;
-    height: 60px;
-    opacity: 0.8;
-    border: 2px solid #64c8ff;
+    width: 80px;
+    height: 80px;
+    opacity: 0.9;
+    border: 1px solid #64c8ff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
+    font-size: 8px;
     color: #64c8ff;
+    left: 0;
+    top: 0;
+    transform-style: preserve-3d;
 }
 
-/* 4-sided pyramid: top point, front triangle, back triangle, left triangle, right triangle */
+/* Front triangular face - pointing to center */
 .pyramid-face-front {
-    background: rgba(100, 200, 255, 0.25);
-    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-    transform: translateZ(30px);
-    width: 60px;
-    height: 60px;
+    background: linear-gradient(135deg, rgba(100, 200, 255, 0.3) 0%, rgba(100, 200, 255, 0.1) 100%);
+    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+    transform: rotateX(60deg) translateZ(0px);
 }
 
+/* Back triangular face */
 .pyramid-face-back {
-    background: rgba(100, 200, 255, 0.15);
-    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-    transform: rotateY(180deg) translateZ(30px);
+    background: linear-gradient(135deg, rgba(100, 200, 255, 0.2) 0%, rgba(100, 200, 255, 0.05) 100%);
+    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+    transform: rotateY(180deg) rotateX(60deg) translateZ(0px);
 }
 
+/* Right triangular face */
 .pyramid-face-right {
-    background: rgba(100, 200, 255, 0.3);
-    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-    transform: rotateY(90deg) translateZ(30px);
+    background: linear-gradient(135deg, rgba(100, 200, 255, 0.35) 0%, rgba(100, 200, 255, 0.15) 100%);
+    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+    transform: rotateY(90deg) rotateX(60deg) translateZ(0px);
 }
 
+/* Left triangular face */
 .pyramid-face-left {
-    background: rgba(100, 200, 255, 0.3);
-    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-    transform: rotateY(-90deg) translateZ(30px);
+    background: linear-gradient(135deg, rgba(100, 200, 255, 0.35) 0%, rgba(100, 200, 255, 0.15) 100%);
+    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+    transform: rotateY(-90deg) rotateX(60deg) translateZ(0px);
 }
 
 .pyramid-face-bottom {
-    display: none; /* Hide base for pyramid */
+    display: none; /* Hide base */
 }
 
 @keyframes pyramidRotate {
     from {
-        transform: rotateX(15deg) rotateY(0deg) rotateZ(0deg);
+        transform: rotateX(25deg) rotateY(0deg) rotateZ(0deg);
     }
     to {
-        transform: rotateX(15deg) rotateY(360deg) rotateZ(0deg);
+        transform: rotateX(25deg) rotateY(360deg) rotateZ(0deg);
     }
 }
 
