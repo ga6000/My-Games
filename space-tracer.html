@@ -35,6 +35,7 @@ canvas{
     border-radius:8px;
     user-select:none;
     pointer-events:auto;
+    display:none;
 }
 
 #overlay.hidden{
@@ -104,7 +105,7 @@ canvas{
     height:100%;
     background:rgba(0,0,0,0.85);
     backdrop-filter:blur(4px);
-    display:flex;
+    display:none;
     align-items:center;
     justify-content:center;
     z-index:1000;
@@ -168,6 +169,221 @@ button{
     padding:8px 12px;
     font-size:14px;
 }
+
+/* ===== START SCREEN ===== */
+#startScreenContainer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 2000;
+}
+
+.start-screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.3s ease;
+}
+
+.start-screen.hidden {
+    display: none;
+}
+
+.screen-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+}
+
+.screen-content {
+    position: relative;
+    z-index: 2001;
+    text-align: center;
+    color: white;
+    font-family: Arial, sans-serif;
+}
+
+/* Screen 1: Title */
+#screen1-title {
+    background: linear-gradient(135deg, #000 0%, #1a1a2e 100%);
+}
+
+.game-title {
+    font-size: clamp(32px, 10vw, 96px);
+    margin: 0;
+    text-shadow: 0 0 20px rgba(100, 200, 255, 0.8);
+    letter-spacing: 4px;
+    font-weight: bold;
+}
+
+.rotating-ship {
+    width: 60px;
+    height: 60px;
+    margin: 40px auto;
+    border: 2px solid #64c8ff;
+    background: rgba(100, 200, 255, 0.1);
+    border-radius: 50%;
+    animation: rotate 3s linear infinite;
+}
+
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.pulse-click {
+    font-size: clamp(16px, 4vw, 32px);
+    animation: pulse 1s ease-in-out infinite;
+    cursor: pointer;
+    margin-top: 60px;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+/* Screen 2: Mode Selection */
+#screen2-mode {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+#screen2-mode .screen-content h2 {
+    font-size: clamp(24px, 6vw, 48px);
+    margin-bottom: 40px;
+}
+
+.button-group {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.screen-btn {
+    padding: 15px 40px;
+    font-size: clamp(14px, 3vw, 20px);
+    border: 2px solid #fff;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+
+.screen-btn:hover {
+    background: rgba(100, 200, 255, 0.3);
+    border-color: #64c8ff;
+    box-shadow: 0 0 15px rgba(100, 200, 255, 0.5);
+}
+
+.screen-btn:active {
+    transform: scale(0.98);
+}
+
+/* Screen 3: Name Input */
+#screen3-name {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.input-box {
+    background: rgba(0, 0, 0, 0.8);
+    padding: 40px;
+    border-radius: 12px;
+    border: 2px solid #64c8ff;
+    min-width: clamp(280px, 80vw, 500px);
+}
+
+.input-box label {
+    display: block;
+    font-size: clamp(14px, 3vw, 18px);
+    margin-bottom: 20px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.input-box input {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    border: 1px solid #64c8ff;
+    background: rgba(100, 200, 255, 0.1);
+    color: white;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    box-sizing: border-box;
+}
+
+.input-box input::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.input-box input:focus {
+    outline: none;
+    background: rgba(100, 200, 255, 0.2);
+    box-shadow: 0 0 10px rgba(100, 200, 255, 0.6);
+}
+
+#screen3-submit {
+    width: 100%;
+    padding: 12px;
+    font-size: clamp(14px, 3vw, 16px);
+    background: rgba(100, 200, 255, 0.3);
+    border: 2px solid #64c8ff;
+    color: white;
+    cursor: pointer;
+    border-radius: 6px;
+    text-transform: uppercase;
+    font-weight: bold;
+    transition: all 0.3s ease;
+}
+
+#screen3-submit:hover {
+    background: rgba(100, 200, 255, 0.5);
+    box-shadow: 0 0 15px rgba(100, 200, 255, 0.6);
+}
+
+/* Screen 4: Enter Game */
+#screen4-enter {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.large-btn {
+    padding: 25px 60px;
+    font-size: clamp(18px, 5vw, 32px);
+    background: rgba(100, 200, 255, 0.3);
+    border: 3px solid #64c8ff;
+    color: white;
+    cursor: pointer;
+    border-radius: 12px;
+    text-transform: uppercase;
+    font-weight: bold;
+    letter-spacing: 2px;
+    transition: all 0.3s ease;
+}
+
+.large-btn:hover {
+    background: rgba(100, 200, 255, 0.6);
+    box-shadow: 0 0 25px rgba(100, 200, 255, 0.8);
+}
+
+.large-btn:active {
+    transform: scale(0.98);
+}
 </style>
 </head>
 <body>
@@ -178,6 +394,52 @@ button{
 
 <div id="mobileDashButton">
     <span>DASH</span>
+</div>
+
+<!-- START SCREEN SYSTEM -->
+<div id="startScreenContainer">
+    
+    <!-- Screen 1: Title Screen -->
+    <div id="screen1-title" class="start-screen">
+        <div class="screen-content">
+            <h1 class="game-title">GYRO SPACE</h1>
+            <div class="rotating-ship"></div>
+            <div class="pulse-click">CLICK TO START</div>
+        </div>
+    </div>
+    
+    <!-- Screen 2: Control Mode Selection -->
+    <div id="screen2-mode" class="start-screen hidden">
+        <div class="screen-overlay"></div>
+        <div class="screen-content">
+            <h2>SELECT CONTROL MODE</h2>
+            <div class="button-group">
+                <button class="screen-btn" id="screen2-mobile">MOBILE CLASS</button>
+                <button class="screen-btn" id="screen2-computer">COMPUTER CLASS</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Screen 3: Player Name Input -->
+    <div id="screen3-name" class="start-screen hidden">
+        <div class="screen-overlay"></div>
+        <div class="screen-content">
+            <div class="input-box">
+                <label>ENTER YOUR NAME (Optional)</label>
+                <input id="playerNameInput" type="text" placeholder="Enter name..." maxlength="20">
+                <button id="screen3-submit">ENTER</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Screen 4: Enter Game -->
+    <div id="screen4-enter" class="start-screen hidden">
+        <div class="screen-overlay"></div>
+        <div class="screen-content">
+            <button id="screen4-enter-btn" class="large-btn">PRESS TO ENTER GAME</button>
+        </div>
+    </div>
+    
 </div>
 
 <div id="menuOverlay">
@@ -553,7 +815,7 @@ const WORLD_BOUNDS = {
     min: -1000,
     max: 1000,
     size: 2000,
-    borderThickness: 100  // Solid 100px border
+    borderThickness: 50  // Reduced from 100px to 50px
 };
 
 const SAFE_ZONE = {
@@ -1038,8 +1300,80 @@ canvas.addEventListener("touchend", (e) => {
 }, { passive: false });
 
 // ===================================================
-//            MENU BUTTON HANDLERS
+//              START SCREEN SYSTEM
 // ===================================================
+const startScreenContainer = document.getElementById("startScreenContainer");
+const screen1 = document.getElementById("screen1-title");
+const screen2 = document.getElementById("screen2-mode");
+const screen3 = document.getElementById("screen3-name");
+const screen4 = document.getElementById("screen4-enter");
+
+const screen2Mobile = document.getElementById("screen2-mobile");
+const screen2Computer = document.getElementById("screen2-computer");
+const playerNameInput = document.getElementById("playerNameInput");
+const screen3Submit = document.getElementById("screen3-submit");
+const screen4EnterBtn = document.getElementById("screen4-enter-btn");
+
+let playerName = "";
+
+// Screen 1: Click to advance
+screen1.addEventListener("click", () => {
+    screen1.classList.add("hidden");
+    screen2.classList.remove("hidden");
+});
+
+// Screen 2: Select mode
+screen2Mobile.addEventListener("click", () => {
+    controlMode = "mobile";
+    screen2.classList.add("hidden");
+    screen3.classList.remove("hidden");
+});
+
+screen2Computer.addEventListener("click", () => {
+    controlMode = "computer";
+    screen2.classList.add("hidden");
+    screen3.classList.remove("hidden");
+});
+
+// Screen 3: Enter name
+screen3Submit.addEventListener("click", () => {
+    playerName = playerNameInput.value.trim();
+    screen3.classList.add("hidden");
+    screen4.classList.remove("hidden");
+});
+
+// Allow Enter key to submit name
+playerNameInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") {
+        screen3Submit.click();
+    }
+});
+
+// Screen 4: Enter game
+screen4EnterBtn.addEventListener("click", () => {
+    gameStarted = true;
+    startScreenContainer.style.display = "none";
+    overlay.style.display = "block"; // Show dev overlay during game
+    
+    // Set zoom based on mode
+    if (controlMode === "mobile") {
+        camera.zoom = ZOOM_SETTINGS.mobile;
+        mobileDashButton.style.display = "flex";
+        
+        // Request gyroscope if mobile
+        if (gyroSupported) {
+            enableGyroscope().catch(() => {
+                gyroButton.style.display = "block";
+            });
+        }
+    } else {
+        camera.zoom = ZOOM_SETTINGS.desktop;
+        mobileDashButton.style.display = "none";
+    }
+    
+    // Hide menu overlay if it exists
+    if (menuOverlay) menuOverlay.classList.add("hidden");
+});
 mobileBtn.addEventListener("click", async () => {
     controlMode = "mobile";
     gameStarted = true;
@@ -1080,8 +1414,8 @@ mobileDashButton.addEventListener("touchstart", (e) => {
 mobileDashButton.addEventListener("touchend", (e) => {
     if (!gameStarted || controlMode !== "mobile") return;
     
-    spaceHeld = false;
     const holdDurationSec = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+    spaceHeld = false;
     
     if (holdDurationSec > 0.1) {
         dashTimeRemaining = (holdDurationSec / 10) * 5;
@@ -1089,6 +1423,7 @@ mobileDashButton.addEventListener("touchend", (e) => {
         ship.speed = ship.baseSpeed * 3;
     } else {
         ship.speed = ship.baseSpeed;
+        isDashing = false;
     }
     dashChargeDuration = 0;
     e.preventDefault();
@@ -1155,6 +1490,23 @@ function updateShip(dt){
             const gammaDelta = gamma - neutralGamma;
             const turnStrength = 0.08;
             ship.angle += (gammaDelta * Math.PI / 180) * turnStrength;
+        }
+        
+        // Mobile dash handling (from button)
+        if (spaceHeld && !isDashing) {
+            dashChargeDuration = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+            ship.speed = ship.baseSpeed * 0.6;
+        } else if (!isDashing) {
+            ship.speed = ship.baseSpeed;
+        }
+
+        if (isDashing) {
+            dashTimeRemaining -= dt;
+            if (dashTimeRemaining <= 0) {
+                dashTimeRemaining = 0;
+                isDashing = false;
+                ship.speed = ship.baseSpeed;
+            }
         }
     }else if(controlMode === "computer"){
         desiredAngle = Math.atan2(mouse.y-centerY, mouse.x-centerX);
@@ -1266,10 +1618,20 @@ function updateAndDrawBullets() {
         b.y += b.vy;
         b.life--;
 
-        // Check collision with world border
+        // Check collision with world border (only if bullet still visible)
         if (isOutOfBounds(b.x, b.y)) {
-            // Bullet hit border - explode
-            createExplosion(b.x, b.y, 8);
+            // Only explode if bullet hasn't faded out yet
+            const distTraveled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
+            let opacity = 1.0;
+            if (distTraveled > b.maxDistance) {
+                opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
+            }
+            
+            // Only create explosion if bullet is still visible
+            if (opacity > 0) {
+                createExplosion(b.x, b.y, 8);
+            }
+            
             removeFromGrid(b.gridKey, b);
             bulletPool.push(b);
             bullets.splice(i, 1);
@@ -1459,12 +1821,27 @@ function drawWorldBorder() {
     const outerY = centerY + (WORLD_BOUNDS.min - camera.y);
     const outerSize = (WORLD_BOUNDS.max - WORLD_BOUNDS.min);
     
-    // Draw solid white border (100px thick)
+    // Draw solid white border on INSIDE edge (inner perimeter)
+    const innerMin = WORLD_BOUNDS.min + WORLD_BOUNDS.borderThickness;
+    const innerMax = WORLD_BOUNDS.max - WORLD_BOUNDS.borderThickness;
+    const innerSize = innerMax - innerMin;
+    
+    const innerX = centerX + (innerMin - camera.x);
+    const innerY = centerY + (innerMin - camera.y);
+    
     ctx.fillStyle = "rgba(255, 255, 255, 1)";
-    ctx.fillRect(outerX, outerY, outerSize, WORLD_BOUNDS.borderThickness); // Top
-    ctx.fillRect(outerX + outerSize - WORLD_BOUNDS.borderThickness, outerY, WORLD_BOUNDS.borderThickness, outerSize); // Right
-    ctx.fillRect(outerX, outerY + outerSize - WORLD_BOUNDS.borderThickness, outerSize, WORLD_BOUNDS.borderThickness); // Bottom
-    ctx.fillRect(outerX, outerY, WORLD_BOUNDS.borderThickness, outerSize); // Left
+    
+    // Top border (inside)
+    ctx.fillRect(innerX, innerY - WORLD_BOUNDS.borderThickness, innerSize + WORLD_BOUNDS.borderThickness, WORLD_BOUNDS.borderThickness);
+    
+    // Bottom border (inside)
+    ctx.fillRect(innerX - WORLD_BOUNDS.borderThickness, innerY + innerSize, innerSize + WORLD_BOUNDS.borderThickness, WORLD_BOUNDS.borderThickness);
+    
+    // Left border (inside)
+    ctx.fillRect(innerX - WORLD_BOUNDS.borderThickness, innerY, WORLD_BOUNDS.borderThickness, innerSize);
+    
+    // Right border (inside)
+    ctx.fillRect(innerX + innerSize, innerY, WORLD_BOUNDS.borderThickness, innerSize);
 }
 
 function drawSafeZone() {
