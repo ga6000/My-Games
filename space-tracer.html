@@ -1401,6 +1401,12 @@ const screen2 = document.getElementById("screen2-mode");
 const screen3 = document.getElementById("screen3-name");
 const screen4 = document.getElementById("screen4-enter");
 
+// Initialize screen display states
+screen1.style.display = "flex";
+screen2.style.display = "none";
+screen3.style.display = "none";
+screen4.style.display = "none";
+
 const screen2Mobile = document.getElementById("screen2-mobile");
 const screen2Computer = document.getElementById("screen2-computer");
 const playerNameInput = document.getElementById("playerNameInput");
@@ -1411,29 +1417,31 @@ let playerName = "";
 
 // Screen 1: Click to advance
 screen1.addEventListener("click", (e) => {
+    console.log("Screen 1 clicked!");
     e.stopPropagation();
-    screen1.classList.add("hidden");
-    screen2.classList.remove("hidden");
+    e.preventDefault();
+    screen1.style.display = "none";
+    screen2.style.display = "flex";
 });
 
 // Screen 2: Select mode
 screen2Mobile.addEventListener("click", () => {
     controlMode = "mobile";
-    screen2.classList.add("hidden");
-    screen3.classList.remove("hidden");
+    screen2.style.display = "none";
+    screen3.style.display = "flex";
 });
 
 screen2Computer.addEventListener("click", () => {
     controlMode = "computer";
-    screen2.classList.add("hidden");
-    screen3.classList.remove("hidden");
+    screen2.style.display = "none";
+    screen3.style.display = "flex";
 });
 
 // Screen 3: Enter name
 screen3Submit.addEventListener("click", () => {
     playerName = playerNameInput.value.trim();
-    screen3.classList.add("hidden");
-    screen4.classList.remove("hidden");
+    screen3.style.display = "none";
+    screen4.style.display = "flex";
 });
 
 // Allow Enter key to submit name
