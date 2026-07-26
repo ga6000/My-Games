@@ -66,6 +66,36 @@ canvas{
     transform:scale(1.1);
 }
 
+#mobileDashButton{
+    position:absolute;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%);
+    width:80px;
+    height:80px;
+    border-radius:50%;
+    background:rgba(255,255,255,0.8);
+    border:3px solid rgba(255,255,255,1);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    font-weight:bold;
+    font-size:14px;
+    color:#000;
+    cursor:pointer;
+    user-select:none;
+    z-index:100;
+    transition:all 0.1s ease;
+    touch-action:none;
+}
+
+#mobileDashButton:active{
+    background:rgba(100,200,255,0.9);
+    border-color:rgba(100,200,255,1);
+    transform:translateX(-50%) scale(0.9);
+    box-shadow:0 0 20px rgba(100,200,255,0.6);
+}
+
 #menuOverlay{
     position:absolute;
     top:0;
@@ -146,6 +176,10 @@ button{
 
 <div id="guiToggle">⚙</div>
 
+<div id="mobileDashButton">
+    <span>DASH</span>
+</div>
+
 <div id="menuOverlay">
     <div class="menu-container">
         <h1>GYRO SPACE</h1>
@@ -181,6 +215,7 @@ const recalibrateButton = document.getElementById("recalibrateButton");
 const switchModeButton = document.getElementById("switchModeButton");
 const audioToggleBtn = document.getElementById("audioToggleBtn");
 const guiToggleBtn = document.getElementById("guiToggle");
+const mobileDashButton = document.getElementById("mobileDashButton");
 const menuOverlay = document.getElementById("menuOverlay");
 const overlay = document.getElementById("overlay");
 const mobileBtn = document.getElementById("mobileBtn");
@@ -328,7 +363,7 @@ function fireLaser(x, y, angle, color, shotType = "standard") {
         return;
     }
     
-    const maxDist = shotType === "beam" ? 1500 : 500;
+    const maxDist = shotType === "beam" ? 1500 : 250;  // Standard shot range halved to 250
     const maxLife = shotType === "beam" ? 150 : 60;
     
     let bullet;
@@ -494,13 +529,13 @@ const WORLD_BOUNDS = {
     min: -1000,
     max: 1000,
     size: 2000,
-    borderThickness: 30
+    borderThickness: 300  // Increased from 30 (10x)
 };
 
 const SAFE_ZONE = {
     x: 0,
     y: 0,
-    radius: 50
+    radius: 100  // Doubled from 50
 };
 
 function isInSafeZone(x, y) {
@@ -966,6 +1001,7 @@ mobileBtn.addEventListener("click", async () => {
     controlMode = "mobile";
     gameStarted = true;
     menuOverlay.classList.add("hidden");
+    mobileDashButton.style.display = "flex"; // Show mobile dash button
     
     if (gyroSupported) {
         await enableGyroscope();
@@ -982,7 +1018,36 @@ computerBtn.addEventListener("click", () => {
     gameStarted = true;
     menuOverlay.classList.add("hidden");
     gyroButton.style.display = "none";
+    mobileDashButton.style.display = "none"; // Hide mobile dash button
 });
+
+// ===================================================
+//           MOBILE DASH BUTTON HANDLERS
+// ===================================================
+mobileDashButton.addEventListener("touchstart", (e) => {
+    if (!gameStarted || controlMode !== "mobile") return;
+    
+    spaceHeld = true;
+    spaceHoldStartTime = performance.now();
+    e.preventDefault();
+}, { passive: false });
+
+mobileDashButton.addEventListener("touchend", (e) => {
+    if (!gameStarted || controlMode !== "mobile") return;
+    
+    spaceHeld = false;
+    const holdDurationSec = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+    
+    if (holdDurationSec > 0.1) {
+        dashTimeRemaining = (holdDurationSec / 10) * 5;
+        isDashing = true;
+        ship.speed = ship.baseSpeed * 3;
+    } else {
+        ship.speed = ship.baseSpeed;
+    }
+    dashChargeDuration = 0;
+    e.preventDefault();
+}, { passive: false });
 
 // ===================================================
 //            AUDIO TOGGLE HANDLER
@@ -1028,6 +1093,7 @@ function updateShip(dt){
             ship.y = 0;
             ship.angle = 0;
             ship.isAlive = true;
+            trail = []; // Clear trail on respawn
             
             // Broadcast respawn to other players
             pendingShot = null; // Clear any pending shots
@@ -1344,7 +1410,6 @@ function drawRemotePlayers(){
 //          DRAW WORLD BORDER & SAFE ZONE
 // ===================================================
 function drawWorldBorder() {
-    // Draw outer fade border (30px with opacity fade)
     const outerX = centerX + (WORLD_BOUNDS.min - camera.x);
     const outerY = centerY + (WORLD_BOUNDS.min - camera.y);
     const outerSize = (WORLD_BOUNDS.max - WORLD_BOUNDS.min);
@@ -1352,25 +1417,41 @@ function drawWorldBorder() {
     const innerY = outerY + WORLD_BOUNDS.borderThickness;
     const innerSize = outerSize - (WORLD_BOUNDS.borderThickness * 2);
     
-    // Draw outer border (fully opaque white line)
-    ctx.strokeStyle = "rgba(255, 255, 255, 1)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(outerX, outerY, outerSize, outerSize);
-    
-    // Draw fade zone (30px border with opacity fade)
-    const gradient = ctx.createLinearGradient(outerX, outerY, innerX, innerY);
-    gradient.addColorStop(0, "rgba(255, 255, 255, 0.3)");
-    gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-    
-    // Draw four fade borders (top, right, bottom, left)
-    ctx.fillStyle = gradient;
+    // Draw solid inner rectangle (100% opaque)
+    ctx.fillStyle = "rgba(255, 255, 255, 1)";
     ctx.fillRect(outerX, outerY, outerSize, WORLD_BOUNDS.borderThickness); // Top
-    
     ctx.fillRect(outerX + outerSize - WORLD_BOUNDS.borderThickness, outerY, WORLD_BOUNDS.borderThickness, outerSize); // Right
-    
     ctx.fillRect(outerX, outerY + outerSize - WORLD_BOUNDS.borderThickness, outerSize, WORLD_BOUNDS.borderThickness); // Bottom
-    
     ctx.fillRect(outerX, outerY, WORLD_BOUNDS.borderThickness, outerSize); // Left
+    
+    // Draw fade zones (outward fade from solid border)
+    // Top fade
+    const topGradient = ctx.createLinearGradient(outerY, outerY + WORLD_BOUNDS.borderThickness, outerY - WORLD_BOUNDS.borderThickness, outerY);
+    topGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+    topGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = topGradient;
+    ctx.fillRect(outerX, outerY - WORLD_BOUNDS.borderThickness, outerSize, WORLD_BOUNDS.borderThickness);
+    
+    // Bottom fade
+    const bottomGradient = ctx.createLinearGradient(outerY + outerSize - WORLD_BOUNDS.borderThickness, outerY + outerSize, outerY + outerSize + WORLD_BOUNDS.borderThickness, outerY + outerSize);
+    bottomGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+    bottomGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = bottomGradient;
+    ctx.fillRect(outerX, outerY + outerSize, outerSize, WORLD_BOUNDS.borderThickness);
+    
+    // Left fade
+    const leftGradient = ctx.createLinearGradient(outerX + WORLD_BOUNDS.borderThickness, outerY, outerX - WORLD_BOUNDS.borderThickness, outerY);
+    leftGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+    leftGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = leftGradient;
+    ctx.fillRect(outerX - WORLD_BOUNDS.borderThickness, outerY, WORLD_BOUNDS.borderThickness, outerSize);
+    
+    // Right fade
+    const rightGradient = ctx.createLinearGradient(outerX + outerSize - WORLD_BOUNDS.borderThickness, outerY, outerX + outerSize + WORLD_BOUNDS.borderThickness, outerY);
+    rightGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+    rightGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = rightGradient;
+    ctx.fillRect(outerX + outerSize, outerY, WORLD_BOUNDS.borderThickness, outerSize);
 }
 
 function drawSafeZone() {
