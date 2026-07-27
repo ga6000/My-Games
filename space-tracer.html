@@ -20,6 +20,7 @@ canvas{
     display:block;
     width:100vw;
     height:100vh;
+    pointer-events: none;
 }
 
 #overlay{
@@ -178,7 +179,7 @@ button{
     width: 100vw;
     height: 100vh;
     z-index: 2000;
-    pointer-events: auto;
+    pointer-events: auto !important;
 }
 
 .start-screen {
@@ -1457,6 +1458,7 @@ screen4EnterBtn.addEventListener("click", () => {
     ship.name = playerName; // Set player name on ship
     startScreenContainer.style.display = "none";
     overlay.style.display = "block"; // Show dev overlay during game
+    canvas.style.pointerEvents = "auto"; // Enable canvas clicks for gameplay
     
     // Set zoom based on mode
     if (controlMode === "mobile") {
