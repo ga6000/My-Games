@@ -17,7 +17,7 @@ html,body{
 }
 
 canvas{
-    display: none;
+    display:block;
     width:100vw;
     height:100vh;
 }
@@ -178,7 +178,6 @@ button{
     width: 100vw;
     height: 100vh;
     z-index: 2000;
-    pointer-events: auto !important;
 }
 
 .start-screen {
@@ -1456,8 +1455,6 @@ screen4EnterBtn.addEventListener("click", () => {
     gameStarted = true;
     ship.name = playerName; // Set player name on ship
     startScreenContainer.style.display = "none";
-    canvas.style.display = "block"; // Show canvas
-    canvas.style.pointerEvents = "auto"; // Enable canvas clicks
     overlay.style.display = "block"; // Show dev overlay during game
     
     // Set zoom based on mode
@@ -2030,11 +2027,6 @@ window.addEventListener("keyup", e => {
 // ===================================================
 function animate(now){
     requestAnimationFrame(animate);
-
-    // Skip all rendering and updates during start screen
-    if(!gameStarted){
-        return;
-    }
 
     const frameStartTime = performance.now();
 
