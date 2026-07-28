@@ -171,289 +171,6 @@ button{
 }
 
 /* ===== START SCREEN ===== */
-#startScreenContainer {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    z-index: 2000;
-}
-
-.start-screen {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: opacity 0.3s ease;
-    user-select: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-}
-
-.start-screen.hidden {
-    display: none;
-}
-
-.screen-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
-}
-
-.screen-content {
-    position: relative;
-    z-index: 2001;
-    text-align: center;
-    color: white;
-    font-family: Arial, sans-serif;
-}
-
-/* Screen 1: Title */
-#screen1-title {
-    background: linear-gradient(135deg, #000 0%, #1a1a2e 100%);
-    cursor: pointer;
-    z-index: 2001;
-    pointer-events: auto;
-}
-
-.game-title {
-    font-size: clamp(32px, 10vw, 96px);
-    margin: 0;
-    text-shadow: 0 0 20px rgba(100, 200, 255, 0.8);
-    letter-spacing: 4px;
-    font-weight: bold;
-}
-
-.rotating-ship {
-    width: 100px;
-    height: 100px;
-    margin: 40px auto;
-    background: rgba(100, 200, 255, 0.05);
-    border: 2px solid #64c8ff;
-    border-radius: 4px;
-    perspective: 1000px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-}
-
-.pyramid {
-    width: 80px;
-    height: 80px;
-    position: relative;
-    transform-style: preserve-3d;
-    animation: pyramidRotate 4s linear infinite;
-}
-
-.pyramid-face {
-    position: absolute;
-    width: 80px;
-    height: 80px;
-    opacity: 0.9;
-    border: 1px solid #64c8ff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 8px;
-    color: #64c8ff;
-    left: 0;
-    top: 0;
-    transform-style: preserve-3d;
-}
-
-/* Front triangular face - pointing to center */
-.pyramid-face-front {
-    background: linear-gradient(135deg, rgba(100, 200, 255, 0.3) 0%, rgba(100, 200, 255, 0.1) 100%);
-    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-    transform: rotateX(60deg) translateZ(0px);
-}
-
-/* Back triangular face */
-.pyramid-face-back {
-    background: linear-gradient(135deg, rgba(100, 200, 255, 0.2) 0%, rgba(100, 200, 255, 0.05) 100%);
-    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-    transform: rotateY(180deg) rotateX(60deg) translateZ(0px);
-}
-
-/* Right triangular face */
-.pyramid-face-right {
-    background: linear-gradient(135deg, rgba(100, 200, 255, 0.35) 0%, rgba(100, 200, 255, 0.15) 100%);
-    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-    transform: rotateY(90deg) rotateX(60deg) translateZ(0px);
-}
-
-/* Left triangular face */
-.pyramid-face-left {
-    background: linear-gradient(135deg, rgba(100, 200, 255, 0.35) 0%, rgba(100, 200, 255, 0.15) 100%);
-    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-    transform: rotateY(-90deg) rotateX(60deg) translateZ(0px);
-}
-
-.pyramid-face-bottom {
-    display: none; /* Hide base */
-}
-
-@keyframes pyramidRotate {
-    from {
-        transform: rotateX(25deg) rotateY(0deg) rotateZ(0deg);
-    }
-    to {
-        transform: rotateX(25deg) rotateY(360deg) rotateZ(0deg);
-    }
-}
-
-.pulse-click {
-    font-size: clamp(16px, 4vw, 32px);
-    animation: pulse 1s ease-in-out infinite;
-    cursor: pointer;
-    margin-top: 60px;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 0.5; }
-    50% { opacity: 1; }
-}
-
-/* Screen 2: Mode Selection */
-#screen2-mode {
-    background: rgba(0, 0, 0, 0.5);
-}
-
-#screen2-mode .screen-content h2 {
-    font-size: clamp(24px, 6vw, 48px);
-    margin-bottom: 40px;
-}
-
-.button-group {
-    display: flex;
-    gap: 20px;
-    justify-content: center;
-    flex-wrap: wrap;
-}
-
-.screen-btn {
-    padding: 15px 40px;
-    font-size: clamp(14px, 3vw, 20px);
-    border: 2px solid #fff;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    cursor: pointer;
-    border-radius: 8px;
-    transition: all 0.3s ease;
-    text-transform: uppercase;
-    font-weight: bold;
-    letter-spacing: 2px;
-}
-
-.screen-btn:hover {
-    background: rgba(100, 200, 255, 0.3);
-    border-color: #64c8ff;
-    box-shadow: 0 0 15px rgba(100, 200, 255, 0.5);
-}
-
-.screen-btn:active {
-    transform: scale(0.98);
-}
-
-/* Screen 3: Name Input */
-#screen3-name {
-    background: rgba(0, 0, 0, 0.5);
-}
-
-.input-box {
-    background: rgba(0, 0, 0, 0.8);
-    padding: 40px;
-    border-radius: 12px;
-    border: 2px solid #64c8ff;
-    min-width: clamp(280px, 80vw, 500px);
-}
-
-.input-box label {
-    display: block;
-    font-size: clamp(14px, 3vw, 18px);
-    margin-bottom: 20px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-.input-box input {
-    width: 100%;
-    padding: 12px;
-    font-size: 16px;
-    border: 1px solid #64c8ff;
-    background: rgba(100, 200, 255, 0.1);
-    color: white;
-    border-radius: 6px;
-    margin-bottom: 20px;
-    box-sizing: border-box;
-}
-
-.input-box input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
-}
-
-.input-box input:focus {
-    outline: none;
-    background: rgba(100, 200, 255, 0.2);
-    box-shadow: 0 0 10px rgba(100, 200, 255, 0.6);
-}
-
-#screen3-submit {
-    width: 100%;
-    padding: 12px;
-    font-size: clamp(14px, 3vw, 16px);
-    background: rgba(100, 200, 255, 0.3);
-    border: 2px solid #64c8ff;
-    color: white;
-    cursor: pointer;
-    border-radius: 6px;
-    text-transform: uppercase;
-    font-weight: bold;
-    transition: all 0.3s ease;
-}
-
-#screen3-submit:hover {
-    background: rgba(100, 200, 255, 0.5);
-    box-shadow: 0 0 15px rgba(100, 200, 255, 0.6);
-}
-
-/* Screen 4: Enter Game */
-#screen4-enter {
-    background: rgba(0, 0, 0, 0.5);
-}
-
-.large-btn {
-    padding: 25px 60px;
-    font-size: clamp(18px, 5vw, 32px);
-    background: rgba(100, 200, 255, 0.3);
-    border: 3px solid #64c8ff;
-    color: white;
-    cursor: pointer;
-    border-radius: 12px;
-    text-transform: uppercase;
-    font-weight: bold;
-    letter-spacing: 2px;
-    transition: all 0.3s ease;
-}
-
-.large-btn:hover {
-    background: rgba(100, 200, 255, 0.6);
-    box-shadow: 0 0 25px rgba(100, 200, 255, 0.8);
-}
-
-.large-btn:active {
-    transform: scale(0.98);
 }
 </style>
 </head>
@@ -468,58 +185,61 @@ button{
 </div>
 
 <!-- START SCREEN SYSTEM -->
-<div id="startScreenContainer">
+<div id="startScreenContainer" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2000; background: #000;">
     
     <!-- Screen 1: Title Screen -->
-    <div id="screen1-title" class="start-screen">
-        <div class="screen-content">
-            <h1 class="game-title">GYRO SPACE</h1>
-            <div class="rotating-ship">
-                <div class="pyramid">
-                    <div class="pyramid-face pyramid-face-front">A</div>
-                    <div class="pyramid-face pyramid-face-back">B</div>
-                    <div class="pyramid-face pyramid-face-right">C</div>
-                    <div class="pyramid-face pyramid-face-left">D</div>
-                    <div class="pyramid-face pyramid-face-bottom">BASE</div>
+    <div id="screen1-title" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; background: linear-gradient(135deg, #000 0%, #1a1a2e 100%);">
+        <div style="text-align: center; user-select: none;">
+            <h1 style="font-size: 64px; color: white; margin: 0; text-shadow: 0 0 20px rgba(100, 200, 255, 0.8); letter-spacing: 4px;">GYRO SPACE</h1>
+            <div style="width: 80px; height: 80px; margin: 40px auto; border: 2px solid #64c8ff; border-radius: 4px; display: flex; align-items: center; justify-content: center; perspective: 1000px;">
+                <div style="width: 80px; height: 80px; position: relative; transform-style: preserve-3d; animation: pyramidRotate 4s linear infinite;">
+                    <div style="position: absolute; width: 80px; height: 80px; background: linear-gradient(135deg, rgba(100, 200, 255, 0.3) 0%, rgba(100, 200, 255, 0.1) 100%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border: 1px solid #64c8ff; transform: rotateX(60deg) translateZ(0px);"></div>
+                    <div style="position: absolute; width: 80px; height: 80px; background: linear-gradient(135deg, rgba(100, 200, 255, 0.2) 0%, rgba(100, 200, 255, 0.05) 100%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border: 1px solid #64c8ff; transform: rotateY(180deg) rotateX(60deg) translateZ(0px);"></div>
+                    <div style="position: absolute; width: 80px; height: 80px; background: linear-gradient(135deg, rgba(100, 200, 255, 0.35) 0%, rgba(100, 200, 255, 0.15) 100%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border: 1px solid #64c8ff; transform: rotateY(90deg) rotateX(60deg) translateZ(0px);"></div>
+                    <div style="position: absolute; width: 80px; height: 80px; background: linear-gradient(135deg, rgba(100, 200, 255, 0.35) 0%, rgba(100, 200, 255, 0.15) 100%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border: 1px solid #64c8ff; transform: rotateY(-90deg) rotateX(60deg) translateZ(0px);"></div>
                 </div>
             </div>
-            <div class="pulse-click">CLICK TO START</div>
+            <div style="font-size: 24px; color: white; animation: pulse 1s ease-in-out infinite; cursor: pointer; margin-top: 60px;">CLICK TO START</div>
         </div>
     </div>
     
     <!-- Screen 2: Control Mode Selection -->
-    <div id="screen2-mode" class="start-screen hidden">
-        <div class="screen-overlay"></div>
-        <div class="screen-content">
-            <h2>SELECT CONTROL MODE</h2>
-            <div class="button-group">
-                <button class="screen-btn" id="screen2-mobile">MOBILE</button>
-                <button class="screen-btn" id="screen2-computer">COMPUTER</button>
+    <div id="screen2-mode" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px);">
+        <div style="text-align: center; color: white; user-select: none;">
+            <h2 style="font-size: 48px; margin-bottom: 40px;">SELECT CONTROL MODE</h2>
+            <div style="display: flex; gap: 20px; justify-content: center;">
+                <button id="screen2-mobile" style="padding: 15px 40px; font-size: 20px; border: 2px solid white; background: rgba(255, 255, 255, 0.1); color: white; cursor: pointer; border-radius: 8px; text-transform: uppercase; font-weight: bold;">MOBILE</button>
+                <button id="screen2-computer" style="padding: 15px 40px; font-size: 20px; border: 2px solid white; background: rgba(255, 255, 255, 0.1); color: white; cursor: pointer; border-radius: 8px; text-transform: uppercase; font-weight: bold;">COMPUTER</button>
             </div>
         </div>
     </div>
     
     <!-- Screen 3: Player Name Input -->
-    <div id="screen3-name" class="start-screen hidden">
-        <div class="screen-overlay"></div>
-        <div class="screen-content">
-            <div class="input-box">
-                <label>ENTER YOUR NAME (Optional)</label>
-                <input id="playerNameInput" type="text" placeholder="Enter name..." maxlength="20">
-                <button id="screen3-submit">ENTER</button>
-            </div>
+    <div id="screen3-name" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px);">
+        <div style="background: rgba(0, 0, 0, 0.8); padding: 40px; border-radius: 12px; border: 2px solid #64c8ff; min-width: 400px; text-align: center; user-select: none;">
+            <label style="display: block; font-size: 18px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; color: white;">ENTER YOUR NAME (Optional)</label>
+            <input id="playerNameInput" type="text" placeholder="Enter name..." maxlength="20" style="width: 100%; padding: 12px; font-size: 16px; border: 1px solid #64c8ff; background: rgba(100, 200, 255, 0.1); color: white; border-radius: 6px; margin-bottom: 20px; box-sizing: border-box;">
+            <button id="screen3-submit" style="width: 100%; padding: 12px; font-size: 16px; background: rgba(100, 200, 255, 0.3); border: 2px solid #64c8ff; color: white; cursor: pointer; border-radius: 6px; text-transform: uppercase; font-weight: bold;">ENTER</button>
         </div>
     </div>
     
     <!-- Screen 4: Enter Game -->
-    <div id="screen4-enter" class="start-screen hidden">
-        <div class="screen-overlay"></div>
-        <div class="screen-content">
-            <button id="screen4-enter-btn" class="large-btn">PRESS TO ENTER GAME</button>
-        </div>
+    <div id="screen4-enter" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px);">
+        <button id="screen4-enter-btn" style="padding: 25px 60px; font-size: 32px; background: rgba(100, 200, 255, 0.3); border: 3px solid #64c8ff; color: white; cursor: pointer; border-radius: 12px; text-transform: uppercase; font-weight: bold; letter-spacing: 2px;">PRESS TO ENTER GAME</button>
     </div>
     
 </div>
+
+<style>
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+@keyframes pyramidRotate {
+    from { transform: rotateX(25deg) rotateY(0deg) rotateZ(0deg); }
+    to { transform: rotateX(25deg) rotateY(360deg) rotateZ(0deg); }
+}
+</style>
 
 <div id="menuOverlay">
     <div class="menu-container">
