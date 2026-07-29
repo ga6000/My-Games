@@ -187,19 +187,11 @@ button{
 <!-- START SCREEN SYSTEM -->
 <div id="startScreenContainer" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2000; background: #000;">
     
-    <!-- Screen 1: Title Screen -->
-    <div id="screen1-title" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; background: linear-gradient(135deg, #000 0%, #1a1a2e 100%);">
+    <!-- Screen 1: Simple Click to Start -->
+    <div id="screen1-title" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; background: #000;">
         <div style="text-align: center; user-select: none;">
             <h1 style="font-size: 64px; color: white; margin: 0; text-shadow: 0 0 20px rgba(100, 200, 255, 0.8); letter-spacing: 4px;">GYRO SPACE</h1>
-            <div style="width: 80px; height: 80px; margin: 40px auto; border: 2px solid #64c8ff; border-radius: 4px; display: flex; align-items: center; justify-content: center; perspective: 1000px;">
-                <div style="width: 80px; height: 80px; position: relative; transform-style: preserve-3d; animation: pyramidRotate 4s linear infinite;">
-                    <div style="position: absolute; width: 80px; height: 80px; background: linear-gradient(135deg, rgba(100, 200, 255, 0.3) 0%, rgba(100, 200, 255, 0.1) 100%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border: 1px solid #64c8ff; transform: rotateX(60deg) translateZ(0px);"></div>
-                    <div style="position: absolute; width: 80px; height: 80px; background: linear-gradient(135deg, rgba(100, 200, 255, 0.2) 0%, rgba(100, 200, 255, 0.05) 100%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border: 1px solid #64c8ff; transform: rotateY(180deg) rotateX(60deg) translateZ(0px);"></div>
-                    <div style="position: absolute; width: 80px; height: 80px; background: linear-gradient(135deg, rgba(100, 200, 255, 0.35) 0%, rgba(100, 200, 255, 0.15) 100%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border: 1px solid #64c8ff; transform: rotateY(90deg) rotateX(60deg) translateZ(0px);"></div>
-                    <div style="position: absolute; width: 80px; height: 80px; background: linear-gradient(135deg, rgba(100, 200, 255, 0.35) 0%, rgba(100, 200, 255, 0.15) 100%); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border: 1px solid #64c8ff; transform: rotateY(-90deg) rotateX(60deg) translateZ(0px);"></div>
-                </div>
-            </div>
-            <div style="font-size: 24px; color: white; animation: pulse 1s ease-in-out infinite; cursor: pointer; margin-top: 60px;">CLICK TO START</div>
+            <div style="font-size: 32px; color: white; margin-top: 80px; animation: pulse 1s ease-in-out infinite;">CLICK TO START</div>
         </div>
     </div>
     
@@ -234,10 +226,6 @@ button{
 @keyframes pulse {
     0%, 100% { opacity: 0.5; }
     50% { opacity: 1; }
-}
-@keyframes pyramidRotate {
-    from { transform: rotateX(25deg) rotateY(0deg) rotateZ(0deg); }
-    to { transform: rotateX(25deg) rotateY(360deg) rotateZ(0deg); }
 }
 </style>
 
