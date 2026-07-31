@@ -171,7 +171,6 @@ button{
 }
 
 /* ===== START SCREEN ===== */
-}
 </style>
 </head>
 <body>
@@ -328,7 +327,7 @@ const ship = {
     color: myColor,
     isAlive: true,
     deathTime: 0,
-    name: playerName  // Will be set from start screen
+    name: ""  // Will be set from start screen
 };
 
 // ===================================================
@@ -594,7 +593,7 @@ for(let i=0; i<STAR_COUNT; i++){
 // ===================================================
 //                    TRAIL
 // ===================================================
-const trail = [];
+let trail = [];
 
 // ===================================================
 //              WORLD BOUNDS & SAFE ZONE
