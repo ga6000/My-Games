@@ -172,6 +172,59 @@ button{
 
 /* ===== START SCREEN ===== */
 </style>
+<!-- Firebase: Firestore for persisted scores, anonymous Auth so a
+     device/player gets a stable identity without a sign-up flow. Loaded
+     as ES modules from the CDN -- no build step, matches how the rest
+     of this project is a single static HTML file. -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+    // Config lives in one shared file so space-tracer.html, leaderboard.html,
+    // and any future game never have three copies of the same object to
+    // keep in sync by hand. Fill in the real values in firebase-config.js
+    // once -- every file that imports it picks them up automatically.
+    // This path assumes firebase-config.js sits next to this file in the
+    // repo root; adjust if you move either file.
+    import { firebaseConfig } from "./firebase-config.js";
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    // Anonymous auth just gives Firestore security rules something to
+    // check ("request.auth != null") without making friends create
+    // accounts. Sign-in happens immediately on page load so it's ready
+    // well before any score needs writing.
+    signInAnonymously(auth).catch(err => {
+        console.error("Firebase anonymous auth failed:", err);
+    });
+
+    // Exposed on window so the plain-script game code (everything else
+    // in this file is a non-module <script> below) can call it without
+    // this file needing a full module conversion. submitScoreToFirebase
+    // is called from reportLifeEnded() in the main game script.
+    window.submitScoreToFirebase = async function(playerName, score, roomCode) {
+        try {
+            await addDoc(collection(db, "scores"), {
+                game: "space-tracer",
+                player: playerName || "Anonymous",
+                score: score,
+                room: roomCode || "public",
+                // "public" room + a real room code both count toward the
+                // solo/global leaderboard -- the leaderboard page can
+                // filter by room when someone wants "just our group's"
+                // scores, but every score is visible globally by default.
+                timestamp: serverTimestamp()
+            });
+        } catch (err) {
+            // Never let a failed score write break gameplay -- this is
+            // called mid-game from reportLifeEnded(), which the player
+            // should never notice fail even if Firebase is unreachable.
+            console.error("Score submission failed:", err);
+        }
+    };
+</script>
 </head>
 <body>
 
@@ -205,11 +258,14 @@ button{
         </div>
     </div>
     
-    <!-- Screen 3: Player Name Input -->
+    <!-- Screen 3: Player Name + Room Code Input -->
     <div id="screen3-name" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px);">
         <div style="background: rgba(0, 0, 0, 0.8); padding: 40px; border-radius: 12px; border: 2px solid #64c8ff; min-width: 400px; text-align: center; user-select: none;">
             <label style="display: block; font-size: 18px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; color: white;">ENTER YOUR NAME (Optional)</label>
             <input id="playerNameInput" type="text" placeholder="Enter name..." maxlength="20" style="width: 100%; padding: 12px; font-size: 16px; border: 1px solid #64c8ff; background: rgba(100, 200, 255, 0.1); color: white; border-radius: 6px; margin-bottom: 20px; box-sizing: border-box;">
+            <label style="display: block; font-size: 18px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; color: white;">ROOM CODE</label>
+            <input id="roomCodeInput" type="text" placeholder="e.g. ABCD (blank = public)" maxlength="8" style="width: 100%; padding: 12px; font-size: 16px; border: 1px solid #64c8ff; background: rgba(100, 200, 255, 0.1); color: white; border-radius: 6px; margin-bottom: 8px; box-sizing: border-box; text-transform: uppercase; letter-spacing: 2px; text-align: center;">
+            <p style="font-size: 12px; color: #888; margin: 0 0 20px 0;">Share this code with friends so you land in the same game. Leave blank to join the public room.</p>
             <button id="screen3-submit" style="width: 100%; padding: 12px; font-size: 16px; background: rgba(100, 200, 255, 0.3); border: 2px solid #64c8ff; color: white; cursor: pointer; border-radius: 6px; text-transform: uppercase; font-weight: bold;">ENTER</button>
         </div>
     </div>
@@ -238,6 +294,15 @@ button{
             <button class="menu-btn" id="computerBtn">COMPUTER<br>CLASS</button>
         </div>
     </div>
+</div>
+
+<!-- Friend-facing scoreboard: best-life-in-seconds per player currently
+     in this room. Deliberately separate from #overlay below, which is
+     the dense dev/debug panel -- this one is meant to be glanced at
+     mid-game, so it stays small and always visible once the game starts. -->
+<div id="scoreboard" style="position: absolute; top: 12px; right: 12px; color: white; font-family: monospace; font-size: 13px; background: rgba(0,0,0,.45); padding: 10px 14px; border-radius: 8px; display: none; min-width: 160px;">
+    <div style="font-weight: bold; margin-bottom: 6px; letter-spacing: 1px; color: #64c8ff;">BEST LIFE (s)</div>
+    <div id="scoreboard-list">—</div>
 </div>
 
 <div id="overlay">
@@ -709,11 +774,119 @@ const remotePlayers = {};
 let lastSendTime = 0;
 const SEND_INTERVAL = 1000 / 10; // 10 updates per sec (reduced from 20 for latency optimization)
 
+// The server now ignores "update" messages until "join-room" arrives, so
+// the animate() loop checks this flag before sending anything -- sending
+// early just does nothing (server drops it silently), but gating here
+// avoids spamming empty sends before the player has entered the game.
+let hasJoinedRoom = false;
+let currentRoomCode = null;
+
 function getColorFromId(id) {
     // Use consistent color palette based on first character of ID
     const colorIndex = id.charCodeAt(0) % COLOR_PALETTE.length;
     return COLOR_PALETTE[colorIndex];
 }
+
+// Called once, from the "PRESS TO ENTER GAME" handler, after the player
+// has chosen a name and (optionally) a room code. Safe to call even if
+// the socket hasn't finished connecting yet -- it waits for "open".
+function joinRoom(room, name) {
+    currentRoomCode = room || "public";
+
+    const send = () => {
+        socket.send(JSON.stringify({
+            type: "join-room",
+            room: currentRoomCode,
+            name: name,
+            color: myColor
+        }));
+        hasJoinedRoom = true;
+        console.log("Joining room:", currentRoomCode, "as", name || "(unnamed)");
+    };
+
+    if (socket.readyState === WebSocket.OPEN) {
+        send();
+    } else {
+        socket.addEventListener("open", send, { once: true });
+    }
+}
+
+// ===================================================
+//              SCORING (survival time)
+// ===================================================
+// Score is "seconds survived in a single life," tracked as a best-of
+// across the whole session. This is the only number the game currently
+// has an honest, self-contained way to compute -- there's no kill-credit
+// system yet (bullets don't carry a shooter ID across the network, so a
+// client can't currently tell who killed it). Survival time needs none
+// of that: it's derived entirely from timestamps this client already has.
+let lifeStartTime = Date.now();
+let bestLifeSeconds = 0;
+
+// Called once per death (both death sites: border collision, bullet hit).
+// Reports the just-ended life's length, updates the local best, and if
+// it's a new best, relays it to the room (display-only) and writes it to
+// Firestore (persisted). This intentionally does NOT wait for game-end --
+// with respawn-based play there is no single "game end," so each death is
+// itself the natural checkpoint for "did the player just beat their best."
+function reportLifeEnded() {
+    const secondsSurvived = (Date.now() - lifeStartTime) / 1000;
+
+    if (secondsSurvived > bestLifeSeconds) {
+        bestLifeSeconds = secondsSurvived;
+
+        // Live relay to whoever else is in this room right now.
+        if (hasJoinedRoom && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: "score-update",
+                score: Math.round(bestLifeSeconds)
+            }));
+        }
+
+        // Persisted write. Fire-and-forget from the game's perspective --
+        // submitScoreToFirebase is defined near the Firebase setup below
+        // and no-ops safely if Firebase hasn't loaded for any reason, so
+        // a network hiccup here never blocks or breaks gameplay.
+        submitScoreToFirebase(ship.name || "Anonymous", Math.round(bestLifeSeconds), currentRoomCode);
+
+        updateScoreboardDisplay(); // Reflect the new personal best immediately, don't wait on the round-trip
+    }
+}
+
+const scoreboardEl = document.getElementById("scoreboard");
+const scoreboardListEl = document.getElementById("scoreboard-list");
+
+// Renders roomScores (populated by incoming "score-update" broadcasts)
+// plus this client's own best, sorted high to low. Called on every
+// score-update received and every time this player beats their own best.
+function updateScoreboardDisplay() {
+    if (!scoreboardEl) return;
+    scoreboardEl.style.display = "block";
+
+    const rows = Object.entries(roomScores).map(([name, score]) => ({ name, score }));
+
+    // Make sure our own score is represented even before any remote
+    // player has joined -- roomScores only fills from messages relayed
+    // by the server, which requires at least one other player present.
+    const myLabel = ship.name || "You";
+    const existingMine = rows.find(r => r.name === myLabel);
+    if (existingMine) {
+        existingMine.score = Math.max(existingMine.score, Math.round(bestLifeSeconds));
+    } else if (bestLifeSeconds > 0) {
+        rows.push({ name: myLabel, score: Math.round(bestLifeSeconds) });
+    }
+
+    rows.sort((a, b) => b.score - a.score);
+
+    scoreboardListEl.innerHTML = rows.length
+        ? rows.map(r => `${r.name}: ${r.score}`).join("<br>")
+        : "—";
+}
+
+// name -> score, for players currently in this room. Populated by
+// "score-update" broadcasts. Read by the scoreboard overlay -- see
+// updateScoreboardDisplay() below.
+const roomScores = {};
 
 socket.onmessage = event => {
     try {
@@ -729,14 +902,14 @@ socket.onmessage = event => {
             console.log("Player left:", data.id);
             delete remotePlayers[data.id];
         } else if (data.type === "join") {
-            console.log("Player joined:", data.player?.id);
+            console.log("Player joined:", data.player?.id, data.player?.name);
             if (data.player) {
-                updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, null, data.player.isAlive);
+                updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, null, data.player.isAlive, data.player.name);
             }
         } else if (data.type === "players") {
-            console.log("Initial players list:", data.players?.length);
+            console.log("Initial players list:", data.players?.length, "room:", data.room);
             if (Array.isArray(data.players)) {
-                data.players.forEach(p => updateRemotePlayer(p.id, p.x, p.y, p.angle, p.color, null, p.isAlive));
+                data.players.forEach(p => updateRemotePlayer(p.id, p.x, p.y, p.angle, p.color, null, p.isAlive, p.name));
             }
         } else if (data.type === "update" && data.player) {
             // Log update with shot info
@@ -744,13 +917,19 @@ socket.onmessage = event => {
                 console.log("Received update with shot from", data.player.id, ":", data.player.shot);
             }
             updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, data.player.shot, data.player.isAlive);
+        } else if (data.type === "score-update") {
+            // Live score relay from another player in the room. This is
+            // display-only -- the authoritative/persisted score write
+            // happens separately, once, to Firestore at game-end.
+            roomScores[data.name || data.id] = data.score;
+            updateScoreboardDisplay();
         }
     } catch(e) {
         console.error("Error parsing server message", e);
     }
 };
 
-function updateRemotePlayer(id, x, y, angle, color, shot, isAlive) {
+function updateRemotePlayer(id, x, y, angle, color, shot, isAlive, name) {
     let p = remotePlayers[id];
     const playerColor = color || getColorFromId(id);
 
@@ -764,7 +943,7 @@ function updateRemotePlayer(id, x, y, angle, color, shot, isAlive) {
             color: playerColor,
             trail: [],
             isAlive: isAlive !== false,  // Default to alive if not specified
-            name: ""  // Remote players start with no name (server doesn't send yet)
+            name: name || ""  // Now populated from the server's join-room record
         };
         console.log("Remote player created:", id, "isAlive:", isAlive);
     } else {
@@ -772,6 +951,7 @@ function updateRemotePlayer(id, x, y, angle, color, shot, isAlive) {
         p.targetY = y;
         p.angle = angle;
         p.color = playerColor;
+        if (name) p.name = name;
         
         // Handle death state change
         if (isAlive === false && p.isAlive === true) {
@@ -927,6 +1107,8 @@ function updateOverlay(){
     
     statusText.innerHTML =
 `PLAYER: ${ship.name || "Anonymous"}<br>
+ROOM: ${currentRoomCode || "(not joined)"}<br>
+BEST LIFE: ${bestLifeSeconds.toFixed(1)}s<br>
 FPS: ${fps.toFixed(0)} | ${frameTime.toFixed(1)}ms<br>
 Pos: X: ${Math.round(ship.x)} | Y: ${Math.round(ship.y)}<br>
 Mode: ${controlMode}${dashInfo}<br>
@@ -1102,73 +1284,82 @@ canvas.addEventListener("touchend", (e) => {
 //              START SCREEN SYSTEM
 // ===================================================
 const startScreenContainer = document.getElementById("startScreenContainer");
-const screen1 = document.getElementById("screen1-title");
-const screen2 = document.getElementById("screen2-mode");
-const screen3 = document.getElementById("screen3-name");
-const screen4 = document.getElementById("screen4-enter");
+// NOTE: "screen1-title" was removed from the HTML when the title screen
+// was cut (see prior session). These names now match what's actually in
+// the DOM: mode select -> name/room entry -> enter game. Renamed rather
+// than re-adding a phantom element, since referencing a missing element
+// (the old screen1.style.display = "flex") threw and silently halted
+// this entire script block before, including the socket connection below.
+const screenMode = document.getElementById("screen2-mode");
+const screenName = document.getElementById("screen3-name");
+const screenEnter = document.getElementById("screen4-enter");
 
 // Initialize screen display states
-screen1.style.display = "flex";
-screen2.style.display = "none";
-screen3.style.display = "none";
-screen4.style.display = "none";
+screenMode.style.display = "flex";
+screenName.style.display = "none";
+screenEnter.style.display = "none";
 
-const screen2Mobile = document.getElementById("screen2-mobile");
-const screen2Computer = document.getElementById("screen2-computer");
+const modeMobileBtn = document.getElementById("screen2-mobile");
+const modeComputerBtn = document.getElementById("screen2-computer");
 const playerNameInput = document.getElementById("playerNameInput");
-const screen3Submit = document.getElementById("screen3-submit");
-const screen4EnterBtn = document.getElementById("screen4-enter-btn");
+const roomCodeInput = document.getElementById("roomCodeInput");
+const nameSubmitBtn = document.getElementById("screen3-submit");
+const enterGameBtn = document.getElementById("screen4-enter-btn");
 
 let playerName = "";
+let roomCode = "";
 
-// Screen 1: Click to advance
-screen1.addEventListener("click", (e) => {
-    console.log("Screen 1 clicked!");
-    e.stopPropagation();
-    e.preventDefault();
-    screen1.style.display = "none";
-    screen2.style.display = "flex";
-});
-
-// Screen 2: Select mode
-screen2Mobile.addEventListener("click", () => {
+// Screen: Select mode
+modeMobileBtn.addEventListener("click", () => {
     controlMode = "mobile";
-    screen2.style.display = "none";
-    screen3.style.display = "flex";
+    screenMode.style.display = "none";
+    screenName.style.display = "flex";
 });
 
-screen2Computer.addEventListener("click", () => {
+modeComputerBtn.addEventListener("click", () => {
     controlMode = "computer";
-    screen2.style.display = "none";
-    screen3.style.display = "flex";
+    screenMode.style.display = "none";
+    screenName.style.display = "flex";
 });
 
-// Screen 3: Enter name
-screen3Submit.addEventListener("click", () => {
+// Screen: Enter name + room code
+nameSubmitBtn.addEventListener("click", () => {
     playerName = playerNameInput.value.trim();
-    screen3.style.display = "none";
-    screen4.style.display = "flex";
+    // Room code is normalized to uppercase so "abcd" and "ABCD" are the
+    // same room -- matches how the room code is displayed everywhere else.
+    roomCode = roomCodeInput.value.trim().toUpperCase();
+    screenName.style.display = "none";
+    screenEnter.style.display = "flex";
 });
 
-// Allow Enter key to submit name
+// Allow Enter key to submit from either field
 playerNameInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-        screen3Submit.click();
-    }
+    if (e.key === "Enter") nameSubmitBtn.click();
+});
+roomCodeInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") nameSubmitBtn.click();
 });
 
-// Screen 4: Enter game
-screen4EnterBtn.addEventListener("click", () => {
+// Screen: Enter game
+enterGameBtn.addEventListener("click", () => {
     gameStarted = true;
     ship.name = playerName; // Set player name on ship
     startScreenContainer.style.display = "none";
     overlay.style.display = "block"; // Show dev overlay during game
-    
+
+    // Now that the player has chosen a name/room, join the room on the
+    // server. Nothing before this point sends "update" -- the server
+    // ignores update messages until join-room arrives, so this ordering
+    // matters, not just style.
+    joinRoom(roomCode, playerName);
+    lifeStartTime = Date.now(); // First life's clock starts now, not at page load
+    updateScoreboardDisplay(); // Show the panel now -- don't wait on another player's score-update to arrive first, or a solo player never sees it
+
     // Set zoom based on mode
     if (controlMode === "mobile") {
         camera.zoom = ZOOM_SETTINGS.mobile;
         mobileDashButton.style.display = "flex";
-        
+
         // Request gyroscope if mobile
         if (gyroSupported) {
             enableGyroscope().catch(() => {
@@ -1179,35 +1370,15 @@ screen4EnterBtn.addEventListener("click", () => {
         camera.zoom = ZOOM_SETTINGS.desktop;
         mobileDashButton.style.display = "none";
     }
-    
+
     // Hide menu overlay if it exists
     if (menuOverlay) menuOverlay.classList.add("hidden");
 });
-mobileBtn.addEventListener("click", async () => {
-    controlMode = "mobile";
-    gameStarted = true;
-    menuOverlay.classList.add("hidden");
-    mobileDashButton.style.display = "flex"; // Show mobile dash button
-    camera.zoom = ZOOM_SETTINGS.mobile; // Zoom out for mobile
-    
-    if (gyroSupported) {
-        await enableGyroscope();
-        if (!gyroEnabled) {
-            gyroButton.style.display = "block";
-        }
-    } else {
-        gyroButton.style.display = "none";
-    }
-});
-
-computerBtn.addEventListener("click", () => {
-    controlMode = "computer";
-    gameStarted = true;
-    menuOverlay.classList.add("hidden");
-    gyroButton.style.display = "none";
-    mobileDashButton.style.display = "none"; // Hide mobile dash button
-    camera.zoom = ZOOM_SETTINGS.desktop; // Normal zoom for desktop
-});
+// NOTE: the old mobileBtn/computerBtn handlers targeting #menuOverlay
+// were removed here. That was a leftover single-screen menu from before
+// the 4-screen flow existed; #menuOverlay is hidden by default now and
+// nothing ever shows it, so those listeners were dead code attached to
+// elements no one can reach.
 
 // ===================================================
 //           MOBILE DASH BUTTON HANDLERS
@@ -1283,7 +1454,8 @@ function updateShip(dt){
             ship.angle = 0;
             ship.isAlive = true;
             trail = []; // Clear trail on respawn
-            
+            lifeStartTime = Date.now(); // Score clock for this life starts now
+
             // Broadcast respawn to other players
             pendingShot = null; // Clear any pending shots
         } else {
@@ -1356,6 +1528,7 @@ function updateShip(dt){
             ship.isAlive = false;
             ship.deathTime = Date.now();
             trail = []; // Clear trail immediately
+            reportLifeEnded();
         } else {
             // Clamp position to bounds
             const clamped = clampToBounds(ship.x, ship.y);
@@ -1456,6 +1629,7 @@ function updateAndDrawBullets() {
                 ship.isAlive = false;
                 ship.deathTime = Date.now();
                 trail = []; // Clear trail immediately on death
+                reportLifeEnded();
                 
                 removeFromGrid(b.gridKey, b);
                 bulletPool.push(b);
@@ -1748,7 +1922,12 @@ function animate(now){
         updateBeamChargeAudio();
 
         if (now - lastSendTime >= SEND_INTERVAL) {
-            if (socket.readyState === WebSocket.OPEN) {
+            // hasJoinedRoom guards this: the server silently drops "update"
+            // messages sent before "join-room", so this isn't strictly
+            // required for correctness -- but sending real position data
+            // into the void every 100ms before the player has even chosen
+            // a room is wasted work, so we skip it explicitly.
+            if (socket.readyState === WebSocket.OPEN && hasJoinedRoom) {
                 const payload = {
                     type: "update",
                     x: Number(ship.x.toFixed(1)),
