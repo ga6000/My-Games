@@ -735,6 +735,36 @@ for (let i = 0; i < MAX_EXPLOSIONS; i++) {
     });
 }
 
+// Pulls a particle from explosionPool and pushes it into explosions, for
+// each of `count` particles. This is what every death/destruction path
+// in the game calls -- ship death (border collision, bullet hit),
+// remote player death, asteroid destruction, and bullet-lifetime
+// expiry. color defaults to ship.color when not provided, so existing
+// call sites that don't pass one (remote player death, ship death,
+// bullet expiry) keep their original look; asteroid destruction passes
+// its own white/gray color explicitly instead.
+function createExplosion(x, y, count = 12, color = null) {
+    for (let i = 0; i < count; i++) {
+        if (explosionPool.length === 0) break;
+        
+        const particle = explosionPool.pop();
+        const angle = (i / count) * Math.PI * 2;
+        const speed = 3 + Math.random() * 4;
+        
+        particle.x = x;
+        particle.y = y;
+        particle.vx = Math.cos(angle) * speed;
+        particle.vy = Math.sin(angle) * speed;
+        particle.life = 30;
+        particle.maxLife = 30;
+        particle.size = 2 + Math.random() * 2;
+        particle.color = color || ship.color;
+        particle.active = true;
+        
+        explosions.push(particle);
+    }
+}
+
 // ===================================================
 //                    ASTEROIDS
 // ===================================================
