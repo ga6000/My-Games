@@ -296,12 +296,27 @@ button{
     </div>
 </div>
 
-<!-- Friend-facing scoreboard: best-life-in-seconds per player currently
-     in this room. Deliberately separate from #overlay below, which is
-     the dense dev/debug panel -- this one is meant to be glanced at
-     mid-game, so it stays small and always visible once the game starts. -->
-<div id="scoreboard" style="position: absolute; top: 12px; right: 12px; color: white; font-family: monospace; font-size: 13px; background: rgba(0,0,0,.45); padding: 10px 14px; border-radius: 8px; display: none; min-width: 160px;">
-    <div style="font-weight: bold; margin-bottom: 6px; letter-spacing: 1px; color: #64c8ff;">BEST LIFE (s)</div>
+<!-- Current life's running score. Top-right, always visible once the
+     game starts. Sits above #scoreboard rather than inside it, since
+     this is "my score right now" and the scoreboard below it is "best
+     score per player this session" -- different things, kept visually
+     separate rather than merged into one number. -->
+<div id="scoreDisplay" style="position: absolute; top: 12px; right: 12px; color: white; font-family: monospace; font-size: 20px; font-weight: bold; background: rgba(0,0,0,.45); padding: 8px 14px; border-radius: 8px; display: none;">SCORE: 0</div>
+
+<!-- Multiplier callout: large yellow text, top-center. Appears/resets to
+     full opacity on every multiplier increase, fades to 0 opacity after
+     2s. The multiplier itself keeps applying to score in the background
+     even after this fades -- fading is purely visual, not a reset of
+     the actual multiplier value (that only resets on death). -->
+<div id="multiplierCallout" style="position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: #ffe600; font-family: 'Arial Black', Arial, sans-serif; font-size: 48px; font-weight: 900; text-shadow: 0 0 12px rgba(255,230,0,0.6), 0 2px 4px rgba(0,0,0,0.8); opacity: 0; transition: opacity 0.4s ease; pointer-events: none;"></div>
+
+<!-- Friend-facing scoreboard: best score-this-session per player
+     currently in this room. Deliberately separate from #overlay below,
+     which is the dense dev/debug panel -- this one is meant to be
+     glanced at mid-game, so it stays small and always visible once the
+     game starts. -->
+<div id="scoreboard" style="position: absolute; top: 54px; right: 12px; color: white; font-family: monospace; font-size: 13px; background: rgba(0,0,0,.45); padding: 10px 14px; border-radius: 8px; display: none; min-width: 160px;">
+    <div style="font-weight: bold; margin-bottom: 6px; letter-spacing: 1px; color: #64c8ff;">BEST SCORE</div>
     <div id="scoreboard-list">—</div>
 </div>
 
@@ -496,7 +511,7 @@ for (let i = 0; i < MAX_BULLETS; i++) {
     });
 }
 
-function fireLaser(x, y, angle, color, shotType = "standard") {
+function fireLaser(x, y, angle, color, shotType = "standard", ownerId = null) {
     if (bullets.length >= MAX_BULLETS) {
         return;
     }
@@ -526,6 +541,12 @@ function fireLaser(x, y, angle, color, shotType = "standard") {
     bullet.active = true;
     bullet.gridKey = getGridKey(x, y);
     bullet.isLocalShot = true; // Mark as our shot (don't collide with us)
+    // ownerId is who fired this shot. Explicitly reset every fire (not just
+    // when creating a fresh object) because bullets are recycled from
+    // bulletPool -- without this, a recycled bullet could carry a stale
+    // ownerId from whoever last used that pooled object, misattributing
+    // a kill to the wrong player.
+    bullet.ownerId = ownerId;
     
     addToGrid(bullet.gridKey, bullet);
     bullets.push(bullet);
@@ -714,26 +735,138 @@ for (let i = 0; i < MAX_EXPLOSIONS; i++) {
     });
 }
 
-function createExplosion(x, y, count = 12) {
-    for (let i = 0; i < count; i++) {
-        if (explosionPool.length === 0) break;
-        
-        const particle = explosionPool.pop();
-        const angle = (i / count) * Math.PI * 2;
-        const speed = 3 + Math.random() * 4;
-        
-        particle.x = x;
-        particle.y = y;
-        particle.vx = Math.cos(angle) * speed;
-        particle.vy = Math.sin(angle) * speed;
-        particle.life = 30;
-        particle.maxLife = 30;
-        particle.size = 2 + Math.random() * 2;
-        particle.color = ship.color;
-        particle.active = true;
-        
-        explosions.push(particle);
+// ===================================================
+//                    ASTEROIDS
+// ===================================================
+// Floating white irregular polygons, shootable, drift slowly, respawn
+// after being destroyed. Purely a local/client-side hazard layer --
+// NOT synced over the network. Each client independently spawns and
+// simulates its own asteroid field using the same generation logic, so
+// different players will generally see roughly-similar asteroid
+// placement but are not guaranteed to see the exact same asteroid at
+// the exact same position at the exact same time (their local sims can
+// drift apart over a session). That's an acceptable simplification for
+// a decorative/scoring hazard in a small friend-group game -- it would
+// NOT be acceptable if asteroids needed to be a shared, contested
+// resource (e.g. "first player to shoot it gets credit" only makes
+// sense with server-synced positions, which this deliberately isn't).
+const ASTEROID_COUNT = 12;        // Active asteroids in the world at once (per your "slight variation in amount" -- see spawnAsteroid's count jitter)
+const ASTEROID_MIN_SIZE = 15;
+const ASTEROID_MAX_SIZE = 40;
+const ASTEROID_MIN_SPEED = 0.3;
+const ASTEROID_MAX_SPEED = 1.2;
+const ASTEROID_COLOR = "rgba(255, 255, 255, 0.85)";
+
+const asteroids = [];
+
+// Generates an irregular polygon by taking a base circle and jittering
+// each vertex's radius randomly -- this is what makes it look like a
+// rough asteroid rather than a perfect circle, without needing actual
+// art assets.
+function generateAsteroidShape(size) {
+    const points = 7 + Math.floor(Math.random() * 4); // 7-10 sided, irregular
+    const shape = [];
+    for (let i = 0; i < points; i++) {
+        const angle = (i / points) * Math.PI * 2;
+        const radiusJitter = 0.65 + Math.random() * 0.5; // Each vertex 65%-115% of base size
+        shape.push({
+            x: Math.cos(angle) * size * radiusJitter,
+            y: Math.sin(angle) * size * radiusJitter
+        });
     }
+    return shape;
+}
+
+function spawnAsteroid() {
+    const size = ASTEROID_MIN_SIZE + Math.random() * (ASTEROID_MAX_SIZE - ASTEROID_MIN_SIZE);
+    const speed = ASTEROID_MIN_SPEED + Math.random() * (ASTEROID_MAX_SPEED - ASTEROID_MIN_SPEED);
+    const driftAngle = Math.random() * Math.PI * 2;
+
+    // Spawn anywhere within the playable world bounds (not the border
+    // zone itself -- keeps asteroids from spawning directly on top of
+    // the death-on-touch border).
+    const margin = ASTEROID_MAX_SIZE + WORLD_BOUNDS.borderThickness;
+    const x = WORLD_BOUNDS.min + margin + Math.random() * ((WORLD_BOUNDS.max - margin) - (WORLD_BOUNDS.min + margin));
+    const y = WORLD_BOUNDS.min + margin + Math.random() * ((WORLD_BOUNDS.max - margin) - (WORLD_BOUNDS.min + margin));
+
+    asteroids.push({
+        x, y,
+        size,
+        vx: Math.cos(driftAngle) * speed,
+        vy: Math.sin(driftAngle) * speed,
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.01, // Slow tumble, direction varies
+        shape: generateAsteroidShape(size),
+        active: true
+    });
+}
+
+// Seed the initial field. Count has a small amount of jitter per your
+// "slight variation in amount" spec, applied once at seed time rather
+// than continuously -- destroyed asteroids respawn 1-for-1 (see
+// updateAsteroids below), so the field size stays roughly constant
+// after this initial jitter rather than drifting further over time.
+function seedAsteroidField() {
+    const count = ASTEROID_COUNT + Math.floor(Math.random() * 5) - 2; // ASTEROID_COUNT plus/minus a couple
+    for (let i = 0; i < count; i++) {
+        spawnAsteroid();
+    }
+}
+
+function updateAsteroids(dt) {
+    for (const a of asteroids) {
+        a.x += a.vx;
+        a.y += a.vy;
+        a.rotation += a.rotationSpeed;
+
+        // Wrap at world bounds rather than bouncing -- simpler, and
+        // "asteroids drifting through" reads fine without needing
+        // physically accurate bounce behavior.
+        const margin = a.size;
+        if (a.x < WORLD_BOUNDS.min - margin) a.x = WORLD_BOUNDS.max + margin;
+        if (a.x > WORLD_BOUNDS.max + margin) a.x = WORLD_BOUNDS.min - margin;
+        if (a.y < WORLD_BOUNDS.min - margin) a.y = WORLD_BOUNDS.max + margin;
+        if (a.y > WORLD_BOUNDS.max + margin) a.y = WORLD_BOUNDS.min - margin;
+    }
+}
+
+function drawAsteroids() {
+    for (const a of asteroids) {
+        const screen = worldToScreen(a.x, a.y);
+
+        // Skip drawing if off-screen (cheap cull, matches the pattern
+        // the rest of this file already uses for bullets/players).
+        if (screen.x < -100 || screen.x > width + 100 || screen.y < -100 || screen.y > height + 100) continue;
+
+        ctx.save();
+        ctx.translate(screen.x, screen.y);
+        ctx.rotate(a.rotation);
+        ctx.scale(camera.zoom, camera.zoom);
+        ctx.strokeStyle = ASTEROID_COLOR;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        a.shape.forEach((p, i) => {
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+// Destroys one asteroid (explosion + removal + 1-for-1 respawn so the
+// field doesn't slowly deplete) and credits the local player for it.
+// Only ever called for LOCAL bullet hits -- see the collision check in
+// the main bullet-update loop, which gates this on b.isLocalShot.
+function destroyAsteroid(index) {
+    const a = asteroids[index];
+    createExplosion(a.x, a.y, 10, ASTEROID_COLOR);
+    asteroids.splice(index, 1);
+    spawnAsteroid(); // 1-for-1 respawn keeps the field size roughly constant
+    creditKill("asteroid");
 }
 
 function updateAndDrawExplosions() {
@@ -812,68 +945,180 @@ function joinRoom(room, name) {
 }
 
 // ===================================================
-//              SCORING (survival time)
+//              SCORING
 // ===================================================
-// Score is "seconds survived in a single life," tracked as a best-of
-// across the whole session. This is the only number the game currently
-// has an honest, self-contained way to compute -- there's no kill-credit
-// system yet (bullets don't carry a shooter ID across the network, so a
-// client can't currently tell who killed it). Survival time needs none
-// of that: it's derived entirely from timestamps this client already has.
+// Score for a single life = (distance travelled, scaled) + (10 x seconds
+// alive), all multiplied by a streak multiplier that increases +0.1x per
+// consecutive kill (no death in between) and resets to 1.0x on death.
+// The multiplier applies to the ENTIRE per-frame score rate once a
+// streak is active -- not just to kill bonuses -- so a streak makes
+// everything (distance, time, further kills) worth more while it lasts.
+//
+// This whole thing is tracked PER-LIFE and submitted once, on death --
+// not continuously. That matches how the rest of the game already works
+// (reportLifeEnded() at both death sites) and means only one Firestore
+// write per death instead of one per frame.
+//
+// Distance is in raw world-units per frame (ship.speed is ~3 units/tick
+// at 60fps, so a life can rack up tens of thousands of raw units -- far
+// larger than the seconds-based time term, which tops out in the tens
+// or low hundreds for a good life). DISTANCE_SCALE divides distance down
+// into the same rough numeric range as the time term, so neither one
+// trivially swamps the other in the combined total.
+const DISTANCE_SCALE = 100;
+
+// A kill (of a player) is worth roughly "30 seconds of ordinary
+// non-kill play" as a flat bonus, awarded the instant the kill lands --
+// BEFORE the current multiplier is applied to it (the multiplier then
+// applies on top, same as it does to everything else). "30 seconds of
+// ordinary play" = 30 seconds x the TIME_POINTS_PER_SECOND rate below
+// (distance isn't part of this baseline since distance during those 30
+// seconds is player-behavior-dependent, not a fixed rate).
+const TIME_POINTS_PER_SECOND = 10;
+const KILL_BONUS = TIME_POINTS_PER_SECOND * 30; // = 300
+const ASTEROID_KILL_BONUS = KILL_BONUS / 20; // = 15, per your 1/20 spec
+
 let lifeStartTime = Date.now();
-let bestLifeSeconds = 0;
+let lifeStartX = 0;
+let lifeStartY = 0;
+let lifeDistance = 0;       // Raw world-units moved this life, accumulated each frame
+let lifeKillStreak = 0;     // Consecutive kills this life, no death in between
+let lifeScore = 0;          // Running total for the CURRENT life, in display units (not raw distance)
+let bestLifeScore = 0;      // Session-local best, shown in the dev overlay for reference only
 
-// Called once per death (both death sites: border collision, bullet hit).
-// Reports the just-ended life's length, updates the local best, and if
-// it's a new best, relays it to the room (display-only) and writes it to
-// Firestore (persisted). This intentionally does NOT wait for game-end --
-// with respawn-based play there is no single "game end," so each death is
-// itself the natural checkpoint for "did the player just beat their best."
-function reportLifeEnded() {
-    const secondsSurvived = (Date.now() - lifeStartTime) / 1000;
+function currentMultiplier() {
+    // 0 kills -> 1.0x, 1 kill -> 1.1x, 2 kills -> 1.2x, etc. Uncapped --
+    // per your note, if this turns out overpowered at high streaks the
+    // curve can be revisited later (e.g. capped, or diminishing per
+    // kill), but starting linear and uncapped is the agreed starting point.
+    return 1 + (lifeKillStreak * 0.1);
+}
 
-    if (secondsSurvived > bestLifeSeconds) {
-        bestLifeSeconds = secondsSurvived;
+// Called every frame from updateShip(), but ONLY while alive and only
+// when the ship actually moved (paused / not moving = no new distance,
+// no new time-based score that frame -- this is what keeps sitting
+// still from being a free way to rack up score, in solo or grouped play
+// alike, without needing a separate solo-only rule).
+function accumulateLiveScore(dtSeconds, distanceThisFrame) {
+    lifeDistance += distanceThisFrame;
 
-        // Live relay to whoever else is in this room right now.
-        if (hasJoinedRoom && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({
-                type: "score-update",
-                score: Math.round(bestLifeSeconds)
-            }));
-        }
+    const distanceComponent = (distanceThisFrame / DISTANCE_SCALE);
+    const timeComponent = dtSeconds * TIME_POINTS_PER_SECOND;
 
-        // Persisted write. Fire-and-forget from the game's perspective --
-        // submitScoreToFirebase is defined near the Firebase setup below
-        // and no-ops safely if Firebase hasn't loaded for any reason, so
-        // a network hiccup here never blocks or breaks gameplay.
-        submitScoreToFirebase(ship.name || "Anonymous", Math.round(bestLifeSeconds), currentRoomCode);
+    lifeScore += (distanceComponent + timeComponent) * currentMultiplier();
+}
 
-        updateScoreboardDisplay(); // Reflect the new personal best immediately, don't wait on the round-trip
+// Multiplier callout: large yellow text, top-center, appears/refreshes
+// on increase, fades after 2s while remaining logically "active" (the
+// multiplier itself doesn't reset when the text fades -- only the
+// VISIBILITY fades; killStreak/currentMultiplier() keep applying to
+// score in the background regardless of whether this is on screen).
+const multiplierCalloutEl = document.getElementById("multiplierCallout");
+let multiplierCalloutTimeout = null;
+
+function showMultiplierCallout() {
+    if (!multiplierCalloutEl) return;
+    const mult = currentMultiplier();
+
+    multiplierCalloutEl.textContent = `${mult.toFixed(1)}x`;
+    multiplierCalloutEl.style.opacity = "1";
+
+    // Re-triggering on every increase means a fast second kill restarts
+    // the 2s clock rather than fighting an already-running fade-out.
+    if (multiplierCalloutTimeout) clearTimeout(multiplierCalloutTimeout);
+    multiplierCalloutTimeout = setTimeout(() => {
+        multiplierCalloutEl.style.opacity = "0";
+    }, 2000);
+}
+
+// Score display: current life's running score, top-right, always visible
+// once the game has started (not just on death).
+const scoreDisplayEl = document.getElementById("scoreDisplay");
+function updateScoreDisplay() {
+    if (!scoreDisplayEl) return;
+    scoreDisplayEl.textContent = `SCORE: ${Math.round(lifeScore)}`;
+}
+
+// Called when THIS client's bullet is confirmed (by the server relay) to
+// have killed another player. killType distinguishes player kills (full
+// KILL_BONUS, extends the streak) from asteroid kills (1/20 bonus, per
+// your spec does NOT extend the player-kill streak or affect the
+// multiplier -- asteroids are a scoring bonus, not a "kill chain" in
+// the combo sense described for player kills).
+function creditKill(killType) {
+    if (killType === "asteroid") {
+        lifeScore += ASTEROID_KILL_BONUS * currentMultiplier();
+        return; // No streak change, no callout -- asteroid kills are a flat top-up, not a combo event
     }
+
+    // Player kill: award bonus at the CURRENT multiplier (before
+    // incrementing the streak), then increment the streak so the NEXT
+    // thing scored (including this kill's own follow-on frames) benefits
+    // from the new, higher multiplier.
+    lifeScore += KILL_BONUS * currentMultiplier();
+    lifeKillStreak += 1;
+    showMultiplierCallout();
+    updateScoreDisplay();
+}
+
+// Called once per death (both death sites: border collision, bullet
+// hit). Finalizes the just-ended life's score, submits it (every life,
+// not just personal bests -- per your direction, tracked and
+// transmitted on death), relays it live to the room, and resets all
+// per-life counters for the next spawn. Death does not penalize the
+// score already earned -- it only resets the streak going forward,
+// matching what you confirmed.
+function reportLifeEnded() {
+    const finalScore = Math.round(lifeScore);
+
+    if (finalScore > bestLifeScore) {
+        bestLifeScore = finalScore; // Session-local reference value only, shown in dev overlay
+    }
+
+    // Live relay to whoever else is in this room right now (display only).
+    if (hasJoinedRoom && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: "score-update",
+            score: finalScore
+        }));
+    }
+
+    // Persisted write, every life. Fire-and-forget -- submitScoreToFirebase
+    // no-ops safely if Firebase hasn't loaded, so a network hiccup here
+    // never blocks or breaks gameplay.
+    submitScoreToFirebase(ship.name || "Anonymous", finalScore, currentRoomCode);
+
+    updateScoreboardDisplay();
+
+    // Reset per-life counters. lifeStartTime/X/Y get set again on the
+    // actual respawn (in updateShip's respawn branch) -- this reset here
+    // covers the interval between death and respawn, so the displayed
+    // score doesn't linger showing the dead life's number while waiting
+    // to respawn.
+    lifeScore = 0;
+    lifeDistance = 0;
+    lifeKillStreak = 0;
+    updateScoreDisplay();
 }
 
 const scoreboardEl = document.getElementById("scoreboard");
 const scoreboardListEl = document.getElementById("scoreboard-list");
 
 // Renders roomScores (populated by incoming "score-update" broadcasts)
-// plus this client's own best, sorted high to low. Called on every
-// score-update received and every time this player beats their own best.
+// plus this client's own best-this-session, sorted high to low. Called
+// on every score-update received and every death.
 function updateScoreboardDisplay() {
     if (!scoreboardEl) return;
     scoreboardEl.style.display = "block";
 
     const rows = Object.entries(roomScores).map(([name, score]) => ({ name, score }));
 
-    // Make sure our own score is represented even before any remote
-    // player has joined -- roomScores only fills from messages relayed
-    // by the server, which requires at least one other player present.
     const myLabel = ship.name || "You";
     const existingMine = rows.find(r => r.name === myLabel);
     if (existingMine) {
-        existingMine.score = Math.max(existingMine.score, Math.round(bestLifeSeconds));
-    } else if (bestLifeSeconds > 0) {
-        rows.push({ name: myLabel, score: Math.round(bestLifeSeconds) });
+        existingMine.score = Math.max(existingMine.score, bestLifeScore);
+    } else if (bestLifeScore > 0) {
+        rows.push({ name: myLabel, score: bestLifeScore });
     }
 
     rows.sort((a, b) => b.score - a.score);
@@ -884,8 +1129,7 @@ function updateScoreboardDisplay() {
 }
 
 // name -> score, for players currently in this room. Populated by
-// "score-update" broadcasts. Read by the scoreboard overlay -- see
-// updateScoreboardDisplay() below.
+// "score-update" broadcasts. Read by the scoreboard overlay above.
 const roomScores = {};
 
 socket.onmessage = event => {
@@ -923,6 +1167,19 @@ socket.onmessage = event => {
             // happens separately, once, to Firestore at game-end.
             roomScores[data.name || data.id] = data.score;
             updateScoreboardDisplay();
+        } else if (data.type === "kill-credit") {
+            // This is the ONLY way a shooter's client ever learns one of
+            // its bullets landed -- collision detection runs on the
+            // victim's client only (see the collision check in the
+            // bullet-update loop), so the victim has to tell the server
+            // "you killed me," and the server relays it back to us here.
+            // killType is currently always "player" from the server (see
+            // server.js's kill-credit handler) -- asteroid kills are
+            // detected and credited entirely locally instead, since
+            // asteroids aren't networked entities (see the asteroid
+            // collision check further down), so there's no round-trip
+            // needed for those.
+            creditKill(data.killType || "player");
         }
     } catch(e) {
         console.error("Error parsing server message", e);
@@ -972,8 +1229,13 @@ function updateRemotePlayer(id, x, y, angle, color, shot, isAlive, name) {
 
     if (shot) {
         console.log("Remote shot received:", shot);
-        // Fire remote shot - isLocalShot will be false (undefined = false)
-        fireLaser(shot.x, shot.y, shot.angle, playerColor, shot.type || "standard");
+        // Fire remote shot - isLocalShot will be false (undefined = false).
+        // ownerId is the shooter's own player id (the "id" parameter of
+        // this function) -- this is what lets OUR client later recognize
+        // "this specific bullet belongs to that specific remote player,"
+        // which matters if it goes on to hit us: see the collision check
+        // further down, where b.ownerId is read to know who to credit.
+        fireLaser(shot.x, shot.y, shot.angle, playerColor, shot.type || "standard", id);
         // Clear isLocalShot flag on the last bullet (it's a remote shot)
         if (bullets.length > 0) {
             bullets[bullets.length - 1].isLocalShot = false;
@@ -1108,7 +1370,8 @@ function updateOverlay(){
     statusText.innerHTML =
 `PLAYER: ${ship.name || "Anonymous"}<br>
 ROOM: ${currentRoomCode || "(not joined)"}<br>
-BEST LIFE: ${bestLifeSeconds.toFixed(1)}s<br>
+SCORE: ${Math.round(lifeScore)} | BEST: ${bestLifeScore}<br>
+STREAK: ${lifeKillStreak} (${currentMultiplier().toFixed(1)}x)<br>
 FPS: ${fps.toFixed(0)} | ${frameTime.toFixed(1)}ms<br>
 Pos: X: ${Math.round(ship.x)} | Y: ${Math.round(ship.y)}<br>
 Mode: ${controlMode}${dashInfo}<br>
@@ -1212,7 +1475,7 @@ canvas.addEventListener("mouseup", (e) => {
         return;
     }
 
-    fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType);
+    fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType, myPlayerId);
     playLocalSound(shotType); // Plays thwop on release of beam
 
     // IMPORTANT: Queue shot for network broadcast
@@ -1263,7 +1526,7 @@ canvas.addEventListener("touchend", (e) => {
         return;
     }
 
-    fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType);
+    fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType, myPlayerId);
     playLocalSound(shotType);
 
     pendingShot = {
@@ -1353,7 +1616,12 @@ enterGameBtn.addEventListener("click", () => {
     // matters, not just style.
     joinRoom(roomCode, playerName);
     lifeStartTime = Date.now(); // First life's clock starts now, not at page load
+    lifeStartX = ship.x;
+    lifeStartY = ship.y;
+    if (scoreDisplayEl) scoreDisplayEl.style.display = "block";
+    updateScoreDisplay();
     updateScoreboardDisplay(); // Show the panel now -- don't wait on another player's score-update to arrive first, or a solo player never sees it
+    seedAsteroidField(); // One-time, here rather than on page load -- asteroids shouldn't drift/exist while sitting on the start screens
 
     // Set zoom based on mode
     if (controlMode === "mobile") {
@@ -1455,6 +1723,8 @@ function updateShip(dt){
             ship.isAlive = true;
             trail = []; // Clear trail on respawn
             lifeStartTime = Date.now(); // Score clock for this life starts now
+            lifeStartX = ship.x;
+            lifeStartY = ship.y;
 
             // Broadcast respawn to other players
             pendingShot = null; // Clear any pending shots
@@ -1512,8 +1782,21 @@ function updateShip(dt){
     }
 
     if(!paused){
+        const prevScoreX = ship.x;
+        const prevScoreY = ship.y;
         ship.x += Math.cos(ship.angle) * ship.speed;
         ship.y += Math.sin(ship.angle) * ship.speed;
+
+        // Distance actually moved this frame. Only accrues while alive
+        // (this whole block is unreachable while dead -- see the early
+        // return in the respawn branch above) and only while unpaused,
+        // which is what keeps sitting still or being paused from earning
+        // free score, without needing a separate solo-play rule for it.
+        if (ship.isAlive) {
+            const distThisFrame = Math.hypot(ship.x - prevScoreX, ship.y - prevScoreY);
+            accumulateLiveScore(dt, distThisFrame);
+            updateScoreDisplay();
+        }
     }
 
     // Check border collision - bounce back and explode if hitting border
@@ -1629,6 +1912,22 @@ function updateAndDrawBullets() {
                 ship.isAlive = false;
                 ship.deathTime = Date.now();
                 trail = []; // Clear trail immediately on death
+
+                // Tell the server who shot us, so it can relay kill
+                // credit to THAT player's client. This only fires when
+                // the bullet actually carries an owner (b.ownerId is set
+                // for remote shots via fireLaser's ownerId param -- see
+                // where remote shots are spawned in updateRemotePlayer).
+                // If ownerId is somehow missing, we just skip crediting
+                // rather than guessing -- a death should never crash the
+                // game over an incomplete kill-credit message.
+                if (b.ownerId && hasJoinedRoom && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: "kill-credit",
+                        shooterId: b.ownerId
+                    }));
+                }
+
                 reportLifeEnded();
                 
                 removeFromGrid(b.gridKey, b);
@@ -1637,6 +1936,29 @@ function updateAndDrawBullets() {
                 continue;
             }
         }
+
+        // Check collision with asteroids. Gated to isLocalShot only --
+        // per the design note on the asteroid system above, each
+        // client's asteroid field is simulated independently and not
+        // network-synced, so a REMOTE player's bullet passing through
+        // "my" asteroid shouldn't destroy it or credit anyone on my
+        // client; only my own bullets interact with my own asteroid field.
+        let bulletConsumedByAsteroid = false;
+        if (b.isLocalShot) {
+            for (let j = asteroids.length - 1; j >= 0; j--) {
+                const a = asteroids[j];
+                const dist = Math.hypot(b.x - a.x, b.y - a.y);
+                if (dist < a.size + b.size) {
+                    destroyAsteroid(j);
+                    removeFromGrid(b.gridKey, b);
+                    bulletPool.push(b);
+                    bullets.splice(i, 1);
+                    bulletConsumedByAsteroid = true;
+                    break; // Stop checking other asteroids -- this bullet is now consumed
+                }
+            }
+        }
+        if (bulletConsumedByAsteroid) continue;
 
         if (b.life <= 0) {
             removeFromGrid(b.gridKey, b);
@@ -1863,6 +2185,7 @@ function drawScene(){
     drawStars();
     drawWorldBorder();     // Draw world border
     drawSafeZone();        // Draw safe zone
+    drawAsteroids();       // Background hazard layer, before trails/ships/bullets
     drawTrail();           // Draw trail first (behind)
     drawRemotePlayers();   // Draw remote players on top of trail
     drawCooldownRing();
@@ -1918,6 +2241,7 @@ function animate(now){
 
     if(gameStarted){
         updateShip(dt);
+        updateAsteroids(dt);
         updateTrail(dt);
         updateBeamChargeAudio();
 
