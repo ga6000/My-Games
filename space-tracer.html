@@ -320,6 +320,24 @@ button{
     <div id="scoreboard-list">—</div>
 </div>
 
+<!-- Dash meter: bottom-center, above where the mobile dash button sits
+     (so it works in the same visual spot whether the player is on
+     mobile with a visible dash button, or on computer where dash is
+     SPACE with no button at all). Two visual states sharing one bar:
+     while charging (holding dash), the bar fills blue-to-white toward
+     the 10s cap; while actively dashing, it switches to draining
+     orange/yellow, counting the up-to-5s dash window back down to
+     empty. Reads directly from the existing dashChargeDuration /
+     dashTimeRemaining / isDashing state -- no new game-state was added
+     for this, it's the same numbers the dev overlay already showed as
+     text, now shown as a bar too. -->
+<div id="dashMeterContainer" style="position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%); width: 160px; display: none; text-align: center;">
+    <div id="dashMeterLabel" style="color: white; font-family: monospace; font-size: 11px; margin-bottom: 4px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); letter-spacing: 1px;">DASH</div>
+    <div style="width: 100%; height: 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.4); border-radius: 5px; overflow: hidden;">
+        <div id="dashMeterFill" style="width: 0%; height: 100%; background: #64c8ff; transition: width 0.05s linear, background-color 0.15s ease;"></div>
+    </div>
+</div>
+
 <div id="overlay">
     <div><b>Gyro Space Prototype</b></div>
     <div id="status">Waiting...</div>
@@ -418,6 +436,40 @@ let spaceHoldStartTime = 0;
 let dashChargeDuration = 0;
 let dashTimeRemaining = 0;
 let isDashing = false;
+
+// Note: the "10" (max charge seconds) and "5" (max dash seconds) below
+// are the same literal values already hardcoded at every dashChargeDuration
+// / dashTimeRemaining assignment elsewhere in this file (both the mobile
+// and computer control branches). Deliberately not introducing new named
+// constants here that only this function would use -- that would create
+// a second source of truth that could silently drift from the literals
+// the actual dash logic uses. If those literals ever change, this needs
+// updating to match, same as any other place they're referenced.
+const dashMeterFillEl = document.getElementById("dashMeterFill");
+const dashMeterLabelEl = document.getElementById("dashMeterLabel");
+
+function updateDashMeter() {
+    if (!dashMeterFillEl) return;
+
+    if (isDashing) {
+        // Draining: dashTimeRemaining counts down from up to 5s to 0.
+        const pct = (dashTimeRemaining / 5) * 100;
+        dashMeterFillEl.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+        dashMeterFillEl.style.background = "#ffaa00"; // Orange while actively dashing -- visually distinct from the charging color
+        if (dashMeterLabelEl) dashMeterLabelEl.textContent = "DASHING";
+    } else if (spaceHeld) {
+        // Charging: dashChargeDuration counts up from 0 to a 10s cap.
+        const pct = (dashChargeDuration / 10) * 100;
+        dashMeterFillEl.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+        dashMeterFillEl.style.background = "#64c8ff"; // Same blue as the rest of this game's UI accent color
+        if (dashMeterLabelEl) dashMeterLabelEl.textContent = "CHARGING";
+    } else {
+        // Neither charging nor dashing: empty bar, ready state.
+        dashMeterFillEl.style.width = "0%";
+        dashMeterFillEl.style.background = "#64c8ff";
+        if (dashMeterLabelEl) dashMeterLabelEl.textContent = "DASH";
+    }
+}
 
 // ===================================================
 //               CAMERA / WORLD POSITION
@@ -888,15 +940,21 @@ function drawAsteroids() {
 }
 
 // Destroys one asteroid (explosion + removal + 1-for-1 respawn so the
-// field doesn't slowly deplete) and credits the local player for it.
-// Only ever called for LOCAL bullet hits -- see the collision check in
-// the main bullet-update loop, which gates this on b.isLocalShot.
+// field doesn't slowly deplete) and credits the local player for it,
+// scaled by size -- a bigger asteroid is worth more points. Called both
+// for LOCAL bullet hits (see the collision check in the main
+// bullet-update loop, gated on b.isLocalShot) and for the player
+// physically colliding with an asteroid (see the new collision check in
+// updateShip below).
 function destroyAsteroid(index) {
     const a = asteroids[index];
+    const averageSize = (ASTEROID_MIN_SIZE + ASTEROID_MAX_SIZE) / 2;
+    const sizeRatio = a.size / averageSize;
+
     createExplosion(a.x, a.y, 10, ASTEROID_COLOR);
     asteroids.splice(index, 1);
     spawnAsteroid(); // 1-for-1 respawn keeps the field size roughly constant
-    creditKill("asteroid");
+    creditKill("asteroid", sizeRatio);
 }
 
 function updateAndDrawExplosions() {
@@ -1071,13 +1129,19 @@ function updateScoreDisplay() {
 
 // Called when THIS client's bullet is confirmed (by the server relay) to
 // have killed another player. killType distinguishes player kills (full
-// KILL_BONUS, extends the streak) from asteroid kills (1/20 bonus, per
-// your spec does NOT extend the player-kill streak or affect the
-// multiplier -- asteroids are a scoring bonus, not a "kill chain" in
-// the combo sense described for player kills).
-function creditKill(killType) {
+// KILL_BONUS, extends the streak) from asteroid kills (does NOT extend
+// the player-kill streak or affect the multiplier -- asteroids are a
+// scoring bonus, not a "kill chain" in the combo sense described for
+// player kills). sizeRatio is only used for asteroid kills -- see
+// destroyAsteroid, which computes it as (this asteroid's size / average
+// asteroid size) so an average-size asteroid is still worth almost
+// exactly the original flat ASTEROID_KILL_BONUS, while small/large ones
+// scale proportionally around that midpoint. Using a ratio rather than
+// raw size directly avoids the largest asteroids (size 40) being worth
+// roughly 2x a full player kill, which raw size * bonus would produce.
+function creditKill(killType, sizeRatio = 1) {
     if (killType === "asteroid") {
-        lifeScore += ASTEROID_KILL_BONUS * currentMultiplier();
+        lifeScore += ASTEROID_KILL_BONUS * sizeRatio * currentMultiplier();
         return; // No streak change, no callout -- asteroid kills are a flat top-up, not a combo event
     }
 
@@ -1652,6 +1716,8 @@ enterGameBtn.addEventListener("click", () => {
     updateScoreDisplay();
     updateScoreboardDisplay(); // Show the panel now -- don't wait on another player's score-update to arrive first, or a solo player never sees it
     seedAsteroidField(); // One-time, here rather than on page load -- asteroids shouldn't drift/exist while sitting on the start screens
+    const dashMeterContainerEl = document.getElementById("dashMeterContainer");
+    if (dashMeterContainerEl) dashMeterContainerEl.style.display = "block";
 
     // Set zoom based on mode
     if (controlMode === "mobile") {
@@ -1811,6 +1877,8 @@ function updateShip(dt){
         }
     }
 
+    updateDashMeter();
+
     if(!paused){
         const prevScoreX = ship.x;
         const prevScoreY = ship.y;
@@ -1847,6 +1915,35 @@ function updateShip(dt){
             const clamped = clampToBounds(ship.x, ship.y);
             ship.x = clamped.x;
             ship.y = clamped.y;
+        }
+    }
+
+    // Check asteroid collision - kills the player on physical impact
+    // (previously asteroids only responded to being shot; this adds the
+    // ship-vs-asteroid pair). Respects the safe zone the same way border
+    // and bullet death already do. The asteroid is destroyed on impact
+    // too -- both die together, matching the visual/mechanical read of
+    // "collision," and meaning the same asteroid can't sit there killing
+    // multiple players in a row. No score is credited for this,
+    // deliberately: crediting points for the same event that just
+    // killed you would reward dying, which isn't the intent -- whatever
+    // score was already earned this life is still submitted normally via
+    // reportLifeEnded() below, same as any other death.
+    if (ship.isAlive && !isInSafeZone(ship.x, ship.y)) {
+        for (let k = asteroids.length - 1; k >= 0; k--) {
+            const a = asteroids[k];
+            const dist = Math.hypot(ship.x - a.x, ship.y - a.y);
+            if (dist < ship.size + a.size) {
+                createExplosion(ship.x, ship.y, 15);
+                createExplosion(a.x, a.y, 10, ASTEROID_COLOR);
+                asteroids.splice(k, 1);
+                spawnAsteroid(); // 1-for-1 respawn, same as destroyAsteroid()
+                ship.isAlive = false;
+                ship.deathTime = Date.now();
+                trail = [];
+                reportLifeEnded();
+                break; // Ship can only die once per frame; stop checking further asteroids
+            }
         }
     }
 
