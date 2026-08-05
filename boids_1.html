@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Megastructure Swarm v4.0</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #050a10;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #0ff;
+            pointer-events: none;
+            text-shadow: 0 0 5px #0ff;
+        }
+        h1, h2, h3, h4 { margin: 0 0 8px 0; font-weight: normal; }
+        #maxBoidDisplay { color: #f0f; font-size: 1.1em; }
+        #timeDisplay { color: #f80; }
+        #abilitiesDisplay {
+            margin-top: 15px;
+            color: #8f8;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .alert {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #f00;
+            font-size: 48px;
+            font-weight: bold;
+            text-shadow: 0 0 20px #f00;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            text-align: center;
+        }
+        #doomText {
+            font-size: 160px;
+            text-shadow: 0 0 40px #f00;
+            transition: none; 
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #88c;
+            font-size: 14px;
+            pointer-events: none;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h1 id="levelDisplay">SECTOR: 1</h1>
+        <h2 id="boidDisplay">DRONES: 15 / 30</h2>
+        <h2 id="maxBoidDisplay">PEAK DRONES: 15</h2>
+        <h3 id="timeDisplay">TIME REMAINING: 40.0s</h3>
+        <h3 id="statusDisplay">STATUS: NOMINAL</h3>
+        <h4 id="weaponDisplay" style="color:#aa0; display:none;">WEAPON: OFFLINE</h4>
+        <div id="abilitiesDisplay"></div>
+    </div>
+    
+    <div id="alertText" class="alert">WARNING: PURGE GRID ACTIVATED</div>
+    <div id="doomText" class="alert">3</div>
+    
+    <div id="instructions">
+        MOUSE / TOUCH to guide the Attractor.<br>
+        Harvest Energy Cores to replicate.<br>
+        Drones survive 2 hits. Damaged drones turn pink.<br>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const uiLevel = document.getElementById('levelDisplay');
+const uiBoids = document.getElementById('boidDisplay');
+const uiMaxBoids = document.getElementById('maxBoidDisplay');
+const uiTime = document.getElementById('timeDisplay');
+const uiStatus = document.getElementById('statusDisplay');
+const uiWeapon = document.getElementById('weaponDisplay');
+const uiAbilities = document.getElementById('abilitiesDisplay');
+const alertText = document.getElementById('alertText');
+const doomText = document.getElementById('doomText');
+
+let width, height;
+function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Input
+let mouse = { x: width / 2, y: height / 2 };
+canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+canvas.addEventListener('touchmove', e => { 
+    mouse.x = e.touches[0].clientX; 
+    mouse.y = e.touches[0].clientY; 
+    e.preventDefault();
+}, { passive: false });
+
+let lastShot = 0;
+function handleShoot(e) {
+    if (level < 5 || boids.length === 0) return;
+    
+    let now = Date.now();
+    let weaponCooldown = level >= 20 ? 1500 : 300; 
+    if (now - lastShot < weaponCooldown) return; 
+    lastShot = now;
+    
+    let isHoming = level >= 20;
+    for (let b of boids) {
+        projectiles.push(new Projectile(b.x, b.y, mouse.x, mouse.y, isHoming));
+    }
+}
+canvas.addEventListener('mousedown', handleShoot);
+canvas.addEventListener('touchstart', handleShoot, { passive: false });
+
+// Game State
+let level = 1;
+let boids = [];
+let nodes = [];
+let lasers = [];
+let projectiles = [];
+let targetBoids = 20;
+let maxBoidsCount = 15;
+let bgOffset = 0;
+let levelEndTime = 0;
+let doomTriggered = false;
+
+// Boid Class
+class Boid {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 4;
+        this.vy = (Math.random() - 0.5) * 4;
+        this.hp = 2; 
+    }
+
+    update(boids) {
+        let ax = 0, ay = 0;
+        
+        let speed = 4.5;
+        if (level >= 15) {
+            let speedLevel = Math.floor((level - 10) / 5); 
+            speed += (speedLevel * 1.5);
+        }
+        
+        // 1. Seek Attractor
+        let dx = mouse.x - this.x;
+        let dy = mouse.y - this.y;
+        let distToMouse = Math.sqrt(dx * dx + dy * dy);
+        
+        // Pull strength scales with max speed so they don't get sluggish
+        let pullStrength = (speed / 4.5) * 0.8;
+        
+        if (distToMouse > 0) {
+            ax += (dx / distToMouse) * pullStrength;
+            ay += (dy / distToMouse) * pullStrength;
+        }
+
+        // TIGHTER CONTROL: Heavy braking when close to the cursor to prevent rubber-banding
+        // The dampening radius scales slightly with swarm size to allow them room to cluster
+        let brakeRadius = 40 + (boids.length * 0.1);
+        if (distToMouse < brakeRadius) {
+            this.vx *= 0.75; // Kill momentum heavily
+            this.vy *= 0.75;
+        } else {
+            // Light friction when traveling so they don't infinitely orbit
+            this.vx *= 0.96;
+            this.vy *= 0.96;
+        }
+
+        // 2. Separation
+        for (let other of boids) {
+            if (other === this) continue;
+            let ddx = this.x - other.x;
+            let ddy = this.y - other.y;
+            let distSq = ddx*ddx + ddy*ddy;
+            if (distSq < 300 && distSq > 0) {
+                ax += ddx / distSq * 10;
+                ay += ddy / distSq * 10;
+            }
+        }
+
+        this.vx += ax;
+        this.vy += ay;
+
+        // Limit max speed
+        let speedSq = this.vx*this.vx + this.vy*this.vy;
+        if (speedSq > speed * speed) {
+            let ratio = speed / Math.sqrt(speedSq);
+            this.vx *= ratio;
+            this.vy *= ratio;
+        }
+
+        this.x += this.vx;
+        this.y += this.vy;
+    }
+
+    draw(ctx) {
+        let angle = Math.atan2(this.vy, this.vx);
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(angle);
+        ctx.fillStyle = this.hp === 2 ? '#0ff' : '#f0f'; 
+        ctx.beginPath();
+        ctx.moveTo(8, 0);
+        ctx.lineTo(-4, 4);
+        ctx.lineTo(-4, -4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+// Projectile Class
+class Projectile {
+    constructor(x, y, targetX, targetY, homing) {
+        this.x = x;
+        this.y = y;
+        this.homing = homing;
+        this.speed = 12;
+        
+        let dx = targetX - x;
+        let dy = targetY - y;
+        let dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        this.vx = (dx / dist) * this.speed;
+        this.vy = (dy / dist) * this.speed;
+        this.life = 100;
+    }
+
+    update() {
+        if (this.homing && nodes.length > 0) {
+            let nearest = null;
+            let minDist = Infinity;
+            for (let n of nodes) {
+                let d = (n.x - this.x)**2 + (n.y - this.y)**2;
+                if (d < minDist) { minDist = d; nearest = n; }
+            }
+            if (nearest) {
+                let dx = nearest.x - this.x;
+                let dy = nearest.y - this.y;
+                let dist = Math.sqrt(dx*dx + dy*dy) || 1;
+                this.vx += (dx / dist) * 2.5;
+                this.vy += (dy / dist) * 2.5;
+                
+                let currentSpeed = Math.sqrt(this.vx**2 + this.vy**2);
+                this.vx = (this.vx / currentSpeed) * this.speed;
+                this.vy = (this.vy / currentSpeed) * this.speed;
+            }
+        }
+        
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life--;
+    }
+
+    draw(ctx) {
+        ctx.fillStyle = this.homing ? '#ff0' : '#fff';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 2, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+// Resource Node
+class Node {
+    constructor(x, y, radius) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.maxHealth = radius * 4 * (1 + level * 0.2); 
+        this.health = this.maxHealth;
+        this.boidYield = Math.floor(radius / 6) + 2; 
+    }
+
+    draw(ctx) {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#f80';
+        ctx.shadowColor = '#f00';
+        ctx.shadowBlur = 15;
+        ctx.fill();
+        ctx.shadowBlur = 0; 
+
+        ctx.fillStyle = '#333';
+        ctx.fillRect(this.x - this.radius, this.y - this.radius - 15, this.radius * 2, 5);
+        ctx.fillStyle = '#0f0';
+        let hpRatio = Math.max(0, this.health / this.maxHealth);
+        ctx.fillRect(this.x - this.radius, this.y - this.radius - 15, (this.radius * 2) * hpRatio, 5);
+    }
+}
+
+for (let i = 0; i < 15; i++) {
+    boids.push(new Boid(width/2 + Math.random()*50, height/2 + Math.random()*50));
+}
+
+function updateAbilitiesList() {
+    let abilities = ["SYSTEM PROTOCOLS:"];
+    abilities.push("✓ Attractor Guidance");
+    if (level >= 5) abilities.push("✓ Direct Fire Weaponry (CLICK)");
+    if (level >= 15) {
+        let tier = Math.floor((level - 10) / 5);
+        abilities.push(`✓ Speed Overdrive (Tier ${tier})`);
+    }
+    if (level >= 20) abilities.push("✓ Homing Missiles (HEAVY DRAW)");
+    
+    uiAbilities.innerHTML = abilities.join('<br>');
+}
+
+function spawnLevel() {
+    nodes = [];
+    lasers = [];
+    projectiles = [];
+    doomTriggered = false;
+    
+    targetBoids = 15 + Math.floor(level * 12); 
+    
+    // Inverse-Scaling Time: 
+    // Old linear scaling gave too much time late game. Now it's a tighter base + smaller increment.
+    // L1: ~43s for 27 targets. L10: ~70s for 135 targets.
+    let timeGiven = 40 + (level * 3);
+    levelEndTime = Date.now() + (timeGiven * 1000);
+    
+    let numNodes = 2 + Math.floor(level / 3);
+    for (let i = 0; i < numNodes; i++) {
+        let nx = 100 + Math.random() * (width - 200);
+        let ny = 100 + Math.random() * (height - 200);
+        let radius = 15 + Math.random() * 30 + (level * 1.5); 
+        nodes.push(new Node(nx, ny, radius));
+    }
+
+    if (level >= 5) uiWeapon.style.display = 'block';
+    
+    updateAbilitiesList();
+}
+spawnLevel();
+
+function triggerLaser() {
+    if (doomTriggered) return; 
+    
+    const type = Math.floor(Math.random() * 3);
+    let zones = [];
+    
+    if (type === 0) { 
+        if (Math.random() > 0.5) zones.push({x: 0, y: 0, w: width, h: height/2});
+        else zones.push({x: 0, y: height/2, w: width, h: height/2});
+    } 
+    else if (type === 1) { 
+        if (Math.random() > 0.5) zones.push({x: 0, y: 0, w: width/2, h: height});
+        else zones.push({x: width/2, y: 0, w: width/2, h: height});
+    } 
+    else { 
+        if (Math.random() > 0.5) {
+            zones.push({x: 0, y: 0, w: width/4, h: height});
+            zones.push({x: width*0.75, y: 0, w: width/4, h: height});
+        } else {
+            zones.push({x: 0, y: 0, w: width, h: height/4});
+            zones.push({x: 0, y: height*0.75, w: width, h: height/4});
+        }
+    }
+
+    let warningTime = Math.max(40, 240 - (level * 12));
+    let flashSpeed = 0.05 + (level * 0.015);
+
+    lasers.push({
+        zones: zones,
+        timer: warningTime, 
+        state: 'WARNING',
+        flashSpeed: flashSpeed,
+        hitBoids: new Set()
+    });
+    
+    alertText.innerText = "WARNING: PURGE GRID ACTIVATED";
+    alertText.style.opacity = 1;
+}
+
+setInterval(() => {
+    if (Math.random() < 0.4 + (level * 0.05)) triggerLaser();
+}, 3500);
+
+// Main Game Loop
+function loop() {
+    // Background 
+    ctx.fillStyle = 'rgba(5, 10, 16, 0.4)';
+    ctx.fillRect(0, 0, width, height);
+    
+    bgOffset = (bgOffset + 0.5) % 100;
+    ctx.strokeStyle = '#112';
+    ctx.lineWidth = 2;
+    for(let i = -100; i < width; i += 100) {
+        ctx.beginPath(); ctx.moveTo(i + bgOffset, 0); ctx.lineTo(i + bgOffset, height); ctx.stroke();
+    }
+    for(let i = -100; i < height; i += 100) {
+        ctx.beginPath(); ctx.moveTo(0, i + bgOffset); ctx.lineTo(width, i + bgOffset); ctx.stroke();
+    }
+
+    // High Score Tracking
+    if (boids.length > maxBoidsCount) {
+        maxBoidsCount = boids.length;
+    }
+
+    // Time Management
+    let timeLeft = (levelEndTime - Date.now()) / 1000;
+    
+    if (boids.length > 0) {
+        if (timeLeft <= 3 && timeLeft > 0) {
+            doomText.innerText = Math.ceil(timeLeft);
+            doomText.style.opacity = 1;
+            uiTime.style.color = '#f00';
+        } else if (timeLeft <= 0 && !doomTriggered) {
+            doomTriggered = true;
+            doomText.style.opacity = 0;
+            alertText.innerText = "CRITICAL FAILURE: FULL SECTOR PURGE";
+            alertText.style.opacity = 1;
+            
+            // Full Screen Purge Laser
+            lasers.push({
+                zones: [{x: 0, y: 0, w: width, h: height}],
+                timer: 30,
+                state: 'WARNING',
+                flashSpeed: 0.3,
+                hitBoids: new Set()
+            });
+        } else if (timeLeft > 3) {
+            doomText.style.opacity = 0;
+            uiTime.style.color = '#f80';
+        }
+    }
+
+    uiTime.innerText = `TIME REMAINING: ${Math.max(0, timeLeft).toFixed(1)}s`;
+
+    // Attractor
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 255, 255, 0.8)';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, 16 + Math.sin(Date.now() / 100)*4, 0, Math.PI*2);
+    ctx.stroke();
+
+    // Lasers
+    let firing = false;
+    for (let i = lasers.length - 1; i >= 0; i--) {
+        let l = lasers[i];
+        l.timer--;
+        
+        if (l.state === 'WARNING') {
+            let alpha = 0.15 + Math.sin(l.timer * l.flashSpeed) * 0.15;
+            ctx.fillStyle = `rgba(255, 0, 0, ${alpha})`;
+            for (let z of l.zones) ctx.fillRect(z.x, z.y, z.w, z.h);
+            
+            if (l.timer <= 0) {
+                l.state = 'FIRING';
+                l.timer = doomTriggered ? 100 : 25; 
+                alertText.style.opacity = 0;
+            }
+        } 
+        else if (l.state === 'FIRING') {
+            firing = true;
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.8)';
+            for (let z of l.zones) {
+                ctx.fillRect(z.x, z.y, z.w, z.h);
+                
+                for (let j = boids.length - 1; j >= 0; j--) {
+                    let b = boids[j];
+                    if (!l.hitBoids.has(b) && b.x > z.x && b.x < z.x + z.w && b.y > z.y && b.y < z.y + z.h) {
+                        b.hp -= (doomTriggered ? 10 : 1); 
+                        l.hitBoids.add(b);
+                        if (b.hp <= 0) {
+                            boids.splice(j, 1);
+                        }
+                    }
+                }
+            }
+            if (l.timer <= 0) lasers.splice(i, 1);
+        }
+    }
+
+    // Projectiles
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        let p = projectiles[i];
+        p.update();
+        p.draw(ctx);
+        
+        if (p.life <= 0) {
+            projectiles.splice(i, 1);
+            continue;
+        }
+
+        for (let n of nodes) {
+            let dx = p.x - n.x;
+            let dy = p.y - n.y;
+            if (dx*dx + dy*dy < n.radius*n.radius) {
+                n.health -= 5;
+                projectiles.splice(i, 1);
+                break;
+            }
+        }
+    }
+
+    // Nodes
+    if (!doomTriggered) {
+        for (let i = nodes.length - 1; i >= 0; i--) {
+            let node = nodes[i];
+            node.draw(ctx);
+            
+            let attackers = 0;
+            for (let b of boids) {
+                let dx = b.x - node.x;
+                let dy = b.y - node.y;
+                if (dx*dx + dy*dy < (node.radius + 35) ** 2) {
+                    attackers++;
+                    ctx.strokeStyle = 'rgba(0, 255, 255, 0.4)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(b.x, b.y);
+                    ctx.lineTo(node.x, node.y);
+                    ctx.stroke();
+                }
+            }
+            
+            if (attackers > 0) node.health -= (attackers * 0.25);
+            
+            if (node.health <= 0) {
+                for(let j=0; j < node.boidYield; j++) boids.push(new Boid(node.x, node.y));
+                nodes.splice(i, 1);
+            }
+        }
+
+        if (nodes.length === 0) {
+            let radius = 15 + Math.random() * 30 + (level * 1.5);
+            nodes.push(new Node(100 + Math.random()*(width-200), 100 + Math.random()*(height-200), radius));
+        }
+    }
+
+    // Weapon Cooldown UI Update
+    if (level >= 5) {
+        let weaponCooldown = level >= 20 ? 1500 : 300;
+        let timeSinceShot = Date.now() - lastShot;
+        if (timeSinceShot < weaponCooldown) {
+            let percent = Math.min(100, Math.floor((timeSinceShot / weaponCooldown) * 100));
+            uiWeapon.innerText = level >= 20 ? `WEAPON: HOMING [${percent}%]` : `WEAPON: DIRECT [${percent}%]`;
+            uiWeapon.style.color = '#888';
+        } else {
+            uiWeapon.innerText = level >= 20 ? `WEAPON: HOMING [READY]` : `WEAPON: DIRECT [READY]`;
+            uiWeapon.style.color = '#ff0';
+        }
+    }
+
+    // Boids Update
+    for (let b of boids) {
+        b.update(boids);
+        b.draw(ctx);
+    }
+
+    // Main UI Updates
+    uiLevel.innerText = `SECTOR: ${level}`;
+    uiBoids.innerText = `DRONES: ${boids.length} / ${targetBoids}`;
+    uiMaxBoids.innerText = `PEAK DRONES: ${maxBoidsCount}`;
+    
+    if (boids.length === 0) {
+        uiStatus.innerText = `STATUS: SWARM ANNIHILATED (Refresh to restart)`;
+        uiStatus.style.color = '#f00';
+        doomText.style.opacity = 0;
+    } else {
+        uiStatus.innerText = firing ? `STATUS: EVASION PROTOCOL` : (level > 15 ? `STATUS: OVERDRIVE` : `STATUS: NOMINAL`);
+        uiStatus.style.color = firing ? '#f00' : '#0ff';
+    }
+
+    // Level up condition
+    if (boids.length >= targetBoids && !doomTriggered) {
+        level++;
+        spawnLevel();
+        alertText.innerText = `SECTOR SECURED. ADVANCING TO SECTOR ${level}`;
+        alertText.style.opacity = 1;
+        alertText.style.color = '#0ff';
+        alertText.style.textShadow = '0 0 20px #0ff';
+        
+        setTimeout(() => { 
+            alertText.style.opacity = 0; 
+            setTimeout(()=> {
+                alertText.style.color = '#f00';
+                alertText.style.textShadow = '0 0 20px #f00';
+            }, 500);
+        }, 2000);
+    }
+
+    requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
