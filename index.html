@@ -175,6 +175,68 @@
             letter-spacing: 1px;
         }
 
+        /* ===================================================
+           VOTE CHECKMARK
+           Top-left corner of each card (new-badge already occupies
+           top-right). A button, not a span/div, so it's keyboard-
+           focusable and has correct semantics for something clickable
+           that isn't the card's own navigation link.
+
+           Since more than one person can vote for the same game, this
+           shows a small cluster of colored dots (one per voter) rather
+           than trying to force multiple people's colors into a single
+           checkmark shape, which would get muddy fast with 3+ voters.
+           Empty/outlined when nobody's voted for this game yet.
+        =================================================== */
+        .vote-check {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            min-width: 28px;
+            height: 28px;
+            border-radius: 14px;
+            border: 2px solid rgba(42,42,42,0.35);
+            background: rgba(255,255,255,0.6);
+            z-index: 2;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            padding: 0 6px;
+            transition: all 0.15s ease;
+        }
+
+        .vote-check:hover {
+            border-color: #2a2a2a;
+            background: #fdfcfb;
+            transform: scale(1.08);
+        }
+
+        /* Shown when the CURRENT player is one of the voters for this
+           card -- a slightly heavier border makes "this is my vote"
+           distinguishable at a glance from "others voted, I didn't". */
+        .vote-check.mine {
+            border-color: #2a2a2a;
+            border-width: 3px;
+        }
+
+        .vote-check-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* Fallback glyph shown only when the checkmark has zero voters
+           -- an empty circle with nothing in it reads as broken/loading
+           rather than "available to vote for". */
+        .vote-check-empty-icon {
+            font-size: 0.7rem;
+            color: rgba(42,42,42,0.3);
+            line-height: 1;
+        }
+
         footer {
             text-align: center;
             color: #5a5a5a;
@@ -335,6 +397,270 @@
         .game-card:hover {
             background: linear-gradient(135deg, #e8e3df 0%, #dcd8d3 100%);
         }
+
+        /* ===================================================
+           IDENTITY ENTRY PANEL
+           Shown when no name/room is stored yet (or the player clicks
+           "change" to re-enter). Matches the existing .instructions
+           block's visual language (cream background, dark border)
+           rather than introducing a new look.
+        =================================================== */
+        #identityPanel {
+            background: #ede9e6;
+            border: 2px solid #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 40px;
+            width: 100%;
+        }
+
+        #identityPanel h2 {
+            color: #2a2a2a;
+            margin-bottom: 12px;
+            font-size: clamp(0.85rem, 2vw, 1.1rem);
+            font-weight: bold;
+        }
+
+        #identityPanel p {
+            color: #3a3a3a;
+            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
+
+        .identity-form-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+
+        .identity-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .identity-field label {
+            font-size: 0.7rem;
+            color: #5a5a5a;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+
+        .identity-field input {
+            padding: 10px 12px;
+            border: 2px solid #2a2a2a;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            background: #fdfcfb;
+            color: #2a2a2a;
+            font-family: inherit;
+        }
+
+        #identityRoomInput {
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            width: 140px;
+        }
+
+        #identityNameInput {
+            width: 180px;
+        }
+
+        #identityJoinBtn {
+            padding: 11px 24px;
+            background: #2a2a2a;
+            color: #f5f3f0;
+            border: 2px solid #2a2a2a;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.2s ease;
+        }
+
+        #identityJoinBtn:hover {
+            background: #1a1a1a;
+            transform: translateY(-2px);
+        }
+
+        /* This isn't a hard technical requirement -- a blank room code
+           still works, it just falls back to the shared "public" room
+           on the server. It's here as a nudge, not a gate: blank was a
+           reasonable default for a single game's optional multiplayer
+           field, but this page's whole purpose is group presence, so a
+           blank/public default here would quietly defeat that purpose
+           for anyone who just clicks through without reading. */
+        .identity-hint {
+            font-size: 0.65rem;
+            color: #8a5a3a;
+            margin-top: 8px;
+        }
+
+        /* ===================================================
+           ROOM ROSTER SIDEBAR
+           Fixed-position panel, not part of the existing centered
+           .container flow -- this page's layout wasn't built with a
+           sidebar in mind, and restructuring the whole grid to force
+           one in is a bigger change than this needs. A slide-in panel
+           on the right achieves the same "who's in the room" visibility
+           without disturbing the existing card grid layout.
+        =================================================== */
+        #roomRoster {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 240px;
+            height: 100vh;
+            background: #2a2a2a;
+            color: #f5f3f0;
+            padding: 20px 16px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            display: none;
+            z-index: 500;
+            box-shadow: -4px 0 16px rgba(0,0,0,0.15);
+        }
+
+        #roomRoster.visible {
+            display: block;
+        }
+
+        #roomRoster h3 {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #b8b0a8;
+            margin-bottom: 4px;
+        }
+
+        #roomRosterCode {
+            font-size: 1.4rem;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 3px;
+            color: #f5f3f0;
+            margin-bottom: 16px;
+        }
+
+        #roomRosterList {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .roster-player {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+
+        .roster-player-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .roster-player-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .roster-player-you {
+            color: #b8b0a8;
+            font-size: 0.7rem;
+            margin-left: auto;
+        }
+
+        #roomRosterChangeBtn {
+            width: 100%;
+            padding: 8px;
+            background: transparent;
+            border: 1px solid #5a5a5a;
+            color: #b8b0a8;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        #roomRosterChangeBtn:hover {
+            border-color: #f5f3f0;
+            color: #f5f3f0;
+        }
+
+        /* ===================================================
+           REMOTE PLAYER CURSORS
+           Floating labeled dots showing where other players in the
+           room are hovering. pointer-events: none is essential -- these
+           must never intercept clicks meant for whatever's underneath
+           them (a game card, a vote checkmark, etc). Positioned by
+           viewport PERCENTAGE, not raw pixels -- different friends have
+           different screen sizes, so a raw pixel position from one
+           person's desktop would land somewhere meaningless on
+           another's phone. See sendCursorUpdate() in the script below
+           for how the percentage is computed before sending.
+        =================================================== */
+        .remote-cursor {
+            position: fixed;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 900;
+            transform: translate(-50%, -50%);
+            transition: top 0.08s linear, left 0.08s linear;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .remote-cursor-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+        }
+
+        .remote-cursor-label {
+            font-size: 0.65rem;
+            font-weight: bold;
+            color: #f5f3f0;
+            background: rgba(42,42,42,0.85);
+            padding: 2px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        /* When the roster is visible, give the main content room on the
+           right so the sidebar doesn't overlap the game grid on wider
+           screens. On narrow screens the sidebar takes full width
+           instead (see media query below), so this padding is skipped
+           there. */
+        @media (min-width: 769px) {
+            body.roster-active {
+                padding-right: 260px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            #roomRoster {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -353,9 +679,45 @@
             </p>
         </div>
 
+        <!-- Identity entry: name + room code, entered once here rather
+             than separately on every game's own start screen. Stored in
+             localStorage so it persists across navigation into any
+             game -- this is what lets a friend group stay grouped as
+             they move between games, instead of re-entering a room code
+             every time. Shown/hidden by identity.js below based on
+             whether a stored identity already exists. -->
+        <div id="identityPanel">
+            <h2>👥 GROUP PLAY</h2>
+            <p>Enter a name and a room code to see who else is here and stay grouped with them as you move between games. Leave the room code blank to play solo — see the note at the end of this page for what that means.</p>
+            <div class="identity-form-row">
+                <div class="identity-field">
+                    <label for="identityNameInput">Your Name</label>
+                    <input id="identityNameInput" type="text" placeholder="e.g. Ry" maxlength="20">
+                </div>
+                <div class="identity-field">
+                    <label for="identityRoomInput">Room Code</label>
+                    <input id="identityRoomInput" type="text" placeholder="e.g. ASDF" maxlength="8">
+                </div>
+                <button id="identityJoinBtn">JOIN</button>
+            </div>
+            <p class="identity-hint">⚠ Leaving this blank puts you in the shared public room along with anyone else who also left it blank — not private to your group. For a group session, agree on a code with your friends first.</p>
+        </div>
+
+        <!-- Room roster sidebar: hidden until an identity is actually
+             joined (see identity.js). Lives outside .container since
+             it's fixed-position, not part of the normal page flow. -->
+        <div id="roomRoster">
+            <h3>Room</h3>
+            <div id="roomRosterCode">----</div>
+            <h3>In this room</h3>
+            <div id="roomRosterList"></div>
+            <button id="roomRosterChangeBtn">Change name / room</button>
+        </div>
+
         <div class="games-grid">
             <!-- GAME 1: Javelin Battle -->
-            <a href="javelin-battle.html" class="game-card">
+            <a href="javelin-battle.html" class="game-card" data-game-id="javelin-battle">
+                <button class="vote-check" data-game-id="javelin-battle" title="Vote for this game" aria-label="Vote for Javelin Battle"></button>
                 <div class="game-card-content">
                     <div class="game-icon">⚔️</div>
                     <div class="game-title">Javelin Battle</div>
@@ -364,8 +726,9 @@
             </a>
 
             <!-- GAME 2: Fruit Dropper -->
-            <a href="fruit-dropper.html" class="game-card">
+            <a href="fruit-dropper.html" class="game-card" data-game-id="fruit-dropper">
                 <div class="new-badge">NEW</div>
+                <button class="vote-check" data-game-id="fruit-dropper" title="Vote for this game" aria-label="Vote for Fruit Dropper"></button>
                 <div class="game-card-content">
                     <div class="game-icon">🍎</div>
                     <div class="game-title">Fruit Dropper</div>
@@ -374,7 +737,8 @@
             </a>
 
             <!-- GAME 3: 4D Pong -->
-            <a href="four-d-pong.html" class="game-card">
+            <a href="four-d-pong.html" class="game-card" data-game-id="four-d-pong">
+                <button class="vote-check" data-game-id="four-d-pong" title="Vote for this game" aria-label="Vote for 4D Pong"></button>
                 <div class="game-card-content">
                     <div class="game-icon">🎾</div>
                     <div class="game-title">4D Pong</div>
@@ -383,7 +747,8 @@
             </a>
 
             <!-- GAME 4: Desert Robot Blaster -->
-            <a href="desert-robot-blaster.html" class="game-card">
+            <a href="desert-robot-blaster.html" class="game-card" data-game-id="desert-robot-blaster">
+                <button class="vote-check" data-game-id="desert-robot-blaster" title="Vote for this game" aria-label="Vote for Desert Robot Blaster"></button>
                 <div class="game-card-content">
                     <div class="game-icon">🤖</div>
                     <div class="game-title">Desert Robot Blaster</div>
@@ -392,8 +757,9 @@
             </a>
 
             <!-- GAME 5: Voice Runner -->
-            <a href="voice-runner-dual.html" class="game-card">
+            <a href="voice-runner-dual.html" class="game-card" data-game-id="voice-runner">
                 <div class="new-badge">NEW</div>
+                <button class="vote-check" data-game-id="voice-runner" title="Vote for this game" aria-label="Vote for Voice Runner"></button>
                 <div class="game-card-content">
                     <div class="game-icon">🎤</div>
                     <div class="game-title">Voice Runner</div>
@@ -402,8 +768,9 @@
             </a>
 
             <!-- GAME 6: Space Tracer -->
-            <a href="space-tracer.html" class="game-card">
+            <a href="space-tracer.html" class="game-card" data-game-id="space-tracer">
                 <div class="new-badge">NEW</div>
+                <button class="vote-check" data-game-id="space-tracer" title="Vote for this game" aria-label="Vote for Space Tracer"></button>
                 <div class="game-card-content">
                     <div class="game-icon">🚀</div>
                     <div class="game-title">Space Tracer</div>
@@ -412,8 +779,9 @@
             </a>
 
              <!-- GAME 6: Zombie -->
-            <a href="Zombie.html" class="game-card">
+            <a href="Zombie.html" class="game-card" data-game-id="zombie">
                 <div class="new-badge">NEW</div>
+                <button class="vote-check" data-game-id="zombie" title="Vote for this game" aria-label="Vote for Zombie"></button>
                 <div class="game-card-content">
                     <div class="game-icon">🚀</div>
                     <div class="game-title">Zombie</div>
@@ -422,7 +790,9 @@
             </a>
 
             <!-- Leaderboards: not a game, same card style so it belongs
-                 on the same grid rather than needing its own section -->
+                 on the same grid rather than needing its own section.
+                 Deliberately no vote-check button -- voting is for
+                 picking a game to play together, and this isn't one. -->
             <a href="leaderboard.html" class="game-card">
                 <div class="game-card-content">
                     <div class="game-icon">🏆</div>
@@ -437,5 +807,422 @@
             <p>No installation required • No ads • Open source</p>
         </footer>
     </div>
+
+<script>
+// ===================================================
+//   INDEX-PAGE IDENTITY & ROOM PRESENCE
+// ===================================================
+// This connects to the SAME server, using the SAME join-room protocol,
+// that space-tracer.html (and any future game) uses. No new server
+// message types were needed for this -- the server already tracks room
+// membership and broadcasts join/leave/players per-room; this page is
+// simply another client listening to that, the same way a game is.
+//
+// Deliberately reuses the identical color-hashing scheme from
+// space-tracer.html (same palette, same djb2-style hash over the full
+// name) so a player's roster dot here matches the color they'll
+// actually have in-game -- two different color systems on two pages
+// would quietly undo the point of the color-by-name fix.
+const SERVER_URL = "wss://my-games-faxi.onrender.com";
+
+const COLOR_PALETTE = [
+    "hsl(0, 85%, 60%)", "hsl(30, 90%, 55%)", "hsl(50, 95%, 55%)",
+    "hsl(120, 70%, 45%)", "hsl(180, 75%, 45%)", "hsl(210, 85%, 55%)",
+    "hsl(260, 75%, 60%)", "hsl(300, 70%, 55%)", "hsl(330, 80%, 55%)",
+    "hsl(45, 100%, 60%)"
+];
+
+function hashStringToIndex(str, modulo) {
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash) % modulo;
+}
+
+function getColorFromName(name) {
+    const key = (name && name.trim()) || "Anonymous";
+    return COLOR_PALETTE[hashStringToIndex(key, COLOR_PALETTE.length)];
+}
+
+// --- Elements ---
+const identityPanel = document.getElementById("identityPanel");
+const identityNameInput = document.getElementById("identityNameInput");
+const identityRoomInput = document.getElementById("identityRoomInput");
+const identityJoinBtn = document.getElementById("identityJoinBtn");
+const roomRoster = document.getElementById("roomRoster");
+const roomRosterCode = document.getElementById("roomRosterCode");
+const roomRosterList = document.getElementById("roomRosterList");
+const roomRosterChangeBtn = document.getElementById("roomRosterChangeBtn");
+
+// --- State ---
+let socket = null;
+let myName = "";
+let myRoom = "";
+// name -> {color}. Populated from the server's "players"/"join"/"leave"
+// messages -- same shape of data space-tracer.html's remotePlayers
+// tracks, just rendered as a list instead of drawn ship positions.
+const roomMembers = {};
+
+// gameId -> Map<voterName, voterColor>. Grouped by game rather than by
+// voter, because rendering always asks "who voted for THIS card" -- one
+// lookup per card render, not a scan over every voter checking their
+// choice against this card's id.
+const votesByGame = new Map();
+
+function voteMapFor(gameId) {
+    if (!votesByGame.has(gameId)) votesByGame.set(gameId, new Map());
+    return votesByGame.get(gameId);
+}
+
+// --- Persistence ---
+// This is the "source of truth" side of the both-URL-params-and-
+// localStorage approach: writing here is what lets a player reopen any
+// game later in the same browser and have their identity already
+// present, without needing to click a link that carries it.
+function loadStoredIdentity() {
+    return {
+        name: localStorage.getItem("gamehub_playerName") || "",
+        room: localStorage.getItem("gamehub_roomCode") || ""
+    };
+}
+
+function storeIdentity(name, room) {
+    localStorage.setItem("gamehub_playerName", name);
+    localStorage.setItem("gamehub_roomCode", room);
+}
+
+// --- Connection ---
+function connectAndJoin(name, room) {
+    myName = name;
+    myRoom = room || "public"; // Matches space-tracer.html's own fallback -- see the identity-hint text above for why blank isn't pushed as the default here
+
+    socket = new WebSocket(SERVER_URL);
+
+    socket.onopen = () => {
+        socket.send(JSON.stringify({
+            type: "join-room",
+            room: myRoom,
+            name: myName,
+            color: getColorFromName(myName)
+        }));
+    };
+
+    socket.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            handleServerMessage(data);
+        } catch (e) {
+            console.error("Error parsing server message:", e);
+        }
+    };
+
+    socket.onclose = () => {
+        // Simple reconnect -- mirrors the pattern already used
+        // elsewhere in this project's networked pages. Doesn't re-show
+        // the identity panel; just quietly re-establishes presence.
+        setTimeout(() => {
+            if (myName || myRoom) connectAndJoin(myName, myRoom);
+        }, 3000);
+    };
+
+    showRoster();
+}
+
+function handleServerMessage(data) {
+    if (data.type === "players") {
+        // Initial roster snapshot on join -- everyone already in the room.
+        Object.keys(roomMembers).forEach(k => delete roomMembers[k]);
+        (data.players || []).forEach(p => {
+            roomMembers[p.name || "(unnamed)"] = { color: p.color || getColorFromName(p.name) };
+        });
+        renderRoster();
+    } else if (data.type === "join" && data.player) {
+        roomMembers[data.player.name || "(unnamed)"] = {
+            color: data.player.color || getColorFromName(data.player.name)
+        };
+        renderRoster();
+    } else if (data.type === "leave") {
+        // The server now includes the departing player's name alongside
+        // their id (see server.js's disconnect handler), which is what
+        // makes this a direct removal instead of the reconnect
+        // workaround this used before -- no more full-roster flicker
+        // when one person in the room disconnects.
+        if (data.name) {
+            delete roomMembers[data.name];
+            renderRoster();
+        }
+        // Also drop this player's vote, if they had one -- otherwise a
+        // departed player's checkmark dot would sit there indefinitely,
+        // since the server only clears vote state on an explicit
+        // un-vote, not on disconnect (a disconnect isn't necessarily a
+        // "I take back my vote," but for THIS UI, showing a vote from
+        // someone no longer in the room reads as wrong either way).
+        if (data.name) {
+            votesByGame.forEach(voters => voters.delete(data.name));
+            renderAllVoteChecks();
+            removeRemoteCursor(data.name); // Otherwise a departed player's cursor dot freezes in place forever instead of disappearing
+        }
+    } else if (data.type === "votes") {
+        // Initial vote snapshot on join -- votes cast before this
+        // player arrived. Same reasoning as the "players" snapshot
+        // above: without this, a newly-joined player sees an empty
+        // ballot until someone happens to change their vote.
+        votesByGame.clear();
+        (data.votes || []).forEach(v => {
+            voteMapFor(v.gameId).set(v.voterName, roomMembers[v.voterName]?.color || getColorFromName(v.voterName));
+        });
+        renderAllVoteChecks();
+    } else if (data.type === "vote-update") {
+        // Live vote change from any player in the room, including our
+        // own vote echoed back (the server broadcasts to everyone, not
+        // "everyone except the sender" -- see the comment on this in
+        // server.js). gameId is null when the voter un-voted, so first
+        // clear this voter from EVERY game's list (they can only have
+        // one active vote at a time) before applying the new one, if any.
+        votesByGame.forEach(voters => voters.delete(data.voterName));
+        if (data.gameId) {
+            voteMapFor(data.gameId).set(data.voterName, data.voterColor || getColorFromName(data.voterName));
+        }
+        renderAllVoteChecks();
+    } else if (data.type === "cursor-update") {
+        renderRemoteCursor(data.name, data.color, data.x, data.y);
+    }
+}
+
+function renderRoster() {
+    roomRosterCode.textContent = myRoom.toUpperCase();
+    const names = Object.keys(roomMembers);
+
+    if (names.length === 0) {
+        roomRosterList.innerHTML = '<div style="color:#8a8278;font-size:0.8rem;">Just you so far</div>';
+        return;
+    }
+
+    roomRosterList.innerHTML = names.map(name => `
+        <div class="roster-player">
+            <span class="roster-player-dot" style="background:${roomMembers[name].color}"></span>
+            <span class="roster-player-name">${escapeHtml(name)}</span>
+        </div>
+    `).join("");
+}
+
+// Redraws every .vote-check button on the page from votesByGame. Called
+// on any vote change (this player's or anyone else's), rather than
+// trying to patch just the one button that changed -- with at most ~8
+// cards and votes changing infrequently (a person clicks a checkmark,
+// not a per-frame event like cursor position), re-rendering all of them
+// is simpler and cheap enough not to bother optimizing further.
+function renderAllVoteChecks() {
+    document.querySelectorAll(".vote-check").forEach(btn => {
+        const gameId = btn.dataset.gameId;
+        const voters = votesByGame.get(gameId);
+        const voterNames = voters ? Array.from(voters.keys()) : [];
+
+        btn.classList.toggle("mine", voterNames.includes(myName));
+
+        if (voterNames.length === 0) {
+            btn.innerHTML = '<span class="vote-check-empty-icon">✓</span>';
+            btn.title = "Vote for this game";
+        } else {
+            btn.innerHTML = voterNames
+                .map(name => `<span class="vote-check-dot" style="background:${voters.get(name)}"></span>`)
+                .join("");
+            btn.title = voterNames.length === 1
+                ? `${voterNames[0]} voted for this`
+                : `${voterNames.join(", ")} voted for this`;
+        }
+    });
+}
+
+// One DOM element per remote player, created lazily on their first
+// cursor-update and reused after that (rather than recreated every
+// message) -- recreating on every mousemove-driven update would be
+// wasteful and would also restart the CSS transition each time, making
+// the movement look jumpy instead of smoothly interpolated.
+const remoteCursorElements = {};
+
+function renderRemoteCursor(name, color, xPct, yPct) {
+    if (!name || xPct == null || yPct == null) return;
+    if (name === myName) return; // Never render our own cursor as if it were a remote one
+
+    let el = remoteCursorElements[name];
+    if (!el) {
+        el = document.createElement("div");
+        el.className = "remote-cursor";
+        el.innerHTML = `
+            <div class="remote-cursor-label">${escapeHtml(name)}</div>
+            <div class="remote-cursor-dot" style="background:${color}"></div>
+        `;
+        document.body.appendChild(el);
+        remoteCursorElements[name] = el;
+    }
+
+    el.style.left = `${xPct}%`;
+    el.style.top = `${yPct}%`;
+}
+
+function removeRemoteCursor(name) {
+    const el = remoteCursorElements[name];
+    if (el) {
+        el.remove();
+        delete remoteCursorElements[name];
+    }
+}
+
+function escapeHtml(s) {
+    const div = document.createElement("div");
+    div.textContent = String(s);
+    return div.innerHTML;
+}
+
+function showRoster() {
+    identityPanel.style.display = "none";
+    roomRoster.classList.add("visible");
+    document.body.classList.add("roster-active");
+    renderRoster();
+    rewriteGameLinks();
+}
+
+function showIdentityPanel() {
+    identityPanel.style.display = "block";
+    roomRoster.classList.remove("visible");
+    document.body.classList.remove("roster-active");
+
+    // Clear everything scoped to the room being left -- without this,
+    // switching from room "ASDF" to room "QWER" would show ASDF's
+    // roster/votes/cursors bleeding into QWER's view until enough new
+    // messages happened to overwrite each stale entry individually.
+    Object.keys(roomMembers).forEach(k => delete roomMembers[k]);
+    votesByGame.clear();
+    renderAllVoteChecks();
+    Object.keys(remoteCursorElements).forEach(name => removeRemoteCursor(name));
+}
+
+// Carries name/room forward as URL params on every game-card link, as
+// the belt-and-suspenders half of the both-localStorage-and-URL-params
+// approach -- this specifically covers a friend sharing a direct link
+// URL (which wouldn't have localStorage from THIS browser's session)
+// and also means opening a game in a new tab still carries identity
+// even before that tab's own localStorage read would.
+function rewriteGameLinks() {
+    document.querySelectorAll(".games-grid a.game-card").forEach(link => {
+        const url = new URL(link.getAttribute("href"), window.location.href);
+        url.searchParams.set("name", myName);
+        url.searchParams.set("room", myRoom);
+        link.setAttribute("href", url.pathname + url.search);
+    });
+}
+
+// --- Event handlers ---
+identityJoinBtn.addEventListener("click", () => {
+    const name = identityNameInput.value.trim();
+    const room = identityRoomInput.value.trim().toUpperCase();
+
+    if (!name) {
+        identityNameInput.focus();
+        return;
+    }
+
+    storeIdentity(name, room);
+    connectAndJoin(name, room);
+});
+
+identityNameInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") identityJoinBtn.click();
+});
+identityRoomInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") identityJoinBtn.click();
+});
+
+roomRosterChangeBtn.addEventListener("click", () => {
+    if (socket) socket.close();
+    showIdentityPanel();
+    identityNameInput.value = myName;
+    identityRoomInput.value = myRoom === "public" ? "" : myRoom;
+});
+
+// Sends a vote-update to the server. voted=false means "clear my vote
+// for this game" -- the server only actually clears it if this is still
+// this voter's CURRENT choice (guards against a stale message clearing
+// a newer vote; see the matching comment in server.js).
+function sendVote(gameId, voted) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({
+        type: "vote-update",
+        gameId: gameId,
+        voted: voted
+    }));
+}
+
+// Delegated listener on the grid rather than one per .vote-check button
+// -- simpler than attaching/detaching listeners if cards are ever
+// added or removed, and there are only ever a handful of clicks here
+// total (this is a deliberate choice by a person, not a per-frame event).
+document.querySelector(".games-grid").addEventListener("click", (e) => {
+    const btn = e.target.closest(".vote-check");
+    if (!btn) return;
+
+    // Critical: these buttons live inside <a class="game-card"> links.
+    // Without stopping propagation, clicking the checkmark would ALSO
+    // trigger the card's own navigation to the game -- the whole point
+    // of a separate vote button is that voting and playing are two
+    // different actions, so this must not fall through to the link.
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!myName) return; // Not connected yet -- nothing to vote as
+
+    const gameId = btn.dataset.gameId;
+    const alreadyMine = btn.classList.contains("mine");
+    sendVote(gameId, !alreadyMine); // Toggle: un-vote if this was already my choice, otherwise vote for it (implicitly replacing any previous vote -- see the single-vote-per-name design in server.js)
+});
+
+// --- Cursor tracking ---
+// Same 10Hz throttle interval space-tracer.html already uses for its
+// own position updates (SEND_INTERVAL = 1000/10) -- reusing that
+// convention rather than picking a different number for this page, so
+// the whole project has one consistent "how often do we send live
+// position data" answer instead of two.
+const CURSOR_SEND_INTERVAL = 1000 / 10;
+let lastCursorSendTime = 0;
+
+document.addEventListener("mousemove", (e) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !myName) return;
+
+    const now = performance.now();
+    if (now - lastCursorSendTime < CURSOR_SEND_INTERVAL) return;
+    lastCursorSendTime = now;
+
+    // Percentage of viewport, not raw pixels -- see the CSS comment on
+    // .remote-cursor for why (different screen sizes need a coordinate
+    // space that means the same relative thing on every screen).
+    const xPct = (e.clientX / window.innerWidth) * 100;
+    const yPct = (e.clientY / window.innerHeight) * 100;
+
+    socket.send(JSON.stringify({
+        type: "cursor-update",
+        x: Number(xPct.toFixed(2)),
+        y: Number(yPct.toFixed(2))
+    }));
+});
+
+// --- Init ---
+// If a name/room is already stored from a previous visit, skip the
+// entry panel entirely and connect straight away -- this is the actual
+// "fluid group-play session" behavior: a returning player doesn't
+// re-type anything, they just see their room's roster immediately.
+(function init() {
+    const stored = loadStoredIdentity();
+    if (stored.name) {
+        identityNameInput.value = stored.name;
+        identityRoomInput.value = stored.room === "public" ? "" : stored.room;
+        connectAndJoin(stored.name, stored.room);
+    }
+    // If nothing stored, the identity panel is already visible by
+    // default (no JS needed to show it -- it has no "hidden" state
+    // until showRoster() explicitly sets display:none).
+})();
+</script>
 </body>
 </html>
