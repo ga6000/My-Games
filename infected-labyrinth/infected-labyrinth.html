@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infected Labyrinth - Quad Map, Portals & Shooting</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0d0d0d;
+            color: #fff;
+            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        canvas {
+            background-color: #141414;
+            box-shadow: 0 0 35px rgba(0, 255, 200, 0.15);
+            border: 2px solid #333;
+            max-width: 95vw;
+            max-height: 80vh;
+            aspect-ratio: 4 / 3;
+        }
+        #ui {
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .controls {
+            color: #aaa;
+            font-size: 13px;
+        }
+        #stats {
+            margin-top: 5px;
+            font-weight: bold;
+            display: flex;
+            gap: 18px;
+            justify-content: center;
+            font-size: 15px;
+        }
+        .ammo-dot {
+            color: #ffcc00;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h2 style="margin: 4px 0; color: #00ffcc;">INFECTED LABYRINTH: EXPANDED</h2>
+        <div class="controls">Move: <b>W A S D</b> | Dash: <b>E</b> | Shoot: <b>SPACE</b> (In travel dir) | Wrap only through <b>Cyan Portals</b>!</div>
+        <div id="stats">
+            <span id="status" style="color: #0f0;">SURVIVE.</span>
+            <span style="color: #00aaff;">Humans: <span id="humanCount">4</span></span>
+            <span style="color: #ff2200;">Zombies: <span id="zombieCount">1</span></span>
+            <span style="color: #ffaa00;">Ammo: <span id="ammoDisplay">[ ○ ○ ○ ]</span></span>
+            <span style="color: #ffaa00;">Next Spawn: <span id="spawnTimer">5</span>s</span>
+        </div>
+    </div>
+    
+    <canvas id="gameCanvas" width="1600" height="1200"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Game Constants
+const TILE_SIZE = 40;
+const COLS = canvas.width / TILE_SIZE; // 40
+const ROWS = canvas.height / TILE_SIZE; // 30
+const ENTITY_RADIUS = 12;
+const PLAYER_SPEED = 3.2;
+const DASH_MULTIPLIER = 2.8;
+const ZOMBIE_SPEED = 2.2;
+const SURVIVOR_SPEED = 2.5;
+
+// Designated 3 Portal Wrapping Rows (Highlighted)
+const WRAP_ROWS = [
+    Math.floor(ROWS * 0.2), // Row 6
+    Math.floor(ROWS * 0.5), // Row 15
+    Math.floor(ROWS * 0.8)  // Row 24
+];
+
+// Spawner Settings
+const SPAWNER_I = Math.floor(COLS / 2);
+const SPAWNER_J = ROWS - 1;
+let spawnInterval = 300; // 5 seconds at 60fps
+let spawnTimer = spawnInterval;
+
+// Global Game States
+let grid = [];
+let entities = [];
+let dots = [];
+let bullets = [];
+let keys = {};
+let gameOver = false;
+let frameCount = 0;
+let spacePressedLast = false;
+
+// Input tracking
+window.addEventListener('keydown', e => { 
+    keys[e.key.toLowerCase()] = true; 
+    if (e.code === 'Space') e.preventDefault();
+});
+window.addEventListener('keyup', e => { 
+    keys[e.key.toLowerCase()] = false; 
+});
+
+// Index Helper
+function index(i, j) {
+    if (j < 0 || j >= ROWS) return -1;
+    i = (i + COLS) % COLS; // Wrap i for index math
+    return i + j * COLS;
+}
+
+// Check if a row is a valid wrap row
+function isWrapRow(j) {
+    return WRAP_ROWS.includes(Math.floor(j));
+}
+
+// Distance helper considering valid portal wrapping
+function getWrappedDistance(x1, y1, x2, y2) {
+    let dx = Math.abs(x1 - x2);
+    let j1 = Math.floor(y1 / TILE_SIZE);
+    let j2 = Math.floor(y2 / TILE_SIZE);
+    
+    if (dx > canvas.width / 2 && isWrapRow(j1) && isWrapRow(j2)) {
+        dx = canvas.width - dx;
+    }
+    let dy = y1 - y2;
+    return Math.hypot(dx, dy);
+}
+
+// Maze Cell
+class Cell {
+    constructor(i, j) {
+        this.i = i;
+        this.j = j;
+        this.walls = { top: true, right: true, bottom: true, left: true };
+        this.visited = false;
+    }
+    
+    draw() {
+        const x = this.i * TILE_SIZE;
+        const y = this.j * TILE_SIZE;
+        
+        ctx.strokeStyle = '#3a3a3a';
+        ctx.lineWidth = 3;
+        
+        // Draw standard walls
+        if (this.walls.top) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + TILE_SIZE, y); ctx.stroke(); }
+        if (this.walls.bottom) { ctx.beginPath(); ctx.moveTo(x + TILE_SIZE, y + TILE_SIZE); ctx.lineTo(x, y + TILE_SIZE); ctx.stroke(); }
+        
+        // Outer boundaries logic
+        if (this.walls.right) {
+            if (this.i !== COLS - 1 || !isWrapRow(this.j)) {
+                ctx.beginPath(); ctx.moveTo(x + TILE_SIZE, y); ctx.lineTo(x + TILE_SIZE, y + TILE_SIZE); ctx.stroke();
+            }
+        }
+        if (this.walls.left) {
+            if (this.i !== 0 || !isWrapRow(this.j)) {
+                ctx.beginPath(); ctx.moveTo(x, y + TILE_SIZE); ctx.lineTo(x, y); ctx.stroke();
+            }
+        }
+    }
+}
+
+function removeWallBetween(c1, c2) {
+    if (!c1 || !c2) return;
+    
+    // Check horizontal wrapping connection
+    if (c1.i === 0 && c2.i === COLS - 1 && isWrapRow(c1.j)) { c1.walls.left = false; c2.walls.right = false; return; }
+    if (c1.i === COLS - 1 && c2.i === 0 && isWrapRow(c1.j)) { c1.walls.right = false; c2.walls.left = false; return; }
+    
+    let x = c1.i - c2.i;
+    if (x === 1) { c1.walls.left = false; c2.walls.right = false; }
+    else if (x === -1) { c1.walls.right = false; c2.walls.left = false; }
+    
+    let y = c1.j - c2.j;
+    if (y === 1) { c1.walls.top = false; c2.walls.bottom = false; }
+    else if (y === -1) { c1.walls.bottom = false; c2.walls.top = false; }
+}
+
+function generateMaze() {
+    grid = [];
+    for (let j = 0; j < ROWS; j++) {
+        for (let i = 0; i < COLS; i++) {
+            grid.push(new Cell(i, j));
+        }
+    }
+
+    // Standard Recursive Backtracker
+    let current = grid[0];
+    current.visited = true;
+    let stack = [];
+    let isMazeComplete = false;
+
+    while (!isMazeComplete) {
+        let neighbors = [];
+        let top = grid[index(current.i, current.j - 1)];
+        let right = grid[index(current.i + 1, current.j)];
+        let bottom = grid[index(current.i, current.j + 1)];
+        let left = grid[index(current.i - 1, current.j)];
+
+        if (top && !top.visited) neighbors.push(top);
+        if (right && !right.visited) neighbors.push(right);
+        if (bottom && !bottom.visited) neighbors.push(bottom);
+        if (left && !left.visited) neighbors.push(left);
+
+        if (neighbors.length > 0) {
+            let next = neighbors[Math.floor(Math.random() * neighbors.length)];
+            stack.push(current);
+            removeWallBetween(current, next);
+            current = next;
+            current.visited = true;
+        } else if (stack.length > 0) {
+            current = stack.pop();
+        } else {
+            isMazeComplete = true;
+        }
+    }
+    
+    // Enable 3 specific Left/Right Wrap Connection Points
+    WRAP_ROWS.forEach(j => {
+        let leftCell = grid[index(0, j)];
+        let rightCell = grid[index(COLS - 1, j)];
+        removeWallBetween(leftCell, rightCell);
+    });
+
+    // Path Size Variation: Knock down walls to create wider 2x corridors and small plazas
+    for (let j = 0; j < ROWS - 1; j++) {
+        for (let i = 0; i < COLS - 1; i++) {
+            if (Math.random() < 0.22) {
+                let cell = grid[index(i, j)];
+                let right = grid[index(i + 1, j)];
+                let bottom = grid[index(i, j + 1)];
+                removeWallBetween(cell, right);
+                removeWallBetween(cell, bottom);
+            }
+        }
+    }
+
+    // Eliminate ALL Dead-Ends (Braided Labyrinth)
+    removeDeadEnds();
+
+    // Clear Spawner Hole Area
+    let spawnerCell = grid[index(SPAWNER_I, SPAWNER_J)];
+    if (spawnerCell) {
+        removeWallBetween(spawnerCell, grid[index(SPAWNER_I, SPAWNER_J - 1)]);
+        removeWallBetween(spawnerCell, grid[index(SPAWNER_I - 1, SPAWNER_J)]);
+        removeWallBetween(spawnerCell, grid[index(SPAWNER_I + 1, SPAWNER_J)]);
+    }
+}
+
+function removeDeadEnds() {
+    let hasDeadEnds = true;
+    while (hasDeadEnds) {
+        hasDeadEnds = false;
+        for (let j = 0; j < ROWS; j++) {
+            for (let i = 0; i < COLS; i++) {
+                let cell = grid[index(i, j)];
+                let wallCount = (cell.walls.top ? 1 : 0) +
+                                (cell.walls.right ? 1 : 0) +
+                                (cell.walls.bottom ? 1 : 0) +
+                                (cell.walls.left ? 1 : 0);
+                
+                if (wallCount >= 3) {
+                    hasDeadEnds = true;
+                    let candidates = [];
+                    if (cell.walls.top && j > 0) candidates.push(grid[index(i, j - 1)]);
+                    if (cell.walls.bottom && j < ROWS - 1) candidates.push(grid[index(i, j + 1)]);
+                    if (cell.walls.left && i > 0) candidates.push(grid[index(i - 1, j)]);
+                    if (cell.walls.right && i < COLS - 1) candidates.push(grid[index(i + 1, j)]);
+                    
+                    if (candidates.length > 0) {
+                        let target = candidates[Math.floor(Math.random() * candidates.length)];
+                        removeWallBetween(cell, target);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Highlighted Portal Connection Markers
+function drawPortals() {
+    WRAP_ROWS.forEach(j => {
+        let y = j * TILE_SIZE;
+        let pulse = Math.sin(frameCount * 0.15) * 4;
+        
+        ctx.fillStyle = '#00ffff';
+        ctx.shadowColor = '#00ffff';
+        ctx.shadowBlur = 12 + pulse;
+
+        // Left Portal Marker
+        ctx.fillRect(0, y + 4, 8, TILE_SIZE - 8);
+        
+        // Right Portal Marker
+        ctx.fillRect(canvas.width - 8, y + 4, 8, TILE_SIZE - 8);
+
+        ctx.shadowBlur = 0; // Reset
+    });
+}
+
+// Spawner Rendering
+function drawSpawner() {
+    let sx = SPAWNER_I * TILE_SIZE + TILE_SIZE / 2;
+    let sy = SPAWNER_J * TILE_SIZE + TILE_SIZE / 2;
+
+    let pulse = Math.sin(frameCount * 0.1) * 4;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 18 + pulse, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 0, 50, 0.25)';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(sx, sy, 14, 0, Math.PI * 2);
+    ctx.fillStyle = '#050505';
+    ctx.strokeStyle = '#ff0055';
+    ctx.lineWidth = 3;
+    ctx.fill();
+    ctx.stroke();
+}
+
+// Collection Dot Class
+class CollectionDot {
+    constructor(i, j) {
+        this.x = i * TILE_SIZE + TILE_SIZE / 2;
+        this.y = j * TILE_SIZE + TILE_SIZE / 2;
+        this.radius = 5;
+        this.active = true;
+    }
+
+    draw() {
+        if (!this.active) return;
+        let pulse = Math.sin(frameCount * 0.2 + this.x) * 1.5;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius + pulse, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffcc00';
+        ctx.shadowColor = '#ffcc00';
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
+function spawnDots() {
+    dots = [];
+    for (let j = 1; j < ROWS - 1; j += 2) {
+        for (let i = 1; i < COLS - 1; i += 2) {
+            // Reduced ammo spanws to exactly 1/20th of the previous 0.45 spawn rate (now 0.0225)
+            if (Math.random() < 0.0225) {
+                dots.push(new CollectionDot(i, j));
+            }
+        }
+    }
+}
+
+// Bullet Class
+class Bullet {
+    constructor(x, y, vx, vy) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.radius = 4;
+        this.active = true;
+    }
+
+    update() {
+        let nextX = this.x + this.vx;
+        let nextY = this.y + this.vy;
+
+        // Portal Wrapping for Bullets
+        let cJ = Math.floor(this.y / TILE_SIZE);
+        if (isWrapRow(cJ)) {
+            if (nextX < 0) nextX += canvas.width;
+            if (nextX > canvas.width) nextX -= canvas.width;
+        } else {
+            if (nextX < 0 || nextX > canvas.width) { this.active = false; return; }
+        }
+
+        if (nextY < 0 || nextY > canvas.height) { this.active = false; return; }
+
+        // Wall collision check
+        let cellI = Math.floor(((nextX % canvas.width) + canvas.width) % canvas.width / TILE_SIZE);
+        let cellJ = Math.floor(nextY / TILE_SIZE);
+        let cell = grid[index(cellI, cellJ)];
+
+        if (cell) {
+            let cx = cellI * TILE_SIZE;
+            let cy = cellJ * TILE_SIZE;
+            if (cell.walls.top && nextY < cy) { this.active = false; return; }
+            if (cell.walls.bottom && nextY > cy + TILE_SIZE) { this.active = false; return; }
+            if (cell.walls.left && !isWrapRow(cellJ) && nextX < cx) { this.active = false; return; }
+            if (cell.walls.right && !isWrapRow(cellJ) && nextX > cx + TILE_SIZE) { this.active = false; return; }
+        }
+
+        this.x = nextX;
+        this.y = nextY;
+
+        // Zombie Hit Test
+        entities.forEach(e => {
+            if (e.type === 'zombie' && getWrappedDistance(this.x, this.y, e.x, e.y) < ENTITY_RADIUS + this.radius) {
+                e.dead = true;
+                this.active = false;
+            }
+        });
+    }
+
+    draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#00ffff';
+        ctx.shadowColor = '#00ffff';
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
+// Pathfinding Helpers
+function getCellAtPixel(x, y) {
+    let wrappedX = (x % canvas.width + canvas.width) % canvas.width;
+    let i = Math.floor(wrappedX / TILE_SIZE);
+    let j = Math.max(0, Math.min(ROWS - 1, Math.floor(y / TILE_SIZE)));
+    return grid[index(i, j)];
+}
+
+function findPath(startCell, endCell) {
+    if (!startCell || !endCell || startCell === endCell) return [];
+    
+    let queue = [startCell];
+    let cameFrom = new Map();
+    cameFrom.set(startCell, null);
+    
+    while (queue.length > 0) {
+        let current = queue.shift();
+        if (current === endCell) break;
+        
+        let neighbors = [];
+        if (!current.walls.top) neighbors.push(grid[index(current.i, current.j - 1)]);
+        if (!current.walls.bottom) neighbors.push(grid[index(current.i, current.j + 1)]);
+        if (!current.walls.right) {
+            if (current.i < COLS - 1 || isWrapRow(current.j)) neighbors.push(grid[index(current.i + 1, current.j)]);
+        }
+        if (!current.walls.left) {
+            if (current.i > 0 || isWrapRow(current.j)) neighbors.push(grid[index(current.i - 1, current.j)]);
+        }
+        
+        for (let next of neighbors) {
+            if (next && !cameFrom.has(next)) {
+                cameFrom.set(next, current);
+                queue.push(next);
+            }
+        }
+    }
+    
+    if (!cameFrom.has(endCell)) return [];
+    
+    let path = [];
+    let curr = endCell;
+    while (curr !== startCell) {
+        path.push(curr);
+        curr = cameFrom.get(curr);
+    }
+    return path.reverse();
+}
+
+// Entity Class
+class Entity {
+    constructor(x, y, type) {
+        this.x = x;
+        this.y = y;
+        this.type = type; // 'player', 'survivor', 'zombie'
+        this.isPlayer = (type === 'player'); // Keeps track of who the real player was initially
+        this.vx = 0;
+        this.vy = 0;
+        this.lastDirX = 1;
+        this.lastDirY = 0;
+        this.dashTimer = 0;
+        this.dashCooldown = 0;
+        this.ammo = type === 'player' ? 1 : 0; // Starts with 1 round
+        this.maxAmmo = 3;
+        this.dead = false;
+    }
+
+    draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, ENTITY_RADIUS, 0, Math.PI * 2);
+        if (this.type === 'player') ctx.fillStyle = '#00aaff';
+        else if (this.type === 'survivor') ctx.fillStyle = '#00ff44';
+        else if (this.type === 'zombie') ctx.fillStyle = '#ff2200';
+        ctx.fill();
+
+        // Direction Pointer for Player
+        if (this.type === 'player') {
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + this.lastDirX * 18, this.y + this.lastDirY * 18);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+    }
+
+    update() {
+        // If the player is infected, they naturally become a zombie bot.
+        if (this.type === 'player') {
+            this.handlePlayerInput();
+        } else if (this.type === 'survivor') {
+            this.handleSurvivorAI();
+        } else if (this.type === 'zombie') {
+            this.handleZombieAI();
+        }
+
+        this.moveWithCollisions(this.vx, this.vy);
+
+        // Player Ammo Pickup
+        if (this.type === 'player') {
+            dots.forEach(d => {
+                if (d.active && getWrappedDistance(this.x, this.y, d.x, d.y) < ENTITY_RADIUS + d.radius) {
+                    if (this.ammo < this.maxAmmo) {
+                        this.ammo++;
+                        d.active = false;
+                    }
+                }
+            });
+        }
+    }
+
+    handlePlayerInput() {
+        let speed = PLAYER_SPEED;
+        
+        if (this.dashCooldown > 0) this.dashCooldown--;
+        if (this.dashTimer > 0) {
+            speed *= DASH_MULTIPLIER;
+            this.dashTimer--;
+        } else if (keys['e'] && this.dashCooldown === 0) {
+            this.dashTimer = 10;
+            this.dashCooldown = 120;
+        }
+
+        this.vx = 0;
+        this.vy = 0;
+        if (keys['w']) this.vy = -speed;
+        if (keys['s']) this.vy = speed;
+        if (keys['a']) this.vx = -speed;
+        if (keys['d']) this.vx = speed;
+
+        if (this.vx !== 0 && this.vy !== 0) {
+            this.vx *= 0.707;
+            this.vy *= 0.707;
+        }
+
+        if (this.vx !== 0 || this.vy !== 0) {
+            let len = Math.hypot(this.vx, this.vy);
+            this.lastDirX = this.vx / len;
+            this.lastDirY = this.vy / len;
+        }
+
+        // Shooting Mechanism (Spacebar Trigger)
+        let spacePressed = keys[' '];
+        if (spacePressed && !spacePressedLast) {
+            if (this.ammo > 0) {
+                this.ammo--;
+                bullets.push(new Bullet(
+                    this.x + this.lastDirX * 16,
+                    this.y + this.lastDirY * 16,
+                    this.lastDirX * 9,
+                    this.lastDirY * 9
+                ));
+            }
+        }
+        spacePressedLast = spacePressed;
+    }
+
+    // Survivor Evade AI
+    handleSurvivorAI() {
+        let startCell = getCellAtPixel(this.x, this.y);
+        let zombies = entities.filter(e => e.type === 'zombie');
+        let nearestZombie = this.getNearest('zombie');
+
+        if (!nearestZombie || this.distanceTo(nearestZombie) > 350) {
+            this.vx = 0; this.vy = 0;
+            return;
+        }
+
+        // Breadth-First Search for safe escape routes
+        let visited = new Map();
+        let queue = [{ cell: startCell, depth: 0 }];
+        visited.set(startCell, 0);
+        let candidates = [startCell];
+
+        while (queue.length > 0) {
+            let { cell, depth } = queue.shift();
+            if (depth >= 5) continue;
+
+            let neighbors = [];
+            if (!cell.walls.top) neighbors.push(grid[index(cell.i, cell.j - 1)]);
+            if (!cell.walls.bottom) neighbors.push(grid[index(cell.i, cell.j + 1)]);
+            if (!cell.walls.right && (cell.i < COLS - 1 || isWrapRow(cell.j))) neighbors.push(grid[index(cell.i + 1, cell.j)]);
+            if (!cell.walls.left && (cell.i > 0 || isWrapRow(cell.j))) neighbors.push(grid[index(cell.i - 1, cell.j)]);
+
+            for (let n of neighbors) {
+                if (n && !visited.has(n)) {
+                    visited.set(n, depth + 1);
+                    queue.push({ cell: n, depth: depth + 1 });
+                    candidates.push(n);
+                }
+            }
+        }
+
+        let bestCell = startCell;
+        let maxSafety = -Infinity;
+
+        for (let cand of candidates) {
+            let candX = cand.i * TILE_SIZE + TILE_SIZE / 2;
+            let candY = cand.j * TILE_SIZE + TILE_SIZE / 2;
+            
+            let minZombieDist = Infinity;
+            for (let z of zombies) {
+                let d = getWrappedDistance(candX, candY, z.x, z.y);
+                if (d < minZombieDist) minZombieDist = d;
+            }
+
+            if (minZombieDist > maxSafety) {
+                maxSafety = minZombieDist;
+                bestCell = cand;
+            }
+        }
+
+        let moveTargetX = this.x;
+        let moveTargetY = this.y;
+
+        if (bestCell !== startCell) {
+            let path = findPath(startCell, bestCell);
+            if (path.length > 0) {
+                let nextCell = path[0];
+                moveTargetX = nextCell.i * TILE_SIZE + TILE_SIZE / 2;
+                moveTargetY = nextCell.j * TILE_SIZE + TILE_SIZE / 2;
+            }
+        }
+
+        let dx = moveTargetX - this.x;
+        if (isWrapRow(Math.floor(this.y / TILE_SIZE))) {
+            if (dx > canvas.width / 2) dx -= canvas.width;
+            if (dx < -canvas.width / 2) dx += canvas.width;
+        }
+        let dy = moveTargetY - this.y;
+        let dist = Math.hypot(dx, dy);
+
+        if (dist > 0.5) {
+            this.vx = (dx / dist) * SURVIVOR_SPEED;
+            this.vy = (dy / dist) * SURVIVOR_SPEED;
+        } else {
+            this.vx = 0; this.vy = 0;
+        }
+    }
+
+    handleZombieAI() {
+        let target = null;
+        let minDist = Infinity;
+        
+        entities.forEach(e => {
+            if (e.type !== 'zombie') {
+                let dist = this.distanceTo(e);
+                if (dist < minDist) {
+                    minDist = dist;
+                    target = e;
+                }
+            }
+        });
+
+        if (target) {
+            let startCell = getCellAtPixel(this.x, this.y);
+            let targetCell = getCellAtPixel(target.x, target.y);
+            
+            let moveTargetX = target.x;
+            let moveTargetY = target.y;
+
+            if (startCell !== targetCell) {
+                let path = findPath(startCell, targetCell);
+                if (path.length > 0) {
+                    let nextCell = path[0];
+                    moveTargetX = nextCell.i * TILE_SIZE + TILE_SIZE / 2;
+                    moveTargetY = nextCell.j * TILE_SIZE + TILE_SIZE / 2;
+                }
+            }
+
+            let dx = moveTargetX - this.x;
+            if (isWrapRow(Math.floor(this.y / TILE_SIZE))) {
+                if (dx > canvas.width / 2) dx -= canvas.width;
+                if (dx < -canvas.width / 2) dx += canvas.width;
+            }
+            let dy = moveTargetY - this.y;
+            let dist = Math.hypot(dx, dy);
+            
+            if (dist > 0.1) {
+                this.vx = (dx / dist) * ZOMBIE_SPEED;
+                this.vy = (dy / dist) * ZOMBIE_SPEED;
+            } else {
+                this.vx = 0; this.vy = 0;
+            }
+        }
+    }
+
+    getNearest(type) {
+        let nearest = null;
+        let minDist = Infinity;
+        entities.forEach(e => {
+            if (e.type === type && e !== this) {
+                let dist = this.distanceTo(e);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = e;
+                }
+            }
+        });
+        return nearest;
+    }
+
+    distanceTo(other) {
+        return getWrappedDistance(this.x, this.y, other.x, other.y);
+    }
+
+    moveWithCollisions(vx, vy) {
+        let nextX = this.x + vx;
+        let currentJ = Math.floor(this.y / TILE_SIZE);
+
+        // Wrapping check restricted to the 3 Wrap Portal Rows
+        if (isWrapRow(currentJ)) {
+            if (nextX < 0) nextX += canvas.width;
+            if (nextX > canvas.width) nextX -= canvas.width;
+        } else {
+            nextX = Math.max(ENTITY_RADIUS, Math.min(canvas.width - ENTITY_RADIUS, nextX));
+        }
+
+        if (!this.checkWallCollision(nextX, this.y)) {
+            this.x = nextX;
+        }
+
+        let nextY = Math.max(ENTITY_RADIUS, Math.min(canvas.height - ENTITY_RADIUS, this.y + vy));
+        if (!this.checkWallCollision(this.x, nextY)) {
+            this.y = nextY;
+        }
+    }
+
+    checkWallCollision(nx, ny) {
+        let wrappedX = (nx % canvas.width + canvas.width) % canvas.width;
+        let cI = Math.floor(wrappedX / TILE_SIZE);
+        let cJ = Math.floor(ny / TILE_SIZE);
+        let cell = grid[index(cI, cJ)];
+        if (!cell) return true;
+
+        let cx = cI * TILE_SIZE;
+        let cy = cJ * TILE_SIZE;
+
+        if (cell.walls.top && ny - ENTITY_RADIUS < cy) return true;
+        if (cell.walls.bottom && ny + ENTITY_RADIUS > cy + TILE_SIZE) return true;
+        
+        // Block side borders unless inside a valid wrap portal row
+        if (cell.walls.left && wrappedX - ENTITY_RADIUS < cx) {
+            if (cI !== 0 || !isWrapRow(cJ)) return true;
+        }
+        if (cell.walls.right && wrappedX + ENTITY_RADIUS > cx + TILE_SIZE) {
+            if (cI !== COLS - 1 || !isWrapRow(cJ)) return true;
+        }
+
+        return false;
+    }
+}
+
+// Ensure entities physically push off one another (disallow overlaps/stacking)
+function resolveEntityCollisions() {
+    for (let i = 0; i < entities.length; i++) {
+        for (let j = i + 1; j < entities.length; j++) {
+            let e1 = entities[i];
+            let e2 = entities[j];
+            
+            let dx = e2.x - e1.x;
+            let e1J = Math.floor(e1.y / TILE_SIZE);
+            let e2J = Math.floor(e2.y / TILE_SIZE);
+            
+            if (isWrapRow(e1J) && isWrapRow(e2J)) {
+                if (dx > canvas.width / 2) dx -= canvas.width;
+                if (dx < -canvas.width / 2) dx += canvas.width;
+            }
+            
+            let dy = e2.y - e1.y;
+            let dist = Math.hypot(dx, dy);
+            let minDist = ENTITY_RADIUS * 2;
+            
+            // If overlapping, push them apart
+            if (dist > 0 && dist < minDist) {
+                let overlap = minDist - dist;
+                let pushX = (dx / dist) * (overlap / 2);
+                let pushY = (dy / dist) * (overlap / 2);
+                
+                let nextE1X = e1.x - pushX;
+                let nextE1Y = e1.y - pushY;
+                if (!e1.checkWallCollision(nextE1X, nextE1Y)) {
+                    e1.x = nextE1X;
+                    e1.y = nextE1Y;
+                    if (isWrapRow(Math.floor(e1.y / TILE_SIZE))) {
+                        e1.x = (e1.x % canvas.width + canvas.width) % canvas.width;
+                    }
+                }
+                
+                let nextE2X = e2.x + pushX;
+                let nextE2Y = e2.y + pushY;
+                if (!e2.checkWallCollision(nextE2X, nextE2Y)) {
+                    e2.x = nextE2X;
+                    e2.y = nextE2Y;
+                    if (isWrapRow(Math.floor(e2.y / TILE_SIZE))) {
+                        e2.x = (e2.x % canvas.width + canvas.width) % canvas.width;
+                    }
+                }
+            }
+        }
+    }
+}
+
+function spawnZombie() {
+    let sx = SPAWNER_I * TILE_SIZE + TILE_SIZE / 2;
+    let sy = SPAWNER_J * TILE_SIZE + TILE_SIZE / 2;
+    entities.push(new Entity(sx, sy, 'zombie'));
+}
+
+function init() {
+    generateMaze();
+    spawnDots();
+    entities = [];
+    bullets = [];
+    frameCount = 0;
+    spawnInterval = 300;
+    spawnTimer = spawnInterval;
+    
+    // Spawn Player top left
+    entities.push(new Entity(TILE_SIZE * 1.5, TILE_SIZE * 1.5, 'player'));
+    
+    // Spawn 3 NPC Survivors around map
+    for (let i = 0; i < 3; i++) {
+        let rI = Math.floor(Math.random() * (COLS - 4)) + 2;
+        let rJ = Math.floor(Math.random() * (ROWS - 5)) + 2;
+        entities.push(new Entity(rI * TILE_SIZE + TILE_SIZE/2, rJ * TILE_SIZE + TILE_SIZE/2, 'survivor'));
+    }
+
+    // Patient zero zombie near top right
+    entities.push(new Entity(canvas.width - TILE_SIZE * 1.5, TILE_SIZE * 1.5, 'zombie'));
+    
+    gameOver = false;
+    document.getElementById('status').innerText = "SURVIVE.";
+    document.getElementById('status').style.color = "#0f0";
+}
+
+function update() {
+    frameCount++;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw Environment
+    grid.forEach(cell => cell.draw());
+    drawPortals();
+    drawSpawner();
+
+    // Draw & Update Dots
+    dots.forEach(d => d.draw());
+
+    // Update & Draw Bullets
+    bullets = bullets.filter(b => b.active);
+    bullets.forEach(b => {
+        b.update();
+        b.draw();
+    });
+
+    // Spawner Timer Logic
+    spawnTimer--;
+    if (spawnTimer <= 0) {
+        spawnZombie();
+        spawnInterval = Math.max(100, spawnInterval - 12);
+        spawnTimer = spawnInterval;
+    }
+
+    // Filter out dead zombies (shot by player)
+    entities = entities.filter(e => !e.dead);
+
+    // Update Entities
+    entities.forEach(e => e.update());
+    
+    // Process Anti-Stacking (Push apart)
+    resolveEntityCollisions();
+    
+    // Draw Entities
+    entities.forEach(e => e.draw());
+
+    // Infection Collisions
+    let zombies = entities.filter(e => e.type === 'zombie');
+    let living = entities.filter(e => e.type === 'player' || e.type === 'survivor');
+
+    for (let z of zombies) {
+        for (let l of living) {
+            if (z.distanceTo(l) < ENTITY_RADIUS * 2) {
+                l.type = 'zombie'; // Person becomes a zombie
+                
+                // If it was the real human player, trigger game over UI, but let simulation continue
+                if (l.isPlayer) { 
+                    gameOver = true;
+                    l.isPlayer = false; // Strip 'main player' status 
+                    document.getElementById('status').innerText = "YOU WERE INFECTED. Press F5 to restart.";
+                    document.getElementById('status').style.color = "#f00";
+                }
+            }
+        }
+    }
+
+    // Update UI Stats based on real human player
+    let player = entities.find(e => e.isPlayer && e.type === 'player');
+    let ammoCount = player ? player.ammo : 0;
+    let ammoStr = "[ " + "● ".repeat(ammoCount) + "○ ".repeat(3 - ammoCount) + "]";
+    document.getElementById('ammoDisplay').innerText = ammoStr;
+
+    let humansAlive = entities.filter(e => e.type === 'player' || e.type === 'survivor').length;
+    document.getElementById('humanCount').innerText = humansAlive;
+    document.getElementById('zombieCount').innerText = entities.filter(e => e.type === 'zombie').length;
+    document.getElementById('spawnTimer').innerText = (spawnTimer / 60).toFixed(1);
+
+    if (humansAlive === 1 && player && !gameOver) {
+        document.getElementById('status').innerText = "YOU ARE THE LAST SURVIVOR.";
+        document.getElementById('status').style.color = "#ffaa00";
+    }
+
+    requestAnimationFrame(update);
+}
+
+// Run Game
+init();
+update();
+</script>
+</body>
+</html>

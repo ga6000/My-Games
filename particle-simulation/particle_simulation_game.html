@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Particle Simulation Game</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: black;
+            color: white;
+            font-family: monospace;
+            touch-action: none; 
+            overscroll-behavior: none;
+        }
+        canvas {
+            width: 100vw;
+            height: 100vh;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            display: block;
+            touch-action: none;
+        }
+        #ui {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            pointer-events: none;
+            font-size: 16px;
+            text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+            z-index: 10;
+        }
+        #depth-ui {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            pointer-events: none;
+            font-size: 16px;
+            text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+            z-index: 10;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            font-weight: bold;
+            pointer-events: none;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+            text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
+            z-index: 20;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui"></div>
+    <div id="depth-ui"></div>
+    <div id="message"></div>
+    <canvas id="game"></canvas>
+
+    <script>
+        // --- 1. CONSTANTS & SETUP ---
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+        const ui = document.getElementById("ui");
+        const depthUi = document.getElementById("depth-ui");
+        const msgUi = document.getElementById("message");
+        
+        const WORLD_W = 240;
+        const WORLD_H = 160;
+        
+        const buffer = document.createElement("canvas");
+        buffer.width = WORLD_W;
+        buffer.height = WORLD_H;
+        const bctx = buffer.getContext("2d");
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener("resize", resize);
+        resize();
+
+        // Audio System
+        let audioCtx;
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+        function playTone(freq, type, duration, vol = 0.05) {
+            if (!audioCtx || audioCtx.state !== 'running') return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        const TYPES = { RED: 0, BLUE: 1, PURPLE: 2, GREEN: 3, YELLOW: 4 };
+
+        const STATES = { EXPLORE: 0, CORE_CHARGING: 1, ESCAPE: 2, VICTORY: 3, DEAD: 4 };
+
+        // --- 2. GAME STATE ---
+        let gameState = STATES.EXPLORE;
+        let currentDepth = 1;
+        let particles = [];
+        let screenShake = 0;
+        
+        const player = { x: WORLD_W / 2, y: WORLD_H / 2, alive: true };
+        const core = { x: 180, y: 80, energy: 0, requiredEnergy: 15, flash: 0 };
+        const exit = { x: 0, y: 0, active: false };
+        const mouse = { x: WORLD_W/2, y: WORLD_H/2, previousX: WORLD_W/2, previousY: WORLD_H/2, speed: 0 };
+
+        function showMessage(text, duration = 2000) {
+            msgUi.innerText = text;
+            msgUi.style.opacity = 1;
+            if(duration > 0) setTimeout(() => msgUi.style.opacity = 0, duration);
+        }
+
+        // --- 3. INPUT HANDLING (Mouse & Touch) ---
+        function getPointerCoords(e) {
+            let clientX, clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: ((clientX - rect.left) / rect.width) * WORLD_W,
+                y: ((clientY - rect.top) / rect.height) * WORLD_H
+            };
+        }
+
+        function handlePointerMove(e) {
+            e.preventDefault();
+            const coords = getPointerCoords(e);
+            mouse.previousX = mouse.x;
+            mouse.previousY = mouse.y;
+            mouse.x = coords.x;
+            mouse.y = coords.y;
+            
+            if (gameState !== STATES.DEAD && gameState !== STATES.VICTORY) {
+                player.x = mouse.x;
+                player.y = mouse.y;
+            }
+        }
+
+        function handlePointerDown(e) {
+            e.preventDefault();
+            initAudio(); // Required to unlock audio context on mobile
+
+            if (gameState === STATES.DEAD) {
+                currentDepth = 1;
+                initLevel();
+                return;
+            } else if (gameState === STATES.VICTORY) {
+                currentDepth++;
+                initLevel();
+                return;
+            }
+            
+            const coords = getPointerCoords(e);
+            mouse.x = coords.x;
+            mouse.y = coords.y;
+            if (gameState !== STATES.DEAD && gameState !== STATES.VICTORY) {
+                player.x = mouse.x;
+                player.y = mouse.y;
+            }
+            pulse(mouse.x, mouse.y);
+            playTone(200, 'sine', 0.1, 0.05);
+        }
+
+        const eventOptions = { passive: false };
+        canvas.addEventListener("mousemove", handlePointerMove, eventOptions);
+        canvas.addEventListener("mousedown", handlePointerDown, eventOptions);
+        canvas.addEventListener("touchmove", handlePointerMove, eventOptions);
+        canvas.addEventListener("touchstart", handlePointerDown, eventOptions);
+
+        function pulse(x, y) {
+            for (const p of particles) {
+                const dx = p.x - x;
+                const dy = p.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 10) {
+                    const force = (10 - dist) * 0.2;
+                    p.vx += dx * force;
+                    p.vy += dy * force;
+                }
+            }
+        }
+
+        function applyStroke(particle) {
+            const strokeX = mouse.x - mouse.previousX;
+            const strokeY = mouse.y - mouse.previousY;
+            const speed = Math.sqrt(strokeX * strokeX + strokeY * strokeY);
+            
+            if (speed < 0.2) return; 
+
+            // Clamp max speed impact
+            const clampedSpeed = Math.min(speed, 10);
+            
+            // Normalized stroke direction
+            const dirX = strokeX / speed;
+            const dirY = strokeY / speed;
+            
+            const dx = particle.x - mouse.x;
+            const dy = particle.y - mouse.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            // Triangular ripple cone size based on speed
+            const maxRange = 10 + (clampedSpeed * 2);
+            
+            if (dist < maxRange && dist > 0) {
+                const nx = dx / dist;
+                const ny = dy / dist;
+                
+                // Dot product for cone check (front of stroke)
+                const dot = nx * dirX + ny * dirY;
+                
+                if (dot > 0.4) { // Roughly 65 degree cone
+                    const force = (maxRange - dist) * (clampedSpeed * 0.02) * dot;
+                    particle.vx += nx * force;
+                    particle.vy += ny * force;
+                }
+                
+                // Small omnidirectional stir near the finger
+                if (dist < 6) {
+                   particle.vx += strokeX * 0.08;
+                   particle.vy += strokeY * 0.08;
+                }
+            }
+        }
+
+        // --- 4. PARTICLE SYSTEM & RULES ---
+        class Particle {
+            constructor(x, y, type) {
+                this.x = x; this.y = y;
+                this.vx = 0; this.vy = 0;
+                this.type = type;
+                this.age = 0;
+                this.alive = true;
+            }
+        }
+
+        function distance(a, b) {
+            const dx = a.x - b.x; const dy = a.y - b.y;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        function attract(a, b, strength = 0.02) {
+            const dx = b.x - a.x; const dy = b.y - a.y;
+            const dist = distance(a, b) || 1;
+            a.vx += (dx / dist) * strength;
+            a.vy += (dy / dist) * strength;
+        }
+
+        function repel(a, b, strength = 0.02) {
+            const dx = a.x - b.x; const dy = a.y - b.y;
+            const dist = distance(a, b) || 1;
+            a.vx += (dx / dist) * strength;
+            a.vy += (dy / dist) * strength;
+        }
+
+        function wrapOrBounce(p) {
+            if (p.x < 0) { p.x = 0; p.vx *= -1; }
+            if (p.x > WORLD_W) { p.x = WORLD_W; p.vx *= -1; }
+            if (p.y < 0) { p.y = 0; p.vy *= -1; }
+            if (p.y > WORLD_H) { p.y = WORLD_H; p.vy *= -1; }
+        }
+
+        // --- 5. LEVEL GENERATION ---
+        function initLevel() {
+            particles = [];
+            gameState = STATES.EXPLORE;
+            
+            core.requiredEnergy = 10 + (currentDepth * 5); // 15 at Depth 1, 20 at Depth 2...
+            core.energy = 0;
+            core.flash = 0;
+            
+            exit.active = false;
+            player.alive = true;
+            screenShake = 0;
+            
+            // Randomize Core position safely away from edges
+            core.x = 40 + Math.random() * (WORLD_W - 80);
+            core.y = 40 + Math.random() * (WORLD_H - 80);
+
+            mouse.x = WORLD_W / 2; mouse.y = WORLD_H / 2;
+            mouse.previousX = mouse.x; mouse.previousY = mouse.y;
+            player.x = mouse.x; player.y = mouse.y;
+            
+            depthUi.innerText = `DEPTH ${String(currentDepth).padStart(2, '0')}`;
+            msgUi.style.opacity = 0;
+
+            const redCount = 20 + (currentDepth * 10);
+            const blueCount = 30 + (currentDepth * 5);
+            
+            // Spawn Clusters
+            for(let i=0; i<redCount; i++) {
+                particles.push(new Particle(Math.random() * WORLD_W, Math.random() * WORLD_H, TYPES.RED));
+            }
+            for(let i=0; i<blueCount; i++) {
+                particles.push(new Particle(Math.random() * WORLD_W, Math.random() * WORLD_H, TYPES.BLUE));
+            }
+
+            // Depth 2+ Rules: Introduce Green
+            if (currentDepth >= 2) {
+                for(let i=0; i<15; i++) {
+                    particles.push(new Particle(Math.random() * WORLD_W, Math.random() * WORLD_H, TYPES.GREEN));
+                }
+                showMessage("GREEN REPRODUCES", 3000);
+            } else {
+                showMessage("MOVE TO HERD. RED+BLUE=PURPLE.", 4000);
+            }
+        }
+
+        function triggerEscapeSequence() {
+            gameState = STATES.ESCAPE;
+            exit.active = true;
+            
+            // Spawn exit opposite to player roughly
+            exit.x = player.x < WORLD_W/2 ? WORLD_W - 20 : 20;
+            exit.y = player.y < WORLD_H/2 ? WORLD_H - 20 : 20;
+            
+            playTone(800, 'square', 0.2, 0.1);
+            setTimeout(() => playTone(800, 'square', 0.4, 0.1), 300);
+            
+            ui.innerText = "ESCAPE";
+            showMessage("CORE UNSTABLE. ESCAPE.", 2000);
+            screenShake = 20;
+
+            // Spawn aggressive hunting reds
+            const ambushCount = 15 + currentDepth * 5;
+            for(let i=0; i<ambushCount; i++) {
+                const edgeX = Math.random() > 0.5 ? 0 : WORLD_W;
+                const edgeY = Math.random() * WORLD_H;
+                particles.push(new Particle(edgeX, edgeY, TYPES.RED));
+            }
+        }
+
+        // --- 6. CORE LOGIC ---
+        function updateParticles() {
+            for (let i = 0; i < particles.length; i++) {
+                const p = particles[i];
+                if (!p.alive) continue;
+
+                // Escape state makes Reds extremely aggressive, others panic
+                const isEscape = gameState === STATES.ESCAPE;
+
+                // Rules Engine based on Type
+                if (p.type === TYPES.RED) {
+                    attract(p, player, isEscape ? 0.025 : 0.015);
+                    if (distance(p, player) < 1.5) {
+                        gameState = STATES.DEAD;
+                        player.alive = false;
+                        playTone(150, 'sawtooth', 0.8, 0.1);
+                        showMessage("DEAD. TAP TO RESTART.", 0);
+                        ui.innerText = "";
+                    }
+                } 
+                else if (p.type === TYPES.BLUE) {
+                    repel(p, player, isEscape ? 0.03 : 0.015);
+                }
+                else if (p.type === TYPES.PURPLE) {
+                    attract(p, core, isEscape ? 0.01 : 0.02);
+                    if (distance(p, core) < 3 && gameState !== STATES.ESCAPE) {
+                        core.energy += 1;
+                        core.flash = 12;
+                        p.alive = false;
+                        playTone(400 + (core.energy * 20), 'sine', 0.1, 0.05);
+                        
+                        if(gameState === STATES.EXPLORE) gameState = STATES.CORE_CHARGING;
+                    }
+                }
+                else if (p.type === TYPES.GREEN) {
+                    // Green behaves erratically
+                    p.vx += (Math.random() - 0.5) * 0.1;
+                    p.vy += (Math.random() - 0.5) * 0.1;
+                    // Green reproduces slowly
+                    if (Math.random() < 0.002 && particles.length < 300) {
+                        particles.push(new Particle(p.x, p.y, TYPES.GREEN));
+                    }
+                }
+                else if (p.type === TYPES.YELLOW) {
+                    // Yellow is a super-charger
+                    attract(p, core, 0.04); // Fast
+                    if (distance(p, core) < 3 && gameState !== STATES.ESCAPE) {
+                        core.energy += 3; // Worth more
+                        core.flash = 20;
+                        p.alive = false;
+                        playTone(800, 'sine', 0.2, 0.08);
+                        if(gameState === STATES.EXPLORE) gameState = STATES.CORE_CHARGING;
+                    }
+                }
+
+                applyStroke(p);
+
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vx *= 0.95;
+                p.vy *= 0.95;
+                p.age++;
+
+                wrapOrBounce(p);
+            }
+        }
+
+        function resolveCollisions() {
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const a = particles[i];
+                    const b = particles[j];
+                    if (!a.alive || !b.alive) continue;
+
+                    const dx = a.x - b.x;
+                    const dy = a.y - b.y;
+                    const distSq = dx*dx + dy*dy;
+
+                    if (distSq < 4) { // dist < 2
+                        const dist = Math.sqrt(distSq);
+                        
+                        // Like-particle separation force (discourages stacking)
+                        if (a.type === b.type) {
+                            const sepForce = (2 - dist) * 0.05;
+                            const fx = (dx / dist) * sepForce;
+                            const fy = (dy / dist) * sepForce;
+                            a.vx += fx; a.vy += fy;
+                            b.vx -= fx; b.vy -= fy;
+                        }
+
+                        // Reactions
+                        if (dist < 1.5) {
+                            // Red + Blue = Purple
+                            if ((a.type === TYPES.RED && b.type === TYPES.BLUE) || 
+                                (a.type === TYPES.BLUE && b.type === TYPES.RED)) {
+                                a.type = TYPES.PURPLE;
+                                b.alive = false;
+                                playTone(600, 'triangle', 0.05, 0.02);
+                            }
+                            
+                            // Green + Purple = Yellow (Depth 3+)
+                            if (currentDepth >= 3) {
+                                if ((a.type === TYPES.GREEN && b.type === TYPES.PURPLE) || 
+                                    (a.type === TYPES.PURPLE && b.type === TYPES.GREEN)) {
+                                    a.type = TYPES.YELLOW;
+                                    b.alive = false;
+                                    playTone(900, 'sine', 0.1, 0.03);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        function updateCore() {
+            if (core.flash > 0) core.flash--;
+            
+            if (gameState === STATES.CORE_CHARGING) {
+                ui.innerText = `CORE ${Math.min(core.energy, core.requiredEnergy)}/${core.requiredEnergy}`;
+            }
+
+            if (core.energy >= core.requiredEnergy && !exit.active) {
+                triggerEscapeSequence();
+            }
+
+            if (gameState === STATES.ESCAPE) {
+                // Core visibly collapses/pulses violently
+                if (Math.random() < 0.1) core.flash = 5;
+            }
+        }
+
+        function checkWin() {
+            if (exit.active && distance(player, exit) < 3) {
+                gameState = STATES.VICTORY;
+                playTone(400, 'sine', 0.1, 0.1);
+                setTimeout(() => playTone(600, 'sine', 0.2, 0.1), 100);
+                setTimeout(() => playTone(800, 'sine', 0.4, 0.1), 300);
+                showMessage("ESCAPED. TAP FOR NEXT DEPTH.", 0);
+                ui.innerText = "";
+            }
+        }
+
+        function cleanupParticles() {
+            particles = particles.filter(p => p.alive);
+        }
+
+        function update() {
+            if (gameState === STATES.DEAD || gameState === STATES.VICTORY) return;
+            if (screenShake > 0) screenShake--;
+            
+            updateParticles();
+            resolveCollisions();
+            updateCore();
+            checkWin();
+            cleanupParticles();
+            
+            mouse.previousX = mouse.x;
+            mouse.previousY = mouse.y;
+        }
+
+        // --- 7. RENDERING ---
+        function getParticleColor(type) {
+            switch (type) {
+                case TYPES.RED: return "#ff3040";
+                case TYPES.BLUE: return "#3080ff";
+                case TYPES.PURPLE: return "#b040ff";
+                case TYPES.GREEN: return "#40ff80";
+                case TYPES.YELLOW: return "#ffff40";
+                default: return "#ffffff";
+            }
+        }
+
+        function render() {
+            bctx.fillStyle = "#000";
+            bctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+            // Draw Core
+            let coreSize = 1 + (core.energy / 3); // Scale visually
+            if (gameState === STATES.ESCAPE) coreSize = 1 + (Math.random() * 5); // Collapse jitter
+            
+            bctx.fillStyle = core.flash > 0 ? "#fff" : "#888";
+            if (gameState !== STATES.ESCAPE || core.flash > 0) {
+                bctx.fillRect(Math.floor(core.x - coreSize / 2), Math.floor(core.y - coreSize / 2), coreSize, coreSize);
+            }
+            
+            if (core.flash > 0) {
+                bctx.strokeStyle = "#fff";
+                bctx.strokeRect(Math.floor(core.x - core.flash), Math.floor(core.y - core.flash), core.flash * 2, core.flash * 2);
+            }
+
+            // Draw Exit
+            if (exit.active) {
+                bctx.fillStyle = "#00ffff";
+                bctx.fillRect(Math.floor(exit.x - 1), Math.floor(exit.y - 1), 3, 3);
+                // Exit pulse
+                if(Math.floor(Date.now() / 200) % 2 === 0) {
+                    bctx.strokeStyle = "#00ffff";
+                    bctx.strokeRect(Math.floor(exit.x - 3), Math.floor(exit.y - 3), 7, 7);
+                }
+            }
+
+            // Draw Particles
+            for (const p of particles) {
+                bctx.fillStyle = getParticleColor(p.type);
+                bctx.fillRect(Math.floor(p.x), Math.floor(p.y), 1, 1);
+            }
+
+            // Draw Player
+            if (player.alive) {
+                bctx.fillStyle = "#ffffff";
+                bctx.fillRect(Math.floor(player.x), Math.floor(player.y), 1, 1);
+            }
+
+            // Screen Shake translation
+            let shakeX = 0, shakeY = 0;
+            if (screenShake > 0) {
+                shakeX = (Math.random() - 0.5) * 10 * (screenShake/20);
+                shakeY = (Math.random() - 0.5) * 10 * (screenShake/20);
+            }
+
+            ctx.imageSmoothingEnabled = false;
+            
+            // Clear main canvas for shake offsets
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.drawImage(buffer, shakeX, shakeY, canvas.width, canvas.height);
+        }
+
+        function loop() {
+            update();
+            render();
+            requestAnimationFrame(loop);
+        }
+
+        // Boot
+        initLevel();
+        loop();
+    </script>
+</body>
+</html>

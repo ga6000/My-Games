@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Robot Blaster Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Arial', sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #crosshair {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            border: 2px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            mix-blend-mode: difference;
+            pointer-events: none;
+        }
+        .info-panel {
+            position: absolute;
+            color: white;
+            background-color: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 8px;
+            user-select: none;
+            transition: opacity 0.3s;
+        }
+        #info {
+            top: 10px;
+            left: 10px;
+        }
+        #lock-on-message {
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 16px;
+            font-size: 20px;
+            font-weight: bold;
+            color: #d8aaff;
+            border: 2px solid #d8aaff;
+            display: none; /* Hidden by default */
+        }
+        /* --- New Minimal Speedometer Styles --- */
+        #speedometer-container-minimal {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 25px;
+            background-color: rgba(0,0,0,0.3);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 15px;
+            padding: 3px;
+            box-sizing: border-box;
+        }
+        #speed-bar-fill-minimal {
+            width: 0%;
+            height: 100%;
+            background-color: #ff4500;
+            border-radius: 10px;
+            transition: width 0.1s linear;
+        }
+        #speed-text-minimal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px black;
+        }
+    </style>
+</head>
+<body>
+    <div id="info" class="info-panel">
+        <strong>Controls:</strong><br>
+        W, A, S, D: Move<br>
+        Mouse: Look<br>
+        Click: Fire Blaster<br>
+        Space: Lock-On<br>
+        F: Toggle Fullscreen<br>
+        I: Toggle This Panel
+    </div>
+    <!-- New Minimal Speedometer HTML -->
+    <div id="speedometer-container-minimal">
+        <div id="speed-bar-fill-minimal"></div>
+        <div id="speed-text-minimal">0</div>
+    </div>
+    <div id="lock-on-message" class="info-panel">Locked-On</div>
+    <div id="crosshair"></div>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- SCENE SETUP ---
+        let scene, camera, renderer, controls;
+        let player, playerVelocity = new THREE.Vector3();
+        const playerAcceleration = 200.0;
+        const maxSpeed = 125.0;
+        const playerSize = 2;
+
+        // --- CAMERA ---
+        let currentCameraOffset = new THREE.Vector3(0, 5, 12);
+        const baseCameraOffset = new THREE.Vector3(0, 5, 12);
+        const maxCameraOffset = new THREE.Vector3(0, 7, 22);
+
+        // --- GAME ELEMENTS ---
+        let spheres = [];
+        let rocks = [];
+        let bulletPool = [];
+        const maxBullets = 30;
+        const sphereCount = 200;
+        const bulletSpeed = 100;
+        let ground;
+
+        // --- LOCK-ON SYSTEM ---
+        let lockOnTarget = null;
+        let lockOnRing;
+        let isReleasingLock = false;
+        const LOCK_ON_DISTANCE = 200;
+
+        // --- PARTICLE SYSTEM ---
+        let particleSystem, particlePool = [];
+        const maxParticles = 500;
+
+        // --- INPUT HANDLING ---
+        const keysPressed = {};
+        const raycaster = new THREE.Raycaster();
+
+        // --- UI ELEMENTS ---
+        let infoPanel, lockOnMessage, speedBarFill, speedText;
+
+        function init() {
+            infoPanel = document.getElementById('info');
+            lockOnMessage = document.getElementById('lock-on-message');
+            speedBarFill = document.getElementById('speed-bar-fill-minimal');
+            speedText = document.getElementById('speed-text-minimal');
+
+            // Scene
+            scene = new THREE.Scene();
+            const loader = new THREE.CubeTextureLoader();
+            const texture = loader.setPath('https://threejs.org/examples/textures/cube/Bridge2/').load([
+                'px.jpg', 'nx.jpg', 'py.jpg', 'ny.jpg', 'pz.jpg', 'nz.jpg'
+            ]);
+            scene.background = texture;
+            scene.fog = new THREE.Fog(0xcce0ff, 200, 2000);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
+            camera.position.set(0, 5, 10);
+
+            // --- LIGHTING ---
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            directionalLight.position.set(200, 200, 150);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 2500;
+            directionalLight.shadow.camera.left = -1000;
+            directionalLight.shadow.camera.right = 1000;
+            directionalLight.shadow.camera.top = 1000;
+            directionalLight.shadow.camera.bottom = -1000;
+            scene.add(directionalLight);
+
+            // --- ENVIRONMENT ---
+            createDesert();
+            createFloatingSpheres();
+            createRocks();
+
+            // --- PLAYER & SYSTEMS ---
+            createPlayer();
+            createParticleSystem();
+            createBulletPool();
+            createLockOnRing();
+
+            // --- CONTROLS ---
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 3;
+            controls.maxDistance = 30;
+            controls.maxPolarAngle = Math.PI / 2 - 0.05;
+            controls.enablePan = false;
+
+            // --- EVENT LISTENERS ---
+            document.addEventListener('keydown', (event) => {
+                keysPressed[event.key.toLowerCase()] = true;
+                if (event.key.toLowerCase() === 'f') toggleFullScreen();
+                if (event.key.toLowerCase() === 'i') {
+                    infoPanel.style.display = infoPanel.style.display === 'none' ? 'block' : 'none';
+                }
+            });
+            document.addEventListener('keyup', (event) => {
+                keysPressed[event.key.toLowerCase()] = false;
+            });
+            window.addEventListener('resize', onWindowResize, false);
+            renderer.domElement.addEventListener('click', fireBullet);
+        }
+
+        function createLockOnRing() {
+            const ringGeometry = new THREE.TorusGeometry(3.5, 0.2, 16, 100);
+            const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x9d4edd, side: THREE.DoubleSide });
+            lockOnRing = new THREE.Mesh(ringGeometry, ringMaterial);
+            lockOnRing.visible = false;
+            scene.add(lockOnRing);
+        }
+
+        function createRocks() {
+            const rockGeometry = new THREE.DodecahedronGeometry(1, 0);
+            const rockMaterial = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.8, metalness: 0.1 });
+            const desertSize = 5000;
+            const rockCount = 300;
+
+            for (let i = 0; i < rockCount; i++) {
+                const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+                const scale = Math.random() * 5 + 2;
+                rock.scale.set(scale, scale, scale);
+                rock.position.set(
+                    (Math.random() - 0.5) * desertSize,
+                    scale * 0.5 - 1,
+                    (Math.random() - 0.5) * desertSize
+                );
+                rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+                rock.castShadow = true;
+                rock.receiveShadow = true;
+                rocks.push(rock);
+                scene.add(rock);
+            }
+        }
+        
+        const clock = new THREE.Clock();
+        let animationTime = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            handleLockOn();
+            updatePlayer(delta);
+            updateBullets(delta);
+            updateParticles(delta);
+            updateCamera(delta);
+            updateSpeedometer();
+
+            const speed = playerVelocity.length();
+            const isMoving = speed > 0.1;
+            if (isMoving) {
+                animationTime += delta * speed * 0.05;
+                player.userData.limbs[0].rotation.x = Math.sin(animationTime) * 0.8;
+                player.userData.limbs[1].rotation.x = -Math.sin(animationTime) * 0.8;
+                player.userData.limbs[2].rotation.x = Math.sin(animationTime) * 0.6;
+                player.userData.limbs[3].rotation.x = Math.sin(animationTime) * 0.6;
+                emitParticles(speed);
+            } else {
+                 player.userData.limbs.forEach(limb => limb.rotation.set(0,0,0));
+            }
+            
+            if (lockOnRing.visible && lockOnTarget) {
+                lockOnRing.quaternion.copy(camera.quaternion);
+                lockOnRing.position.copy(lockOnTarget.position);
+            }
+
+            renderer.render(scene, camera);
+        }
+        
+        function handleLockOn() {
+            if (keysPressed[' '] && !lockOnTarget && !isReleasingLock) {
+                let closestSphere = null;
+                let minDistance = LOCK_ON_DISTANCE;
+                const playerPos2D = new THREE.Vector2(player.position.x, player.position.z);
+                for (const sphere of spheres) {
+                    const spherePos2D = new THREE.Vector2(sphere.position.x, sphere.position.z);
+                    const distance = playerPos2D.distanceTo(spherePos2D);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestSphere = sphere;
+                    }
+                }
+                if (closestSphere) {
+                    lockOnTarget = closestSphere;
+                    controls.saveState();
+                    lockOnRing.visible = true;
+                    lockOnMessage.style.display = 'block';
+                }
+            }
+            if (!keysPressed[' '] && lockOnTarget && !isReleasingLock) {
+                isReleasingLock = true;
+                lockOnMessage.style.display = 'none';
+            }
+            if (lockOnTarget && !isReleasingLock) {
+                if (!lockOnTarget.parent || player.position.distanceTo(lockOnTarget.position) > LOCK_ON_DISTANCE) {
+                    isReleasingLock = true;
+                    lockOnMessage.style.display = 'none';
+                }
+            }
+        }
+
+        function updateCamera(delta) {
+            if (lockOnTarget && !isReleasingLock) {
+                controls.enabled = false;
+                const offset = new THREE.Vector3(0, 5, 15);
+                const direction = new THREE.Vector3().subVectors(player.position, lockOnTarget.position).normalize();
+                direction.y = 0;
+                const desiredPosition = player.position.clone().add(direction.multiplyScalar(offset.z)).add(new THREE.Vector3(0, offset.y, 0));
+                camera.position.lerp(desiredPosition, 0.1);
+                const tempMatrix = new THREE.Matrix4().lookAt(camera.position, lockOnTarget.position, camera.up);
+                const tempQuaternion = new THREE.Quaternion().setFromRotationMatrix(tempMatrix);
+                camera.quaternion.slerp(tempQuaternion, 0.15);
+            } else if (isReleasingLock) {
+                controls.enabled = false;
+                const targetQuaternion = new THREE.Quaternion().setFromRotationMatrix(
+                    new THREE.Matrix4().lookAt(controls.position0, controls.target0, camera.up)
+                );
+                camera.position.lerp(controls.position0, 0.15);
+                camera.quaternion.slerp(targetQuaternion, 0.15);
+                if (camera.position.distanceTo(controls.position0) < 0.1 && camera.quaternion.angleTo(targetQuaternion) < 0.01) {
+                    isReleasingLock = false;
+                    lockOnTarget = null;
+                    lockOnRing.visible = false;
+                    controls.reset(); 
+                    controls.enabled = true;
+                }
+            } else {
+                controls.enabled = true;
+                const speedRatio = Math.min(playerVelocity.length() / maxSpeed, 1.0);
+                const desiredOffset = baseCameraOffset.clone().lerp(maxCameraOffset, speedRatio);
+                currentCameraOffset.lerp(desiredOffset, 0.1);
+                controls.object.position.set(currentCameraOffset.x, currentCameraOffset.y, currentCameraOffset.z);
+                const targetPosition = player.position.clone();
+                targetPosition.y += 4.0;
+                controls.target.lerp(targetPosition, 0.2);
+                controls.update();
+                handleCameraCollision();
+            }
+        }
+        
+        function fireBullet() {
+            const bullet = bulletPool.find(b => !b.isActive);
+            if (!bullet) return;
+            bullet.isActive = true;
+            bullet.mesh.visible = true;
+            bullet.lifetime = 3.0;
+            const gunPosition = player.userData.gunArm.getWorldPosition(new THREE.Vector3());
+            bullet.mesh.position.copy(gunPosition);
+            let direction;
+            if (lockOnTarget) {
+                direction = new THREE.Vector3().subVectors(lockOnTarget.position, gunPosition).normalize();
+            } else {
+                raycaster.setFromCamera(new THREE.Vector2(0, 0.2), camera);
+                const targetPoint = new THREE.Vector3();
+                const intersects = raycaster.intersectObjects(spheres);
+                if (intersects.length > 0) {
+                    targetPoint.copy(intersects[0].point);
+                } else {
+                    raycaster.ray.at(2000, targetPoint);
+                }
+                const horizontalTargetPoint = targetPoint.clone();
+                horizontalTargetPoint.y = gunPosition.y;
+                direction = new THREE.Vector3().subVectors(horizontalTargetPoint, gunPosition).normalize();
+            }
+            bullet.velocity.copy(direction.multiplyScalar(bulletSpeed));
+        }
+
+        function updateBullets(delta) {
+            for (const bullet of bulletPool) {
+                if (bullet.isActive) {
+                    bullet.lifetime -= delta;
+                    if (bullet.lifetime <= 0) {
+                        bullet.isActive = false;
+                        bullet.mesh.visible = false;
+                        continue;
+                    }
+                    bullet.mesh.position.add(bullet.velocity.clone().multiplyScalar(delta));
+                    for (let j = spheres.length - 1; j >= 0; j--) {
+                        const sphere = spheres[j];
+                        if (bullet.mesh.position.distanceTo(sphere.position) < 2.4) {
+                            if (sphere === lockOnTarget) {
+                                isReleasingLock = true;
+                                lockOnMessage.style.display = 'none';
+                            }
+                            scene.remove(sphere); 
+                            spheres.splice(j, 1);
+                            bullet.isActive = false;
+                            bullet.mesh.visible = false;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        function updateSpeedometer() {
+            const speed = playerVelocity.length();
+            const speedRatio = Math.min(speed / maxSpeed, 1.0);
+            
+            speedBarFill.style.width = `${speedRatio * 100}%`;
+            speedText.textContent = Math.floor(speed);
+        }
+
+        function updatePlayer(delta) {
+            const moveDirection = new THREE.Vector3();
+            let isMoving = false;
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            forward.y = 0;
+            forward.normalize();
+            const right = new THREE.Vector3().crossVectors(camera.up, forward).negate();
+            if (keysPressed['w']) { moveDirection.add(forward); isMoving = true; }
+            if (keysPressed['s']) { moveDirection.sub(forward); isMoving = true; }
+            if (keysPressed['d']) { moveDirection.add(right); isMoving = true; }
+            if (keysPressed['a']) { moveDirection.sub(right); isMoving = true; }
+            
+            if (isMoving) {
+                moveDirection.normalize();
+                playerVelocity.add(moveDirection.multiplyScalar(playerAcceleration * delta));
+                // Apply a small amount of drag while moving
+                playerVelocity.multiplyScalar(1 - 0.5 * delta);
+            } else {
+                // Apply strong damping when not moving
+                playerVelocity.multiplyScalar(1 - 5 * delta);
+            }
+
+            // Cap the speed
+            if (playerVelocity.length() > maxSpeed) {
+                playerVelocity.setLength(maxSpeed);
+            }
+
+            player.position.add(playerVelocity.clone().multiplyScalar(delta));
+        }
+
+        // --- Helper functions for brevity ---
+        function createDesert() { const desertSize = 5000; const groundGeometry = new THREE.PlaneGeometry(desertSize, desertSize); const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xf0e68c, roughness: 0.9, metalness: 0.1 }); ground = new THREE.Mesh(groundGeometry, groundMaterial); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground); }
+        function createFloatingSpheres() { const sphereGeometry = new THREE.SphereGeometry(2, 32, 32); const spread = 4000; for (let i = 0; i < sphereCount; i++) { const sphereMaterial = new THREE.MeshStandardMaterial({ color: new THREE.Color(Math.random(), Math.random(), Math.random()), metalness: 0.8, roughness: 0.2, }); const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial); sphere.position.set((Math.random() - 0.5) * spread, Math.random() * 50 + 10, (Math.random() - 0.5) * spread); sphere.castShadow = true; sphere.receiveShadow = true; spheres.push(sphere); scene.add(sphere); } }
+        function createPlayer() { player = new THREE.Group(); const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x7f8c8d, roughness: 0.5, metalness: 0.5 }); const bodyGeometry = new THREE.BoxGeometry(playerSize, playerSize * 1.5, playerSize * 0.8); const body = new THREE.Mesh(bodyGeometry, bodyMaterial); body.castShadow = true; body.receiveShadow = true; body.position.y = playerSize * 0.75; player.add(body); const headGeometry = new THREE.SphereGeometry(playerSize * 0.5, 32, 32); const headMaterial = new THREE.MeshStandardMaterial({ color: 0x3498db, emissive: 0x44aaff, emissiveIntensity: 0.5 }); const head = new THREE.Mesh(headGeometry, headMaterial); head.position.y = body.position.y + playerSize; head.castShadow = true; player.add(head); player.userData.limbs = []; const limbGeometry = new THREE.BoxGeometry(0.4, 1.5, 0.4); const limbMaterial = new THREE.MeshStandardMaterial({ color: 0xbdc3c7 }); const leg1 = new THREE.Mesh(limbGeometry, limbMaterial); leg1.position.set(-0.6, -0.75, 0); player.userData.limbs.push(leg1); body.add(leg1); const leg2 = new THREE.Mesh(limbGeometry, limbMaterial); leg2.position.set(0.6, -0.75, 0); player.userData.limbs.push(leg2); body.add(leg2); const arm1 = new THREE.Mesh(limbGeometry, limbMaterial); arm1.position.set(-1.2, 0.5, 0); player.userData.limbs.push(arm1); body.add(arm1); const arm2 = new THREE.Mesh(limbGeometry, limbMaterial); arm2.position.set(1.2, 0.5, 0); player.userData.limbs.push(arm2); body.add(arm2); player.userData.gunArm = arm2; player.position.set(0, 0, 0); scene.add(player); }
+        function createParticleSystem() { const positions = new Float32Array(maxParticles * 3); const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); const material = new THREE.PointsMaterial({ color: 0x8B4513, size: 0.15, transparent: true, blending: THREE.NormalBlending, depthWrite: false, opacity: 0.7, sizeAttenuation: true, }); particleSystem = new THREE.Points(geometry, material); scene.add(particleSystem); for (let i = 0; i < maxParticles; i++) { particlePool.push({ position: new THREE.Vector3(), velocity: new THREE.Vector3(), lifetime: 0, isActive: false, }); } }
+        function createBulletPool() { for (let i = 0; i < maxBullets; i++) { const bulletGeometry = new THREE.SphereGeometry(0.4, 8, 8); const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xff4500, emissive: 0xff0000, emissiveIntensity: 2 }); const mesh = new THREE.Mesh(bulletGeometry, bulletMaterial); const light = new THREE.PointLight(0xff0000, 1, 20); mesh.add(light); mesh.visible = false; scene.add(mesh); bulletPool.push({ mesh: mesh, velocity: new THREE.Vector3(), lifetime: 0, isActive: false, }); } }
+        function emitParticles(speed) { const particlesToEmit = Math.min(Math.floor(speed / 150), 1); for (let i = 0; i < particlesToEmit; i++) { const p = particlePool.find(p => !p.isActive); if (p) { p.isActive = true; p.position.copy(player.position).add(new THREE.Vector3((Math.random() - 0.5) * 1.5, 0.2, (Math.random() - 0.5) * 1.5)); p.velocity.set( (Math.random() - 0.5) * 2, Math.random() * 2 + 1, (Math.random() - 0.5) * 2 ).add(playerVelocity.clone().multiplyScalar(-0.1)); p.lifetime = Math.random() * 2.0 + 1.0; } } }
+        function updateParticles(delta) { const positions = particleSystem.geometry.attributes.position.array; let activeCount = 0; for (let i = 0; i < maxParticles; i++) { const p = particlePool[i]; if (p.isActive) { p.lifetime -= delta; if (p.lifetime <= 0) { p.isActive = false; continue; } p.position.add(p.velocity.clone().multiplyScalar(delta)); p.velocity.y -= 5 * delta; positions[activeCount * 3] = p.position.x; positions[activeCount * 3 + 1] = p.position.y; positions[activeCount * 3 + 2] = p.position.z; activeCount++; } } particleSystem.geometry.setDrawRange(0, activeCount); particleSystem.geometry.attributes.position.needsUpdate = true; }
+        function handleCameraCollision() { const direction = camera.position.clone().sub(controls.target).normalize(); const distance = camera.position.distanceTo(controls.target); raycaster.set(controls.target, direction); raycaster.far = distance; const intersects = raycaster.intersectObjects([ground, ...rocks]); if (intersects.length > 0) { const newPos = intersects[0].point; camera.position.copy(newPos); camera.position.add(direction.multiplyScalar(-0.5)); } }
+        function toggleFullScreen() { if (!document.fullscreenEnabled) { console.warn("Fullscreen not enabled."); return; } if (!document.fullscreenElement) { document.documentElement.requestFullscreen().catch(err => console.warn(`Could not enter fullscreen: ${err.name}`)); } else if (document.exitFullscreen) { document.exitFullscreen(); } }
+        function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        
+        // --- START ---
+        init();
+        animate();
+
+    </script>
+</body>
+</html>

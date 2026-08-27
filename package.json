@@ -1,0 +1,8 @@
+{
+  "name": "game-scripts",
+  "private": true,
+  "description": "Dev-only tooling for My-Games (not shipped to the browser, not a runtime dependency of server.js).",
+  "dependencies": {
+    "acorn": "^8.18.0"
+  }
+}

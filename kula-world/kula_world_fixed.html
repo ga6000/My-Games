@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kula World - Web Edition</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+            touch-action: none; /* Prevent scrolling on mobile devices */
+        }
+        #game-ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            text-shadow: 2px 2px 0 #000;
+            z-index: 10;
+            pointer-events: none;
+        }
+        h1 { margin: 0 0 10px 0; color: #ffeb3b; }
+        .stat { font-size: 1.2rem; margin-bottom: 5px; }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 2rem;
+            text-align: center;
+            text-shadow: 2px 2px 4px #000;
+            display: none;
+            z-index: 20;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #555;
+        }
+        #controls-help {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255,255,255,0.7);
+            z-index: 10;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+    <!-- Load Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="game-ui">
+        <h1>KULA WEB</h1>
+        <div class="stat" id="ui-level">Level: 1</div>
+        <div class="stat" id="ui-score">Score: 0</div>
+        <div class="stat" id="ui-time">Time: 60</div>
+        <div class="stat" id="ui-keys">Key: Missing</div>
+    </div>
+    
+    <div id="message"></div>
+    
+    <div id="controls-help">
+        Controls: [UP] Move | [LEFT]/[RIGHT] Turn | [SPACE] Jump
+    </div>
+
+    <script>
+        // --- Game Data: 5 Levels ---
+        // 0: Empty, 1: Block, 2: Key, 3: Exit, 4: Spikes, 5: Coin, 6: Hourglass, 8: Start Position
+        const levelData = [
+            // Level 1: Straight line tutorial
+            [
+                {x: 0, z: 0, type: 8}, {x: 0, z: -1, type: 1}, {x: 0, z: -2, type: 1},
+                {x: 0, z: -3, type: 2}, {x: 0, z: -4, type: 1}, {x: 0, z: -5, type: 3}
+            ],
+            // Level 2: Jump Tutorial
+            [
+                {x: 0, z: 0, type: 8}, {x: 0, z: -1, type: 1},
+                // gap at z: -2
+                {x: 0, z: -3, type: 5}, // Coin
+                {x: 0, z: -4, type: 1}, {x: 0, z: -5, type: 2},
+                {x: -1, z: -5, type: 1}, {x: -2, z: -5, type: 3}
+            ],
+            // Level 3: Spikes & Turns
+            [
+                {x: 0, z: 0, type: 8}, {x: 0, z: -1, type: 1}, {x: 0, z: -2, type: 4}, // Spike! Turn before it
+                {x: 1, z: -1, type: 1}, {x: 2, z: -1, type: 5}, {x: 2, z: -2, type: 1},
+                {x: 2, z: -3, type: 2}, {x: 1, z: -3, type: 1}, {x: 0, z: -3, type: 1},
+                {x: 0, z: -4, type: 1}, {x: 0, z: -5, type: 3}
+            ],
+            // Level 4: Time Crunch
+            [
+                {x: 0, z: 0, type: 8}, {x: 0, z: -1, type: 1}, {x: 1, z: -1, type: 1},
+                {x: 2, z: -1, type: 1}, {x: 2, z: 0, type: 2}, 
+                {x: 2, z: -2, type: 1}, {x: 1, z: -2, type: 1}, {x: 0, z: -2, type: 6}, // Hourglass
+                {x: 0, z: -3, type: 1}, {x: -1, z: -3, type: 4}, {x: 0, z: -4, type: 1},
+                {x: 1, z: -4, type: 1}, {x: 2, z: -4, type: 3}
+            ],
+            // Level 5: Kula Master
+            [
+                {x: 0, z: 0, type: 8}, {x: 0, z: -1, type: 1}, 
+                // gap over -2
+                {x: 0, z: -3, type: 5}, // Coin on landing
+                {x: 0, z: -4, type: 4}, // Spike! Don't go straight
+                {x: 1, z: -3, type: 1}, {x: 2, z: -3, type: 6}, // Hourglass
+                {x: 2, z: -4, type: 1}, {x: 2, z: -5, type: 2}, // Key
+                {x: 1, z: -5, type: 1}, {x: 0, z: -5, type: 3}  // Exit
+            ]
+        ];
+
+        // --- Three.js Setup ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a0b2e); // Deep space purple
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 5);
+        scene.add(dirLight);
+
+        // --- Assets Generation ---
+        
+        // 1. Beach Ball Texture (Canvas)
+        const canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ff0000'; ctx.fillRect(0, 0, 128, 128); // Red
+        ctx.fillStyle = '#0000ff'; ctx.fillRect(128, 0, 128, 128); // Blue
+        ctx.fillStyle = '#ffff00'; ctx.fillRect(0, 128, 128, 128); // Yellow
+        ctx.fillStyle = '#00ff00'; ctx.fillRect(128, 128, 128, 128); // Green
+        const ballTexture = new THREE.CanvasTexture(canvas);
+        
+        const ballGeo = new THREE.SphereGeometry(0.4, 32, 32);
+        const ballMat = new THREE.MeshStandardMaterial({ map: ballTexture });
+        const ballMesh = new THREE.Mesh(ballGeo, ballMat);
+        scene.add(ballMesh);
+
+        // Materials for environment
+        const blockGeo = new THREE.BoxGeometry(1, 1, 1);
+        const blockMat = new THREE.MeshStandardMaterial({ color: 0xaa6622, roughness: 0.8 });
+        
+        const keyGeo = new THREE.OctahedronGeometry(0.3);
+        const keyMat = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0x444400 });
+        
+        const exitGeo = new THREE.BoxGeometry(0.8, 0.1, 0.8);
+        const exitMat = new THREE.MeshStandardMaterial({ color: 0x00ff00, emissive: 0x005500 });
+
+        // New Mechanics Materials
+        const spikeGeo = new THREE.ConeGeometry(0.4, 0.8, 4);
+        const spikeMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.2 });
+        
+        const coinGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
+        coinGeo.rotateX(Math.PI / 2); // Stand upright
+        const coinMat = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xaa8800 });
+
+        const hourglassGeo = new THREE.OctahedronGeometry(0.25);
+        const hourglassMat = new THREE.MeshStandardMaterial({ color: 0x00aaff, emissive: 0x0055aa, transparent: true, opacity: 0.8 });
+
+        // --- Game State ---
+        let currentLevel = 0;
+        let blocks = [];
+        let items = [];
+        let hasKey = false;
+        let score = 0;
+        let timeLeft = 60;
+        let timerInterval;
+        
+        // Player state
+        let gridX = 0;
+        let gridZ = 0;
+        let direction = 0; // 0:-z (North), 1:-x (West), 2:+z (South), 3:+x (East)
+        
+        // Animation states
+        let isMoving = false;
+        let isFalling = false;
+        let isJumping = false;
+        let moveProgress = 0;
+        let startPos = new THREE.Vector3();
+        let targetPos = new THREE.Vector3();
+        
+        let startRot = 0;
+        let targetRot = 0;
+
+        // Camera Pivot (to rotate smoothly around the ball)
+        const cameraPivot = new THREE.Group();
+        scene.add(cameraPivot);
+        cameraPivot.add(camera);
+        camera.position.set(0, 2, 3); // Behind and above
+        camera.lookAt(0, 0, 0);
+
+        // --- Core Functions ---
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateUI();
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    showMessage("Time's Up! Restarting...");
+                    setTimeout(() => loadLevel(currentLevel), 1000);
+                }
+            }, 1000);
+        }
+
+        function loadLevel(levelIndex) {
+            if (levelIndex >= levelData.length) {
+                clearInterval(timerInterval);
+                showMessage(`YOU WIN!<br>Final Score: ${score}<br>Thanks for playing.`, true);
+                return;
+            }
+
+            // Clean up previous level
+            blocks.forEach(b => scene.remove(b.mesh));
+            items.forEach(i => scene.remove(i.mesh));
+            blocks = [];
+            items = [];
+            hasKey = false;
+            
+            // Set time based on level
+            timeLeft = 30 + (levelIndex * 15); 
+            startTimer();
+            
+            updateUI();
+
+            const data = levelData[levelIndex];
+            
+            data.forEach(cell => {
+                // Create Floor
+                const block = new THREE.Mesh(blockGeo, blockMat);
+                block.position.set(cell.x, -0.5, cell.z);
+                
+                // Add edges for retro voxel look
+                const edges = new THREE.EdgesGeometry(blockGeo);
+                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+                block.add(line);
+                
+                scene.add(block);
+                blocks.push({ x: cell.x, z: cell.z, mesh: block });
+
+                if (cell.type === 8) {
+                    gridX = cell.x;
+                    gridZ = cell.z;
+                } else if (cell.type === 2) {
+                    const key = new THREE.Mesh(keyGeo, keyMat);
+                    key.position.set(cell.x, 0.4, cell.z);
+                    scene.add(key);
+                    items.push({ x: cell.x, z: cell.z, type: 'key', mesh: key });
+                } else if (cell.type === 3) {
+                    const exit = new THREE.Mesh(exitGeo, exitMat);
+                    exit.position.set(cell.x, 0.05, cell.z);
+                    scene.add(exit);
+                    items.push({ x: cell.x, z: cell.z, type: 'exit', mesh: exit });
+                } else if (cell.type === 4) {
+                    const spike = new THREE.Mesh(spikeGeo, spikeMat);
+                    spike.position.set(cell.x, 0.3, cell.z);
+                    scene.add(spike);
+                    items.push({ x: cell.x, z: cell.z, type: 'spike', mesh: spike });
+                } else if (cell.type === 5) {
+                    const coin = new THREE.Mesh(coinGeo, coinMat);
+                    coin.position.set(cell.x, 0.4, cell.z);
+                    scene.add(coin);
+                    items.push({ x: cell.x, z: cell.z, type: 'coin', mesh: coin });
+                } else if (cell.type === 6) {
+                    const hourglass = new THREE.Mesh(hourglassGeo, hourglassMat);
+                    hourglass.position.set(cell.x, 0.4, cell.z);
+                    scene.add(hourglass);
+                    items.push({ x: cell.x, z: cell.z, type: 'hourglass', mesh: hourglass });
+                }
+            });
+
+            // Reset Player
+            direction = 0;
+            cameraPivot.rotation.y = 0;
+            ballMesh.position.set(gridX, 0.4, gridZ);
+            ballMesh.rotation.set(0,0,0);
+            
+            // Sync start/target targets to avoid random jumping at level start
+            startPos.copy(ballMesh.position);
+            targetPos.copy(ballMesh.position);
+            
+            isMoving = false;
+            isFalling = false;
+            isJumping = false;
+            showMessage(`Level ${levelIndex + 1}`);
+            setTimeout(() => { document.getElementById('message').style.display = 'none'; }, 2000);
+        }
+
+        function getForwardVector(dir) {
+            if (dir === 0) return { x: 0, z: -1 };
+            if (dir === 1) return { x: -1, z: 0 };
+            if (dir === 2) return { x: 0, z: 1 };
+            if (dir === 3) return { x: 1, z: 0 };
+        }
+
+        function checkBlock(x, z) {
+            return blocks.find(b => b.x === x && b.z === z) !== undefined;
+        }
+
+        function checkItems(x, z) {
+            for (let i = items.length - 1; i >= 0; i--) {
+                const item = items[i];
+                if (item.x === x && item.z === z) {
+                    if (item.type === 'key') {
+                        hasKey = true;
+                        score += 500;
+                        scene.remove(item.mesh);
+                        items.splice(i, 1);
+                        updateUI();
+                    } else if (item.type === 'coin') {
+                        score += 100;
+                        scene.remove(item.mesh);
+                        items.splice(i, 1);
+                        updateUI();
+                    } else if (item.type === 'hourglass') {
+                        timeLeft += 15;
+                        score += 200;
+                        scene.remove(item.mesh);
+                        items.splice(i, 1);
+                        updateUI();
+                    } else if (item.type === 'spike') {
+                        clearInterval(timerInterval);
+                        showMessage("Popped on Spikes! Restarting...");
+                        setTimeout(() => loadLevel(currentLevel), 1000);
+                    } else if (item.type === 'exit') {
+                        if (hasKey) {
+                            clearInterval(timerInterval);
+                            score += timeLeft * 10; // Time bonus
+                            currentLevel++;
+                            loadLevel(currentLevel);
+                        } else {
+                            showMessage("You need the Key!");
+                            setTimeout(() => { document.getElementById('message').style.display = 'none'; }, 1500);
+                        }
+                    }
+                }
+            }
+        }
+
+        function showMessage(text, keep = false) {
+            const msg = document.getElementById('message');
+            msg.innerHTML = text;
+            msg.style.display = 'block';
+            if(!keep) msg.style.display = 'block';
+        }
+
+        function updateUI() {
+            document.getElementById('ui-level').innerText = `Level: ${currentLevel + 1}`;
+            document.getElementById('ui-score').innerText = `Score: ${score}`;
+            document.getElementById('ui-time').innerText = `Time: ${timeLeft}`;
+            document.getElementById('ui-keys').innerText = hasKey ? `Key: OBTAINED` : `Key: Missing`;
+            document.getElementById('ui-keys').style.color = hasKey ? '#00ff00' : '#fff';
+            
+            if (timeLeft <= 10) {
+                document.getElementById('ui-time').style.color = '#ff0000';
+            } else {
+                document.getElementById('ui-time').style.color = '#fff';
+            }
+        }
+
+        // --- Controls (FIXED) ---
+        window.addEventListener('keydown', (e) => {
+            if (isMoving || isFalling) return;
+
+            if (e.key === 'ArrowUp') {
+                const vec = getForwardVector(direction);
+                const nextX = gridX + vec.x;
+                const nextZ = gridZ + vec.z;
+                
+                startPos.copy(ballMesh.position);
+                targetPos.set(nextX, 0.4, nextZ);
+                
+                isMoving = true;
+                isJumping = false;
+                moveProgress = 0;
+                
+                if (!checkBlock(nextX, nextZ)) {
+                    isFalling = true; // Fall into the void!
+                } else {
+                    gridX = nextX;
+                    gridZ = nextZ;
+                }
+            } else if (e.key === ' ' || e.key === 'Spacebar') { // Jump
+                e.preventDefault(); // Prevent page scroll
+                const vec = getForwardVector(direction);
+                const midX = gridX + vec.x;
+                const midZ = gridZ + vec.z;
+                const jumpX = gridX + (vec.x * 2);
+                const jumpZ = gridZ + (vec.z * 2);
+
+                if (checkBlock(midX, midZ)) return; // Prevent jumping through solid walls directly in front
+                
+                startPos.copy(ballMesh.position);
+                targetPos.set(jumpX, 0.4, jumpZ);
+                
+                isMoving = true;
+                isJumping = true;
+                moveProgress = 0;
+                
+                if (!checkBlock(jumpX, jumpZ)) {
+                    isFalling = true; // Missed the jump!
+                } else {
+                    gridX = jumpX;
+                    gridZ = jumpZ;
+                }
+            } else if (e.key === 'ArrowLeft') {
+                direction = (direction + 1) % 4;
+                startRot = cameraPivot.rotation.y;
+                targetRot = startRot + Math.PI / 2;
+                
+                // FIX: Sync position targets so the animation loop knows we are rotating, not moving
+                startPos.copy(ballMesh.position);
+                targetPos.copy(ballMesh.position);
+                
+                isMoving = true;
+                moveProgress = 0;
+            } else if (e.key === 'ArrowRight') {
+                direction = (direction - 1 + 4) % 4;
+                startRot = cameraPivot.rotation.y;
+                targetRot = startRot - Math.PI / 2;
+                
+                // FIX: Sync position targets so the animation loop knows we are rotating, not moving
+                startPos.copy(ballMesh.position);
+                targetPos.copy(ballMesh.position);
+                
+                isMoving = true;
+                moveProgress = 0;
+            }
+        });
+
+        // --- Game Loop ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            // Animate items
+            items.forEach(item => {
+                if(item.type === 'key' || item.type === 'coin' || item.type === 'hourglass') {
+                    item.mesh.rotation.y += delta * 2;
+                    item.mesh.position.y = 0.4 + Math.sin(Date.now() * 0.005) * 0.1;
+                }
+                if (item.type === 'coin') {
+                    item.mesh.rotation.z += delta * 3;
+                }
+            });
+
+            // Handle Movement / Falling
+            if (isMoving) {
+                const speed = isJumping ? 2.5 : 4.0; // Jump hangs in the air a tiny bit longer
+                moveProgress += delta * speed;
+                
+                if (moveProgress >= 1) {
+                    moveProgress = 1;
+                    isMoving = false;
+                    isJumping = false;
+                    
+                    // FIX: Snap to exact target rotation when finished turning
+                    if (startPos.equals(targetPos)) {
+                        cameraPivot.rotation.y = targetRot;
+                    }
+                    
+                    if (isFalling) {
+                        clearInterval(timerInterval);
+                        showMessage("Fell off! Restarting...");
+                        setTimeout(() => loadLevel(currentLevel), 1000);
+                    } else {
+                        // Reached tile safely
+                        checkItems(gridX, gridZ);
+                    }
+                }
+
+                // If rotating camera (detected because target pos wasn't changed by controls)
+                if (startPos.equals(targetPos)) {
+                    cameraPivot.rotation.y = THREE.MathUtils.lerp(startRot, targetRot, moveProgress);
+                } 
+                // If moving forward or jumping
+                else {
+                    // Position Lerp & Parabola logic
+                    if (isFalling && moveProgress > (isJumping ? 0.7 : 0.5)) {
+                        // Apply gravity drop halfway through the move/jump
+                        ballMesh.position.y -= delta * 15;
+                    } else {
+                        ballMesh.position.lerpVectors(startPos, targetPos, moveProgress);
+                        
+                        if (isJumping && !isFalling) {
+                            // Parabolic arc for successful jump
+                            ballMesh.position.y = 0.4 + Math.sin(moveProgress * Math.PI) * 1.5;
+                        } else if (isJumping && isFalling) {
+                            // Parabolic arc that turns into a fall
+                            ballMesh.position.y = 0.4 + Math.sin(Math.min(moveProgress, 0.7) * Math.PI) * 1.5;
+                        }
+                    }
+                    
+                    // NEW ROTATION FIX: Rotate on world axis perpendicular to movement
+                    const vec = getForwardVector(direction);
+                    const axis = new THREE.Vector3(vec.z, 0, -vec.x).normalize();
+                    const distanceThisFrame = delta * speed;
+                    const distanceScale = isJumping ? 2.0 : 1.0; 
+                    const angle = (distanceThisFrame * distanceScale) / 0.4;
+                    ballMesh.rotateOnWorldAxis(axis, angle);
+                }
+            }
+
+            // Make camera pivot follow the ball smoothly
+            cameraPivot.position.lerp(ballMesh.position, 0.1);
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start Game once the window has completely loaded
+        window.onload = function () {
+            loadLevel(0);
+            animate();
+        };
+    </script>
+</body>
+</html>

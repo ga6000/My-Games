@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Glass City Escape</title>
+    <style>
+        :root {
+            --dark-bg: #111;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--dark-bg);
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+            touch-action: none;
+            user-select: none;
+        }
+        #game-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated; 
+        }
+        
+        /* UI Overlays */
+        #ui-layer {
+            position: absolute;
+            top: 15px; left: 15px;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .stats-row {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .ui-text {
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+            letter-spacing: 1px;
+        }
+        #level-counter { color: #ff3333; }
+        #stage-counter { color: #00ffff; }
+        #collect-counter { color: #ffcc00; margin-bottom: 8px; font-size: 20px;}
+        
+        #health-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2px;
+            width: 300px;
+        }
+        .heart {
+            color: #ff3333;
+            font-size: 22px;
+            text-shadow: 1px 1px 0 #000;
+            transition: all 0.3s;
+        }
+        .heart.empty {
+            filter: grayscale(100%) brightness(40%);
+            opacity: 0.8;
+        }
+        
+        /* Mobile Controls */
+        #mobile-controls {
+            display: none;
+            position: absolute;
+            bottom: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .ghost-btn {
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            position: absolute;
+            pointer-events: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: bold;
+            font-size: 18px;
+            backdrop-filter: blur(2px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .ghost-btn:active {
+            background: rgba(255, 255, 255, 0.4);
+            transform: scale(0.95);
+        }
+        
+        /* D-PAD */
+        #d-pad {
+            position: absolute;
+            bottom: 30px; left: 30px;
+            width: 150px; height: 150px;
+            pointer-events: auto;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(2px);
+        }
+        .d-btn {
+            position: absolute;
+            width: 50px; height: 50px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+        }
+        .d-btn:active { background: rgba(255, 255, 255, 0.4); }
+        #btn-up { top: 0; left: 50px; }
+        #btn-down { bottom: 0; left: 50px; }
+        #btn-left { top: 50px; left: 0; }
+        #btn-right { top: 50px; right: 0; }
+        #btn-center { top: 50px; left: 50px; border-radius: 50%; background: rgba(255,255,255,0.05); }
+
+        /* Action Buttons */
+        #btn-b { bottom: 50px; right: 50px; width: 80px; height: 80px; }
+        
+        /* Start Menu */
+        #start-menu {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 15, 20, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 100;
+        }
+        
+        .menu-btn {
+            background: transparent;
+            color: #0ff;
+            border: 2px solid #0ff;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-family: inherit;
+            margin: 10px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+        }
+        .menu-btn:hover {
+            background: rgba(0, 255, 255, 0.2);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+        }
+        
+        /* Message Box */
+        #message-box {
+            position: absolute;
+            top: 30%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            border: 2px solid #0ff;
+            color: white;
+            padding: 20px 40px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+            z-index: 50;
+            box-shadow: 0 0 20px rgba(0,255,255,0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="game-canvas"></canvas>
+
+    <div id="ui-layer">
+        <div class="stats-row">
+            <div id="stage-counter" class="ui-text">STAGE: 1</div>
+            <div id="level-counter" class="ui-text">FLOOR: 0</div>
+        </div>
+        <div id="collect-counter" class="ui-text">CORES: 0 / 0</div>
+        <div id="health-bar"></div>
+    </div>
+    
+    <div id="message-box">
+        <h2 id="msg-title" style="margin-top:0;">Notice</h2>
+        <p id="msg-desc" style="font-size: 18px; margin-bottom: 20px;"></p>
+        <button id="restart-btn" class="menu-btn" onclick="location.reload()" style="display:none; font-size: 18px;">Restart</button>
+    </div>
+
+    <div id="mobile-controls">
+        <div id="d-pad">
+            <div class="d-btn" id="btn-up"></div>
+            <div class="d-btn" id="btn-down"></div>
+            <div class="d-btn" id="btn-left"></div>
+            <div class="d-btn" id="btn-right"></div>
+            <div class="d-btn" id="btn-center"></div>
+        </div>
+        <div class="ghost-btn" id="btn-b">DASH</div>
+    </div>
+
+    <div id="start-menu">
+        <h1 style="font-size: 50px; margin-bottom: 60px; text-shadow: 0 0 20px #0ff; text-align:center;">Glass City Escape</h1>
+        <button class="menu-btn" onclick="startGame()">Start Game</button>
+    </div>
+
+<script src="../shared/mp-core.js"></script>
+<script>
+/**
+ * 8-Bit Audio System
+ */
+let audioCtx = null;
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+function playTone(freq1, freq2, type, duration, vol=0.1) {
+    if(!audioCtx) return;
+    let osc = audioCtx.createOscillator();
+    let gain = audioCtx.createGain();
+    
+    osc.type = type;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    osc.frequency.setValueAtTime(freq1, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freq2, audioCtx.currentTime + duration);
+    
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+function playUpSound() { playTone(300, 800, 'square', 0.15, 0.05); setTimeout(() => playTone(400, 1000, 'square', 0.2, 0.05), 150); }
+function playDownSound() { playTone(800, 300, 'square', 0.15, 0.05); setTimeout(() => playTone(600, 200, 'square', 0.2, 0.05), 150); }
+function playFallSound() { playTone(600, 50, 'sawtooth', 0.6, 0.1); }
+function playCollectSound() { playTone(800, 1200, 'sine', 0.1, 0.1); }
+function playEscapeSound() { 
+    playTone(400, 600, 'square', 0.1, 0.1);
+    setTimeout(() => playTone(600, 800, 'square', 0.1, 0.1), 100);
+    setTimeout(() => playTone(800, 1200, 'square', 0.3, 0.1), 200);
+}
+
+/**
+ * Game Configuration & Globals
+ */
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+
+const CELL_SIZE = 40;
+const MAP_BLOCKS = 3; 
+const BLOCK_SIZE = 50; 
+const BLVD_SIZE = 10; 
+const TOTAL_CELLS = MAP_BLOCKS * (BLOCK_SIZE + BLVD_SIZE);
+const MAX_Z = 6;
+
+let lastTime = 0;
+let keys = {};
+let mapData = []; 
+let entities = [];
+let camera = { x: 0, y: 0 };
+let gameRunning = false;
+
+// Progression & Collectibles
+let currentStage = 1;
+let collectibles = [];
+let collectedCount = 0;
+let totalCollectibles = 0;
+let escapeTunnelOpen = false;
+let escapeTunnelPos = { x: 0, y: 0 };
+
+/**
+ * ===================================================
+ *   MULTIPLAYER — RACE MODE
+ * ===================================================
+ * Everyone runs the SAME seeded city (see the MP.random() calls through
+ * generateWorld / spawnCollectibles) and races to be first through the
+ * escape tunnel.
+ *
+ * Deliberately the lightest sync model of any game in this repo: there
+ * is no shared world state at all. Each racer collects their own cores,
+ * opens their own tunnel, and fights their own robots -- the only thing
+ * on the wire is "where is everyone" plus a single "I finished" event.
+ * Nothing can desync, because nothing is shared beyond the layout, and
+ * the layout comes from the seed rather than from messages.
+ *
+ * Consequence worth knowing: robots start identically on every client
+ * (their spawn placement is seeded) but their patrol AI is client-local
+ * and drifts apart within seconds. So you may watch a rival's ghost
+ * take a hit from a robot that isn't there on your screen. For a race
+ * that's a fair trade -- robots are an obstacle course, not a shared
+ * simulation, and syncing ~30 patrolling bots at 15Hz would cost more
+ * bandwidth than the entire rest of this game combined.
+ */
+const NET_SEND_MS = 66;             // ~15Hz
+const REMOTE_TIMEOUT_MS = 6000;
+
+let netOnline = false;
+let mpReady = false;
+let ghosts = {};                    // peerId -> {x,y,z,name,color,cores,lastSeen}
+let raceStartTime = 0;
+let raceFinished = false;
+let finishOrder = [];               // [{name, ms, self}]
+let baseSeed = null;
+
+// Each stage needs a DIFFERENT city, but the same different city on
+// every client. Deriving the stage seed from the room seed plus the
+// stage number gives both: solo players still get a fresh layout each
+// stage, and racers still agree with each other.
+function seedForStage() {
+    if (baseSeed === null) baseSeed = MP.seed();
+    MP.reseed((baseSeed + currentStage * 7919) | 0);
+}
+
+MP.connect({
+    game: "glass-city-escape",
+    onReady: function (info) {
+        mpReady = true;
+        netOnline = !info.solo;
+        baseSeed = info.seed;
+        // If the player hit Start before the seed arrived, the city they
+        // got was built from a throwaway local seed. Rebuild it now so
+        // they're racing the same course as everyone else.
+        if (gameRunning) rebuildWorldFromSeed();
+    },
+    onStatus: function (s) { netOnline = (s === "online"); },
+    onPeerLeave: function (peer) { if (peer) delete ghosts[peer.id]; },
+    onMessage: function (msg, fromId, fromName) {
+        if (!msg || !msg.k) return;
+
+        if (msg.k === "pos") {
+            const prev = ghosts[fromId];
+            ghosts[fromId] = {
+                name: fromName || "racer",
+                color: msg.c,
+                z: msg.z,
+                cores: msg.n || 0,
+                // Interpolate between the 15Hz updates rather than
+                // teleporting the ghost every frame.
+                x: prev ? prev.x : msg.x,
+                y: prev ? prev.y : msg.y,
+                tx: msg.x, ty: msg.y,
+                lastSeen: Date.now()
+            };
+            return;
+        }
+
+        if (msg.k === "finish") {
+            recordFinish(fromName || "racer", msg.ms, false);
+            return;
+        }
+    }
+});
+
+function rebuildWorldFromSeed() {
+    entities = [];
+    generateWorld();
+    spawnCollectibles();
+    player.x = (BLVD_SIZE / 2) * CELL_SIZE;
+    player.y = (BLVD_SIZE / 2) * CELL_SIZE;
+    player.z = 0;
+    player.isFalling = false;
+    player.scale = 1.0;
+    spawnGroundRobots();
+    updateFloorUI(0);
+    raceStartTime = performance.now();
+}
+
+function broadcastPosition() {
+    if (!netOnline || !gameRunning) return;
+    if (!MP.canSend("pos", NET_SEND_MS)) return;
+    MP.send({
+        k: "pos",
+        x: Math.round(player.x), y: Math.round(player.y), z: player.z,
+        c: MP.selfColor, n: collectedCount
+    });
+}
+
+function updateGhosts() {
+    const now = Date.now();
+    for (const id in ghosts) {
+        if (!Object.prototype.hasOwnProperty.call(ghosts, id)) continue;
+        if (now - ghosts[id].lastSeen > REMOTE_TIMEOUT_MS) { delete ghosts[id]; continue; }
+        const g = ghosts[id];
+        g.x += (g.tx - g.x) * 0.35;
+        g.y += (g.ty - g.y) * 0.35;
+    }
+}
+
+function drawGhosts(z, isCurrent) {
+    for (const id in ghosts) {
+        if (!Object.prototype.hasOwnProperty.call(ghosts, id)) continue;
+        const g = ghosts[id];
+        if (g.z !== z) continue;
+
+        ctx.save();
+        // Rivals render translucent so they read as "someone else over
+        // there" rather than competing with your own player for
+        // attention on a busy screen.
+        ctx.globalAlpha = isCurrent ? 0.55 : 0.15;
+        ctx.translate(g.x, g.y);
+
+        ctx.fillStyle = g.color || '#00ffff';
+        ctx.shadowColor = g.color || '#00ffff';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(0, 0, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (isCurrent) {
+            ctx.globalAlpha = 0.9;
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '11px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(g.name + '  ' + g.cores, 0, -20);
+        }
+        ctx.restore();
+    }
+    ctx.globalAlpha = 1.0;
+}
+
+function recordFinish(name, ms, isSelf) {
+    if (finishOrder.some(function (f) { return f.name === name; })) return;
+    finishOrder.push({ name: name, ms: ms, self: isSelf });
+    finishOrder.sort(function (a, b) { return a.ms - b.ms; });
+
+    const place = finishOrder.findIndex(function (f) { return f.name === name; }) + 1;
+    const secs = (ms / 1000).toFixed(1);
+
+    if (isSelf) {
+        raceFinished = true;
+        showMessage(
+            place === 1 ? "YOU WON" : "FINISHED — #" + place,
+            "Escaped in " + secs + "s\n" + standingsText(),
+            true
+        );
+    } else if (!raceFinished) {
+        // Someone else got out first -- say so, but let this player keep
+        // running for their own placing rather than ending their race.
+        showMessage(name + " ESCAPED", "#" + place + " in " + secs + "s — keep going!");
+        setTimeout(hideMessage, 3000);
+    }
+}
+
+function standingsText() {
+    return finishOrder.map(function (f, i) {
+        return (i + 1) + ". " + f.name + "  " + (f.ms / 1000).toFixed(1) + "s";
+    }).join("\n");
+}
+
+function finishRace() {
+    const ms = Math.round(performance.now() - raceStartTime);
+    if (netOnline) MP.send({ k: "finish", ms: ms });
+    recordFinish(MP.selfName || "you", ms, true);
+}
+
+/**
+ * UI Message Logic
+ */
+function showMessage(title, desc, isGameOver = false) {
+    const msg = document.getElementById('message-box');
+    document.getElementById('msg-title').innerText = title;
+    document.getElementById('msg-desc').innerText = desc;
+    
+    // Style adjustments for Game Over vs Notifications
+    msg.style.borderColor = isGameOver ? '#ff3333' : '#00ffff';
+    msg.style.boxShadow = isGameOver ? '0 0 20px #ff3333' : '0 0 20px rgba(0,255,255,0.5)';
+    
+    document.getElementById('restart-btn').style.display = isGameOver ? 'inline-block' : 'none';
+    msg.style.display = 'block';
+    
+    if (isGameOver) {
+        gameRunning = false;
+    }
+}
+
+function hideMessage() {
+    if (gameRunning) {
+        document.getElementById('message-box').style.display = 'none';
+    }
+}
+
+/**
+ * Player Entity
+ */
+class Player {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.z = 0; 
+        
+        this.vx = 0;
+        this.vy = 0;
+        
+        this.baseSpeed = 6.0; 
+        this.speed = this.baseSpeed;
+        this.radius = 12;
+        
+        this.maxHealth = 20;
+        this.health = 20;
+        this.regenTimer = 0;
+        this.dir = 0; 
+        
+        this.isFalling = false;
+        this.fallStartZ = 0;
+        this.scale = 1.0; 
+        
+        this.legPhase = 0;
+        this.stairCooldown = 0;
+        
+        this.dashTimer = 0;
+        this.dashPressed = false;
+        
+        this.headColor = '#ffccaa';
+        this.shoulderColor = '#4488ff';
+        this.legColor = '#2255aa';
+    }
+
+    update(dt) {
+        if (this.health <= 0) return;
+
+        if (this.isFalling) {
+            this.scale -= 0.04; 
+            if (this.scale <= 0) {
+                this.land(0); 
+            }
+            return; 
+        }
+
+        let dx = 0, dy = 0;
+        if (keys['up']) dy -= 1;
+        if (keys['down']) dy += 1;
+        if (keys['left']) dx -= 1;
+        if (keys['right']) dx += 1;
+
+        if (keys['dash'] && !this.dashPressed) {
+            this.dashTimer = 15; 
+            this.dashPressed = true;
+        }
+        if (!keys['dash']) {
+            this.dashPressed = false;
+        }
+
+        if (this.dashTimer > 0) {
+            this.speed = this.baseSpeed * 2.2; 
+            this.dashTimer--;
+        } else {
+            this.speed = this.baseSpeed;
+        }
+
+        const mag = Math.sqrt(dx*dx + dy*dy);
+        if (mag > 0) {
+            dx /= mag; dy /= mag;
+            this.dir = Math.atan2(dy, dx);
+            this.legPhase += (this.dashTimer > 0 ? 0.6 : 0.3); 
+            this.regenTimer = 0; 
+        } else {
+            this.legPhase = 0;
+            this.regenTimer++;
+            if (this.regenTimer > 60) { 
+                if (this.health < this.maxHealth) {
+                    this.health++;
+                    updateHealthUI();
+                }
+                this.regenTimer = 0;
+            }
+        }
+
+        this.vx = dx * this.speed;
+        this.vy = dy * this.speed;
+
+        let nextX = this.x + this.vx;
+        let nextY = this.y + this.vy;
+        
+        if (!this.checkWallCollision(nextX, this.y, this.z)) this.x = nextX;
+        if (!this.checkWallCollision(this.x, nextY, this.z)) this.y = nextY;
+        
+        this.x = Math.max(this.radius, Math.min(this.x, TOTAL_CELLS * CELL_SIZE - this.radius));
+        this.y = Math.max(this.radius, Math.min(this.y, TOTAL_CELLS * CELL_SIZE - this.radius));
+
+        // Edge detection
+        if (this.z > 0) {
+            let cx = Math.floor(this.x / CELL_SIZE);
+            let cy = Math.floor(this.y / CELL_SIZE);
+            let tile = mapData[this.z][cy][cx];
+            if (!tile || tile.type === 'exterior') {
+                this.startFalling();
+            }
+        }
+
+        // Collectibles Interaction
+        for (let c of collectibles) {
+            if (!c.collected && c.z === this.z) {
+                let dist = Math.hypot(this.x - c.x, this.y - c.y);
+                if (dist < this.radius + 15) {
+                    c.collected = true;
+                    collectedCount++;
+                    playCollectSound();
+                    updateCollectUI();
+                    if (collectedCount >= totalCollectibles) {
+                        openEscapeTunnel();
+                    }
+                }
+            }
+        }
+
+        // Escape Tunnel Interaction
+        if (escapeTunnelOpen && this.z === 0) {
+            let tx = escapeTunnelPos.x * CELL_SIZE + CELL_SIZE/2;
+            let ty = escapeTunnelPos.y * CELL_SIZE + CELL_SIZE/2;
+            if (Math.hypot(this.x - tx, this.y - ty) < this.radius + 15) {
+                // Online this is the FINISH LINE, not a stage gate --
+                // the race ends when you get out, and your placing is
+                // whatever order everyone escaped in. Solo keeps the
+                // original endless stage progression.
+                if (netOnline && !raceFinished) finishRace();
+                else if (!netOnline) triggerNextStage();
+            }
+        }
+
+        // Stair Interaction
+        if (this.stairCooldown > 0) this.stairCooldown--;
+        if (this.stairCooldown <= 0) {
+            let cx = Math.floor(this.x / CELL_SIZE);
+            let cy = Math.floor(this.y / CELL_SIZE);
+            let tile = mapData[this.z][cy] && mapData[this.z][cy][cx];
+            
+            if (tile) {
+                if (tile.type === 'stair_up' && this.z < MAX_Z - 1) {
+                    this.z++;
+                    playUpSound();
+                    updateFloorUI(this.z);
+                    this.stairCooldown = 30;
+                } else if (tile.type === 'stair_down' && this.z > 0) {
+                    this.z--;
+                    playDownSound();
+                    updateFloorUI(this.z);
+                    this.stairCooldown = 30;
+                }
+            }
+        }
+    }
+
+    startFalling() {
+        this.isFalling = true;
+        this.fallStartZ = this.z;
+        this.scale = 1.0;
+        playFallSound();
+    }
+
+    land(landingZ) {
+        this.scale = 1.0;
+        this.z = landingZ;
+        updateFloorUI(this.z);
+        
+        let fallDist = this.fallStartZ - landingZ;
+        if (fallDist > 0) {
+            let dmg = Math.floor(fallDist) * 3; 
+            if (dmg > 0) {
+                this.health -= dmg;
+                updateHealthUI();
+                if (this.health <= 0) showMessage("You Died", "You fell to your death!", true);
+            }
+        }
+        
+        this.isFalling = false;
+        this.fallStartZ = this.z;
+    }
+
+    checkWallCollision(px, py, checkZ) {
+        if (checkZ > 0) return false; 
+        let cx = Math.floor(px / CELL_SIZE);
+        let cy = Math.floor(py / CELL_SIZE);
+        if (cx < 0 || cy < 0 || cx >= TOTAL_CELLS || cy >= TOTAL_CELLS) return true;
+        let tile = mapData[checkZ][cy][cx];
+        if (tile && tile.type === 'wall') return true;
+        return false;
+    }
+
+    draw(ctx) {
+        let drawX = this.x;
+        let drawY = this.y;
+
+        ctx.save();
+        ctx.translate(drawX, drawY);
+        ctx.scale(this.scale, this.scale);
+        ctx.rotate(this.dir);
+
+        // Shadow
+        ctx.save();
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.translate(this.x, this.y);
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius * this.scale, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+
+        // Legs
+        let legOffset = Math.sin(this.legPhase) * 6;
+        ctx.fillStyle = this.legColor;
+        ctx.fillRect(-15, -8 + legOffset, 10, 6);
+        ctx.fillRect(-15, 2 - legOffset, 10, 6);
+
+        // Dash effect
+        if (this.dashTimer > 0 && !this.isFalling) {
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.7)';
+            ctx.beginPath();
+            ctx.moveTo(-10, -5);
+            ctx.lineTo(-25 - Math.random()*10, 0);
+            ctx.lineTo(-10, 5);
+            ctx.fill();
+        }
+
+        // Shoulders
+        ctx.fillStyle = this.shoulderColor;
+        ctx.beginPath();
+        ctx.roundRect(-8, -12, 16, 24, 4);
+        ctx.fill();
+
+        // Head
+        ctx.fillStyle = this.headColor;
+        ctx.beginPath();
+        ctx.arc(2, 0, 8, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+}
+
+/**
+ * Robot Surveyor Entity
+ */
+class Robot {
+    constructor(x, y, z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        this.dir = Math.random() * Math.PI * 2;
+        this.radius = 12;
+        
+        this.visionAngle = Math.PI / 4; 
+        
+        // Base values (overridden by applyStageDifficulty)
+        this.visionRange = 250;
+        this.patrolSpeed = 0.5;
+        this.chaseSpeed = 3.5;
+        
+        this.speed = this.patrolSpeed;
+        this.state = 'patrol';
+        this.target = null;
+        this.stairCooldown = 0;
+        this.patrolTimer = 0;
+    }
+
+    update(dt, player) {
+        if (this.stairCooldown > 0) this.stairCooldown--;
+
+        let seesPlayer = false;
+        if (this.z === player.z && !player.isFalling) {
+            let dx = player.x - this.x;
+            let dy = player.y - this.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            
+            if (dist < this.visionRange) {
+                let angleToPlayer = Math.atan2(dy, dx);
+                let angleDiff = Math.abs(angleToPlayer - this.dir);
+                while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                angleDiff = Math.abs(angleDiff);
+
+                if (angleDiff < this.visionAngle) {
+                    if (this.checkLOS(player)) {
+                        seesPlayer = true;
+                        this.state = 'chase';
+                        this.target = { x: player.x, y: player.y };
+                    }
+                }
+            }
+        }
+
+        if (seesPlayer) {
+            let distToPlayer = Math.hypot(player.x - this.x, player.y - this.y);
+            if (distToPlayer < this.radius + player.radius) {
+                player.health -= 5;
+                updateHealthUI();
+                if (player.health <= 0) showMessage("You Died", "Caught by a Surveyor!", true);
+                this.x -= Math.cos(this.dir) * 20;
+                this.y -= Math.sin(this.dir) * 20;
+            }
+        }
+
+        this.speed = (this.state === 'patrol') ? this.patrolSpeed : this.chaseSpeed;
+
+        if (this.state === 'patrol') {
+            this.patrolTimer--;
+            if (this.patrolTimer <= 0) {
+                this.dir += (Math.random() - 0.5) * Math.PI; 
+                this.patrolTimer = 60 + Math.random() * 120;
+            }
+        } else if (this.state === 'chase') {
+            if (this.target) {
+                let dx = this.target.x - this.x;
+                let dy = this.target.y - this.y;
+                this.dir = Math.atan2(dy, dx);
+                if (!seesPlayer) {
+                    if (Math.hypot(dx, dy) < 10) {
+                        this.state = 'patrol';
+                        this.target = null;
+                    }
+                }
+            }
+        }
+
+        // Movement
+        let vx = Math.cos(this.dir) * this.speed;
+        let vy = Math.sin(this.dir) * this.speed;
+        let nextX = this.x + vx;
+        let nextY = this.y + vy;
+
+        let hitWall = false;
+        if (!this.checkWallCollision(nextX, this.y, this.z)) this.x = nextX;
+        else hitWall = true;
+        
+        if (!this.checkWallCollision(this.x, nextY, this.z)) this.y = nextY;
+        else hitWall = true;
+
+        if (hitWall && this.state === 'patrol') {
+            this.dir = Math.random() * Math.PI * 2;
+        }
+
+        // Stair Interaction
+        if (this.stairCooldown <= 0) {
+            let cx = Math.floor(this.x / CELL_SIZE);
+            let cy = Math.floor(this.y / CELL_SIZE);
+            let tile = mapData[this.z][cy] && mapData[this.z][cy][cx];
+            if (tile) {
+                if (tile.type === 'stair_up' && this.z < MAX_Z - 1) {
+                    this.z++; this.stairCooldown = 60;
+                } else if (tile.type === 'stair_down' && this.z > 0) {
+                    this.z--; this.stairCooldown = 60;
+                }
+            }
+        }
+    }
+
+    checkLOS(target) {
+        let steps = 10;
+        let dx = (target.x - this.x) / steps;
+        let dy = (target.y - this.y) / steps;
+        let cx = this.x;
+        let cy = this.y;
+
+        for (let i = 0; i < steps; i++) {
+            cx += dx; cy += dy;
+            let tx = Math.floor(cx / CELL_SIZE);
+            let ty = Math.floor(cy / CELL_SIZE);
+            if (mapData[this.z][ty] && mapData[this.z][ty][tx]) {
+                if (mapData[this.z][ty][tx].type === 'wall') return false; 
+            }
+        }
+        return true;
+    }
+
+    checkWallCollision(px, py, checkZ) {
+        let cx = Math.floor(px / CELL_SIZE);
+        let cy = Math.floor(py / CELL_SIZE);
+        if (cx < 0 || cy < 0 || cx >= TOTAL_CELLS || cy >= TOTAL_CELLS) return true;
+        let tile = mapData[checkZ][cy] && mapData[checkZ][cy][cx];
+        
+        if (tile && tile.type === 'wall') return true;
+        if (checkZ > 0 && (!tile || tile.type === 'exterior')) return true; 
+        return false;
+    }
+
+    draw(ctx) {
+        let drawX = this.x;
+        let drawY = this.y;
+
+        ctx.save();
+        ctx.translate(drawX, drawY);
+
+        // Vision Cone
+        ctx.save();
+        ctx.rotate(this.dir);
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.12)';
+        ctx.beginPath();
+        ctx.moveTo(0,0);
+        ctx.arc(0, 0, this.visionRange, -this.visionAngle, this.visionAngle);
+        ctx.lineTo(0,0);
+        ctx.fill();
+        ctx.restore();
+
+        // Shadow
+        ctx.save();
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.translate(this.x, this.y);
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+
+        // Body
+        ctx.rotate(this.dir);
+        ctx.fillStyle = '#666'; 
+        ctx.strokeStyle = '#ff0000'; 
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath();
+        ctx.roundRect(-10, -10, 20, 20, 5);
+        ctx.fill();
+        ctx.stroke();
+
+        // Eyes
+        ctx.fillStyle = '#ff0000';
+        ctx.beginPath();
+        ctx.arc(6, -4, 3, 0, Math.PI*2);
+        ctx.arc(6, 4, 3, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+}
+
+
+/**
+ * World Generation & Stage Management
+ */
+function generateWorld() {
+    // Rewind the shared random stream to this stage's starting point, so
+    // the whole build below (buildings, doors, stairs, then the
+    // collectibles and robots that continue the same stream) lands
+    // identically on every client.
+    seedForStage();
+
+    for (let z = 0; z < MAX_Z; z++) {
+        mapData[z] = [];
+        for (let y = 0; y < TOTAL_CELLS; y++) {
+            mapData[z][y] = [];
+            for (let x = 0; x < TOTAL_CELLS; x++) {
+                mapData[z][y][x] = null;
+            }
+        }
+    }
+
+    // Base exterior level
+    for (let y = 0; y < TOTAL_CELLS; y++) {
+        for (let x = 0; x < TOTAL_CELLS; x++) {
+            mapData[0][y][x] = { type: 'exterior' };
+        }
+    }
+
+    for (let by = 0; by < MAP_BLOCKS; by++) {
+        for (let bx = 0; bx < MAP_BLOCKS; bx++) {
+            let startX = bx * (BLOCK_SIZE + BLVD_SIZE) + BLVD_SIZE;
+            let startY = by * (BLOCK_SIZE + BLVD_SIZE) + BLVD_SIZE;
+            generateBuildingsInBlock(startX, startY, BLOCK_SIZE);
+        }
+    }
+}
+
+function generateBuildingsInBlock(bx, by, size) {
+    let buildings = [];
+    // MP.random() throughout world generation: every racer must run the
+    // SAME city. Cosmetic randomness (robot patrol jitter, collectible
+    // hover phase, the sparks in drawTile) deliberately stays on
+    // Math.random -- it never has to agree between clients, and routing
+    // it through the shared stream would only make the layout depend on
+    // how many decorations happened to be drawn.
+    let numBuildings = Math.floor(MP.random() * 4) + 4;
+
+    for (let i = 0; i < numBuildings; i++) {
+        let attempts = 0;
+        let placed = false;
+        while (!placed && attempts < 50) {
+            attempts++;
+            let w = Math.floor(MP.random() * 15) + 6;
+            let h = Math.floor(MP.random() * 15) + 6;
+            let x = bx + Math.floor(MP.random() * (size - w));
+            let y = by + Math.floor(MP.random() * (size - h));
+
+            let overlap = false;
+            for (let b of buildings) {
+                if (x < b.x + b.w + 3 && x + w + 3 > b.x &&
+                    y < b.y + b.h + 3 && y + h + 3 > b.y) {
+                    overlap = true;
+                    break;
+                }
+            }
+
+            if (!overlap) {
+                let height = Math.floor(MP.random() * 4) + 2;
+                buildings.push({x, y, w, h, height});
+                buildGlassCube(x, y, w, h, height);
+                placed = true;
+            }
+        }
+    }
+}
+
+function buildGlassCube(x, y, w, h, height) {
+    let doorWall = Math.floor(MP.random() * 4);
+    let midW = Math.floor(w/2);
+    let midH = Math.floor(h/2);
+    let doors = [];
+    if (doorWall === 0) doors.push({dx: midW, dy: 0}, {dx: midW+1, dy: 0});
+    else if (doorWall === 1) doors.push({dx: w-1, dy: midH}, {dx: w-1, dy: midH+1});
+    else if (doorWall === 2) doors.push({dx: midW, dy: h-1}, {dx: midW+1, dy: h-1});
+    else if (doorWall === 3) doors.push({dx: 0, dy: midH}, {dx: 0, dy: midH+1});
+
+    let prevUpStair = null;
+
+    for (let z = 0; z < height; z++) {
+        for (let dy = 0; dy < h; dy++) {
+            for (let dx = 0; dx < w; dx++) {
+                let isWall = (dx === 0 || dy === 0 || dx === w - 1 || dy === h - 1);
+                
+                let isDoor = false;
+                if (z === 0) {
+                    for (let d of doors) {
+                        if (d.dx === dx && d.dy === dy) isDoor = true;
+                    }
+                }
+
+                if (isWall && !isDoor) {
+                    mapData[z][y + dy][x + dx] = { type: 'wall' };
+                } else {
+                    mapData[z][y + dy][x + dx] = { type: 'floor' }; 
+                }
+            }
+        }
+        
+        if (z > 0 && prevUpStair) {
+            mapData[z][prevUpStair.y][prevUpStair.x] = { type: 'stair_down' };
+        }
+        
+        if (z < height - 1) {
+            let upX, upY;
+            let attempts = 0;
+            do {
+                upX = x + 2 + Math.floor(MP.random() * (w - 4));
+                upY = y + 2 + Math.floor(MP.random() * (h - 4));
+                attempts++;
+            } while (z > 0 && prevUpStair && upX === prevUpStair.x && upY === prevUpStair.y && attempts < 20);
+            
+            mapData[z][upY][upX] = { type: 'stair_up' };
+            prevUpStair = { x: upX, y: upY };
+        }
+    }
+    
+    // Spawn robots on roofs, increasing with stage.
+    // Seeded so every racer STARTS against the same robot placement.
+    // Their patrol behaviour afterwards is client-local -- see the note
+    // on the Robot class.
+    if (MP.random() > (0.6 - currentStage*0.05) && height > 1) {
+        let rz = Math.floor(MP.random() * (height - 1)) + 1;
+        let rx = (x + 2) * CELL_SIZE + CELL_SIZE/2;
+        let ry = (y + 2) * CELL_SIZE + CELL_SIZE/2;
+        let r = new Robot(rx, ry, rz);
+        applyStageDifficulty(r);
+        entities.push(r);
+    }
+}
+
+function applyStageDifficulty(r) {
+    r.patrolSpeed = 0.5 + (currentStage * 0.15);
+    r.chaseSpeed = 3.5 + (currentStage * 0.3);
+    r.visionRange = 250 + (currentStage * 15);
+}
+
+function spawnCollectibles() {
+    collectibles = [];
+    collectedCount = 0;
+    totalCollectibles = 3 + currentStage * 2;
+    escapeTunnelOpen = false;
+
+    for (let i = 0; i < totalCollectibles; i++) {
+        let placed = false;
+        while(!placed) {
+            let z = Math.floor(MP.random() * (MAX_Z - 1));
+            let x = Math.floor(MP.random() * TOTAL_CELLS);
+            let y = Math.floor(MP.random() * TOTAL_CELLS);
+            let tile = mapData[z][y] && mapData[z][y][x];
+            
+            // Only place on floors or exterior ground
+            if (tile && (tile.type === 'floor' || tile.type === 'exterior')) {
+                collectibles.push({
+                    x: x * CELL_SIZE + CELL_SIZE/2,
+                    y: y * CELL_SIZE + CELL_SIZE/2,
+                    z: z,
+                    collected: false,
+                    hoverPhase: Math.random() * Math.PI * 2
+                });
+                placed = true;
+            }
+        }
+    }
+    updateCollectUI();
+}
+
+// Ground-level robot spawn, shared by initGame, triggerNextStage and the
+// seed rebuild so all three stay in step -- this was duplicated in two
+// places before, which is exactly how the three call sites would have
+// drifted apart on the seeded stream.
+function spawnGroundRobots() {
+    let baseBots = 15 + (currentStage * 4);
+    for (let i = 0; i < baseBots; i++) {
+        let rx = (MP.random() * TOTAL_CELLS) * CELL_SIZE;
+        let ry = (MP.random() * TOTAL_CELLS) * CELL_SIZE;
+        if (mapData[0][Math.floor(ry/CELL_SIZE)][Math.floor(rx/CELL_SIZE)]?.type === 'exterior') {
+            let r = new Robot(rx, ry, 0);
+            applyStageDifficulty(r);
+            entities.push(r);
+        }
+    }
+}
+
+function openEscapeTunnel() {
+    escapeTunnelOpen = true;
+    playEscapeSound();
+    
+    let cx = Math.floor(TOTAL_CELLS / 2);
+    let cy = Math.floor(TOTAL_CELLS / 2);
+    
+    // Force center to be accessible exterior
+    if (mapData[0][cy][cx]) {
+        mapData[0][cy][cx] = { type: 'escape_tunnel' };
+    }
+    escapeTunnelPos = { x: cx, y: cy };
+    
+    showMessage("TUNNEL OPEN", "Return to the center of the map!");
+    setTimeout(hideMessage, 4000);
+}
+
+function triggerNextStage() {
+    currentStage++;
+    document.getElementById('stage-counter').innerText = 'STAGE: ' + currentStage;
+    
+    showMessage("STAGE CLEARED", `Entering Stage ${currentStage}...`);
+    
+    // Slight pause to read message before resetting
+    setTimeout(() => {
+        hideMessage();
+        
+        entities = [];
+        generateWorld();
+        spawnCollectibles();
+        
+        player.x = (BLVD_SIZE / 2) * CELL_SIZE;
+        player.y = (BLVD_SIZE / 2) * CELL_SIZE;
+        player.z = 0;
+        player.isFalling = false;
+        player.scale = 1.0;
+        player.health = player.maxHealth;
+        
+        updateHealthUI();
+        updateFloorUI(0);
+        
+        spawnGroundRobots();
+        raceStartTime = performance.now();
+    }, 2000);
+}
+
+
+/**
+ * Initialization
+ */
+let player = new Player(0,0); // Dummy init
+
+function initGame() {
+    initAudio(); 
+    document.getElementById('start-menu').style.display = 'none';
+    
+    // Auto-detect touch screen presence
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+        document.getElementById('mobile-controls').style.display = 'block';
+        setupTouchControls();
+    }
+    setupKeyboardControls(); // Always setup keyboard
+    
+    resize();
+    window.addEventListener('resize', resize);
+
+    generateWorld();
+    spawnCollectibles();
+
+    let px = (BLVD_SIZE / 2) * CELL_SIZE;
+    let py = (BLVD_SIZE / 2) * CELL_SIZE;
+    
+    player.x = px; player.y = py; player.z = 0;
+    
+    spawnGroundRobots();
+    raceStartTime = performance.now();
+
+    updateHealthUI();
+    updateFloorUI(0);
+    document.getElementById('stage-counter').innerText = 'STAGE: ' + currentStage;
+    
+    gameRunning = true;
+    lastTime = performance.now();
+    requestAnimationFrame(gameLoop);
+}
+
+function updateFloorUI(z) { document.getElementById('level-counter').innerText = 'FLOOR: ' + z; }
+function updateCollectUI() { document.getElementById('collect-counter').innerText = `CORES: ${collectedCount} / ${totalCollectibles}`; }
+
+function updateHealthUI() {
+    const hb = document.getElementById('health-bar');
+    hb.innerHTML = '';
+    for (let i = 0; i < player.maxHealth; i++) {
+        const heart = document.createElement('span');
+        heart.innerHTML = '❤️'; 
+        heart.className = 'heart ' + (i < player.health ? '' : 'empty');
+        hb.appendChild(heart);
+    }
+}
+
+/**
+ * Input Handling
+ */
+function setupKeyboardControls() {
+    const keyMap = {
+        'ArrowUp': 'up', 'w': 'up', 'ArrowDown': 'down', 's': 'down',
+        'ArrowLeft': 'left', 'a': 'left', 'ArrowRight': 'right', 'd': 'right',
+        ' ': 'dash', 'b': 'dash', 'Shift': 'dash'
+    };
+    window.addEventListener('keydown', e => {
+        if(keyMap[e.key] || keyMap[e.key.toLowerCase()]) keys[keyMap[e.key] || keyMap[e.key.toLowerCase()]] = true;
+    });
+    window.addEventListener('keyup', e => {
+        if(keyMap[e.key] || keyMap[e.key.toLowerCase()]) keys[keyMap[e.key] || keyMap[e.key.toLowerCase()]] = false;
+    });
+}
+
+function setupTouchControls() {
+    const binds = {
+        'btn-up': 'up', 'btn-down': 'down', 'btn-left': 'left', 'btn-right': 'right', 'btn-b': 'dash'
+    };
+    for (let id in binds) {
+        let el = document.getElementById(id);
+        if(!el) continue;
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); keys[binds[id]] = true; }, {passive:false});
+        el.addEventListener('touchend', (e) => { e.preventDefault(); keys[binds[id]] = false; }, {passive:false});
+        el.addEventListener('touchcancel', (e) => { e.preventDefault(); keys[binds[id]] = false; }, {passive:false});
+    }
+    document.getElementById('btn-center').addEventListener('touchstart', e => {
+        e.preventDefault();
+        ['up','down','left','right'].forEach(k => keys[k] = false);
+    }, {passive:false});
+}
+
+/**
+ * Rendering (Pure Top-Down)
+ */
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+
+function drawTile(x, y, tile, isCurrentLevel) {
+    let screenX = x * CELL_SIZE;
+    let screenY = y * CELL_SIZE; 
+
+    if (screenX + CELL_SIZE < camera.x || screenX > camera.x + canvas.width ||
+        screenY + CELL_SIZE < camera.y || screenY > camera.y + canvas.height) {
+        return;
+    }
+
+    ctx.save();
+    ctx.translate(screenX, screenY);
+    ctx.globalAlpha = isCurrentLevel ? 1.0 : 0.25; 
+
+    if (tile.type === 'exterior') {
+        ctx.fillStyle = '#555555';
+        ctx.fillRect(0, 0, CELL_SIZE, CELL_SIZE);
+        if (isCurrentLevel) {
+            ctx.strokeStyle = '#444444';
+            ctx.strokeRect(0, 0, CELL_SIZE, CELL_SIZE);
+        }
+    } 
+    else if (tile.type === 'floor') {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, CELL_SIZE, CELL_SIZE);
+        ctx.strokeStyle = isCurrentLevel ? '#e0e0e0' : 'rgba(220, 220, 220, 0.2)';
+        ctx.strokeRect(0, 0, CELL_SIZE, CELL_SIZE);
+    } 
+    else if (tile.type === 'wall') {
+        ctx.fillStyle = isCurrentLevel ? 'rgba(180, 230, 255, 0.9)' : 'rgba(180, 230, 255, 0.2)';
+        ctx.fillRect(0, 0, CELL_SIZE, CELL_SIZE);
+        ctx.strokeStyle = isCurrentLevel ? '#ffffff' : 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = isCurrentLevel ? 2 : 1;
+        ctx.strokeRect(0, 0, CELL_SIZE, CELL_SIZE);
+    }
+    else if (tile.type === 'stair_up' || tile.type === 'stair_down') {
+        ctx.fillStyle = '#f0f0f0';
+        ctx.fillRect(0, 0, CELL_SIZE, CELL_SIZE);
+        ctx.fillStyle = '#cccccc';
+        for (let i = 0; i < 4; i++) {
+            ctx.fillRect(0, i * 10, CELL_SIZE, 5);
+        }
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(tile.type === 'stair_up' ? "▲" : "▼", CELL_SIZE/2, CELL_SIZE/2 + 2);
+    }
+    else if (tile.type === 'escape_tunnel') {
+        ctx.fillStyle = '#113311';
+        ctx.fillRect(0, 0, CELL_SIZE, CELL_SIZE);
+        
+        let pulse = Math.sin(performance.now() / 200) * 0.5 + 0.5;
+        ctx.fillStyle = `rgba(0, 255, 0, ${pulse * 0.5})`;
+        ctx.fillRect(4, 4, CELL_SIZE-8, CELL_SIZE-8);
+        
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(4, 4, CELL_SIZE-8, CELL_SIZE-8);
+    }
+
+    ctx.restore();
+}
+
+function render() {
+    camera.x = player.x - canvas.width / 2;
+    camera.y = player.y - canvas.height / 2;
+
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.save();
+    ctx.translate(-camera.x, -camera.y);
+
+    let viewZ = player.z; 
+
+    for (let z = 0; z <= viewZ; z++) {
+        let isCurrent = (z === viewZ);
+        
+        for (let y = 0; y < TOTAL_CELLS; y++) {
+            for (let x = 0; x < TOTAL_CELLS; x++) {
+                let tile = mapData[z][y][x];
+                if (tile) drawTile(x, y, tile, isCurrent);
+            }
+        }
+        
+        // Draw Collectibles for this level
+        collectibles.forEach(c => {
+            if (!c.collected && c.z === z) {
+                ctx.globalAlpha = isCurrent ? 1.0 : 0.2;
+                ctx.save();
+                ctx.translate(c.x, c.y);
+                c.hoverPhase += 0.05;
+                ctx.translate(0, Math.sin(c.hoverPhase) * 4);
+                ctx.rotate(c.hoverPhase);
+                ctx.fillStyle = '#ffcc00';
+                ctx.shadowColor = '#ffcc00';
+                ctx.shadowBlur = 10;
+                ctx.fillRect(-8, -8, 16, 16);
+                ctx.restore();
+                ctx.globalAlpha = 1.0;
+            }
+        });
+        
+        entities.forEach(e => {
+            if (e.z === z) {
+                ctx.globalAlpha = isCurrent ? 1.0 : 0.2;
+                e.draw(ctx);
+                ctx.globalAlpha = 1.0;
+            }
+        });
+
+        // Rival racers on this floor, drawn with the world so they sit
+        // behind the local player rather than over the top of them.
+        drawGhosts(z, isCurrent);
+    }
+
+    player.draw(ctx);
+    ctx.restore();
+}
+
+function gameLoop(timestamp) {
+    if (!gameRunning) return;
+    let dt = timestamp - lastTime;
+    lastTime = timestamp;
+
+    player.update(dt);
+    entities.forEach(e => e.update(dt, player));
+
+    updateGhosts();
+    broadcastPosition();
+
+    render();
+    requestAnimationFrame(gameLoop);
+}
+
+window.startGame = initGame;
+</script>
+</body>
+</html>

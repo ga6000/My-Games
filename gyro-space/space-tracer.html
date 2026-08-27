@@ -1,0 +1,2448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+
+<title>Gyro Space Trail</title>
+
+<style>
+html,body{
+    margin:0;
+    padding:0;
+    overflow:hidden;
+    background:#000;
+    touch-action:none;
+    font-family: Arial, sans-serif;
+}
+
+canvas{
+    display:block;
+    width:100vw;
+    height:100vh;
+}
+
+#overlay{
+    position:absolute;
+    top:12px;
+    left:12px;
+    color:white;
+    font-family:monospace;
+    font-size:14px;
+    line-height:1.4;
+    background:rgba(0,0,0,.45);
+    padding:10px;
+    border-radius:8px;
+    user-select:none;
+    pointer-events:auto;
+    display:none;
+}
+
+#overlay.hidden{
+    display:none;
+}
+
+#guiToggle{
+    position:absolute;
+    top:12px;
+    left:12px;
+    width:24px;
+    height:24px;
+    border-radius:50%;
+    background:rgba(100,200,255,0.7);
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:12px;
+    font-weight:bold;
+    color:white;
+    z-index:999;
+    border:2px solid rgba(100,200,255,1);
+    transition:all 0.2s ease;
+}
+
+#guiToggle:hover{
+    background:rgba(100,200,255,0.9);
+    transform:scale(1.1);
+}
+
+#mobileDashButton{
+    position:absolute;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%);
+    width:80px;
+    height:80px;
+    border-radius:50%;
+    background:rgba(255,255,255,0.8);
+    border:3px solid rgba(255,255,255,1);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    font-weight:bold;
+    font-size:14px;
+    color:#000;
+    cursor:pointer;
+    user-select:none;
+    z-index:100;
+    transition:all 0.1s ease;
+    touch-action:none;
+}
+
+#mobileDashButton:active{
+    background:rgba(100,200,255,0.9);
+    border-color:rgba(100,200,255,1);
+    transform:translateX(-50%) scale(0.9);
+    box-shadow:0 0 20px rgba(100,200,255,0.6);
+}
+
+#menuOverlay{
+    position:absolute;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.85);
+    backdrop-filter:blur(4px);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:1000;
+    flex-direction:column;
+}
+
+#menuOverlay.hidden{
+    display:none;
+}
+
+.menu-container{
+    text-align:center;
+    color:white;
+}
+
+.menu-container h1{
+    font-size:48px;
+    margin:0 0 30px 0;
+    text-shadow:0 0 20px rgba(255,100,150,0.8);
+}
+
+.menu-container p{
+    font-size:18px;
+    margin:0 0 40px 0;
+    color:#aaa;
+}
+
+.button-group{
+    display:flex;
+    gap:20px;
+    justify-content:center;
+    flex-wrap:wrap;
+}
+
+.menu-btn{
+    padding:15px 40px;
+    font-size:18px;
+    border:2px solid #fff;
+    background:rgba(255,255,255,0.1);
+    color:white;
+    cursor:pointer;
+    border-radius:8px;
+    transition:all 0.3s ease;
+    text-transform:uppercase;
+    font-weight:bold;
+    letter-spacing:2px;
+}
+
+.menu-btn:hover{
+    background:rgba(255,100,150,0.3);
+    border-color:#ff6496;
+    box-shadow:0 0 15px rgba(255,100,150,0.5);
+}
+
+.menu-btn:active{
+    transform:scale(0.98);
+}
+
+button{
+    margin-top:8px;
+    padding:8px 12px;
+    font-size:14px;
+}
+
+/* ===== START SCREEN ===== */
+</style>
+<!-- Firebase: Firestore for persisted scores, anonymous Auth so a
+     device/player gets a stable identity without a sign-up flow. Loaded
+     as ES modules from the CDN -- no build step, matches how the rest
+     of this project is a single static HTML file. -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+    // Config lives in one shared file so space-tracer.html, leaderboard.html,
+    // and any future game never have three copies of the same object to
+    // keep in sync by hand. Fill in the real values in firebase-config.js
+    // once -- every file that imports it picks them up automatically.
+    // firebase-config.js lives at the repo root (shared with leaderboard.html);
+    // this file lives one level down in gyro-space/, hence "../".
+    import { firebaseConfig } from "../firebase-config.js";
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    // Anonymous auth just gives Firestore security rules something to
+    // check ("request.auth != null") without making friends create
+    // accounts. Sign-in happens immediately on page load so it's ready
+    // well before any score needs writing.
+    signInAnonymously(auth).catch(err => {
+        console.error("Firebase anonymous auth failed:", err);
+    });
+
+    // Exposed on window so the plain-script game code (everything else
+    // in this file is a non-module <script> below) can call it without
+    // this file needing a full module conversion. submitScoreToFirebase
+    // is called from reportLifeEnded() in the main game script.
+    window.submitScoreToFirebase = async function(playerName, score, roomCode) {
+        try {
+            await addDoc(collection(db, "scores"), {
+                game: "space-tracer",
+                player: playerName || "Anonymous",
+                score: score,
+                room: roomCode || "public",
+                // "public" room + a real room code both count toward the
+                // solo/global leaderboard -- the leaderboard page can
+                // filter by room when someone wants "just our group's"
+                // scores, but every score is visible globally by default.
+                timestamp: serverTimestamp()
+            });
+        } catch (err) {
+            // Never let a failed score write break gameplay -- this is
+            // called mid-game from reportLifeEnded(), which the player
+            // should never notice fail even if Firebase is unreachable.
+            console.error("Score submission failed:", err);
+        }
+    };
+</script>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="guiToggle">⚙</div>
+
+<div id="mobileDashButton">
+    <span>DASH</span>
+</div>
+
+<!-- START SCREEN SYSTEM -->
+<div id="startScreenContainer" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2000; background: #000;">
+    
+    <!-- Screen 1: Simple Click to Start -->
+    <div id="screen1-title" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; background: #000;">
+        <div style="text-align: center; user-select: none;">
+            <h1 style="font-size: 64px; color: white; margin: 0; text-shadow: 0 0 20px rgba(100, 200, 255, 0.8); letter-spacing: 4px;">GYRO SPACE</h1>
+            <div style="font-size: 32px; color: white; margin-top: 80px; animation: pulse 1s ease-in-out infinite;">CLICK TO START</div>
+        </div>
+    </div>
+    
+    <!-- Screen 2: Control Mode Selection -->
+    <div id="screen2-mode" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px);">
+        <div style="text-align: center; color: white; user-select: none;">
+            <h2 style="font-size: 48px; margin-bottom: 40px;">SELECT CONTROL MODE</h2>
+            <div style="display: flex; gap: 20px; justify-content: center;">
+                <button id="screen2-mobile" style="padding: 15px 40px; font-size: 20px; border: 2px solid white; background: rgba(255, 255, 255, 0.1); color: white; cursor: pointer; border-radius: 8px; text-transform: uppercase; font-weight: bold;">MOBILE</button>
+                <button id="screen2-computer" style="padding: 15px 40px; font-size: 20px; border: 2px solid white; background: rgba(255, 255, 255, 0.1); color: white; cursor: pointer; border-radius: 8px; text-transform: uppercase; font-weight: bold;">COMPUTER</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Screen 3: Player Name + Room Code Input -->
+    <div id="screen3-name" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px);">
+        <div style="background: rgba(0, 0, 0, 0.8); padding: 40px; border-radius: 12px; border: 2px solid #64c8ff; min-width: 400px; text-align: center; user-select: none;">
+            <label style="display: block; font-size: 18px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; color: white;">ENTER YOUR NAME (Optional)</label>
+            <input id="playerNameInput" type="text" placeholder="Enter name..." maxlength="20" style="width: 100%; padding: 12px; font-size: 16px; border: 1px solid #64c8ff; background: rgba(100, 200, 255, 0.1); color: white; border-radius: 6px; margin-bottom: 20px; box-sizing: border-box;">
+            <label style="display: block; font-size: 18px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; color: white;">ROOM CODE</label>
+            <input id="roomCodeInput" type="text" placeholder="e.g. ABCD (blank = public)" maxlength="8" style="width: 100%; padding: 12px; font-size: 16px; border: 1px solid #64c8ff; background: rgba(100, 200, 255, 0.1); color: white; border-radius: 6px; margin-bottom: 8px; box-sizing: border-box; text-transform: uppercase; letter-spacing: 2px; text-align: center;">
+            <p style="font-size: 12px; color: #888; margin: 0 0 20px 0;">Share this code with friends so you land in the same game. Leave blank to join the public room.</p>
+            <button id="screen3-submit" style="width: 100%; padding: 12px; font-size: 16px; background: rgba(100, 200, 255, 0.3); border: 2px solid #64c8ff; color: white; cursor: pointer; border-radius: 6px; text-transform: uppercase; font-weight: bold;">ENTER</button>
+        </div>
+    </div>
+    
+    <!-- Screen 4: Enter Game -->
+    <div id="screen4-enter" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px);">
+        <button id="screen4-enter-btn" style="padding: 25px 60px; font-size: 32px; background: rgba(100, 200, 255, 0.3); border: 3px solid #64c8ff; color: white; cursor: pointer; border-radius: 12px; text-transform: uppercase; font-weight: bold; letter-spacing: 2px;">PRESS TO ENTER GAME</button>
+    </div>
+    
+</div>
+
+<style>
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+</style>
+
+<div id="menuOverlay">
+    <div class="menu-container">
+        <h1>GYRO SPACE</h1>
+        <p>Select your control scheme</p>
+        <div class="button-group">
+            <button class="menu-btn" id="mobileBtn">MOBILE<br>CLASS</button>
+            <div style="font-size:12px; color:#888;">OR</div>
+            <button class="menu-btn" id="computerBtn">COMPUTER<br>CLASS</button>
+        </div>
+    </div>
+</div>
+
+<!-- Current life's running score. Top-right, always visible once the
+     game starts. Sits above #scoreboard rather than inside it, since
+     this is "my score right now" and the scoreboard below it is "best
+     score per player this session" -- different things, kept visually
+     separate rather than merged into one number. -->
+<div id="scoreDisplay" style="position: absolute; top: 12px; right: 12px; color: white; font-family: monospace; font-size: 20px; font-weight: bold; background: rgba(0,0,0,.45); padding: 8px 14px; border-radius: 8px; display: none;">SCORE: 0</div>
+
+<!-- Multiplier callout: large yellow text, top-center. Appears/resets to
+     full opacity on every multiplier increase, fades to 0 opacity after
+     2s. The multiplier itself keeps applying to score in the background
+     even after this fades -- fading is purely visual, not a reset of
+     the actual multiplier value (that only resets on death). -->
+<div id="multiplierCallout" style="position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: #ffe600; font-family: 'Arial Black', Arial, sans-serif; font-size: 48px; font-weight: 900; text-shadow: 0 0 12px rgba(255,230,0,0.6), 0 2px 4px rgba(0,0,0,0.8); opacity: 0; transition: opacity 0.4s ease; pointer-events: none;"></div>
+
+<!-- Friend-facing scoreboard: best score-this-session per player
+     currently in this room. Deliberately separate from #overlay below,
+     which is the dense dev/debug panel -- this one is meant to be
+     glanced at mid-game, so it stays small and always visible once the
+     game starts. -->
+<div id="scoreboard" style="position: absolute; top: 54px; right: 12px; color: white; font-family: monospace; font-size: 13px; background: rgba(0,0,0,.45); padding: 10px 14px; border-radius: 8px; display: none; min-width: 160px;">
+    <div style="font-weight: bold; margin-bottom: 6px; letter-spacing: 1px; color: #64c8ff;">BEST SCORE</div>
+    <div id="scoreboard-list">—</div>
+</div>
+
+<!-- Dash meter: bottom-center, above where the mobile dash button sits
+     (so it works in the same visual spot whether the player is on
+     mobile with a visible dash button, or on computer where dash is
+     SPACE with no button at all). Two visual states sharing one bar:
+     while charging (holding dash), the bar fills blue-to-white toward
+     the 10s cap; while actively dashing, it switches to draining
+     orange/yellow, counting the up-to-5s dash window back down to
+     empty. Reads directly from the existing dashChargeDuration /
+     dashTimeRemaining / isDashing state -- no new game-state was added
+     for this, it's the same numbers the dev overlay already showed as
+     text, now shown as a bar too. -->
+<div id="dashMeterContainer" style="position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%); width: 160px; display: none; text-align: center;">
+    <div id="dashMeterLabel" style="color: white; font-family: monospace; font-size: 11px; margin-bottom: 4px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); letter-spacing: 1px;">DASH</div>
+    <div style="width: 100%; height: 10px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.4); border-radius: 5px; overflow: hidden;">
+        <div id="dashMeterFill" style="width: 0%; height: 100%; background: #64c8ff; transition: width 0.05s linear, background-color 0.15s ease;"></div>
+    </div>
+</div>
+
+<div id="overlay">
+    <div><b>Gyro Space Prototype</b></div>
+    <div id="status">Waiting...</div>
+    <button id="gyroButton">Enable Gyroscope</button>
+    <button id="recalibrateButton">Recalibrate Gyro</button>
+    <button id="switchModeButton">Switch Mode</button>
+    <button id="audioToggleBtn">Audio: ALL ON</button>
+    <div style="margin-top:8px;">Click to fire. Hold 3 sec for charged beam.<br>Computer: Hold [SPACE] to charge Dash.</div>
+</div>
+
+<script>
+// ===================================================
+//                 GLOBAL VARIABLES
+// ===================================================
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const statusText = document.getElementById("status");
+const gyroButton = document.getElementById("gyroButton");
+const recalibrateButton = document.getElementById("recalibrateButton");
+const switchModeButton = document.getElementById("switchModeButton");
+const audioToggleBtn = document.getElementById("audioToggleBtn");
+const guiToggleBtn = document.getElementById("guiToggle");
+const mobileDashButton = document.getElementById("mobileDashButton");
+const menuOverlay = document.getElementById("menuOverlay");
+const overlay = document.getElementById("overlay");
+const mobileBtn = document.getElementById("mobileBtn");
+const computerBtn = document.getElementById("computerBtn");
+
+let width = 0;
+let height = 0;
+let centerX = 0;
+let centerY = 0;
+
+function resize(){
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    centerX = width/2;
+    centerY = height/2;
+}
+
+window.addEventListener("resize",resize);
+resize();
+
+// ===================================================
+//                  GAME STATE
+// ===================================================
+let paused = false;
+let lastFrame = performance.now();
+let frameTime = 0;
+let fps = 0;
+let gameStarted = false;
+let controlMode = null;
+let guiVisible = true;
+let audioEnabled = true;
+
+// Predefined color palette (consistent across all clients)
+const COLOR_PALETTE = [
+    "hsl(0, 100%, 60%)",     // Red
+    "hsl(30, 100%, 60%)",    // Orange
+    "hsl(60, 100%, 60%)",    // Yellow
+    "hsl(120, 100%, 60%)",   // Green
+    "hsl(180, 100%, 60%)",   // Cyan
+    "hsl(240, 100%, 60%)",   // Blue
+    "hsl(270, 100%, 60%)",   // Violet
+    "hsl(300, 100%, 60%)",   // Magenta
+    "hsl(15, 100%, 60%)",    // Orange-Red
+    "hsl(45, 100%, 60%)"     // Yellow-Orange
+];
+
+// Assign color based on player ID (consistent across all clients)
+let myColor = COLOR_PALETTE[0]; // Will be set from server after welcome message
+let myPlayerId = null;
+
+// ===================================================
+//                     SHIP
+// ===================================================
+const ship = {
+    x: 0,
+    y: 0,
+    angle: 0,
+    baseSpeed: 3,
+    speed: 3,
+    size: 18,
+    color: myColor,
+    isAlive: true,
+    deathTime: 0,
+    name: ""  // Will be set from start screen
+};
+
+// ===================================================
+//               DASH MECHANICS (SPACE)
+// ===================================================
+let spaceHeld = false;
+let spaceHoldStartTime = 0;
+let dashChargeDuration = 0;
+let dashTimeRemaining = 0;
+let isDashing = false;
+
+// Note: the "10" (max charge seconds) and "5" (max dash seconds) below
+// are the same literal values already hardcoded at every dashChargeDuration
+// / dashTimeRemaining assignment elsewhere in this file (both the mobile
+// and computer control branches). Deliberately not introducing new named
+// constants here that only this function would use -- that would create
+// a second source of truth that could silently drift from the literals
+// the actual dash logic uses. If those literals ever change, this needs
+// updating to match, same as any other place they're referenced.
+const dashMeterFillEl = document.getElementById("dashMeterFill");
+const dashMeterLabelEl = document.getElementById("dashMeterLabel");
+
+function updateDashMeter() {
+    if (!dashMeterFillEl) return;
+
+    if (isDashing) {
+        // Draining: dashTimeRemaining counts down from up to 5s to 0.
+        const pct = (dashTimeRemaining / 5) * 100;
+        dashMeterFillEl.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+        dashMeterFillEl.style.background = "#ffaa00"; // Orange while actively dashing -- visually distinct from the charging color
+        if (dashMeterLabelEl) dashMeterLabelEl.textContent = "DASHING";
+    } else if (spaceHeld) {
+        // Charging: dashChargeDuration counts up from 0 to a 10s cap.
+        const pct = (dashChargeDuration / 10) * 100;
+        dashMeterFillEl.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+        dashMeterFillEl.style.background = "#64c8ff"; // Same blue as the rest of this game's UI accent color
+        if (dashMeterLabelEl) dashMeterLabelEl.textContent = "CHARGING";
+    } else {
+        // Neither charging nor dashing: empty bar, ready state.
+        dashMeterFillEl.style.width = "0%";
+        dashMeterFillEl.style.background = "#64c8ff";
+        if (dashMeterLabelEl) dashMeterLabelEl.textContent = "DASH";
+    }
+}
+
+// ===================================================
+//               CAMERA / WORLD POSITION
+// ===================================================
+const camera = {
+    x: 0,
+    y: 0,
+    zoom: 1.0  // 1.0 = normal, <1.0 = zoomed out
+};
+
+const ZOOM_SETTINGS = {
+    desktop: 1.0,
+    mobile: 0.7,  // Mobile zoomed out to see more (desktop parity)
+    minZoom: 0.5,
+    maxZoom: 2.0
+};
+
+// ===================================================
+//           SPATIAL GRID SYSTEM
+// ===================================================
+const GRID_SIZE = 500;
+const grid = {};
+
+function getGridKey(x, y) {
+    const cellX = Math.floor(x / GRID_SIZE);
+    const cellY = Math.floor(y / GRID_SIZE);
+    return `${cellX},${cellY}`;
+}
+
+function getVisibleGridCells() {
+    const minCellX = Math.floor(camera.x / GRID_SIZE) - 1;
+    const minCellY = Math.floor(camera.y / GRID_SIZE) - 1;
+    const maxCellX = Math.floor((camera.x + width) / GRID_SIZE) + 1;
+    const maxCellY = Math.floor((camera.y + height) / GRID_SIZE) + 1;
+    
+    const cells = [];
+    for (let x = minCellX; x <= maxCellX; x++) {
+        for (let y = minCellY; y <= maxCellY; y++) {
+            cells.push(`${x},${y}`);
+        }
+    }
+    return cells;
+}
+
+function addToGrid(key, object) {
+    if (!grid[key]) {
+        grid[key] = [];
+    }
+    grid[key].push(object);
+}
+
+function removeFromGrid(key, object) {
+    if (grid[key]) {
+        const idx = grid[key].indexOf(object);
+        if (idx > -1) {
+            grid[key].splice(idx, 1);
+        }
+    }
+}
+
+// ===================================================
+//              CHARGED BEAM STATE
+// ===================================================
+let isChargingBeam = false;
+let beamChargeStartTime = 0;
+let beamCooldownEnd = 0;
+const MIN_CHARGE_TIME = 500; // 0.5 seconds before animation shows
+
+// ===================================================
+//                    PROJECTILES
+// ===================================================
+const bullets = [];
+const bulletPool = [];
+const MAX_BULLETS = 200;
+
+for (let i = 0; i < MAX_BULLETS; i++) {
+    bulletPool.push({
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        life: 0,
+        maxLife: 0,
+        color: "#fff",
+        type: "standard",
+        firedAt: { x: 0, y: 0 },
+        maxDistance: 500,
+        size: 3,
+        active: false,
+        gridKey: null
+    });
+}
+
+function fireLaser(x, y, angle, color, shotType = "standard", ownerId = null) {
+    if (bullets.length >= MAX_BULLETS) {
+        return;
+    }
+    
+    const maxDist = shotType === "beam" ? 1500 : 250;  // Standard shot range halved to 250
+    const maxLife = shotType === "beam" ? 150 : 60;
+    
+    let bullet;
+    if (bulletPool.length > 0) {
+        bullet = bulletPool.pop();
+    } else {
+        bullet = { firedAt: { x: 0, y: 0 }, gridKey: null };
+    }
+    
+    bullet.x = x;
+    bullet.y = y;
+    bullet.vx = Math.cos(angle) * 12;
+    bullet.vy = Math.sin(angle) * 12;
+    bullet.life = maxLife;
+    bullet.maxLife = maxLife;
+    bullet.color = color;
+    bullet.type = shotType;
+    bullet.firedAt.x = x;
+    bullet.firedAt.y = y;
+    bullet.maxDistance = maxDist;
+    bullet.size = shotType === "beam" ? 6 : 3; // 2x beam size (3 * 2 = 6)
+    bullet.active = true;
+    bullet.gridKey = getGridKey(x, y);
+    bullet.isLocalShot = true; // Mark as our shot (don't collide with us)
+    // ownerId is who fired this shot. Explicitly reset every fire (not just
+    // when creating a fresh object) because bullets are recycled from
+    // bulletPool -- without this, a recycled bullet could carry a stale
+    // ownerId from whoever last used that pooled object, misattributing
+    // a kill to the wrong player.
+    bullet.ownerId = ownerId;
+    
+    addToGrid(bullet.gridKey, bullet);
+    bullets.push(bullet);
+}
+
+// ===================================================
+//                    AUDIO SYSTEM
+// ===================================================
+const sounds = {
+    standardShot: [
+        new Audio("pit-pit-pit-1.mp3"),
+        new Audio("pit-pit-pit-2.mp3"),
+        new Audio("pit-pit-pit-3.mp3")
+    ],
+    chargedBeam: new Audio("thwop.mp3"),
+    chargeSound: new Audio("thwop-charge.mp3")
+};
+
+sounds.standardShot.forEach(sound => sound.preload = "auto");
+sounds.chargedBeam.preload = "auto";
+sounds.chargeSound.preload = "auto";
+
+function getRandomStandardShot() {
+    const index = Math.floor(Math.random() * sounds.standardShot.length);
+    return sounds.standardShot[index];
+}
+
+function playLocalSound(shotType) {
+    if (!audioEnabled) return;
+
+    let sound = shotType === "standard" ? getRandomStandardShot() : sounds.chargedBeam;
+    sound.currentTime = 0;
+    sound.volume = 1.0;
+    sound.play().catch(e => {});
+}
+
+function playRemoteShotSound(remoteX, remoteY, shotType) {
+    if (!audioEnabled) return;
+
+    const dist = Math.hypot(remoteX - ship.x, remoteY - ship.y);
+    const maxHearRange = 5000;
+    
+    if (dist > maxHearRange) return;
+    
+    let sound = shotType === "standard" ? getRandomStandardShot() : sounds.chargedBeam;
+    const volume = Math.max(0.1, 1 - (dist / maxHearRange));
+    sound.volume = volume;
+    
+    sound.currentTime = 0;
+    sound.play().catch(e => {});
+}
+
+function startBeamChargeAudio() {
+    if (!audioEnabled) return;
+    sounds.chargeSound.currentTime = 0;
+    sounds.chargeSound.volume = 1.0;
+    sounds.chargeSound.play().catch(e => {});
+}
+
+function updateBeamChargeAudio() {
+    if (!audioEnabled || !isChargingBeam) return;
+    
+    // Check if we should be playing charge sound (only after 0.5s hold)
+    const now = Date.now();
+    const holdTime = now - beamChargeStartTime;
+    
+    if (holdTime < MIN_CHARGE_TIME) {
+        // Don't play charge sound yet
+        return;
+    }
+    
+    // If audio is not currently playing, start it
+    if (sounds.chargeSound.paused) {
+        sounds.chargeSound.currentTime = 0;
+        sounds.chargeSound.volume = 1.0;
+        sounds.chargeSound.play().catch(e => {});
+    }
+    
+    // Loop last 0.5s of charge sound continuously
+    if (sounds.chargeSound.duration > 0.5) {
+        const loopStart = sounds.chargeSound.duration - 0.5;
+        // If reached end or near end, reset to loop point
+        if (sounds.chargeSound.currentTime >= sounds.chargeSound.duration - 0.1) {
+            sounds.chargeSound.currentTime = loopStart;
+        }
+    }
+}
+
+function stopBeamChargeAudio() {
+    sounds.chargeSound.pause();
+    sounds.chargeSound.currentTime = 0;
+}
+
+// ===================================================
+//                    GYROSCOPE
+// ===================================================
+let gyroSupported = false;
+let gyroEnabled = false;
+let beta = 0;
+let gamma = 0;
+let neutralGamma = null;
+
+// ===================================================
+//                     INPUT
+// ===================================================
+const mouse = {
+    x: centerX,
+    y: centerY
+};
+
+window.addEventListener("mousemove", e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+
+// ===================================================
+//                  STARFIELD (50,000)
+// ===================================================
+const STAR_COUNT = 50000;
+const stars = [];
+
+for(let i=0; i<STAR_COUNT; i++){
+    stars.push({
+        x: (Math.random()-0.5)*30000,
+        y: (Math.random()-0.5)*30000,
+        size: Math.random()*2+0.4
+    });
+}
+
+// ===================================================
+//                    TRAIL
+// ===================================================
+let trail = [];
+
+// ===================================================
+//              WORLD BOUNDS & SAFE ZONE
+// ===================================================
+const WORLD_BOUNDS = {
+    min: -1000,
+    max: 1000,
+    size: 2000,
+    borderThickness: 50  // Reduced from 100px to 50px
+};
+
+const SAFE_ZONE = {
+    x: 0,
+    y: 0,
+    radius: 100  // Doubled from 50
+};
+
+function isInSafeZone(x, y) {
+    const dist = Math.hypot(x - SAFE_ZONE.x, y - SAFE_ZONE.y);
+    return dist <= SAFE_ZONE.radius;
+}
+
+function isOutOfBounds(x, y) {
+    return x < WORLD_BOUNDS.min || x > WORLD_BOUNDS.max || 
+           y < WORLD_BOUNDS.min || y > WORLD_BOUNDS.max;
+}
+
+function clampToBounds(x, y) {
+    return {
+        x: Math.max(WORLD_BOUNDS.min, Math.min(WORLD_BOUNDS.max, x)),
+        y: Math.max(WORLD_BOUNDS.min, Math.min(WORLD_BOUNDS.max, y))
+    };
+}
+
+// ===================================================
+//                  EXPLOSIONS
+// ===================================================
+const explosions = [];
+const explosionPool = [];
+const MAX_EXPLOSIONS = 50;
+
+for (let i = 0; i < MAX_EXPLOSIONS; i++) {
+    explosionPool.push({
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        life: 0,
+        maxLife: 30,
+        size: 2,
+        color: "#fff",
+        active: false
+    });
+}
+
+// Pulls a particle from explosionPool and pushes it into explosions, for
+// each of `count` particles. This is what every death/destruction path
+// in the game calls -- ship death (border collision, bullet hit),
+// remote player death, asteroid destruction, and bullet-lifetime
+// expiry. color defaults to ship.color when not provided, so existing
+// call sites that don't pass one (remote player death, ship death,
+// bullet expiry) keep their original look; asteroid destruction passes
+// its own white/gray color explicitly instead.
+function createExplosion(x, y, count = 12, color = null) {
+    for (let i = 0; i < count; i++) {
+        if (explosionPool.length === 0) break;
+        
+        const particle = explosionPool.pop();
+        const angle = (i / count) * Math.PI * 2;
+        const speed = 3 + Math.random() * 4;
+        
+        particle.x = x;
+        particle.y = y;
+        particle.vx = Math.cos(angle) * speed;
+        particle.vy = Math.sin(angle) * speed;
+        particle.life = 30;
+        particle.maxLife = 30;
+        particle.size = 2 + Math.random() * 2;
+        particle.color = color || ship.color;
+        particle.active = true;
+        
+        explosions.push(particle);
+    }
+}
+
+// ===================================================
+//                    ASTEROIDS
+// ===================================================
+// Floating white irregular polygons, shootable, drift slowly, respawn
+// after being destroyed. Purely a local/client-side hazard layer --
+// NOT synced over the network. Each client independently spawns and
+// simulates its own asteroid field using the same generation logic, so
+// different players will generally see roughly-similar asteroid
+// placement but are not guaranteed to see the exact same asteroid at
+// the exact same position at the exact same time (their local sims can
+// drift apart over a session). That's an acceptable simplification for
+// a decorative/scoring hazard in a small friend-group game -- it would
+// NOT be acceptable if asteroids needed to be a shared, contested
+// resource (e.g. "first player to shoot it gets credit" only makes
+// sense with server-synced positions, which this deliberately isn't).
+const ASTEROID_COUNT = 12;        // Active asteroids in the world at once (per your "slight variation in amount" -- see spawnAsteroid's count jitter)
+const ASTEROID_MIN_SIZE = 15;
+const ASTEROID_MAX_SIZE = 40;
+const ASTEROID_MIN_SPEED = 0.3;
+const ASTEROID_MAX_SPEED = 1.2;
+const ASTEROID_COLOR = "rgba(255, 255, 255, 0.85)";
+
+const asteroids = [];
+
+// Generates an irregular polygon by taking a base circle and jittering
+// each vertex's radius randomly -- this is what makes it look like a
+// rough asteroid rather than a perfect circle, without needing actual
+// art assets.
+function generateAsteroidShape(size) {
+    const points = 7 + Math.floor(Math.random() * 4); // 7-10 sided, irregular
+    const shape = [];
+    for (let i = 0; i < points; i++) {
+        const angle = (i / points) * Math.PI * 2;
+        const radiusJitter = 0.65 + Math.random() * 0.5; // Each vertex 65%-115% of base size
+        shape.push({
+            x: Math.cos(angle) * size * radiusJitter,
+            y: Math.sin(angle) * size * radiusJitter
+        });
+    }
+    return shape;
+}
+
+function spawnAsteroid() {
+    const size = ASTEROID_MIN_SIZE + Math.random() * (ASTEROID_MAX_SIZE - ASTEROID_MIN_SIZE);
+    const speed = ASTEROID_MIN_SPEED + Math.random() * (ASTEROID_MAX_SPEED - ASTEROID_MIN_SPEED);
+    const driftAngle = Math.random() * Math.PI * 2;
+
+    // Spawn anywhere within the playable world bounds (not the border
+    // zone itself -- keeps asteroids from spawning directly on top of
+    // the death-on-touch border).
+    const margin = ASTEROID_MAX_SIZE + WORLD_BOUNDS.borderThickness;
+    const x = WORLD_BOUNDS.min + margin + Math.random() * ((WORLD_BOUNDS.max - margin) - (WORLD_BOUNDS.min + margin));
+    const y = WORLD_BOUNDS.min + margin + Math.random() * ((WORLD_BOUNDS.max - margin) - (WORLD_BOUNDS.min + margin));
+
+    asteroids.push({
+        x, y,
+        size,
+        vx: Math.cos(driftAngle) * speed,
+        vy: Math.sin(driftAngle) * speed,
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.01, // Slow tumble, direction varies
+        shape: generateAsteroidShape(size),
+        active: true
+    });
+}
+
+// Seed the initial field. Count has a small amount of jitter per your
+// "slight variation in amount" spec, applied once at seed time rather
+// than continuously -- destroyed asteroids respawn 1-for-1 (see
+// updateAsteroids below), so the field size stays roughly constant
+// after this initial jitter rather than drifting further over time.
+function seedAsteroidField() {
+    const count = ASTEROID_COUNT + Math.floor(Math.random() * 5) - 2; // ASTEROID_COUNT plus/minus a couple
+    for (let i = 0; i < count; i++) {
+        spawnAsteroid();
+    }
+}
+
+function updateAsteroids(dt) {
+    for (const a of asteroids) {
+        a.x += a.vx;
+        a.y += a.vy;
+        a.rotation += a.rotationSpeed;
+
+        // Wrap at world bounds rather than bouncing -- simpler, and
+        // "asteroids drifting through" reads fine without needing
+        // physically accurate bounce behavior.
+        const margin = a.size;
+        if (a.x < WORLD_BOUNDS.min - margin) a.x = WORLD_BOUNDS.max + margin;
+        if (a.x > WORLD_BOUNDS.max + margin) a.x = WORLD_BOUNDS.min - margin;
+        if (a.y < WORLD_BOUNDS.min - margin) a.y = WORLD_BOUNDS.max + margin;
+        if (a.y > WORLD_BOUNDS.max + margin) a.y = WORLD_BOUNDS.min - margin;
+    }
+}
+
+function drawAsteroids() {
+    for (const a of asteroids) {
+        const screen = worldToScreen(a.x, a.y);
+
+        // Skip drawing if off-screen (cheap cull, matches the pattern
+        // the rest of this file already uses for bullets/players).
+        if (screen.x < -100 || screen.x > width + 100 || screen.y < -100 || screen.y > height + 100) continue;
+
+        ctx.save();
+        ctx.translate(screen.x, screen.y);
+        ctx.rotate(a.rotation);
+        ctx.scale(camera.zoom, camera.zoom);
+        ctx.strokeStyle = ASTEROID_COLOR;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        a.shape.forEach((p, i) => {
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+// Destroys one asteroid (explosion + removal + 1-for-1 respawn so the
+// field doesn't slowly deplete) and credits the local player for it,
+// scaled by size -- a bigger asteroid is worth more points. Called both
+// for LOCAL bullet hits (see the collision check in the main
+// bullet-update loop, gated on b.isLocalShot) and for the player
+// physically colliding with an asteroid (see the new collision check in
+// updateShip below).
+function destroyAsteroid(index) {
+    const a = asteroids[index];
+    const averageSize = (ASTEROID_MIN_SIZE + ASTEROID_MAX_SIZE) / 2;
+    const sizeRatio = a.size / averageSize;
+
+    createExplosion(a.x, a.y, 10, ASTEROID_COLOR);
+    asteroids.splice(index, 1);
+    spawnAsteroid(); // 1-for-1 respawn keeps the field size roughly constant
+    creditKill("asteroid", sizeRatio);
+}
+
+function updateAndDrawExplosions() {
+    for (let i = explosions.length - 1; i >= 0; i--) {
+        const p = explosions[i];
+        
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        
+        if (p.life <= 0) {
+            explosionPool.push(p);
+            explosions.splice(i, 1);
+            continue;
+        }
+        
+        // Fade out
+        const opacity = p.life / p.maxLife;
+        
+        const sx = centerX + (p.x - camera.x);
+        const sy = centerY + (p.y - camera.y);
+        
+        if (sx < -50 || sx > width + 50 || sy < -50 || sy > height + 50) {
+            continue;
+        }
+        
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = opacity;
+        ctx.beginPath();
+        ctx.arc(sx, sy, p.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1.0;
+}
+const socket = new WebSocket("wss://my-games-faxi.onrender.com");
+const remotePlayers = {}; 
+
+let lastSendTime = 0;
+const SEND_INTERVAL = 1000 / 10; // 10 updates per sec (reduced from 20 for latency optimization)
+
+// The server now ignores "update" messages until "join-room" arrives, so
+// the animate() loop checks this flag before sending anything -- sending
+// early just does nothing (server drops it silently), but gating here
+// avoids spamming empty sends before the player has entered the game.
+let hasJoinedRoom = false;
+let currentRoomCode = null;
+
+function getColorFromId(id) {
+    // Use consistent color palette based on first character of ID
+    const colorIndex = id.charCodeAt(0) % COLOR_PALETTE.length;
+    return COLOR_PALETTE[colorIndex];
+}
+
+// Called once, from the "PRESS TO ENTER GAME" handler, after the player
+// has chosen a name and (optionally) a room code. Safe to call even if
+// the socket hasn't finished connecting yet -- it waits for "open".
+function joinRoom(room, name) {
+    currentRoomCode = room || "public";
+
+    const send = () => {
+        socket.send(JSON.stringify({
+            type: "join-room",
+            room: currentRoomCode,
+            name: name,
+            color: myColor
+        }));
+        hasJoinedRoom = true;
+        console.log("Joining room:", currentRoomCode, "as", name || "(unnamed)");
+    };
+
+    if (socket.readyState === WebSocket.OPEN) {
+        send();
+    } else {
+        socket.addEventListener("open", send, { once: true });
+    }
+}
+
+// ===================================================
+//              SCORING
+// ===================================================
+// Score for a single life = (distance travelled, scaled) + (10 x seconds
+// alive), all multiplied by a streak multiplier that increases +0.1x per
+// consecutive kill (no death in between) and resets to 1.0x on death.
+// The multiplier applies to the ENTIRE per-frame score rate once a
+// streak is active -- not just to kill bonuses -- so a streak makes
+// everything (distance, time, further kills) worth more while it lasts.
+//
+// This whole thing is tracked PER-LIFE and submitted once, on death --
+// not continuously. That matches how the rest of the game already works
+// (reportLifeEnded() at both death sites) and means only one Firestore
+// write per death instead of one per frame.
+//
+// Distance is in raw world-units per frame (ship.speed is ~3 units/tick
+// at 60fps, so a life can rack up tens of thousands of raw units -- far
+// larger than the seconds-based time term, which tops out in the tens
+// or low hundreds for a good life). DISTANCE_SCALE divides distance down
+// into the same rough numeric range as the time term, so neither one
+// trivially swamps the other in the combined total.
+const DISTANCE_SCALE = 100;
+
+// A kill (of a player) is worth roughly "30 seconds of ordinary
+// non-kill play" as a flat bonus, awarded the instant the kill lands --
+// BEFORE the current multiplier is applied to it (the multiplier then
+// applies on top, same as it does to everything else). "30 seconds of
+// ordinary play" = 30 seconds x the TIME_POINTS_PER_SECOND rate below
+// (distance isn't part of this baseline since distance during those 30
+// seconds is player-behavior-dependent, not a fixed rate).
+const TIME_POINTS_PER_SECOND = 10;
+const KILL_BONUS = TIME_POINTS_PER_SECOND * 30; // = 300
+const ASTEROID_KILL_BONUS = KILL_BONUS / 20; // = 15, per your 1/20 spec
+
+let lifeStartTime = Date.now();
+let lifeStartX = 0;
+let lifeStartY = 0;
+let lifeDistance = 0;       // Raw world-units moved this life, accumulated each frame
+let lifeKillStreak = 0;     // Consecutive kills this life, no death in between
+let lifeScore = 0;          // Running total for the CURRENT life, in display units (not raw distance)
+let bestLifeScore = 0;      // Session-local best, shown in the dev overlay for reference only
+
+function currentMultiplier() {
+    // 0 kills -> 1.0x, 1 kill -> 1.1x, 2 kills -> 1.2x, etc. Uncapped --
+    // per your note, if this turns out overpowered at high streaks the
+    // curve can be revisited later (e.g. capped, or diminishing per
+    // kill), but starting linear and uncapped is the agreed starting point.
+    return 1 + (lifeKillStreak * 0.1);
+}
+
+// Called every frame from updateShip(), but ONLY while alive and only
+// when the ship actually moved (paused / not moving = no new distance,
+// no new time-based score that frame -- this is what keeps sitting
+// still from being a free way to rack up score, in solo or grouped play
+// alike, without needing a separate solo-only rule).
+function accumulateLiveScore(dtSeconds, distanceThisFrame) {
+    lifeDistance += distanceThisFrame;
+
+    const distanceComponent = (distanceThisFrame / DISTANCE_SCALE);
+    const timeComponent = dtSeconds * TIME_POINTS_PER_SECOND;
+
+    lifeScore += (distanceComponent + timeComponent) * currentMultiplier();
+}
+
+// Multiplier callout: large yellow text, top-center, appears/refreshes
+// on increase, fades after 2s while remaining logically "active" (the
+// multiplier itself doesn't reset when the text fades -- only the
+// VISIBILITY fades; killStreak/currentMultiplier() keep applying to
+// score in the background regardless of whether this is on screen).
+const multiplierCalloutEl = document.getElementById("multiplierCallout");
+let multiplierCalloutTimeout = null;
+
+function showMultiplierCallout() {
+    if (!multiplierCalloutEl) return;
+    const mult = currentMultiplier();
+
+    multiplierCalloutEl.textContent = `${mult.toFixed(1)}x`;
+    multiplierCalloutEl.style.opacity = "1";
+
+    // Re-triggering on every increase means a fast second kill restarts
+    // the 2s clock rather than fighting an already-running fade-out.
+    if (multiplierCalloutTimeout) clearTimeout(multiplierCalloutTimeout);
+    multiplierCalloutTimeout = setTimeout(() => {
+        multiplierCalloutEl.style.opacity = "0";
+    }, 2000);
+}
+
+// Score display: current life's running score, top-right, always visible
+// once the game has started (not just on death).
+const scoreDisplayEl = document.getElementById("scoreDisplay");
+function updateScoreDisplay() {
+    if (!scoreDisplayEl) return;
+    scoreDisplayEl.textContent = `SCORE: ${Math.round(lifeScore)}`;
+}
+
+// Called when THIS client's bullet is confirmed (by the server relay) to
+// have killed another player. killType distinguishes player kills (full
+// KILL_BONUS, extends the streak) from asteroid kills (does NOT extend
+// the player-kill streak or affect the multiplier -- asteroids are a
+// scoring bonus, not a "kill chain" in the combo sense described for
+// player kills). sizeRatio is only used for asteroid kills -- see
+// destroyAsteroid, which computes it as (this asteroid's size / average
+// asteroid size) so an average-size asteroid is still worth almost
+// exactly the original flat ASTEROID_KILL_BONUS, while small/large ones
+// scale proportionally around that midpoint. Using a ratio rather than
+// raw size directly avoids the largest asteroids (size 40) being worth
+// roughly 2x a full player kill, which raw size * bonus would produce.
+function creditKill(killType, sizeRatio = 1) {
+    if (killType === "asteroid") {
+        lifeScore += ASTEROID_KILL_BONUS * sizeRatio * currentMultiplier();
+        return; // No streak change, no callout -- asteroid kills are a flat top-up, not a combo event
+    }
+
+    // Player kill: award bonus at the CURRENT multiplier (before
+    // incrementing the streak), then increment the streak so the NEXT
+    // thing scored (including this kill's own follow-on frames) benefits
+    // from the new, higher multiplier.
+    lifeScore += KILL_BONUS * currentMultiplier();
+    lifeKillStreak += 1;
+    showMultiplierCallout();
+    updateScoreDisplay();
+}
+
+// Called once per death (both death sites: border collision, bullet
+// hit). Finalizes the just-ended life's score, submits it (every life,
+// not just personal bests -- per your direction, tracked and
+// transmitted on death), relays it live to the room, and resets all
+// per-life counters for the next spawn. Death does not penalize the
+// score already earned -- it only resets the streak going forward,
+// matching what you confirmed.
+function reportLifeEnded() {
+    const finalScore = Math.round(lifeScore);
+
+    if (finalScore > bestLifeScore) {
+        bestLifeScore = finalScore; // Session-local reference value only, shown in dev overlay
+    }
+
+    // Live relay to whoever else is in this room right now (display only).
+    if (hasJoinedRoom && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: "score-update",
+            score: finalScore
+        }));
+    }
+
+    // Persisted write, every life. Fire-and-forget -- submitScoreToFirebase
+    // no-ops safely if Firebase hasn't loaded, so a network hiccup here
+    // never blocks or breaks gameplay.
+    submitScoreToFirebase(ship.name || "Anonymous", finalScore, currentRoomCode);
+
+    updateScoreboardDisplay();
+
+    // Reset per-life counters. lifeStartTime/X/Y get set again on the
+    // actual respawn (in updateShip's respawn branch) -- this reset here
+    // covers the interval between death and respawn, so the displayed
+    // score doesn't linger showing the dead life's number while waiting
+    // to respawn.
+    lifeScore = 0;
+    lifeDistance = 0;
+    lifeKillStreak = 0;
+    updateScoreDisplay();
+}
+
+const scoreboardEl = document.getElementById("scoreboard");
+const scoreboardListEl = document.getElementById("scoreboard-list");
+
+// Renders roomScores (populated by incoming "score-update" broadcasts)
+// plus this client's own best-this-session, sorted high to low. Called
+// on every score-update received and every death.
+function updateScoreboardDisplay() {
+    if (!scoreboardEl) return;
+    scoreboardEl.style.display = "block";
+
+    const rows = Object.entries(roomScores).map(([name, score]) => ({ name, score }));
+
+    const myLabel = ship.name || "You";
+    const existingMine = rows.find(r => r.name === myLabel);
+    if (existingMine) {
+        existingMine.score = Math.max(existingMine.score, bestLifeScore);
+    } else if (bestLifeScore > 0) {
+        rows.push({ name: myLabel, score: bestLifeScore });
+    }
+
+    rows.sort((a, b) => b.score - a.score);
+
+    scoreboardListEl.innerHTML = rows.length
+        ? rows.map(r => `${r.name}: ${r.score}`).join("<br>")
+        : "—";
+}
+
+// name -> score, for players currently in this room. Populated by
+// "score-update" broadcasts. Read by the scoreboard overlay above.
+const roomScores = {};
+
+socket.onmessage = event => {
+    try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "welcome") {
+            myPlayerId = data.id;
+            // Assign color based on player ID (deterministic, same on all clients)
+            const colorIndex = data.id.charCodeAt(0) % COLOR_PALETTE.length;
+            myColor = COLOR_PALETTE[colorIndex];
+            console.log("Connected! My ID is:", data.id, "Color:", myColor);
+        } else if (data.type === "leave") {
+            console.log("Player left:", data.id);
+            delete remotePlayers[data.id];
+        } else if (data.type === "join") {
+            console.log("Player joined:", data.player?.id, data.player?.name);
+            if (data.player) {
+                updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, null, data.player.isAlive, data.player.name);
+            }
+        } else if (data.type === "players") {
+            console.log("Initial players list:", data.players?.length, "room:", data.room);
+            if (Array.isArray(data.players)) {
+                data.players.forEach(p => updateRemotePlayer(p.id, p.x, p.y, p.angle, p.color, null, p.isAlive, p.name));
+            }
+        } else if (data.type === "update" && data.player) {
+            // Log update with shot info
+            if (data.player.shot) {
+                console.log("Received update with shot from", data.player.id, ":", data.player.shot);
+            }
+            updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, data.player.shot, data.player.isAlive);
+        } else if (data.type === "score-update") {
+            // Live score relay from another player in the room. This is
+            // display-only -- the authoritative/persisted score write
+            // happens separately, once, to Firestore at game-end.
+            roomScores[data.name || data.id] = data.score;
+            updateScoreboardDisplay();
+        } else if (data.type === "kill-credit") {
+            // This is the ONLY way a shooter's client ever learns one of
+            // its bullets landed -- collision detection runs on the
+            // victim's client only (see the collision check in the
+            // bullet-update loop), so the victim has to tell the server
+            // "you killed me," and the server relays it back to us here.
+            // killType is currently always "player" from the server (see
+            // server.js's kill-credit handler) -- asteroid kills are
+            // detected and credited entirely locally instead, since
+            // asteroids aren't networked entities (see the asteroid
+            // collision check further down), so there's no round-trip
+            // needed for those.
+            creditKill(data.killType || "player");
+        }
+    } catch(e) {
+        console.error("Error parsing server message", e);
+    }
+};
+
+function updateRemotePlayer(id, x, y, angle, color, shot, isAlive, name) {
+    let p = remotePlayers[id];
+    const playerColor = color || getColorFromId(id);
+
+    if (!p) {
+        remotePlayers[id] = { 
+            x: x, 
+            y: y, 
+            targetX: x, 
+            targetY: y, 
+            angle: angle, 
+            color: playerColor,
+            trail: [],
+            isAlive: isAlive !== false,  // Default to alive if not specified
+            name: name || ""  // Now populated from the server's join-room record
+        };
+        console.log("Remote player created:", id, "isAlive:", isAlive);
+    } else {
+        p.targetX = x;
+        p.targetY = y;
+        p.angle = angle;
+        p.color = playerColor;
+        if (name) p.name = name;
+        
+        // Handle death state change
+        if (isAlive === false && p.isAlive === true) {
+            // Player just died - create explosion
+            console.log("Remote player DIED:", id, "at", x, y);
+            createExplosion(p.x, p.y, 15);
+            p.trail = []; // Clear trail immediately
+        }
+        
+        p.isAlive = isAlive !== false;
+        
+        // Only add to trail if alive
+        if (isAlive !== false) {
+            p.trail.push({ x: x, y: y });
+            if (p.trail.length > 500) p.trail.shift();
+        }
+    }
+
+    if (shot) {
+        console.log("Remote shot received:", shot);
+        // Fire remote shot - isLocalShot will be false (undefined = false).
+        // ownerId is the shooter's own player id (the "id" parameter of
+        // this function) -- this is what lets OUR client later recognize
+        // "this specific bullet belongs to that specific remote player,"
+        // which matters if it goes on to hit us: see the collision check
+        // further down, where b.ownerId is read to know who to credit.
+        fireLaser(shot.x, shot.y, shot.angle, playerColor, shot.type || "standard", id);
+        // Clear isLocalShot flag on the last bullet (it's a remote shot)
+        if (bullets.length > 0) {
+            bullets[bullets.length - 1].isLocalShot = false;
+        }
+        playRemoteShotSound(shot.x, shot.y, shot.type || "standard");
+    }
+}
+
+// ===================================================
+//                   HELPERS
+// ===================================================
+function lerp(a,b,t){
+    return a+(b-a)*t;
+}
+
+function wrapAngle(a){
+    while(a>Math.PI) a-=Math.PI*2;
+    while(a<-Math.PI) a+=Math.PI*2;
+    return a;
+}
+
+// ===================================================
+//           COORDINATE TRANSFORMATION
+// ===================================================
+function worldToScreen(worldX, worldY) {
+    const relX = worldX - camera.x;
+    const relY = worldY - camera.y;
+    return {
+        x: centerX + (relX * camera.zoom),
+        y: centerY + (relY * camera.zoom)
+    };
+}
+
+// ===================================================
+//              DRAW SHIP (SOLID)
+// ===================================================
+function drawShip(){
+    if (!ship.isAlive) return; // Don't draw if dead
+    
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.rotate(ship.angle);
+    ctx.fillStyle = ship.color;
+    ctx.beginPath();
+    ctx.moveTo(ship.size,0);
+    ctx.lineTo(-ship.size*.8,-ship.size*.6);
+    ctx.lineTo(-ship.size*.35,0);
+    ctx.lineTo(-ship.size*.8,ship.size*.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    
+    // Draw player name above ship
+    if (ship.name) {
+        ctx.save();
+        ctx.fillStyle = ship.color;
+        ctx.font = "12px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(ship.name, centerX, centerY - 35);
+        ctx.restore();
+    }
+}
+
+// ===================================================
+//   DRAW CHARGE-UP & BEAM COOLDOWN RINGS
+// ===================================================
+function drawCooldownRing() {
+    const now = Date.now();
+    
+    // 1. Draw Charge-Up Animation (Inverse white expanding arc)
+    // Only show if held for at least MIN_CHARGE_TIME and cooldown is complete
+    if (isChargingBeam && now >= beamCooldownEnd) {
+        const chargeTime = Math.max(0, now - beamChargeStartTime - MIN_CHARGE_TIME);
+        const maxChargeTime = 3000 - MIN_CHARGE_TIME;
+        const chargeProgress = Math.min(1, chargeTime / maxChargeTime);
+        
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.scale(camera.zoom, camera.zoom);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + chargeProgress * 0.7})`;
+        ctx.lineWidth = 2 + chargeProgress * 3;
+        ctx.beginPath();
+        // Inverse animation: expands from center outward
+        const startAngle = -Math.PI / 2 - Math.PI * chargeProgress;
+        const endAngle = -Math.PI / 2 + Math.PI * chargeProgress;
+        ctx.arc(0, 0, 25 + chargeProgress * 20, startAngle, endAngle);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // 2. Cooldown Ring After Beam Shot (red, fills clockwise)
+    if (now < beamCooldownEnd) {
+        const remainingMs = beamCooldownEnd - now;
+        const progress = 1 - (remainingMs / 5000);
+        
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.scale(camera.zoom, camera.zoom);
+        ctx.strokeStyle = "rgba(255, 100, 100, 0.6)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 35, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * progress));
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+// ===================================================
+//              DRAW DEBUG INFORMATION
+// ===================================================
+function updateOverlay(){
+    const now = Date.now();
+    const beamCooldownRemaining = Math.max(0, Math.ceil((beamCooldownEnd - now) / 1000));
+    
+    let gyroInfo = "";
+    if (gyroEnabled) {
+        gyroInfo = `<br>Beta: ${beta.toFixed(1)}°<br>Gamma: ${gamma.toFixed(1)}°<br>Neutral: ${neutralGamma?.toFixed(1) || "?"}°`;
+    }
+
+    let dashInfo = "";
+    if (controlMode === "computer" || controlMode === "mobile") {
+        if (isDashing) {
+            dashInfo = `<br>Dash ACTIVE: ${dashTimeRemaining.toFixed(1)}s (3x Speed)`;
+        } else if (spaceHeld) {
+            dashInfo = `<br>Dash Charging: ${dashChargeDuration.toFixed(1)}s (-40% Speed Penalty)`;
+        } else {
+            dashInfo = `<br>Dash Ready (${controlMode === "mobile" ? "Tap Button" : "Hold SPACE"})`;
+        }
+    }
+    
+    statusText.innerHTML =
+`PLAYER: ${ship.name || "Anonymous"}<br>
+ROOM: ${currentRoomCode || "(not joined)"}<br>
+SCORE: ${Math.round(lifeScore)} | BEST: ${bestLifeScore}<br>
+STREAK: ${lifeKillStreak} (${currentMultiplier().toFixed(1)}x)<br>
+FPS: ${fps.toFixed(0)} | ${frameTime.toFixed(1)}ms<br>
+Pos: X: ${Math.round(ship.x)} | Y: ${Math.round(ship.y)}<br>
+Mode: ${controlMode}${dashInfo}<br>
+Gyro Enabled: ${gyroEnabled}${gyroInfo}<br>
+Bullets: ${bullets.length}/${MAX_BULLETS}<br>
+Pool: ${bulletPool.length}<br>
+Grid Cells: ${Object.keys(grid).length}<br>
+Beam Cooldown: ${beamCooldownRemaining}s<br>
+Players Online: ${Object.keys(remotePlayers).length + 1}`;
+}
+
+// ===================================================
+//           GYROSCOPE PERMISSION & EVENTS
+// ===================================================
+async function enableGyroscope(){
+    if(gyroEnabled) return true;
+
+    try{
+        if(
+            typeof DeviceOrientationEvent !== "undefined" &&
+            typeof DeviceOrientationEvent.requestPermission === "function"
+        ){
+            const result = await DeviceOrientationEvent.requestPermission();
+            if(result !== "granted") return false;
+        }
+
+        window.addEventListener("deviceorientation", onOrientation, true);
+        gyroSupported = true;
+        gyroEnabled = true;
+        gyroButton.style.display = "none";
+        return true;
+    }catch(err){
+        console.error("Gyroscope error:", err);
+        return false;
+    }
+}
+
+gyroButton.addEventListener("click", enableGyroscope);
+
+// ===================================================
+//            RECALIBRATE GYRO HANDLER
+// ===================================================
+recalibrateButton.addEventListener("click", () => {
+    if (gyroEnabled) {
+        neutralGamma = gamma;
+        console.log("Recalibrated! New neutral gamma:", neutralGamma);
+    } else {
+        alert("Enable gyroscope first!");
+    }
+});
+
+// ===================================================
+//            SWITCH MODE HANDLER
+// ===================================================
+switchModeButton.addEventListener("click", () => {
+    gameStarted = false;
+    menuOverlay.classList.remove("hidden");
+    isChargingBeam = false;
+    stopBeamChargeAudio();
+});
+
+function onOrientation(event){
+    beta = event.beta || 0;
+    gamma = event.gamma || 0;
+    
+    if (neutralGamma === null && Math.abs(gamma) < 90) {
+        neutralGamma = gamma;
+    }
+}
+
+let pendingShot = null;
+
+// ===================================================
+//       MOUSE DOWN/UP FOR CHARGED BEAM
+// ===================================================
+canvas.addEventListener("mousedown", (e) => {
+    if (e.target !== canvas || !gameStarted) return;
+    
+    // Can only start charging if cooldown is complete
+    const now = Date.now();
+    if (now < beamCooldownEnd) {
+        return;
+    }
+    
+    isChargingBeam = true;
+    beamChargeStartTime = Date.now();
+});
+
+canvas.addEventListener("mouseup", (e) => {
+    if (e.target !== canvas || !gameStarted) return;
+
+    const holdTime = Date.now() - beamChargeStartTime;
+    isChargingBeam = false;
+    stopBeamChargeAudio();
+
+    // Only fire if held long enough
+    const shotType = holdTime >= 3000 ? "beam" : "standard";
+    
+    // Check cooldown (should not happen if we prevented charging, but safety check)
+    if (shotType === "beam" && Date.now() < beamCooldownEnd) {
+        return;
+    }
+
+    fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType, myPlayerId);
+    playLocalSound(shotType); // Plays thwop on release of beam
+
+    // IMPORTANT: Queue shot for network broadcast
+    pendingShot = {
+        x: Number(ship.x.toFixed(1)),
+        y: Number(ship.y.toFixed(1)),
+        angle: Number(ship.angle.toFixed(2)),
+        type: shotType
+    };
+    
+    console.log("Shot fired:", pendingShot);
+
+    if (shotType === "beam") {
+        beamCooldownEnd = Date.now() + 5000;
+    }
+});
+
+// ===================================================
+//      TOUCH SUPPORT FOR CHARGED BEAM
+// ===================================================
+canvas.addEventListener("touchstart", (e) => {
+    if (e.target !== canvas || !gameStarted) return;
+    
+    // Can only start charging if cooldown is complete
+    const now = Date.now();
+    if (now < beamCooldownEnd) {
+        e.preventDefault();
+        return;
+    }
+    
+    isChargingBeam = true;
+    beamChargeStartTime = Date.now();
+    e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener("touchend", (e) => {
+    if (e.target !== canvas || !gameStarted) return;
+
+    const holdTime = Date.now() - beamChargeStartTime;
+    isChargingBeam = false;
+    stopBeamChargeAudio();
+
+    // Only fire if held long enough
+    const shotType = holdTime >= 3000 ? "beam" : "standard";
+    
+    if (shotType === "beam" && Date.now() < beamCooldownEnd) {
+        e.preventDefault();
+        return;
+    }
+
+    fireLaser(ship.x, ship.y, ship.angle, ship.color, shotType, myPlayerId);
+    playLocalSound(shotType);
+
+    pendingShot = {
+        x: Number(ship.x.toFixed(1)),
+        y: Number(ship.y.toFixed(1)),
+        angle: Number(ship.angle.toFixed(2)),
+        type: shotType
+    };
+
+    if (shotType === "beam") {
+        beamCooldownEnd = Date.now() + 5000;
+    }
+
+    e.preventDefault();
+}, { passive: false });
+
+// ===================================================
+//              START SCREEN SYSTEM
+// ===================================================
+const startScreenContainer = document.getElementById("startScreenContainer");
+// NOTE: "screen1-title" was removed from the HTML when the title screen
+// was cut (see prior session). These names now match what's actually in
+// the DOM: mode select -> name/room entry -> enter game. Renamed rather
+// than re-adding a phantom element, since referencing a missing element
+// (the old screen1.style.display = "flex") threw and silently halted
+// this entire script block before, including the socket connection below.
+const screenMode = document.getElementById("screen2-mode");
+const screenName = document.getElementById("screen3-name");
+const screenEnter = document.getElementById("screen4-enter");
+
+// Initialize screen display states
+screenMode.style.display = "flex";
+screenName.style.display = "none";
+screenEnter.style.display = "none";
+
+const modeMobileBtn = document.getElementById("screen2-mobile");
+const modeComputerBtn = document.getElementById("screen2-computer");
+const playerNameInput = document.getElementById("playerNameInput");
+const roomCodeInput = document.getElementById("roomCodeInput");
+const nameSubmitBtn = document.getElementById("screen3-submit");
+const enterGameBtn = document.getElementById("screen4-enter-btn");
+
+let playerName = "";
+let roomCode = "";
+
+// Screen: Select mode
+modeMobileBtn.addEventListener("click", () => {
+    controlMode = "mobile";
+    screenMode.style.display = "none";
+    screenName.style.display = "flex";
+});
+
+modeComputerBtn.addEventListener("click", () => {
+    controlMode = "computer";
+    screenMode.style.display = "none";
+    screenName.style.display = "flex";
+});
+
+// Screen: Enter name + room code
+nameSubmitBtn.addEventListener("click", () => {
+    playerName = playerNameInput.value.trim();
+    // Room code is normalized to uppercase so "abcd" and "ABCD" are the
+    // same room -- matches how the room code is displayed everywhere else.
+    roomCode = roomCodeInput.value.trim().toUpperCase();
+    screenName.style.display = "none";
+    screenEnter.style.display = "flex";
+});
+
+// Allow Enter key to submit from either field
+playerNameInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") nameSubmitBtn.click();
+});
+roomCodeInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") nameSubmitBtn.click();
+});
+
+// Screen: Enter game
+enterGameBtn.addEventListener("click", () => {
+    gameStarted = true;
+    ship.name = playerName; // Set player name on ship
+    startScreenContainer.style.display = "none";
+    overlay.style.display = "block"; // Show dev overlay during game
+
+    // Now that the player has chosen a name/room, join the room on the
+    // server. Nothing before this point sends "update" -- the server
+    // ignores update messages until join-room arrives, so this ordering
+    // matters, not just style.
+    joinRoom(roomCode, playerName);
+    lifeStartTime = Date.now(); // First life's clock starts now, not at page load
+    lifeStartX = ship.x;
+    lifeStartY = ship.y;
+    if (scoreDisplayEl) scoreDisplayEl.style.display = "block";
+    updateScoreDisplay();
+    updateScoreboardDisplay(); // Show the panel now -- don't wait on another player's score-update to arrive first, or a solo player never sees it
+    seedAsteroidField(); // One-time, here rather than on page load -- asteroids shouldn't drift/exist while sitting on the start screens
+    const dashMeterContainerEl = document.getElementById("dashMeterContainer");
+    if (dashMeterContainerEl) dashMeterContainerEl.style.display = "block";
+
+    // Set zoom based on mode
+    if (controlMode === "mobile") {
+        camera.zoom = ZOOM_SETTINGS.mobile;
+        mobileDashButton.style.display = "flex";
+
+        // Request gyroscope if mobile
+        if (gyroSupported) {
+            enableGyroscope().catch(() => {
+                gyroButton.style.display = "block";
+            });
+        }
+    } else {
+        camera.zoom = ZOOM_SETTINGS.desktop;
+        mobileDashButton.style.display = "none";
+    }
+
+    // Hide menu overlay if it exists
+    if (menuOverlay) menuOverlay.classList.add("hidden");
+});
+// NOTE: the old mobileBtn/computerBtn handlers targeting #menuOverlay
+// were removed here. That was a leftover single-screen menu from before
+// the 4-screen flow existed; #menuOverlay is hidden by default now and
+// nothing ever shows it, so those listeners were dead code attached to
+// elements no one can reach.
+
+// ===================================================
+//           MOBILE DASH BUTTON HANDLERS
+// ===================================================
+mobileDashButton.addEventListener("touchstart", (e) => {
+    if (!gameStarted || controlMode !== "mobile") return;
+    
+    spaceHeld = true;
+    spaceHoldStartTime = performance.now();
+    e.preventDefault();
+}, { passive: false });
+
+mobileDashButton.addEventListener("touchend", (e) => {
+    if (!gameStarted || controlMode !== "mobile") return;
+    
+    const holdDurationSec = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+    spaceHeld = false;
+    
+    if (holdDurationSec > 0.1) {
+        dashTimeRemaining = (holdDurationSec / 10) * 5;
+        isDashing = true;
+        ship.speed = ship.baseSpeed * 3;
+    } else {
+        ship.speed = ship.baseSpeed;
+        isDashing = false;
+    }
+    dashChargeDuration = 0;
+    e.preventDefault();
+}, { passive: false });
+
+// ===================================================
+//            AUDIO TOGGLE HANDLER
+// ===================================================
+audioToggleBtn.addEventListener("click", () => {
+    audioEnabled = !audioEnabled;
+    if (audioEnabled) {
+        bgMusic.play().catch(() => {});
+        audioToggleBtn.textContent = "Audio: ALL ON";
+    } else {
+        bgMusic.pause();
+        stopBeamChargeAudio();
+        audioToggleBtn.textContent = "Audio: ALL OFF";
+    }
+});
+
+// ===================================================
+//            GUI TOGGLE HANDLER
+// ===================================================
+guiToggleBtn.addEventListener("click", () => {
+    guiVisible = !guiVisible;
+    if (guiVisible) {
+        overlay.style.display = "block";
+        guiToggleBtn.style.opacity = "1";
+    } else {
+        overlay.style.display = "none";
+        guiToggleBtn.style.opacity = "0.3";
+    }
+});
+
+// ===================================================
+//                  SHIP MOVEMENT
+// ===================================================
+function updateShip(dt){
+    // Handle respawn
+    if (!ship.isAlive) {
+        const now = Date.now();
+        const timeSinceDeath = now - ship.deathTime;
+        
+        if (timeSinceDeath >= 2000) {
+            // Respawn at origin
+            ship.x = 0;
+            ship.y = 0;
+            ship.angle = 0;
+            ship.isAlive = true;
+            trail = []; // Clear trail on respawn
+            lifeStartTime = Date.now(); // Score clock for this life starts now
+            lifeStartX = ship.x;
+            lifeStartY = ship.y;
+
+            // Broadcast respawn to other players
+            pendingShot = null; // Clear any pending shots
+        } else {
+            // Dead, don't move
+            return;
+        }
+    }
+    
+    let desiredAngle;
+
+    if(controlMode === "mobile" && gyroEnabled){
+        if (neutralGamma !== null) {
+            const gammaDelta = gamma - neutralGamma;
+            const turnStrength = 0.08;
+            ship.angle += (gammaDelta * Math.PI / 180) * turnStrength;
+        }
+        
+        // Mobile dash handling (from button)
+        if (spaceHeld && !isDashing) {
+            dashChargeDuration = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+            ship.speed = ship.baseSpeed * 0.6;
+        } else if (!isDashing) {
+            ship.speed = ship.baseSpeed;
+        }
+
+        if (isDashing) {
+            dashTimeRemaining -= dt;
+            if (dashTimeRemaining <= 0) {
+                dashTimeRemaining = 0;
+                isDashing = false;
+                ship.speed = ship.baseSpeed;
+            }
+        }
+    }else if(controlMode === "computer"){
+        desiredAngle = Math.atan2(mouse.y-centerY, mouse.x-centerX);
+        let difference = wrapAngle(desiredAngle-ship.angle);
+        ship.angle += difference*0.06;
+
+        if (spaceHeld && !isDashing) {
+            dashChargeDuration = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+            ship.speed = ship.baseSpeed * 0.6;
+        } else if (!isDashing) {
+            ship.speed = ship.baseSpeed;
+        }
+
+        if (isDashing) {
+            dashTimeRemaining -= dt;
+            if (dashTimeRemaining <= 0) {
+                dashTimeRemaining = 0;
+                isDashing = false;
+                ship.speed = ship.baseSpeed;
+            }
+        }
+    }
+
+    updateDashMeter();
+
+    if(!paused){
+        const prevScoreX = ship.x;
+        const prevScoreY = ship.y;
+        ship.x += Math.cos(ship.angle) * ship.speed;
+        ship.y += Math.sin(ship.angle) * ship.speed;
+
+        // Distance actually moved this frame. Only accrues while alive
+        // (this whole block is unreachable while dead -- see the early
+        // return in the respawn branch above) and only while unpaused,
+        // which is what keeps sitting still or being paused from earning
+        // free score, without needing a separate solo-play rule for it.
+        if (ship.isAlive) {
+            const distThisFrame = Math.hypot(ship.x - prevScoreX, ship.y - prevScoreY);
+            accumulateLiveScore(dt, distThisFrame);
+            updateScoreDisplay();
+        }
+    }
+
+    // Check border collision - bounce back and explode if hitting border
+    if (isOutOfBounds(ship.x, ship.y) && !isInSafeZone(ship.x, ship.y)) {
+        // Only explode if we just crossed the border
+        const prevX = ship.x - Math.cos(ship.angle) * ship.speed;
+        const prevY = ship.y - Math.sin(ship.angle) * ship.speed;
+        
+        if (!isOutOfBounds(prevX, prevY)) {
+            // Just hit the border - kill player
+            createExplosion(ship.x, ship.y, 15);
+            ship.isAlive = false;
+            ship.deathTime = Date.now();
+            trail = []; // Clear trail immediately
+            reportLifeEnded();
+        } else {
+            // Clamp position to bounds
+            const clamped = clampToBounds(ship.x, ship.y);
+            ship.x = clamped.x;
+            ship.y = clamped.y;
+        }
+    }
+
+    // Check asteroid collision - kills the player on physical impact
+    // (previously asteroids only responded to being shot; this adds the
+    // ship-vs-asteroid pair). Respects the safe zone the same way border
+    // and bullet death already do. The asteroid is destroyed on impact
+    // too -- both die together, matching the visual/mechanical read of
+    // "collision," and meaning the same asteroid can't sit there killing
+    // multiple players in a row. No score is credited for this,
+    // deliberately: crediting points for the same event that just
+    // killed you would reward dying, which isn't the intent -- whatever
+    // score was already earned this life is still submitted normally via
+    // reportLifeEnded() below, same as any other death.
+    if (ship.isAlive && !isInSafeZone(ship.x, ship.y)) {
+        for (let k = asteroids.length - 1; k >= 0; k--) {
+            const a = asteroids[k];
+            const dist = Math.hypot(ship.x - a.x, ship.y - a.y);
+            if (dist < ship.size + a.size) {
+                createExplosion(ship.x, ship.y, 15);
+                createExplosion(a.x, a.y, 10, ASTEROID_COLOR);
+                asteroids.splice(k, 1);
+                spawnAsteroid(); // 1-for-1 respawn, same as destroyAsteroid()
+                ship.isAlive = false;
+                ship.deathTime = Date.now();
+                trail = [];
+                reportLifeEnded();
+                break; // Ship can only die once per frame; stop checking further asteroids
+            }
+        }
+    }
+
+    camera.x = ship.x;
+    camera.y = ship.y;
+}
+
+// ===================================================
+//                  UPDATE TRAIL
+// ===================================================
+let trailAccumulator = 0;
+
+function updateTrail(dt){
+    if(paused) return;
+
+    trailAccumulator += dt;
+    if(trailAccumulator < 0.03) return;
+    trailAccumulator = 0;
+
+    trail.push({
+        x: ship.x,
+        y: ship.y
+    });
+
+    if (trail.length > 1000) {
+        trail.shift();
+    }
+}
+
+// ===================================================
+//                  DRAW TRAIL
+// ===================================================
+function drawTrail(){
+    if(trail.length < 2) return;
+
+    ctx.strokeStyle = ship.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+
+    for(let i=0;i<trail.length;i++){
+        const p = trail[i];
+        const sx = centerX + (p.x-camera.x);
+        const sy = centerY + (p.y-camera.y);
+
+        if(i===0) ctx.moveTo(sx,sy);
+        else ctx.lineTo(sx,sy);
+    }
+    ctx.stroke();
+}
+
+// ===================================================
+//            BATCH RENDER BULLETS BY TYPE
+// ===================================================
+function updateAndDrawBullets() {
+    const visibleCells = getVisibleGridCells();
+    
+    const standardBullets = [];
+    const beamBullets = [];
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        
+        b.x += b.vx;
+        b.y += b.vy;
+        b.life--;
+
+        // Check collision with world border (only if bullet still visible)
+        if (isOutOfBounds(b.x, b.y)) {
+            // Only explode if bullet hasn't faded out yet
+            const distTraveled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
+            let opacity = 1.0;
+            if (distTraveled > b.maxDistance) {
+                opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
+            }
+            
+            // Only create explosion if bullet is still visible
+            if (opacity > 0) {
+                createExplosion(b.x, b.y, 8);
+            }
+            
+            removeFromGrid(b.gridKey, b);
+            bulletPool.push(b);
+            bullets.splice(i, 1);
+            continue;
+        }
+
+        // Check collision with player ship (only from remote shots, not in safe zone)
+        if (ship.isAlive && !b.isLocalShot && !isInSafeZone(ship.x, ship.y)) {
+            const dist = Math.hypot(b.x - ship.x, b.y - ship.y);
+            if (dist < ship.size + b.size) {
+                // Hit! Create explosion and kill player
+                createExplosion(ship.x, ship.y, 15);
+                ship.isAlive = false;
+                ship.deathTime = Date.now();
+                trail = []; // Clear trail immediately on death
+
+                // Tell the server who shot us, so it can relay kill
+                // credit to THAT player's client. This only fires when
+                // the bullet actually carries an owner (b.ownerId is set
+                // for remote shots via fireLaser's ownerId param -- see
+                // where remote shots are spawned in updateRemotePlayer).
+                // If ownerId is somehow missing, we just skip crediting
+                // rather than guessing -- a death should never crash the
+                // game over an incomplete kill-credit message.
+                if (b.ownerId && hasJoinedRoom && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: "kill-credit",
+                        shooterId: b.ownerId
+                    }));
+                }
+
+                reportLifeEnded();
+                
+                removeFromGrid(b.gridKey, b);
+                bulletPool.push(b);
+                bullets.splice(i, 1);
+                continue;
+            }
+        }
+
+        // Check collision with asteroids. Gated to isLocalShot only --
+        // per the design note on the asteroid system above, each
+        // client's asteroid field is simulated independently and not
+        // network-synced, so a REMOTE player's bullet passing through
+        // "my" asteroid shouldn't destroy it or credit anyone on my
+        // client; only my own bullets interact with my own asteroid field.
+        let bulletConsumedByAsteroid = false;
+        if (b.isLocalShot) {
+            for (let j = asteroids.length - 1; j >= 0; j--) {
+                const a = asteroids[j];
+                const dist = Math.hypot(b.x - a.x, b.y - a.y);
+                if (dist < a.size + b.size) {
+                    destroyAsteroid(j);
+                    removeFromGrid(b.gridKey, b);
+                    bulletPool.push(b);
+                    bullets.splice(i, 1);
+                    bulletConsumedByAsteroid = true;
+                    break; // Stop checking other asteroids -- this bullet is now consumed
+                }
+            }
+        }
+        if (bulletConsumedByAsteroid) continue;
+
+        if (b.life <= 0) {
+            removeFromGrid(b.gridKey, b);
+            bulletPool.push(b);
+            bullets.splice(i, 1);
+            continue;
+        }
+
+        const newGridKey = getGridKey(b.x, b.y);
+        if (newGridKey !== b.gridKey) {
+            removeFromGrid(b.gridKey, b);
+            b.gridKey = newGridKey;
+            addToGrid(newGridKey, b);
+        }
+
+        if (b.type === "beam") {
+            beamBullets.push(b);
+        } else {
+            standardBullets.push(b);
+        }
+    }
+
+    if (standardBullets.length > 0) {
+        renderBulletBatch(standardBullets, false);
+    }
+
+    if (beamBullets.length > 0) {
+        renderBulletBatch(beamBullets, true);
+    }
+}
+
+function renderBulletBatch(bulletArray, isBeam) {
+    const byColor = {};
+    
+    for (const b of bulletArray) {
+        if (!byColor[b.color]) {
+            byColor[b.color] = [];
+        }
+        byColor[b.color].push(b);
+    }
+
+    for (const color in byColor) {
+        const bullets = byColor[color];
+        ctx.fillStyle = color;
+
+        for (const b of bullets) {
+            const distTraveled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
+            
+            let opacity = 1.0;
+            if (distTraveled > b.maxDistance) {
+                opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
+            }
+
+            const sx = centerX + (b.x - camera.x);
+            const sy = centerY + (b.y - camera.y);
+
+            if (sx < -50 || sx > width + 50 || sy < -50 || sy > height + 50) {
+                continue;
+            }
+
+            ctx.globalAlpha = opacity;
+            ctx.beginPath();
+            ctx.arc(sx, sy, b.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    ctx.globalAlpha = 1.0;
+}
+    
+// ===================================================
+//             AUTOMATIC BACKGROUND MUSIC
+// ===================================================
+const bgMusic = new Audio("Gyro Music.mp3");
+bgMusic.volume = 0.3;
+bgMusic.loop = true;
+
+function startAudio() {
+    if (!audioEnabled) return;
+    bgMusic.play().then(() => {
+        window.removeEventListener("click", startAudio);
+        window.removeEventListener("touchstart", startAudio);
+    }).catch(() => {});
+}
+
+window.addEventListener("click", startAudio);
+window.addEventListener("touchstart", startAudio);
+    
+// ===================================================
+//                  DRAW STARFIELD
+// ===================================================
+function drawStars(){
+    ctx.fillStyle="white";
+
+    for(let i=0; i<STAR_COUNT; i++){
+        const star = stars[i];
+        const sx = centerX + (star.x - camera.x*0.05);
+        const sy = centerY + (star.y - camera.y*0.05);
+
+        if(sx<0 || sy<0 || sx>width || sy>height) continue;
+
+        ctx.beginPath();
+        ctx.arc(sx, sy, star.size, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+// ===================================================
+//            DRAW OTHER MULTIPLAYER SHIPS & TRAILS
+// ===================================================
+function drawRemotePlayers(){
+    for (const id in remotePlayers) {
+        const p = remotePlayers[id];
+
+        // Skip dead players
+        if (!p.isAlive) {
+            continue;
+        }
+
+        if (p.targetX !== undefined) {
+            p.x = lerp(p.x, p.targetX, 0.2);
+            p.y = lerp(p.y, p.targetY, 0.2);
+        }
+
+        if (p.trail && p.trail.length > 1) {
+            ctx.strokeStyle = p.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let i = 0; i < p.trail.length; i++) {
+                const pt = p.trail[i];
+                const tsx = centerX + (pt.x - camera.x);
+                const tsy = centerY + (pt.y - camera.y);
+                
+                if (i === 0) ctx.moveTo(tsx, tsy);
+                else ctx.lineTo(tsx, tsy);
+            }
+            ctx.stroke();
+        }
+        
+        const sx = centerX + (p.x - camera.x);
+        const sy = centerY + (p.y - camera.y);
+        
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(p.angle);
+        
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.moveTo(ship.size, 0);
+        ctx.lineTo(-ship.size*.8, -ship.size*.6);
+        ctx.lineTo(-ship.size*.35, 0);
+        ctx.lineTo(-ship.size*.8, ship.size*.6);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.restore();
+        
+        // Draw remote player name above ship
+        if (p.name) {
+            ctx.save();
+            ctx.fillStyle = p.color;
+            ctx.font = "12px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText(p.name, sx, sy - 35);
+            ctx.restore();
+        }
+    }
+}
+
+// ===================================================
+//          DRAW WORLD BORDER & SAFE ZONE
+// ===================================================
+function drawWorldBorder() {
+    const outerX = centerX + (WORLD_BOUNDS.min - camera.x);
+    const outerY = centerY + (WORLD_BOUNDS.min - camera.y);
+    const outerSize = (WORLD_BOUNDS.max - WORLD_BOUNDS.min);
+    
+    // Draw solid white border on OUTSIDE edge (flipped direction)
+    const outerMin = WORLD_BOUNDS.min - WORLD_BOUNDS.borderThickness;
+    const outerMax = WORLD_BOUNDS.max + WORLD_BOUNDS.borderThickness;
+    
+    const borderX = centerX + (outerMin - camera.x);
+    const borderY = centerY + (outerMin - camera.y);
+    const borderSize = outerMax - outerMin;
+    
+    ctx.fillStyle = "rgba(255, 255, 255, 1)";
+    
+    // Top border (outside)
+    ctx.fillRect(borderX, borderY, borderSize, WORLD_BOUNDS.borderThickness);
+    
+    // Bottom border (outside)
+    ctx.fillRect(borderX, borderY + borderSize - WORLD_BOUNDS.borderThickness, borderSize, WORLD_BOUNDS.borderThickness);
+    
+    // Left border (outside)
+    ctx.fillRect(borderX, borderY, WORLD_BOUNDS.borderThickness, borderSize);
+    
+    // Right border (outside)
+    ctx.fillRect(borderX + borderSize - WORLD_BOUNDS.borderThickness, borderY, WORLD_BOUNDS.borderThickness, borderSize);
+}
+
+function drawSafeZone() {
+    const sx = centerX + (SAFE_ZONE.x - camera.x);
+    const sy = centerY + (SAFE_ZONE.y - camera.y);
+    
+    // Draw safe zone circle with 20% opaque white fill
+    ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.beginPath();
+    ctx.arc(sx, sy, SAFE_ZONE.radius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Draw circle outline
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
+// ===================================================
+//               DRAW ENTIRE SCENE
+// ===================================================
+function drawScene(){
+    ctx.fillStyle="black";
+    ctx.fillRect(0, 0, width, height);
+
+    drawStars();
+    drawWorldBorder();     // Draw world border
+    drawSafeZone();        // Draw safe zone
+    drawAsteroids();       // Background hazard layer, before trails/ships/bullets
+    drawTrail();           // Draw trail first (behind)
+    drawRemotePlayers();   // Draw remote players on top of trail
+    drawCooldownRing();
+    drawShip();            // Draw your ship on top
+    updateAndDrawBullets();
+    updateAndDrawExplosions(); // Draw explosions on top of everything
+}
+
+// ===================================================
+//               AUTO DETECT GYRO
+// ===================================================
+if ("DeviceOrientationEvent" in window) {
+    gyroSupported = true;
+}
+
+// ===================================================
+//          KEYBOARD CONTROL FOR COMPUTER DASH
+// ===================================================
+window.addEventListener("keydown", e => {
+    if (e.code === "Space" && controlMode === "computer" && !spaceHeld && !e.repeat) {
+        spaceHeld = true;
+        spaceHoldStartTime = performance.now();
+    }
+});
+
+window.addEventListener("keyup", e => {
+    if (e.code === "Space" && controlMode === "computer" && spaceHeld) {
+        spaceHeld = false;
+        const holdDurationSec = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
+        if (holdDurationSec > 0.1) {
+            dashTimeRemaining = (holdDurationSec / 10) * 5;
+            isDashing = true;
+            ship.speed = ship.baseSpeed * 3;
+        } else {
+            ship.speed = ship.baseSpeed;
+        }
+        dashChargeDuration = 0;
+    }
+});
+
+// ===================================================
+//               MAIN ANIMATION LOOP
+// ===================================================
+function animate(now){
+    requestAnimationFrame(animate);
+
+    const frameStartTime = performance.now();
+
+    const dt = Math.min((now - lastFrame) / 1000, 0.05);
+    lastFrame = now;
+
+    fps = lerp(fps, 1 / Math.max(dt, 0.0001), 0.08);
+
+    if(gameStarted){
+        updateShip(dt);
+        updateAsteroids(dt);
+        updateTrail(dt);
+        updateBeamChargeAudio();
+
+        if (now - lastSendTime >= SEND_INTERVAL) {
+            // hasJoinedRoom guards this: the server silently drops "update"
+            // messages sent before "join-room", so this isn't strictly
+            // required for correctness -- but sending real position data
+            // into the void every 100ms before the player has even chosen
+            // a room is wasted work, so we skip it explicitly.
+            if (socket.readyState === WebSocket.OPEN && hasJoinedRoom) {
+                const payload = {
+                    type: "update",
+                    x: Number(ship.x.toFixed(1)),
+                    y: Number(ship.y.toFixed(1)),
+                    angle: Number(ship.angle.toFixed(2)),
+                    color: ship.color,
+                    isAlive: ship.isAlive  // ✅ ADD THIS LINE to broadcast alive state
+                };
+
+                if (pendingShot) {
+                    payload.shot = pendingShot;
+                    console.log("Sending payload with shot:", payload);
+                    pendingShot = null;
+                } else {
+                    console.log("Sending payload (no shot):", payload);
+                }
+
+                socket.send(JSON.stringify(payload));
+            }
+            lastSendTime = now;
+        }
+    }
+
+    drawScene();
+    
+    frameTime = performance.now() - frameStartTime;
+    updateOverlay();
+}
+
+requestAnimationFrame(animate);
+
+// ===================================================
+//            INITIAL SHIP/TRAIL SETUP
+// ===================================================
+trail.push({
+    x: ship.x,
+    y: ship.y
+});
+
+// ===================================================
+//               PREVENT PAGE SCROLL
+// ===================================================
+document.body.addEventListener("touchmove", function(e){
+    e.preventDefault();
+}, { passive:false });
+
+// ===================================================
+//             DOUBLE TAP ZOOM DISABLE
+// ===================================================
+let lastTouch = 0;
+document.body.addEventListener("touchend", function(e){
+    const now = Date.now();
+    if(now-lastTouch<300){
+        e.preventDefault();
+    }
+    lastTouch = now;
+}, {passive:false});
+
+// ===================================================
+//              INITIAL OVERLAY TEXT
+// ===================================================
+updateOverlay();
+console.log("Gyro Space - Updated");
+</script>
+    
+</body>
+</html>

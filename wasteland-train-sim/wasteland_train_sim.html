@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Wasteland Train Sim</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: monospace;
+            touch-action: none; /* Prevent browser swipe behaviors */
+        }
+        canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #d25a22;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #d25a22;
+            z-index: 5;
+        }
+        h2 { margin: 0 0 5px 0; }
+        p { margin: 0 0 5px 0; font-size: 14px; color: #aaa; }
+        #speedout { color: #fff; font-weight: bold; }
+        
+        /* Mobile Toggle UI */
+        .toggle-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #d25a22;
+            background: rgba(0,0,0,0.8);
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #555;
+            z-index: 10;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            font-size: 14px;
+            user-select: none;
+        }
+        .toggle-container input {
+            margin-right: 10px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        /* Joystick UI */
+        #joystick-zone {
+            position: absolute;
+            bottom: 80px;
+            left: 30px;
+            width: 140px;
+            height: 140px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 2px solid #666;
+            border-radius: 50%;
+            display: none;
+            z-index: 10;
+        }
+        #joystick-knob {
+            position: absolute;
+            top: 35px;
+            left: 35px;
+            width: 70px;
+            height: 70px;
+            background: rgba(210, 90, 34, 0.5);
+            border: 2px solid #d25a22;
+            border-radius: 50%;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h2>WASTELAND EXPRESS</h2>
+        <p>Speed: <span id="speedout">0</span> mph</p>
+        <p id="instructionText">WASD to move | Mouse click to aim & fire</p>
+    </div>
+
+    <label class="toggle-container">
+        <input type="checkbox" id="mobileToggle"> Mobile Controls
+    </label>
+
+    <div id="joystick-zone">
+        <div id="joystick-knob"></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const speedOut = document.getElementById('speedout');
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- GAME CONFIG & WORLD STATE ---
+let globalY = 1000;
+let scrollSpeed = 2;
+
+// Coordinate Helpers
+function getWorldY(gameY) { return globalY + (canvas.height - gameY); }
+function getGameY(worldY) { return canvas.height - (worldY - globalY); }
+
+function getTrackX(wy) {
+    const centerX = canvas.width / 2;
+    const wave1 = Math.sin(wy * 0.0008) * 120;
+    const wave2 = Math.sin(wy * 0.0023) * 60;
+    return centerX + wave1 + wave2;
+}
+
+// --- CAMERA ---
+let cam = { x: canvas.width / 2, y: canvas.height / 2 };
+
+// --- INPUT HANDLING ---
+const keys = {};
+let mouse = { screenX: canvas.width / 2, screenY: canvas.height / 2 };
+let gameMouseX = canvas.width / 2;
+let gameMouseY = canvas.height / 2;
+let isShooting = false;
+
+window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+window.addEventListener('mousemove', e => {
+    if (!isMobile) { mouse.screenX = e.clientX; mouse.screenY = e.clientY; }
+});
+window.addEventListener('mousedown', () => { if(!isMobile) isShooting = true; });
+window.addEventListener('mouseup', () => { if(!isMobile) isShooting = false; });
+
+// Mobile Controls
+const mobileToggle = document.getElementById('mobileToggle');
+const joyZone = document.getElementById('joystick-zone');
+const joyKnob = document.getElementById('joystick-knob');
+const instructionText = document.getElementById('instructionText');
+
+let isMobile = false;
+let joyActive = false;
+let joyDelta = { x: 0, y: 0 };
+
+mobileToggle.addEventListener('change', e => {
+    isMobile = e.target.checked;
+    joyZone.style.display = isMobile ? 'block' : 'none';
+    instructionText.innerText = isMobile ? "Left Joystick to move | Touch screen to fire" : "WASD to move | Mouse click to aim & fire";
+    isShooting = false;
+});
+
+function handleJoy(e) {
+    e.preventDefault();
+    joyActive = true;
+    let touch = e.changedTouches[0];
+    let rect = joyZone.getBoundingClientRect();
+    let cx = rect.left + rect.width / 2;
+    let cy = rect.top + rect.height / 2;
+    let dx = touch.clientX - cx;
+    let dy = touch.clientY - cy;
+    let dist = Math.sqrt(dx*dx + dy*dy);
+    let maxDist = rect.width / 2 - 35; 
+    
+    if(dist > maxDist) {
+        dx = (dx / dist) * maxDist;
+        dy = (dy / dist) * maxDist;
+    }
+    joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+    joyDelta.x = dx / maxDist;
+    joyDelta.y = dy / maxDist;
+}
+
+joyZone.addEventListener('touchstart', handleJoy, {passive: false});
+joyZone.addEventListener('touchmove', handleJoy, {passive: false});
+joyZone.addEventListener('touchend', e => {
+    e.preventDefault();
+    joyActive = false;
+    joyDelta = {x: 0, y: 0};
+    joyKnob.style.transform = `translate(0px, 0px)`;
+});
+
+function handleAimAndFire(e) {
+    if (!isMobile) return;
+    let touchingAim = false;
+    for(let i=0; i<e.touches.length; i++) {
+        let t = e.touches[i];
+        if(!t.target.closest('#joystick-zone') && !t.target.closest('.toggle-container')) {
+            mouse.screenX = t.clientX;
+            mouse.screenY = t.clientY;
+            touchingAim = true;
+        }
+    }
+    isShooting = touchingAim;
+}
+
+window.addEventListener('touchstart', handleAimAndFire, {passive: false});
+window.addEventListener('touchmove', handleAimAndFire, {passive: false});
+window.addEventListener('touchend', handleAimAndFire, {passive: false});
+
+// --- TRAIN SETUP & STATE ---
+const carWidth = 100;
+const carHeight = 220;
+const gap = 30;
+
+let trainState = [
+    { id: 0, hp: 100, max: 100 }, // Engine
+    { id: 1, hp: 100, max: 100 }, // Middle
+    { id: 2, hp: 100, max: 100 }  // Caboose
+];
+
+function getTrainCars() {
+    const cars = [];
+    // Anchor engine position on screen
+    let engineWy = getWorldY(canvas.height / 2 - carHeight - gap); 
+    let currentWy = engineWy;
+
+    function getWyAtDist(startWy, targetD, dir) {
+        let wy = startWy;
+        let sx = getTrackX(wy);
+        let d = 0;
+        let step = 5 * dir;
+        let safety = 0;
+        while(d < targetD && safety++ < 200) {
+            wy += step;
+            d = Math.hypot(getTrackX(wy) - sx, wy - startWy);
+        }
+        return wy;
+    }
+
+    for (let i = 0; i < trainState.length; i++) {
+        let cx = getTrackX(currentWy);
+        let cy = getGameY(currentWy);
+        let dx = getTrackX(currentWy + 10) - getTrackX(currentWy - 10);
+        let dy = getGameY(currentWy + 10) - getGameY(currentWy - 10); 
+        let angle = Math.atan2(dy, dx) + Math.PI/2;
+        
+        cars.push({ cx, cy, w: carWidth, h: carHeight, angle, isGangway: false, index: i });
+
+        if (i < trainState.length - 1) {
+            currentWy = getWyAtDist(currentWy, carHeight + gap, -1);
+        }
+    }
+    return cars;
+}
+
+function getGangways(cars) {
+    let gWays = [];
+    for(let i=0; i<cars.length - 1; i++) {
+        let c1 = cars[i];
+        let c2 = cars[i+1];
+        let cx = (c1.cx + c2.cx) / 2;
+        let cy = (c1.cy + c2.cy) / 2;
+        let dx = c1.cx - c2.cx;
+        let dy = c1.cy - c2.cy;
+        let angle = Math.atan2(dy, dx) + Math.PI/2;
+        gWays.push({ cx, cy, w: 40, h: gap + 10, angle, isGangway: true }); 
+    }
+    return gWays;
+}
+
+// --- PLAYER ---
+const player = {
+    x: canvas.width / 2,
+    y: canvas.height / 2,
+    radius: 12,
+    speed: 5,
+    flash: 0
+};
+let playerRel = { surfaceIndex: 1, rx: 0, ry: 0 };
+
+// --- ENTITIES ---
+let bullets = [];
+let zombies = [];
+let bloods = [];
+let lastShotTime = 0;
+
+function createBlood(wx, wy) {
+    let splats = [];
+    let count = 5 + Math.random() * 8;
+    for(let i=0; i<count; i++) {
+        splats.push({
+            x: (Math.random() - 0.5) * 45,
+            y: (Math.random() - 0.5) * 45,
+            r: 2 + Math.random() * 8
+        });
+    }
+    bloods.push({ worldX: wx, worldY: wy, splats });
+}
+
+// --- PROCEDURAL WORLD GENERATION ---
+let sceneries = [];
+let branches = [];
+let tunnels = [];
+let lastForkY = 0;
+const rustColors = ['#8B3A3A', '#A0522D', '#5C3A21', '#4A3C31', '#2F2F2F', '#5c4033'];
+
+function spawnWorldElements() {
+    if (Math.random() < 0.03) {
+        let isLeft = Math.random() > 0.5;
+        let w = 50 + Math.random() * 200;
+        let h = 80 + Math.random() * 200;
+        let distFromCenter = (carWidth / 2) + 30 + Math.random() * 300;
+        let xOffset = isLeft ? -distFromCenter - w : distFromCenter;
+        
+        sceneries.push({
+            worldY: globalY + canvas.height + h + 200,
+            xOffset: xOffset, w: w, h: h,
+            color: rustColors[Math.floor(Math.random() * rustColors.length)]
+        });
+    }
+
+    if (Math.random() < 0.0025 && globalY > lastForkY + 1500) {
+        branches.push({ worldY: globalY + canvas.height + 800, dir: Math.random() > 0.5 ? 1 : -1 });
+        lastForkY = globalY;
+    }
+
+    if (Math.random() < 0.0005 && tunnels.length === 0) {
+        tunnels.push({ worldY: globalY + canvas.height + 1000, h: 800 + Math.random() * 1000 });
+    }
+
+    // Spawn Zombies behind the train
+    if (Math.random() < 0.035) {
+        let spawnGameY = cam.y + 700 + Math.random() * 400; // Far behind
+        let spawnWy = getWorldY(spawnGameY);
+        let spawnX = getTrackX(spawnWy) + (Math.random() * 800 - 400);
+        zombies.push({ worldX: spawnX, worldY: spawnWy, hp: 3, speed: 1.5 + Math.random() * 2.5, lastAttack: 0 });
+    }
+
+    // Cleanup
+    sceneries = sceneries.filter(s => getGameY(s.worldY) < cam.y + canvas.height + 500);
+    branches = branches.filter(b => getGameY(b.worldY) < cam.y + canvas.height + 2000);
+    tunnels = tunnels.filter(t => getGameY(t.worldY + t.h) < cam.y + canvas.height + 500);
+    bloods = bloods.filter(b => getGameY(b.worldY) < cam.y + canvas.height + 800);
+    zombies = zombies.filter(z => getGameY(z.worldY) < cam.y + 1800 && z.hp > 0);
+}
+
+function updateGameLogic() {
+    let lookAheadY = getWorldY(0);
+    let p1 = getTrackX(lookAheadY);
+    let p2 = getTrackX(lookAheadY + 100);
+    let p3 = getTrackX(lookAheadY + 200);
+    let curveSharpness = Math.abs((p3 - p2) - (p2 - p1)); 
+    
+    let targetSpeed = 4 - (curveSharpness * 1.125);
+    targetSpeed = Math.max(1, Math.min(4, targetSpeed));
+    scrollSpeed += (targetSpeed - scrollSpeed) * 0.05; 
+    globalY += scrollSpeed;
+    speedOut.innerText = Math.round(scrollSpeed * 15); 
+    
+    // Smooth Camera Follow
+    cam.x += (player.x - cam.x) * 0.1;
+    cam.y += (player.y - cam.y) * 0.1;
+
+    // Calc Mouse in Game Space
+    gameMouseX = mouse.screenX - canvas.width/2 + cam.x;
+    gameMouseY = mouse.screenY - canvas.height/2 + cam.y;
+
+    spawnWorldElements();
+    updatePlayer();
+    updateCombat();
+}
+
+// --- PHYSICS / COLLISION ---
+function pointInRotatedRect(px, py, cx, cy, w, h, angle) {
+    let cos = Math.cos(-angle);
+    let sin = Math.sin(-angle);
+    let nx = (cos * (px - cx)) - (sin * (py - cy));
+    let ny = (sin * (px - cx)) + (cos * (py - cy));
+    return (nx >= -w/2 && nx <= w/2 && ny >= -h/2 && ny <= h/2);
+}
+
+function isPointInAnySurface(px, py, surfaces) {
+    for (let s of surfaces) {
+        // Expand gangways into car interiors so the player has a solid bridge
+        if (s.isGangway) {
+            if (pointInRotatedRect(px, py, s.cx, s.cy, s.w + 4, s.h + 20, s.angle)) return true;
+        } else {
+            if (pointInRotatedRect(px, py, s.cx, s.cy, s.w - 16, s.h - 16, s.angle)) return true;
+        }
+    }
+    return false;
+}
+
+function updatePlayer() {
+    let cars = getTrainCars();
+    let gWays = getGangways(cars);
+    let surfaces = [...cars, ...gWays];
+
+    if (surfaces.length === 0) return; // Train dead
+
+    // Ensure surface index is safe if cars popped
+    if (playerRel.surfaceIndex >= surfaces.length) {
+        playerRel.surfaceIndex = surfaces.length - 1;
+        playerRel.rx = 0; playerRel.ry = 0;
+    }
+
+    let surf = surfaces[playerRel.surfaceIndex];
+    let cos = Math.cos(surf.angle);
+    let sin = Math.sin(surf.angle);
+    
+    let px = surf.cx + (playerRel.rx * cos - playerRel.ry * sin);
+    let py = surf.cy + (playerRel.rx * sin + playerRel.ry * cos);
+
+    let dx = 0, dy = 0;
+    if (isMobile && joyActive) {
+        dx = joyDelta.x * player.speed;
+        dy = joyDelta.y * player.speed;
+    } else if (!isMobile) {
+        if (keys['w']) dy -= player.speed;
+        if (keys['s']) dy += player.speed;
+        if (keys['a']) dx -= player.speed;
+        if (keys['d']) dx += player.speed;
+        if (dx !== 0 && dy !== 0) { dx *= 0.7071; dy *= 0.7071; }
+    }
+
+    if (dx !== 0) if (isPointInAnySurface(px + dx, py, surfaces)) px += dx;
+    if (dy !== 0) if (isPointInAnySurface(px, py + dy, surfaces)) py += dy;
+
+    player.x = px;
+    player.y = py;
+
+    if (!pointInRotatedRect(px, py, surf.cx, surf.cy, surf.isGangway ? surf.w+4 : surf.w-16, surf.isGangway ? surf.h+20 : surf.h-16, surf.angle)) {
+        for (let i = 0; i < surfaces.length; i++) {
+            let chk = surfaces[i];
+            if (pointInRotatedRect(px, py, chk.cx, chk.cy, chk.isGangway ? chk.w+4 : chk.w-16, chk.isGangway ? chk.h+20 : chk.h-16, chk.angle)) {
+                playerRel.surfaceIndex = i;
+                surf = surfaces[i];
+                break;
+            }
+        }
+    }
+
+    let relX = px - surf.cx;
+    let relY = py - surf.cy;
+    cos = Math.cos(surf.angle);
+    sin = Math.sin(surf.angle);
+    playerRel.rx = relX * cos + relY * sin;
+    playerRel.ry = -relX * sin + relY * cos;
+}
+
+function updateCombat() {
+    let cars = getTrainCars();
+    let gWays = getGangways(cars);
+    let surfaces = [...cars, ...gWays];
+
+    // Check train health
+    if (trainState.length > 0 && trainState[trainState.length - 1].hp <= 0) {
+        let caboose = cars[cars.length - 1];
+        for(let k=0; k<20; k++) createBlood(getTrackX(getWorldY(caboose.cy)) + (Math.random()*150-75), getWorldY(caboose.cy) + (Math.random()*150-75)); 
+        trainState.pop(); // Boom! Next car becomes caboose
+        // If engine dies, keep it barely alive for now so game doesn't strictly end, or game over.
+        if (trainState.length === 0) trainState.push({id: 0, hp: 100, max: 100}); 
+    }
+
+    // Shooting
+    if (isShooting && Date.now() - lastShotTime > 150) {
+        lastShotTime = Date.now();
+        let dx = gameMouseX - player.x;
+        let dy = gameMouseY - player.y;
+        let dist = Math.hypot(dx, dy);
+        if (dist > 0) {
+            bullets.push({ x: player.x + (dx/dist)*20, y: player.y + (dy/dist)*20, dx: (dx/dist) * 22, dy: (dy/dist) * 22, life: 60 });
+            player.flash = 4;
+        }
+    }
+
+    // Update Bullets
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i];
+        b.x += b.dx;
+        b.y += b.dy;
+        b.life--;
+        
+        let hit = false;
+        for (let j = zombies.length - 1; j >= 0; j--) {
+            let z = zombies[j];
+            let zGameY = getGameY(z.worldY);
+            if (Math.hypot(b.x - z.worldX, b.y - zGameY) < 22) {
+                z.hp--;
+                hit = true;
+                createBlood(z.worldX, z.worldY); // bullet hit blood
+                break;
+            }
+        }
+        if (hit || b.life <= 0) bullets.splice(i, 1);
+    }
+
+    // Zombie Separation (prevent overlapping pileups)
+    for (let i = 0; i < zombies.length; i++) {
+        let z = zombies[i];
+        for (let j = 0; j < zombies.length; j++) {
+            if (i === j) continue;
+            let other = zombies[j];
+            let dist = Math.hypot(z.worldX - other.worldX, z.worldY - other.worldY);
+            if (dist > 0 && dist < 22) {
+                let push = (22 - dist) * 0.1;
+                z.worldX += ((z.worldX - other.worldX) / dist) * push;
+                z.worldY += ((z.worldY - other.worldY) / dist) * push;
+            }
+        }
+    }
+
+    // Update Zombies & Train Collisions
+    let caboose = cars[cars.length - 1];
+    
+    for (let i = zombies.length - 1; i >= 0; i--) {
+        let z = zombies[i];
+        let zGameY = getGameY(z.worldY);
+        
+        // Approach caboose logic
+        let dx = caboose ? (caboose.cx - z.worldX) : 0;
+        let dy = caboose ? (caboose.cy - zGameY) : 0;
+        let dist = Math.hypot(dx, dy);
+        
+        if (dist > 0) {
+            z.worldX += (dx / dist) * z.speed;
+            z.worldY -= (dy / dist) * z.speed; // Increase wy to move up screen
+        }
+        
+        zGameY = getGameY(z.worldY); // refresh
+        
+        let splat = false;
+        let attacking = false;
+
+        // Check if attacking back of caboose
+        if (caboose) {
+            let cCos = Math.cos(-caboose.angle);
+            let cSin = Math.sin(-caboose.angle);
+            let localX = (cCos * (z.worldX - caboose.cx)) - (cSin * (zGameY - caboose.cy));
+            let localY = (cSin * (z.worldX - caboose.cx)) + (cCos * (zGameY - caboose.cy));
+            
+            // Back railing area of caboose
+            if (Math.abs(localX) < caboose.w/2 + 15 && localY > caboose.h/2 - 10 && localY < caboose.h/2 + 35) {
+                attacking = true;
+                z.worldY -= 2; // push back slightly so they don't slide under
+            }
+        }
+
+        // If not attacking, check all surfaces for getting run over / touching side
+        if (!attacking) {
+            for (let s of surfaces) {
+                let sCos = Math.cos(-s.angle);
+                let sSin = Math.sin(-s.angle);
+                let nx = (sCos * (z.worldX - s.cx)) - (sSin * (zGameY - s.cy));
+                let ny = (sSin * (z.worldX - s.cx)) + (sCos * (zGameY - s.cy));
+                if (Math.abs(nx) < s.w/2 && Math.abs(ny) < s.h/2) {
+                    splat = true;
+                    break;
+                }
+            }
+        }
+
+        if (splat) {
+            createBlood(z.worldX, z.worldY);
+            z.hp = 0; // kill immediately
+        } else if (attacking) {
+            if (Date.now() - z.lastAttack > 5000) {
+                z.lastAttack = Date.now();
+                trainState[trainState.length - 1].hp -= 15;
+            }
+        }
+    }
+}
+
+// --- RENDERING HELPERS ---
+function drawGround() {
+    ctx.fillStyle = '#22201e';
+    ctx.fillRect(cam.x - canvas.width/2, cam.y - canvas.height/2, canvas.width, canvas.height);
+    
+    let trackCenter = getTrackX(getWorldY(cam.y));
+    let panOffset = (trackCenter - cam.x) * 0.2; 
+
+    ctx.strokeStyle = '#2a2825';
+    ctx.lineWidth = 2;
+    
+    let startY = cam.y - canvas.height/2 - 40;
+    let endY = cam.y + canvas.height/2 + 40;
+    
+    for (let i = startY - (startY % 40); i < endY; i += 40) {
+        let offset = (globalY + i) % 40;
+        ctx.beginPath();
+        ctx.moveTo(cam.x - canvas.width/2 + panOffset - 400, offset + i - 40);
+        ctx.lineTo(cam.x + canvas.width/2 + panOffset + 400, offset + i - 40);
+        ctx.stroke();
+    }
+    
+    // Draw Blood Splatters on Ground
+    ctx.fillStyle = '#8a0303';
+    bloods.forEach(b => {
+        let gy = getGameY(b.worldY);
+        ctx.save();
+        ctx.translate(b.worldX, gy);
+        b.splats.forEach(s => {
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+            ctx.fill();
+        });
+        ctx.restore();
+    });
+}
+
+function drawTrackPath(pathFunc, startWy, endWy, isBranch) {
+    let step = 20;
+    
+    if (!isBranch) {
+        ctx.beginPath();
+        for(let wy=startWy; wy<=endWy; wy+=step) {
+            let sx = pathFunc(wy); let sy = getGameY(wy);
+            if(wy===startWy) ctx.moveTo(sx,sy); else ctx.lineTo(sx,sy);
+        }
+        ctx.lineWidth = 50; ctx.strokeStyle = '#3a3a3a'; ctx.stroke();
+    }
+
+    ctx.beginPath();
+    let tieSpacing = 35;
+    let firstTieWy = Math.floor(startWy / tieSpacing) * tieSpacing;
+    for (let wy = firstTieWy; wy <= endWy; wy += tieSpacing) {
+        let sx = pathFunc(wy);
+        let sy = getGameY(wy);
+        let dx = pathFunc(wy + 5) - pathFunc(wy - 5);
+        let dy = getGameY(wy + 5) - getGameY(wy - 5);
+        let angle = Math.atan2(dy, dx);
+        let cos = Math.cos(angle + Math.PI/2);
+        let sin = Math.sin(angle + Math.PI/2);
+        let len = 42;
+        ctx.moveTo(sx - cos*len/2, sy - sin*len/2);
+        ctx.lineTo(sx + cos*len/2, sy + sin*len/2);
+    }
+    ctx.lineWidth = 6; ctx.strokeStyle = '#4a2e1b'; ctx.stroke();
+
+    ctx.lineWidth = 4; ctx.strokeStyle = '#8c92ac';
+    for(let side of [-15, 15]) {
+        ctx.beginPath();
+        for(let wy=startWy; wy<=endWy; wy+=step) {
+            let sx = pathFunc(wy); let sy = getGameY(wy);
+            let dx = pathFunc(wy + 5) - pathFunc(wy - 5);
+            let dy = getGameY(wy + 5) - getGameY(wy - 5);
+            let angle = Math.atan2(dy, dx);
+            let cos = Math.cos(angle + Math.PI/2); let sin = Math.sin(angle + Math.PI/2);
+            let rx = sx + cos * side; let ry = sy + sin * side;
+            if(wy===startWy) ctx.moveTo(rx,ry); else ctx.lineTo(rx,ry);
+        }
+        ctx.stroke();
+    }
+}
+
+function drawTracksAndBranches() {
+    let startWy = getWorldY(cam.y + canvas.height/2 + 200); 
+    let endWy = getWorldY(cam.y - canvas.height/2 - 200);   
+
+    branches.forEach(b => {
+        if (b.worldY < endWy + 1000 && b.worldY > startWy - 1000) {
+            drawTrackPath(wy => {
+                if (wy > b.worldY) return getTrackX(wy); 
+                let dist = b.worldY - wy; 
+                let curveX = dist * dist * 0.0006 * b.dir; 
+                return getTrackX(wy) + curveX;
+            }, startWy, Math.min(endWy, b.worldY + 500), true);
+        }
+    });
+    
+    drawTrackPath(wy => getTrackX(wy), startWy, endWy, false);
+}
+
+function drawScenery() {
+    sceneries.forEach(s => {
+        let sy = getGameY(s.worldY);
+        let trackX = getTrackX(s.worldY);
+        let renderX = trackX + s.xOffset;
+
+        ctx.fillStyle = s.color;
+        ctx.fillRect(renderX, sy, s.w, s.h);
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(renderX, sy, s.w, s.h);
+        
+        ctx.fillStyle = '#111';
+        ctx.fillRect(renderX + 10, sy + 10, s.w - 20, 20);
+        if (s.h > 100) ctx.fillRect(renderX + s.w/2 - 10, sy + 40, 20, 40);
+    });
+}
+
+function drawZombies() {
+    zombies.forEach(z => {
+        let gy = getGameY(z.worldY);
+        let angle = Math.atan2(player.y - gy, player.x - z.worldX);
+
+        ctx.save();
+        ctx.translate(z.worldX, gy);
+        ctx.rotate(angle);
+        
+        ctx.fillStyle = '#2d5a27'; // Shoulders
+        ctx.fillRect(-14, -7, 28, 14);
+        
+        ctx.fillStyle = '#3a7a32'; // Arms
+        ctx.fillRect(10, -12, 12, 6);
+        ctx.fillRect(10, 6, 12, 6);
+        
+        ctx.beginPath(); // Head
+        ctx.arc(0, 0, 9, 0, Math.PI * 2);
+        ctx.fillStyle = '#4ca63c';
+        ctx.fill();
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        ctx.restore();
+    });
+}
+
+function drawTrain() {
+    let cars = getTrainCars();
+    let gWays = getGangways(cars);
+
+    // Gangways
+    ctx.fillStyle = '#333';
+    gWays.forEach(g => {
+        ctx.save();
+        ctx.translate(g.cx, g.cy);
+        ctx.rotate(g.angle);
+        ctx.fillRect(-g.w/2, -g.h/2, g.w, g.h);
+        
+        // Bellows detail
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 2;
+        for(let i = -g.h/2 + 5; i < g.h/2; i+=6) {
+            ctx.beginPath(); ctx.moveTo(-g.w/2, i); ctx.lineTo(g.w/2, i); ctx.stroke();
+        }
+
+        // Side chains
+        ctx.strokeStyle = '#555'; 
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(-g.w/2 + 2, -g.h/2); ctx.lineTo(-g.w/2 + 2, g.h/2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(g.w/2 - 2, -g.h/2); ctx.lineTo(g.w/2 - 2, g.h/2); ctx.stroke();
+        
+        ctx.fillStyle = '#222'; // Chain links
+        for (let i = -g.h/2 + 4; i < g.h/2; i+= 8) {
+            ctx.beginPath(); ctx.arc(-g.w/2 + 2, i, 2, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(g.w/2 - 2, i, 2, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.restore();
+    });
+
+    // Cars
+    cars.forEach((car, index) => {
+        ctx.save();
+        ctx.translate(car.cx, car.cy);
+        ctx.rotate(car.angle);
+        let w = car.w;
+        let h = car.h;
+
+        // Inner Floor
+        ctx.fillStyle = '#4c5256';
+        ctx.fillRect(-w/2, -h/2, w, h);
+        
+        // Thick Walls
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 10;
+        
+        if (index === cars.length - 1) {
+            // Caboose - Open back dynamically applies to last car
+            ctx.beginPath();
+            ctx.moveTo(-w/2 + 5, h/2);
+            ctx.lineTo(-w/2 + 5, -h/2 + 5);
+            ctx.lineTo(w/2 - 5, -h/2 + 5);
+            ctx.lineTo(w/2 - 5, h/2);
+            ctx.stroke();
+            
+            // Back railing
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(-w/2 + 5, h/2 - 4);
+            ctx.lineTo(w/2 - 5, h/2 - 4);
+            ctx.stroke();
+            for(let rx = -w/2 + 15; rx <= w/2 - 15; rx += 20) {
+                ctx.beginPath(); ctx.moveTo(rx, h/2 - 12); ctx.lineTo(rx, h/2); ctx.stroke();
+            }
+        } else {
+            // Fully enclosed walls
+            ctx.strokeRect(-w/2 + 5, -h/2 + 5, w - 10, h - 10);
+        }
+
+        // Windows 
+        ctx.fillStyle = '#0a0a0a';
+        for (let wy = -h/2 + 40; wy < h/2 - 40; wy += 50) {
+            ctx.fillRect(-w/2, wy, 10, 25);
+            ctx.fillRect(w/2 - 10, wy, 10, 25);
+        }
+
+        // Rust patches on floor
+        ctx.fillStyle = '#8a4024';
+        ctx.fillRect(-w/2 + 15, -h/2 + 20, w - 30, 40);
+        ctx.fillRect(-w/2 + 30, -h/2 + 100, 30, 80);
+
+        // Engine Details
+        if (index === 0) {
+            ctx.fillStyle = '#111';
+            ctx.fillRect(-w/2 + 10, -h/2 + 10, w - 20, 40);
+            
+            ctx.fillStyle = 'rgba(255, 200, 100, 0.4)';
+            ctx.beginPath();
+            ctx.moveTo(-w/2 + 20, -h/2);
+            ctx.lineTo(-w/2 - 80, -h/2 - 250);
+            ctx.lineTo(w/2 + 80, -h/2 - 250);
+            ctx.lineTo(w/2 - 20, -h/2);
+            ctx.fill();
+        }
+
+        // Draw Health Bar in center of Car
+        ctx.fillStyle = '#900';
+        ctx.fillRect(-w/2 + 10, -5, w - 20, 10);
+        let hpRatio = trainState[index].hp / trainState[index].max;
+        ctx.fillStyle = '#0a0';
+        ctx.fillRect(-w/2 + 10, -5, (w - 20) * hpRatio, 10);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-w/2 + 10, -5, w - 20, 10);
+
+        ctx.restore();
+    });
+}
+
+function drawPlayerAndBullets() {
+    const angle = Math.atan2(gameMouseY - player.y, gameMouseX - player.x);
+
+    // Bullets
+    ctx.fillStyle = '#ffaa00';
+    bullets.forEach(b => {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 4, 0, Math.PI*2);
+        ctx.fill();
+    });
+
+    // Player
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#4f7942'; 
+    ctx.fill();
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius - 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffcc99';
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(angle);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(10, -3, 20, 6); 
+    ctx.fillStyle = '#111';
+    ctx.fillRect(6, -4, 8, 8); 
+    
+    // Pronounced Muzzle Flash & Flare
+    if (player.flash > 0) {
+        ctx.fillStyle = 'rgba(255, 200, 0, 0.9)';
+        ctx.beginPath(); ctx.arc(35, 0, 12, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(35, 0, 6, 0, Math.PI*2); ctx.fill();
+        
+        ctx.beginPath();
+        ctx.moveTo(35, -4);
+        ctx.lineTo(60, -12);
+        ctx.lineTo(60, 12);
+        ctx.lineTo(35, 4);
+        ctx.fill();
+        
+        player.flash--;
+    }
+    ctx.restore();
+}
+
+function drawTunnels() {
+    tunnels.forEach(t => {
+        let sy = getGameY(t.worldY); 
+        let syTop = getGameY(t.worldY + t.h); 
+        let h = sy - syTop;
+        
+        ctx.fillStyle = '#1c1c1c';
+        ctx.fillRect(cam.x - canvas.width/2, syTop, canvas.width, h);
+        
+        let entryTrackX = getTrackX(t.worldY);
+        let exitTrackX = getTrackX(t.worldY + t.h);
+
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(entryTrackX - carWidth/2 - 40, sy - 20, carWidth + 80, 20); 
+        ctx.fillRect(exitTrackX - carWidth/2 - 40, syTop, carWidth + 80, 20); 
+
+        if (player.y > syTop && player.y < sy) {
+            const gradient = ctx.createRadialGradient(player.x, player.y, 40, player.x, player.y, 250);
+            gradient.addColorStop(0, 'rgba(0,0,0,0)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0.95)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(cam.x - canvas.width/2, cam.y - canvas.height/2, canvas.width, canvas.height);
+        }
+    });
+}
+
+// --- MAIN LOOP ---
+function gameLoop() {
+    updateGameLogic();
+
+    ctx.save();
+    // Center the camera on the player
+    ctx.translate(canvas.width / 2 - cam.x, canvas.height / 2 - cam.y);
+
+    ctx.clearRect(cam.x - canvas.width/2, cam.y - canvas.height/2, canvas.width, canvas.height);
+    drawGround();
+    drawTracksAndBranches();
+    drawScenery();
+    drawZombies();
+    drawTrain();
+    drawPlayerAndBullets();
+    drawTunnels();
+
+    ctx.restore();
+
+    requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+
+</script>
+</body>
+</html>
