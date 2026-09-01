@@ -1,0 +1,2653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Glucose Dash</title>
+<style>
+    /* ===================================================
+         GLUCOSE DASH — styles
+       ===================================================
+       The exposure/desaturation filter is applied to #gd-canvas ONLY,
+       never to the HUD. Blowing out the whole screen reads better for
+       about two seconds and then becomes unfair -- you must always be
+       able to read your own glucose, especially when it's the reason
+       you can't see anything else. */
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+        width: 100%; height: 100%;
+        background: #08090d;
+        overflow: hidden;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        color: #eef2f7;
+        -webkit-user-select: none; user-select: none;
+    }
+
+    #gd-root { position: fixed; inset: 0; }
+
+    #gd-stage { position: absolute; inset: 0; overflow: hidden; }
+
+    #gd-canvas {
+        position: absolute; inset: 0;
+        width: 100%; height: 100%;
+        display: block;
+        /* driven per-frame from the glucose value */
+        filter: saturate(1) brightness(1) contrast(1);
+    }
+
+    /* Hyper: light floods the sensor. Hypo: the world greys out and
+       closes in. Two overlays rather than one so they can run at the
+       same time during a fast swing without fighting each other. */
+    #gd-blowout {
+        position: absolute; inset: 0; pointer-events: none;
+        background: #fffdf4; opacity: 0; mix-blend-mode: screen;
+    }
+    #gd-vignette {
+        position: absolute; inset: 0; pointer-events: none; opacity: 0;
+        background: radial-gradient(ellipse at 50% 58%,
+            rgba(0,0,0,0) 28%, rgba(4,6,10,0.55) 62%, rgba(2,3,6,0.94) 100%);
+    }
+
+    /* ---- top bar ---- */
+    #gd-top {
+        position: absolute; top: 0; left: 0; right: 0;
+        display: flex; justify-content: center; gap: 34px;
+        padding: 12px 18px calc(12px + env(safe-area-inset-top, 0px));
+        pointer-events: none;
+        background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0));
+    }
+    .gd-stat { text-align: center; min-width: 96px; }
+    .gd-stat .k {
+        font-size: 10px; letter-spacing: 2.4px; text-transform: uppercase;
+        color: #6a7690; font-weight: 800;
+    }
+    .gd-stat .v {
+        font-size: 26px; font-weight: 800; line-height: 1.15;
+        font-variant-numeric: tabular-nums;
+        color: #1d2534;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    /* ---- centre warning ---- */
+    #gd-warn {
+        position: absolute; top: 20%; left: 0; right: 0;
+        text-align: center; pointer-events: none;
+        font-size: 30px; font-weight: 900; letter-spacing: 4px;
+        opacity: 0; transition: opacity 160ms linear;
+        text-shadow: 0 0 26px currentColor, 0 3px 12px rgba(0,0,0,0.85);
+    }
+    #gd-warn.on { opacity: 1; }
+    #gd-warn { -webkit-text-stroke: 3px rgba(255,255,255,0.85); paint-order: stroke fill; }
+    @keyframes gdPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    #gd-warn.pulse { animation: gdPulse 720ms ease-in-out infinite; }
+
+    /* ---- bottom-left: floor + sprint ---- */
+    #gd-left {
+        position: absolute; left: 18px; bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+        pointer-events: none; display: flex; flex-direction: column; gap: 10px;
+    }
+    #gd-floor {
+        font-size: 12px; font-weight: 800; letter-spacing: 2px;
+        color: #2f3a52;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.85), 0 0 10px rgba(255,255,255,0.9);
+    }
+    #gd-floor b { color: #b5651d; font-size: 17px; }
+    #gd-sprint-wrap {
+        width: 150px; height: 9px; border-radius: 5px;
+        background: rgba(28,34,48,0.18);
+        border: 1px solid rgba(28,34,48,0.26); overflow: hidden;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.5);
+    }
+    #gd-sprint {
+        height: 100%; width: 100%;
+        background: linear-gradient(90deg, #12b886, #38d6ff);
+        transition: background 140ms linear;
+    }
+    #gd-sprint.hot { background: linear-gradient(90deg, #f4453f, #f59f00); }
+    #gd-sprint-label {
+        font-size: 9px; letter-spacing: 2px; color: #46536e; font-weight: 800;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.8);
+    }
+
+    /* ---- progress rail (left edge) ---- */
+    #gd-rail {
+        position: absolute; left: 18px; top: 22%; bottom: 22%;
+        width: 8px; border-radius: 4px; pointer-events: none;
+        background: rgba(28,34,48,0.16);
+        border: 1px solid rgba(28,34,48,0.24);
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.5);
+    }
+    .gd-pip {
+        position: absolute; left: 50%; width: 16px; height: 16px;
+        margin-left: -8px; margin-top: -8px; border-radius: 50%;
+        border: 2px solid rgba(0,0,0,0.55);
+        box-shadow: 0 0 8px rgba(0,0,0,0.6);
+    }
+    .gd-pip.self { width: 20px; height: 20px; margin-left: -10px; margin-top: -10px;
+        border-color: #fff; z-index: 3; }
+    .gd-pip.other-floor { opacity: 0.45; }
+
+    /* ---- bottom-right: inventory over the monitor ---- */
+    #gd-corner {
+        position: absolute; right: 18px;
+        bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+        display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+        pointer-events: none;
+    }
+
+    #gd-inv { display: flex; gap: 8px; }
+    .gd-slot {
+        flex: 1; height: 62px; border-radius: 10px; position: relative;
+        background: rgba(16,20,30,0.86);
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 4px 16px rgba(30,36,50,0.28);
+        display: flex; align-items: center; gap: 8px; padding: 0 10px;
+        overflow: hidden;
+    }
+    .gd-slot.empty { border-style: dashed; opacity: 0.42; }
+    .gd-slot .ic { font-size: 24px; line-height: 1; flex: none; }
+    .gd-slot .tx {
+        min-width: 0; flex: 1; display: flex; flex-direction: column;
+        justify-content: center; gap: 2px; overflow: hidden;
+    }
+    .gd-slot .nm {
+        font-size: 10.5px; font-weight: 700; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; line-height: 1.2;
+    }
+    .gd-slot .gi {
+        font-size: 8.5px; letter-spacing: 1.4px; font-weight: 800;
+        white-space: nowrap; line-height: 1.2;
+    }
+    .gd-slot .key {
+        position: absolute; top: 4px; right: 6px; font-size: 8px;
+        letter-spacing: 1px; color: #6f8098; font-weight: 800;
+    }
+    .gd-slot .eatbar {
+        position: absolute; left: 0; bottom: 0; height: 4px; width: 0%;
+        background: #7af5c8;
+    }
+    .gd-slot.gi-high { border-color: rgba(255,107,107,0.55); }
+    .gd-slot.gi-med  { border-color: rgba(255,196,84,0.55); }
+    .gd-slot.gi-low  { border-color: rgba(108,231,168,0.55); }
+
+    #gd-monitor {
+        width: 268px; border-radius: 12px; padding: 9px 11px 8px;
+        background: rgba(14,18,28,0.90);
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 10px 30px rgba(30,36,50,0.35);
+    }
+    #gd-mon-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        margin-bottom: 5px;
+    }
+    #gd-mon-title {
+        font-size: 9px; letter-spacing: 2.2px; color: #7f8ea6; font-weight: 800;
+    }
+    #gd-mon-val {
+        font-size: 27px; font-weight: 900; line-height: 1;
+        font-variant-numeric: tabular-nums;
+    }
+    #gd-mon-unit { font-size: 9px; color: #7f8ea6; font-weight: 700; margin-left: 3px; }
+    #gd-wave { display: block; width: 100%; height: 74px; border-radius: 6px; }
+    #gd-mon-zone {
+        margin-top: 4px; font-size: 9px; letter-spacing: 2px; font-weight: 800;
+        text-align: right;
+    }
+
+    /* ---- full-screen panels ---- */
+    #gd-screen {
+        position: absolute; inset: 0; display: flex;
+        flex-direction: column; align-items: center; justify-content: center;
+        gap: 16px; text-align: center; padding: 24px;
+        background: radial-gradient(ellipse at 50% 40%, rgba(18,24,38,0.90), rgba(4,6,11,0.97));
+        backdrop-filter: blur(2px);
+    }
+    #gd-screen.hidden { display: none; }
+    #gd-screen h1 {
+        font-size: clamp(34px, 7vw, 62px); font-weight: 900; letter-spacing: -1px;
+        background: linear-gradient(92deg, #ff8fa3, #ffd166 45%, #7af5c8);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    #gd-screen h2 { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+    #gd-screen p { max-width: 620px; color: #a9b8ce; font-size: 14px; line-height: 1.65; }
+    #gd-screen .keys {
+        display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: center;
+        font-size: 12.5px; color: #94a5bd;
+    }
+    #gd-screen .keys b { color: #ffd479; }
+    kbd {
+        display: inline-block; padding: 2px 7px; border-radius: 5px;
+        background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.20);
+        border-bottom-width: 2px; font-family: inherit; font-size: 11px; font-weight: 700;
+    }
+    .gd-btn {
+        pointer-events: auto; cursor: pointer;
+        padding: 13px 34px; border-radius: 10px; border: none;
+        font-family: inherit; font-size: 15px; font-weight: 800; letter-spacing: 1.5px;
+        color: #08090d; background: linear-gradient(92deg, #ffd166, #7af5c8);
+        box-shadow: 0 8px 26px rgba(122,245,200,0.24);
+    }
+    .gd-btn:hover { filter: brightness(1.08); }
+    .gd-btn.ghost {
+        background: transparent; color: #a9b8ce;
+        border: 1px solid rgba(255,255,255,0.22); box-shadow: none;
+    }
+
+    #gd-count {
+        font-size: clamp(72px, 18vw, 190px); font-weight: 900; line-height: 1;
+        color: #ffd166; text-shadow: 0 0 60px rgba(255,209,102,0.45);
+    }
+
+    #gd-results { width: min(560px, 92vw); display: flex; flex-direction: column; gap: 5px; }
+    .gd-row {
+        display: flex; align-items: center; gap: 12px;
+        padding: 9px 13px; border-radius: 9px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.09);
+        font-size: 14px;
+    }
+    .gd-row.self { background: rgba(122,245,200,0.11); border-color: rgba(122,245,200,0.42); }
+    .gd-row .pos { width: 30px; font-weight: 900; color: #ffd479; }
+    .gd-row .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+    .gd-row .nm { flex: 1; text-align: left; font-weight: 700; }
+    .gd-row .tm { font-variant-numeric: tabular-nums; color: #a9b8ce; }
+    .gd-row.dnf .tm { color: #ff6b6b; font-weight: 800; }
+
+    #gd-net {
+        position: absolute; top: 10px; right: 14px; font-size: 9px;
+        letter-spacing: 1.8px; font-weight: 800; color: #8b97ab; pointer-events: none;
+    }
+
+    #gd-toast {
+        position: absolute; left: 50%; bottom: 24%; transform: translateX(-50%);
+        font-size: 15px; font-weight: 800; letter-spacing: 2px;
+        opacity: 0; transition: opacity 200ms linear; pointer-events: none;
+        -webkit-text-stroke: 3px rgba(255,255,255,0.85); paint-order: stroke fill;
+        text-shadow: 0 2px 12px rgba(255,255,255,0.7);
+    }
+    #gd-toast.on { opacity: 1; }
+
+    @media (max-width: 720px) {
+        #gd-monitor { width: 210px; }
+        .gd-slot { height: 52px; }
+        .gd-slot .nm { font-size: 9.5px; }
+        #gd-top { gap: 16px; }
+        .gd-stat .v { font-size: 20px; }
+        .gd-stat { min-width: 64px; }
+    }
+</style>
+</head>
+<body>
+
+<div id="gd-root"></div>
+
+<script src="../shared/mp-core.js"></script>
+<script>
+"use strict";
+/* ===================================================
+     GLUCOSE DASH
+   ===================================================
+   An ultramarathon footrace through a three-storey mall where the
+   resource you're managing is blood glucose, not stamina.
+
+   Read glucose-dash/SCOPE.md before retuning anything -- it records
+   which numbers were decided in the concept conversation and which
+   ones I picked to make the thing playable.
+
+   Everything below lives inside one IIFE-free top-level scope on
+   purpose (matching every other game in this repo), but every name is
+   prefixed or generic enough to survive scripts/check-global-collisions.js
+   alongside shared/mp-core.js, which exposes exactly one global (MP).
+*/
+
+
+/* ===================================================
+     BOOT & LIFECYCLE
+   ===================================================
+   Root CLAUDE.md hard constraint: every timer goes through
+   trackTimeout/trackInterval and every listener through ONE
+   AbortController, so destroy() can actually tear an instance down.
+
+   This is also the only game in the repo that implements
+   window.GameInstance. PROJECT_MEMORY.md records that whether the hub
+   will ever embed games is UNDECIDED -- the hub links full pages today.
+   This is here because it was cheap while the code was fresh, not
+   because embedding is assumed. */
+
+var GD_TIMEOUTS = new Set();
+var GD_INTERVALS = new Set();
+var gdAbort = null;
+var gdRAF = 0;
+
+function trackTimeout(fn, ms) {
+    var id = setTimeout(function () { GD_TIMEOUTS.delete(id); fn(); }, ms);
+    GD_TIMEOUTS.add(id);
+    return id;
+}
+function trackInterval(fn, ms) {
+    var id = setInterval(fn, ms);
+    GD_INTERVALS.add(id);
+    return id;
+}
+function clearTracked(id) {
+    clearTimeout(id); clearInterval(id);
+    GD_TIMEOUTS.delete(id); GD_INTERVALS.delete(id);
+}
+
+/* The whole UI is built from this template rather than sitting in the
+   body, so init(containerId) can put a working instance into any
+   element. Standalone, #gd-root is that element. */
+var LAYOUT_HTML =
+'<div id="gd-stage">' +
+    '<canvas id="gd-canvas"></canvas>' +
+    '<div id="gd-blowout"></div>' +
+    '<div id="gd-vignette"></div>' +
+'</div>' +
+'<div id="gd-net">SOLO</div>' +
+'<div id="gd-top">' +
+    '<div class="gd-stat"><div class="k">Place</div><div class="v" id="gd-place">—</div></div>' +
+    '<div class="gd-stat"><div class="k">To Finish</div><div class="v" id="gd-dist">—</div></div>' +
+    '<div class="gd-stat"><div class="k">Time</div><div class="v" id="gd-time">0.0</div></div>' +
+'</div>' +
+'<div id="gd-warn"></div>' +
+'<div id="gd-toast"></div>' +
+'<div id="gd-rail"></div>' +
+'<div id="gd-left">' +
+    '<div id="gd-floor">FLOOR <b>1</b></div>' +
+    '<div id="gd-sprint-label">SPRINT</div>' +
+    '<div id="gd-sprint-wrap"><div id="gd-sprint"></div></div>' +
+'</div>' +
+'<div id="gd-corner">' +
+    '<div id="gd-inv">' +
+        '<div class="gd-slot empty" id="gd-slot0"><span class="key">SPACE</span></div>' +
+        '<div class="gd-slot empty" id="gd-slot1"><span class="key">NEXT</span></div>' +
+    '</div>' +
+    '<div id="gd-monitor">' +
+        '<div id="gd-mon-head">' +
+            '<span id="gd-mon-title">BLOOD GLUCOSE</span>' +
+            '<span><span id="gd-mon-val">135</span><span id="gd-mon-unit">mg/dL</span></span>' +
+        '</div>' +
+        '<canvas id="gd-wave"></canvas>' +
+        '<div id="gd-mon-zone">IN RANGE</div>' +
+    '</div>' +
+'</div>' +
+'<div id="gd-screen"></div>';
+
+
+/* ===================================================
+     TUNING — every balance number lives here
+   =================================================== */
+
+var TUNE = {
+    /* --- movement: car-style, momentum-carrying --- */
+    maxSpeed:      27,     // units/sec on the flat, no sprint
+    accel:         34,
+    brake:         48,
+    reverseMax:     8,
+    drag:          0.55,   // proportional, per second
+    turnRate:      2.55,   // rad/sec at or above turnSpeedRef
+    turnSpeedRef:  11,     // below this you steer proportionally worse
+    grip:          6.2,    // how fast velocity realigns to heading (lower = slidier)
+    wallLoss:      0.45,   // fraction of speed shed on a wall scrape
+
+    /* --- sprint: a burst, not a new cap (concept decision) --- */
+    sprintMult:    1.36,
+    sprintAccel:   1.55,
+    sprintDur:     2.5,
+    sprintCd:      3.2,
+    dblTapMs:      280,
+
+    /* --- eating: throttle cap drops, steering untouched --- */
+    eatSpeedMult:  0.55,
+
+    /* --- ramps: slow up, slightly quick down --- */
+    rampUpMult:    0.60,
+    rampDownMult:  1.06,
+    rampAlign:     7.0,    // how hard you're auto-aligned onto the stairs
+
+    /* --- glucose --- */
+    glucoseStart:  145,
+    /* Swept against the doubled course. The pair that matters is this
+       and the food density in buildItems -- raising density alone made
+       every route safe and killed the gamble, lowering it alone
+       collapsed the NPC field. 2.0 with two-candidate chunks is where
+       ignoring food still always kills you, the ground-floor route is a
+       real 3-in-8 gamble, and climbing is both faster and safer. */
+    baseDecay:     2.0,    // mg/dL per second while running
+    sprintDecayX:  2.0,    // concept decision: sprint burns 2x
+    hypo:          70,
+    hyper:         200,
+    glucoseMax:    420,
+    bonkFloor:     0.40,   // top-speed multiplier at glucose 0
+    bonkCurve:     1.4,    // >1 makes the last stretch of a bonk a cliff, not a slope
+    rangeBonus:    0.12,   // top-speed bonus for being comfortably fuelled
+
+    /* --- pickups --- */
+    pickupR:       2.7,
+    invSize:       2
+};
+
+/* Food curves.
+   peak/rise  : total mg/dL delivered, and over how many seconds
+   crash/crashDur : insulin overshoot AFTER absorption (high-GI only)
+   hold/holdX : low-GI only -- multiplies baseline decay for `hold` sec
+   eat        : seconds locked into the slow-down while eating
+
+   The eat times are the balance lever that makes high-GI worth taking
+   at all: candy is a 0.7s window, an oat bowl is 3.1s. Without that,
+   high-GI food is strictly dominated. See SCOPE.md §3.2. */
+var FOODS = {
+    candy:    { icon: "🍬", name: "Candy Bag",     gi: "high", peak: 78, rise: 1.5, crash: 88,  crashDur: 7.5, eat: 0.7 },
+    soda:     { icon: "🥤", name: "Big Soda",      gi: "high", peak: 98, rise: 1.8, crash: 114, crashDur: 8.0, eat: 0.9 },
+    choc:     { icon: "🍫", name: "Chocolate Bar", gi: "high", peak: 82, rise: 2.0, crash: 86,  crashDur: 8.0, eat: 1.0 },
+    donut:    { icon: "🍩", name: "Donut",         gi: "high", peak: 86, rise: 2.2, crash: 96,  crashDur: 8.5, eat: 1.1 },
+    cake:     { icon: "🍰", name: "Cake Slice",    gi: "high", peak: 92, rise: 2.4, crash: 104, crashDur: 9.0, eat: 1.3 },
+
+    sandwich: { icon: "🥪", name: "Sandwich",      gi: "med",  peak: 44, rise: 4.2, eat: 1.9 },
+    pizza:    { icon: "🍕", name: "Pizza Slice",   gi: "med",  peak: 48, rise: 4.6, eat: 2.1 },
+    noodles:  { icon: "🍜", name: "Noodle Bowl",   gi: "med",  peak: 46, rise: 4.8, eat: 2.2 },
+    burrito:  { icon: "🌯", name: "Burrito",       gi: "med",  peak: 52, rise: 5.0, eat: 2.3 },
+
+    nuts:     { icon: "🥜", name: "Trail Mix",     gi: "low",  peak: 22, rise: 5.5, hold: 26, holdX: 0.55, eat: 1.6 },
+    salad:    { icon: "🥗", name: "Grain Salad",   gi: "low",  peak: 26, rise: 6.4, hold: 30, holdX: 0.42, eat: 2.6 },
+    shake:    { icon: "🧋", name: "Balanced Shake",gi: "low",  peak: 32, rise: 7.0, hold: 34, holdX: 0.38, eat: 2.9 },
+    oats:     { icon: "🥣", name: "Oat Bowl",      gi: "low",  peak: 30, rise: 7.5, hold: 36, holdX: 0.40, eat: 3.1 }
+};
+
+var GI_COLOR = { high: "#f4453f", med: "#f59f00", low: "#12b886" };
+
+/* Storefronts. `food` null = scenery, nothing to grab.
+   Signage telegraphs GI: a returning player should be able to read the
+   course off the shop names without slowing down to look. */
+var STORE_KINDS = {
+    bakery:   { food: "cake",     sign: "#ff5c9d", names: ["SUGAR & CRUMB", "FROSTED", "CAKEWALK", "THE ICING"] },
+    donuts:   { food: "donut",    sign: "#ff77b4", names: ["HOLE IN ONE", "GLAZED", "DOZEN"] },
+    candy:    { food: "candy",    sign: "#f4453f", names: ["SUGAR RUSH", "PENNY SWEETS", "GUMMY CO"] },
+    soda:     { food: "soda",     sign: "#e8342f", names: ["FIZZ 32oz", "BIG GULP", "SODA WORKS"] },
+    chocolate:{ food: "choc",     sign: "#b5651d", names: ["COCOA BAR", "TRUFFLE", "70%"] },
+
+    pizzeria: { food: "pizza",    sign: "#f59f00", names: ["SLICE HOUSE", "NAPOLI", "BIG SLICE"] },
+    deli:     { food: "sandwich", sign: "#e8a33d", names: ["THE DELI", "STACKED", "ON RYE"] },
+    ramen:    { food: "noodles",  sign: "#d98b1f", names: ["NOODLE BAR", "BROTH", "SLURP"] },
+    burritos: { food: "burrito",  sign: "#ef8a2b", names: ["ROLLED", "CANTINA", "EL WRAP"] },
+
+    smoothie: { food: "shake",    sign: "#12b886", names: ["BALANCE BAR", "GREEN CO", "THE BLEND"] },
+    salads:   { food: "salad",    sign: "#2fb35c", names: ["LEAF & GRAIN", "TOSSED", "GARDEN"] },
+    oatbar:   { food: "oats",     sign: "#57a848", names: ["SLOW OATS", "STEEL CUT", "MORNING"] },
+    nuts:     { food: "nuts",     sign: "#8bbf3f", names: ["NUT HOUSE", "TRAIL CO", "ROASTED"] },
+
+    // Non-food shops still get colour -- a white mall with grey gaps
+    // reads as unfinished. They just don't get FOOD colour.
+    shoes:    { food: null, sign: "#4a6ea8", names: ["SOLE", "RUNNERS", "LACED", "STRIDE"] },
+    phones:   { food: null, sign: "#3f8ec4", names: ["CELL HUT", "SCREENS", "PLAN B"] },
+    books:    { food: null, sign: "#7a5cc4", names: ["CHAPTERS", "SPINE", "PAGE 1"] },
+    clothes:  { food: null, sign: "#a355b8", names: ["DENIM CO", "OUTFIT", "RACK"] },
+    plants:   { food: null, sign: "#4f9e7a", names: ["FERN", "POTTED", "GREENERY"] }
+};
+
+/* What each floor stocks. Ground floor is a sugar minefield; climbing
+   is how you reach food that actually holds. */
+var FLOOR_STOCK = [
+    ["candy","bakery","soda","donuts","candy","chocolate","soda","pizzeria","bakery",
+     "shoes","phones","donuts","candy","deli","clothes","soda"],
+    ["pizzeria","deli","ramen","burritos","pizzeria","nuts","books","deli","salads",
+     "ramen","plants","burritos","ramen","nuts"],
+    ["smoothie","salads","oatbar","smoothie","nuts","oatbar","salads","plants",
+     "smoothie","oatbar","books","salads"]
+];
+
+/* ---- course geometry ---- */
+var COURSE_LEN   = 3300;   // finish line y
+
+/* THE CENTRELINE.
+
+   The mall winds. `centerX(y)` is the lateral offset of the course axis
+   at distance y, and it is the ONLY thing that knows about curvature:
+   physics, collision, walkLimit, item placement and the NPC AI all stay
+   in flat TRACK space (x = offset from the centre of the corridor), and
+   only SX() adds the centreline when converting to screen space.
+
+   That's the classic pseudo-3D road trick, and the reason it's worth
+   using here is that curvature then costs exactly zero gameplay risk --
+   nothing that was tested against a straight course can break on a bent
+   one, because none of it can tell the difference.
+
+   Two sines rather than one so the rhythm doesn't feel like a sine
+   wave. Peak slope is about 0.16 lateral units per unit forward (~9
+   degrees), which bends visibly without the far end of the draw
+   distance swinging off the side of the screen. */
+function centerX(y) {
+    return Math.sin(y * 0.00115) * 42 + Math.sin(y * 0.0041 + 1.7) * 22;
+}
+
+/* THE VERTICAL RISK, in two arrays.
+
+   The mall narrows as it climbs. Floor 1 is a proper corridor with
+   solid walls on both sides -- nothing to fall off. Floors 2 and 3 are
+   balconies with NO railings, and they get tighter each storey, so the
+   low-GI food that actually holds you steady sits on a platform jutting
+   out over a drop.
+
+   That is the trade the concept asked for, expressed as geometry rather
+   than as a rule: better food is further up, and further up is thinner. */
+var FLOOR_HALF   = [11.0, 7.5, 5.0];   // walkable half-width per floor
+var BAY_OUT      = [17.5, 12.5, 9.0];  // how far a storefront platform reaches
+var FLOOR_H      = 13;     // z per storey
+var FLOORS       = 3;
+
+function hallHalf(f) { return FLOOR_HALF[f] !== undefined ? FLOOR_HALF[f] : FLOOR_HALF[0]; }
+function bayOut(f)   { return BAY_OUT[f]   !== undefined ? BAY_OUT[f]   : BAY_OUT[0]; }
+var COURSE_SEED  = 20260829;  // fixed: the course is the SAME for everyone,
+                              // every run. Only food-slot choice uses the room seed.
+
+/* ===================================================
+     STATE
+   =================================================== */
+
+var canvas = null, ctx = null, waveCanvas = null, waveCtx = null;
+var el = {};                 // cached HUD elements
+var VIEW = { w: 0, h: 0, dpr: 1 };
+
+var phase = "menu";          // menu | countdown | racing | done
+var raceTime = 0;
+var countdownLeft = 0;
+var runners = [];            // [0] is always the player
+var player = null;
+var items = [];
+var stores = [];
+var wallPaths = { "-1": [], "1": [] };   // per side, per floor polylines
+var finishOrder = [];
+var lastFrame = 0;
+var netOnline = false;
+var mpSeed = null;
+var toastTimer = 0;
+
+/* ===================================================
+     COURSE BUILD
+   ===================================================
+   Two different randomnesses, and mixing them up would be a real bug:
+
+     COURSE_SEED  -> the mall itself. Constant. Identical on every
+                     machine, every run, forever. This is the
+                     "one hand-built course" decision, expressed as
+                     rhythm parameters instead of 300 coordinates.
+
+     MP.random()  -> which candidate slot in each cluster is stocked
+                     this race. Comes from the SERVER's room seed, so
+                     everyone in a room is racing for the same shake in
+                     the same place. This is the only thing that varies.
+*/
+
+function makeRng(seed) {
+    var a = seed | 0;
+    return function () {
+        a |= 0; a = (a + 0x6D2B79F5) | 0;
+        var t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+/* Ramps are one-way and always traversed running FORWARD. Up-ramps and
+   down-ramps are separate structures -- a two-way staircase would mean
+   running backwards down the course, which fights a camera locked to
+   the course axis. See SCOPE.md §3.5.
+
+   The last two entries are `full: true` -- escalator banks spanning the
+   ENTIRE hall, so they cannot be missed. That's not decoration, it's
+   the fix for a real bug: the finish line only exists on the ground
+   floor, so a runner who is still on floor 2 at the end of the course
+   has no way to finish and runs off the end of the world forever.
+   A side staircase can be overshot; a full-width bank funnels
+   everyone down whether they meant to or not.
+
+   Don't delete or narrow them without re-checking reachability from
+   floor 2 -- MALL_END is only a backstop, not a way out. */
+var RAMP_X = 8.0, RAMP_HALF = 2.6;
+var MALL_END = COURSE_LEN + 60;
+var RAMPS = [
+    { side: -1, from: 0, to: 1, y0:  260, y1:  312 },
+    { side:  1, from: 1, to: 2, y0:  440, y1:  492 },
+    { side:  1, from: 0, to: 1, y0:  580, y1:  632 },
+    { side:  1, from: 1, to: 0, y0:  760, y1:  808 },
+    { side: -1, from: 1, to: 2, y0:  860, y1:  912 },
+    { side: -1, from: 0, to: 1, y0:  960, y1: 1012 },
+    { side:  1, from: 2, to: 1, y0: 1060, y1: 1108 },
+    { side: -1, from: 1, to: 0, y0: 1200, y1: 1248 },
+    { side:  1, from: 0, to: 1, y0: 1340, y1: 1392 },
+    { side: -1, from: 2, to: 1, y0: 1420, y1: 1468 },
+    { side: -1, from: 1, to: 2, y0: 1520, y1: 1572 },
+    { side:  1, from: 1, to: 0, y0: 1620, y1: 1668 },
+    { side:  1, from: 0, to: 1, y0: 1780, y1: 1832 },
+    { side:  1, from: 2, to: 1, y0: 1880, y1: 1928 },
+    { side: -1, from: 1, to: 2, y0: 1980, y1: 2032 },
+    { side: -1, from: 1, to: 0, y0: 2100, y1: 2148 },
+    { side: -1, from: 0, to: 1, y0: 2260, y1: 2312 },
+    { side:  1, from: 2, to: 1, y0: 2340, y1: 2388 },
+    { side:  1, from: 1, to: 2, y0: 2460, y1: 2512 },
+    { side:  1, from: 1, to: 0, y0: 2600, y1: 2648 },
+    { side: -1, from: 0, to: 1, y0: 2760, y1: 2812 },
+    { side: -1, from: 2, to: 1, y0: 2860, y1: 2908 },
+    { side:  1, from: 1, to: 0, y0: 3000, y1: 3048 },
+    { side:  0, from: 2, to: 1, y0: 3080, y1: 3134, full: true },
+    { side:  0, from: 1, to: 0, y0: 3170, y1: 3224, full: true }
+];
+
+function rampBlocks(side, floor, y0, y1) {
+    for (var i = 0; i < RAMPS.length; i++) {
+        var r = RAMPS[i];
+        if (!r.full && r.side !== side) continue;
+        // A ramp occupies its footprint on BOTH the floor it leaves and
+        // the floor it arrives at -- you can see and run under/over it.
+        if (r.from !== floor && r.to !== floor) continue;
+        if (y1 > r.y0 - 10 && y0 < r.y1 + 10) return r;
+    }
+    return null;
+}
+
+/* Storefront rhythm, per floor.
+
+   The ground floor is a busy mall: shops nose to tail. The balconies are
+   NOT, and that's structural rather than decorative -- with the ground
+   floor's spacing there was no open stretch of railless edge anywhere on
+   floor 3 in the entire course, because a storefront platform covered it
+   everywhere. The drop you're supposed to be frightened of was invisible.
+
+   Upstairs the shops are fewer, shorter and further apart, so the
+   balcony reads as a narrow ledge with the occasional platform hanging
+   off it -- which is what makes going up there feel like a decision. */
+var LEN_BASE = [34, 28, 24], LEN_RAND = [26, 16, 12];
+/* Floor 2 is the TRANSIT floor -- everyone passes through it, and once
+   the NPCs started climbing it became the most contested place in the
+   mall. At floor-3 spacing it was a dead zone that starved anyone who
+   stayed on it. It gets denser shops than the top; floor 3 keeps the
+   long exposed ledges. */
+var GAP_BASE = [15, 26, 56], GAP_RAND = [20, 24, 40];
+
+function buildStores() {
+    var rng = makeRng(COURSE_SEED);
+    stores = [];
+
+    for (var f = 0; f < FLOORS; f++) {
+        var stock = FLOOR_STOCK[f];
+        for (var s = 0; s < 2; s++) {
+            var side = s === 0 ? -1 : 1;
+            var y = 46 + rng() * 26;
+            var guard = 0;
+
+            while (y < COURSE_LEN - 70 && guard++ < 200) {
+                var len = LEN_BASE[f] + rng() * LEN_RAND[f];
+                var blocked = rampBlocks(side, f, y, y + len);
+                if (blocked) { y = blocked.y1 + 14; continue; }
+
+                var kind = stock[Math.floor(rng() * stock.length)];
+                var def = STORE_KINDS[kind];
+                stores.push({
+                    side: side, floor: f, y0: y, y1: y + len,
+                    kind: kind, def: def,
+                    name: def.names[Math.floor(rng() * def.names.length)],
+                    lit: 0.55 + rng() * 0.45
+                });
+                y += len + GAP_BASE[f] + rng() * GAP_RAND[f];
+            }
+        }
+    }
+    stores.sort(function (a, b) { return a.y0 - b.y0; });
+}
+
+/* Wall geometry is one polyline per (side, floor). Bays are jogs in it,
+   so the same draw loop handles the corridor wall, the jambs and the
+   shop back wall without special-casing any of them. */
+/* Only the ground floor gets corridor walls. Upstairs the inner edge is
+   open air -- that IS the mechanic, so it must not be walled in. */
+function buildWalls() {
+    wallPaths = {};
+    for (var f = 0; f < 1; f++) {
+        for (var s = 0; s < 2; s++) {
+            var side = s === 0 ? -1 : 1;
+            var pts = [{ y: -60, x: side * hallHalf(f) }];
+            for (var i = 0; i < stores.length; i++) {
+                var st = stores[i];
+                if (st.floor !== f || st.side !== side) continue;
+                pts.push({ y: st.y0, x: side * hallHalf(f) });
+                pts.push({ y: st.y0, x: side * bayOut(f) });
+                pts.push({ y: st.y1, x: side * bayOut(f) });
+                pts.push({ y: st.y1, x: side * hallHalf(f) });
+            }
+            pts.push({ y: COURSE_LEN + 90, x: side * hallHalf(f) });
+            wallPaths[f + ":" + side] = pts;
+        }
+    }
+}
+
+/* How far off the centre line you can get at this y. Bays are the only
+   reason to ever leave the racing line, so the collision range is held
+   slightly tighter than the visual one -- clipping a jamb corner at
+   25 units/sec feels like a bug even when it's geometrically correct. */
+var BAY_MARGIN = 2.2;
+/* Upper-floor platforms get RUNOFF past each end of the shop: room to
+   straighten up after grabbing something before the floor stops
+   existing. Without it the only way off a platform was a turn you had
+   to start before you reached the item. */
+var BAY_RUNOFF = 3.0;
+/* Stair landings, and they are deliberately ASYMMETRIC.
+
+   Entering a staircase you only need enough room to line up (12 units,
+   about half a second). LEAVING one you arrive at x=8 on a balcony whose
+   walkable half-width is 5 -- so the exit apron has to be long enough to
+   actually steer back inside before the floor runs out. At 12 units it
+   wasn't: you exited the stairs and fell off immediately, through no
+   fault of your own. 28 units is a comfortable second at racing speed.
+
+   EDGE_GRACE is the same idea in miniature: your foot catches the lip.
+   Without it a near-miss you were already correcting reads as the game
+   cheating you. */
+var APRON_IN = 12, APRON_OUT = 28;
+var EDGE_GRACE = 0.7;
+function walkLimit(side, floor, y) {
+    /* Stair aprons first. Without them the approach to an upper-floor
+       staircase runs along the very lip of the balcony, and you fall
+       while lining the thing up rather than while taking a risk -- which
+       reads as the game being broken, not as you being greedy. */
+    for (var k = 0; k < RAMPS.length; k++) {
+        var ra = RAMPS[k];
+        if (ra.from !== floor && ra.to !== floor) continue;
+        if (!ra.full && ra.side !== side) continue;
+        if (y > ra.y0 - APRON_IN && y < ra.y1 + APRON_OUT) {
+            return Math.max(hallHalf(floor), ra.full ? 0 : RAMP_X + RAMP_HALF + 0.6);
+        }
+    }
+    for (var i = 0; i < stores.length; i++) {
+        var st = stores[i];
+        if (st.floor !== floor || st.side !== side) continue;
+        if (st.y0 > y) break;                       // sorted by y0
+        /* BAY_MARGIN holds the walkable bay slightly TIGHTER than the
+           drawn one so you cannot clip a door jamb at 25 units/sec. That
+           is a nicety on the ground floor and a disaster upstairs, where
+           "slightly tighter" means the first and last 2.2 units of every
+           storefront platform are an invisible hole you fall through
+           while visibly standing on the shop floor. Upstairs the drawn
+           platform is extended past the walkable one instead. Since v5
+           the renderer draws the floor straight from walkLimit's own
+           geometry (pathWalkable), so the ground you can see and the
+           ground you can stand on cannot drift apart at all. */
+        var m = (floor === 0) ? BAY_MARGIN : -BAY_RUNOFF;
+        if (y > st.y0 + m && y < st.y1 - m) return bayOut(floor);
+    }
+    return hallHalf(floor);
+}
+
+function bayAt(floor, side, y) {
+    for (var i = 0; i < stores.length; i++) {
+        var st = stores[i];
+        if (st.floor !== floor || st.side !== side) continue;
+        var run = (floor === 0) ? 0 : BAY_RUNOFF;
+        if (st.y0 - run > y) return null;
+        if (y >= st.y0 - run && y <= st.y1 + run) return st;
+    }
+    return null;
+}
+
+function rampNear(floor, side, y) {
+    for (var k = 0; k < RAMPS.length; k++) {
+        var ra = RAMPS[k];
+        if (ra.from !== floor && ra.to !== floor) continue;
+        if (!ra.full && ra.side !== side) continue;
+        if (y > ra.y0 - APRON_IN && y < ra.y1 + APRON_OUT) return ra;
+    }
+    return null;
+}
+
+/* Food placement.
+
+   Concept decision: "each food type gets 2-3 candidate slots with one
+   picked per race." Implemented as: walk the stocked storefronts in
+   order, chunk them into threes, light exactly one per chunk. Roughly
+   one stocked shop per 130 units per floor, and you can't learn the
+   layout by rote -- only the rhythm. */
+function buildItems() {
+    items = [];
+    MP.resetRandom();          // start from the ROOM seed, not wherever
+                               // the stream happened to be
+
+    var byFloor = [[], [], []];
+    for (var i = 0; i < stores.length; i++) {
+        if (stores[i].def.food) byFloor[stores[i].floor].push(stores[i]);
+    }
+
+    for (var f = 0; f < FLOORS; f++) {
+        var list = byFloor[f];
+        /* One stocked shop per chunk of two candidates.
+
+           Was 3 on the ground floor, which was sized for the 1650 course.
+           The ground floor stays at 3 -- it is a sugar minefield by
+           design, and stocking it densely made running it strictly better
+           than climbing, which collapses the whole premise. Upstairs uses
+           2, because there are far fewer shops up there to begin with and
+           the reward has to be worth the stairs.
+
+           This number and TUNE.baseDecay are the pair that sets the whole
+           economy; changing one without re-measuring the other will move
+           the balance a long way. */
+        var chunkSize = (f === 0) ? 3 : 2;
+        for (var c = 0; c < list.length; c += chunkSize) {
+            var chunk = list.slice(c, c + chunkSize);
+            if (!chunk.length) continue;
+            var st = chunk[Math.floor(MP.random() * chunk.length)];
+            items.push({
+                x: st.side * (hallHalf(f) + (bayOut(f) - hallHalf(f)) * 0.42),
+                y: (st.y0 + st.y1) / 2,
+                floor: f,
+                food: st.def.food,
+                taken: false,
+                bay: true,          // NPCs need to know this one is off the safe line
+                bob: MP.random() * 6.28
+            });
+        }
+    }
+
+    /* The centre-aisle shakes. These are the contested items -- the
+       reason sprint exists. Always stocked, always on the racing line,
+       always worth fighting for. */
+    var aisles = [380, 760, 1130, 1500, 1870, 2240, 2610, 2980];
+    for (var a = 0; a < aisles.length; a++) {
+        var cand = [-2.4, 0, 2.4];
+        items.push({
+            x: cand[Math.floor(MP.random() * cand.length)],
+            y: aisles[a] + (MP.random() * 40 - 20),
+            floor: 0, food: "shake", taken: false, aisle: true,
+            bob: MP.random() * 6.28
+        });
+    }
+
+    items.sort(function (p, q) { return p.y - q.y; });
+}
+
+function buildCourse() {
+    buildStores();
+    buildWalls();
+    buildItems();
+}
+
+
+/* ===================================================
+     GLUCOSE MODEL
+   ===================================================
+   Everything is expressed as a RATE in mg/dL per second and integrated,
+   rather than as a target value the display chases. That matters:
+   rates compose. Sprinting, climbing and a half-absorbed donut all add
+   into the same number without any of them having to know about the
+   others.
+
+   Absorption is a half-sine so a food ramps on and off smoothly, with
+   its area equal to the food's stated peak. High-GI foods then run a
+   second, negative half-sine -- the insulin overshoot. That's the
+   crash, and for every high-GI food the crash is LARGER than the
+   spike: cake genuinely leaves you worse off than not eating, twelve
+   seconds later. That's the whole point of it.
+*/
+
+function makeBolus(key) {
+    var f = FOODS[key];
+    return {
+        key: key, t: 0,
+        rise: f.rise, peak: f.peak,
+        crash: f.crash || 0, crashDur: f.crashDur || 0,
+        hold: f.hold || 0, holdX: f.holdX || 1
+    };
+}
+
+function bolusRate(b, dt) {
+    var rate = 0;
+    if (b.t < b.rise) {
+        rate += b.peak * (Math.PI / (2 * b.rise)) * Math.sin(Math.PI * b.t / b.rise);
+    } else if (b.crash > 0 && b.t < b.rise + b.crashDur) {
+        var u = (b.t - b.rise) / b.crashDur;
+        rate -= b.crash * (Math.PI / (2 * b.crashDur)) * Math.sin(Math.PI * u);
+    }
+    return rate;
+}
+
+function bolusDone(b) {
+    var span = b.rise + Math.max(b.crashDur, b.hold);
+    return b.t > span;
+}
+
+function stepGlucose(r, dt) {
+    if (r.dnf || r.finished) return;
+
+    /* Baseline burn. Sprint doubles it (concept decision). Low-GI food
+       suppresses it -- that's what "holds elevated for 30+ seconds"
+       actually means mechanically.
+
+       STACKING TAKES THE STRONGEST SUPPRESSOR, NEVER THE PRODUCT. Two
+       salads multiplying to 0.18x decay is a hole you could drive a
+       race through. */
+    var supp = 1;
+    for (var i = 0; i < r.boluses.length; i++) {
+        var b = r.boluses[i];
+        if (b.hold > 0 && b.t < b.hold) supp = Math.min(supp, b.holdX);
+    }
+
+    var decayX = supp * (r.sprintT > 0 ? TUNE.sprintDecayX : 1);
+    var rate = -TUNE.baseDecay * decayX;
+
+    for (var j = r.boluses.length - 1; j >= 0; j--) {
+        var bo = r.boluses[j];
+        rate += bolusRate(bo, dt);
+        bo.t += dt;
+        if (bolusDone(bo)) r.boluses.splice(j, 1);
+    }
+
+    r.glucose += rate * dt;
+    r.glucoseRate = rate;
+
+    if (r.glucose > TUNE.glucoseMax) r.glucose = TUNE.glucoseMax;
+    if (r.glucose <= 0) {
+        r.glucose = 0;
+        crash(r);
+    }
+
+    if (r.isPlayer && phase === "racing") {
+        r.timeInRange += (r.glucose >= TUNE.hypo && r.glucose <= TUNE.hyper) ? dt : 0;
+        r.timeTotal += dt;
+    }
+}
+
+function crash(r) {
+    if (r.dnf || r.finished) return;
+    r.dnf = true;
+    r.speed = 0; r.vx = 0; r.vy = 0;
+    finishOrder.push({ name: r.name, color: r.color, ms: null, self: !!r.isPlayer, dnf: true });
+    if (r.isPlayer) endRace("dnf");
+}
+
+
+/* ===================================================
+     RUNNERS & PHYSICS
+   ===================================================
+   One step function drives the player and every NPC. Whatever's true
+   of the player's handling is true of theirs -- an NPC that cheats
+   physics is the fastest way to make a race feel unfair.
+
+   Heading 0 points down the course (+y). Direction is
+   (sin h, cos h); the right-hand normal is (cos h, -sin h).
+
+   Velocity is kept as a vector and only *pulled* toward the heading at
+   TUNE.grip, rather than being locked to it. That's the difference
+   between "car-style" and "tank-style": turn hard at speed and you
+   carry momentum sideways for a moment, which is exactly what makes
+   diving into a storefront bay for cake cost you something. */
+
+var RUNNER_COLORS = ["#ff8fa3", "#6ce7a8", "#ffd166", "#7bc5ff", "#c9a7ff", "#ff9f6b"];
+
+/* Glucose drives TOP SPEED, not just survival.
+
+   This is the half of the concept that closes the loop -- "more
+   rewarding food -> speed up AND maintained blood glucose." Without it,
+   food is purely defensive, ignoring the storefronts entirely is the
+   fastest line through the mall, and the whole premise collapses into
+   "don't hit zero."
+
+   Below 70 you're bonking and it shows: top speed falls away to
+   TUNE.bonkFloor at zero, so the desaturating screen is a symptom of
+   something you can also feel in the controls. Above 90 you get a small
+   bonus that tops out at +8%.
+
+   Note what this does to cake: the spike genuinely makes you fast for
+   about three seconds, and then the crash makes you slow for nine.
+   That trade is the game. */
+function glucoseSpeedMult(g) {
+    if (g < TUNE.hypo) {
+        return TUNE.bonkFloor + (1 - TUNE.bonkFloor) * Math.pow(g / TUNE.hypo, TUNE.bonkCurve);
+    }
+    /* The bonus tops out around 195 rather than 200+, so it is reachable
+       by food that HOLDS you there -- which is only ever low-GI. A cake
+       spike touches the cap for three seconds; an oat bowl parks you on
+       it for half a minute. That is the difference the top floor is
+       selling, and before this it was too small to pay for the climb. */
+    return 1 + Math.min(TUNE.rangeBonus, Math.max(0, (g - 90) / 900));
+}
+
+function makeRunner(name, color, isPlayer) {
+    return {
+        name: name, color: color, isPlayer: !!isPlayer,
+        x: 0, y: 0, z: 0, floor: 0,
+        heading: 0, vx: 0, vy: 0, speed: 0,
+        onRamp: null, rampT: 0, fall: null, stun: 0,
+        inventory: [], eating: null, eatT: 0,
+        boluses: [], glucose: TUNE.glucoseStart, glucoseRate: 0,
+        sprintT: 0, sprintCd: 0,
+        finished: false, dnf: false, finishMs: null,
+        timeInRange: 0, timeTotal: 0,
+        lean: 0, stride: 0,
+        think: 0, target: null, wantsUp: false, aggression: 1
+    };
+}
+
+function rampAt(r) {
+    for (var i = 0; i < RAMPS.length; i++) {
+        var ra = RAMPS[i];
+        if (ra.from !== r.floor) continue;
+        if (r.y < ra.y0 || r.y > ra.y1) continue;
+        if (!ra.full) {
+            /* Tight. A 3.5-unit capture band on a floor whose walkable
+               half-width is 7.5 meant that diving for a storefront put you
+               in the stairwell, and the middle floor kept posting you back
+               down to the ground whether you meant to go or not. */
+            if (Math.abs(r.x - ra.side * RAMP_X) > RAMP_HALF + 0.2) continue;
+            /* You have to be running roughly ALONG the course for a
+               staircase to take you. Without this, diving sideways into a
+               storefront bay that happens to sit near a stair drags you up
+               a floor you never asked for -- which was sending NPCs onto
+               the balconies by accident and then off the edge of them. */
+            if (!r.onRamp && Math.abs(Math.sin(r.heading)) > 0.55) continue;
+        }
+        return ra;
+    }
+    return null;
+}
+
+/* Falling off a balcony costs the drop (~0.55s of no control), all your
+   momentum, and a stun on landing -- call it 2-3 seconds. Land off the
+   edge again and you keep going down, so a bad line on floor 3 can put
+   you on floor 1. Glucose drains the whole way. */
+function startFall(r) {
+    if (r.fall || r.floor <= 0 || r.finished || r.dnf) return;
+    var to = r.floor - 1;
+    r.fall = { t: 0, dur: 0.55, fromZ: r.z, toZ: to * FLOOR_H, toFloor: to };
+    r.onRamp = null;
+    if (r.isPlayer) { toast("OFF THE EDGE", "#ff6b6b"); tone(420, 90, "sawtooth", 0.45, 0.07); }
+}
+
+function land(r) {
+    var f = r.fall.toFloor;
+    r.fall = null;
+    r.floor = f;
+    r.z = f * FLOOR_H;
+    r.vx *= 0.25; r.vy *= 0.25;
+    r.speed = Math.sqrt(r.vx * r.vx + r.vy * r.vy);
+    r.stun = 0.7;
+    if (r.isPlayer) { shake(15); tone(160, 60, "square", 0.18, 0.08); }
+
+    var side = r.x < 0 ? -1 : 1;
+    var lim = walkLimit(side, f, r.y);
+    if (Math.abs(r.x) > lim + EDGE_GRACE) {
+        if (f > 0) startFall(r);      // still over the void -- keep going down
+        else r.x = side * lim;        // ground floor has walls to stop you
+    }
+}
+
+function stepRunner(r, inp, dt) {
+    if (r.fall) {
+        r.fall.t += dt;
+        var u = Math.min(1, r.fall.t / r.fall.dur);
+        r.z = r.fall.fromZ + (r.fall.toZ - r.fall.fromZ) * (u * u);   // accelerating
+        r.x += r.vx * dt * 0.45;
+        r.y += r.vy * dt * 0.45;
+        r.vx *= 0.94; r.vy *= 0.94;
+        r.speed = Math.sqrt(r.vx * r.vx + r.vy * r.vy);
+        stepGlucose(r, dt);
+        if (u >= 1) land(r);
+        return;
+    }
+
+    if (r.stun > 0) {
+        r.stun -= dt;
+        // picking yourself up: you can still steer, you just cannot drive
+        inp = { throttle: false, brake: false, steer: (inp.steer || 0) * 0.5, sprint: false, eat: inp.eat };
+    }
+
+    if (r.finished || r.dnf) {
+        r.speed *= 0.90;
+        r.x += r.vx * dt; r.y += r.vy * dt;
+        r.vx *= 0.90; r.vy *= 0.90;
+        return;
+    }
+
+    /* --- sprint timers --- */
+    if (r.sprintT > 0) { r.sprintT -= dt; if (r.sprintT <= 0) r.sprintCd = TUNE.sprintCd; }
+    else if (r.sprintCd > 0) r.sprintCd -= dt;
+
+    if (inp.sprint && r.sprintT <= 0 && r.sprintCd <= 0 && !r.eating && r.speed > 4) {
+        r.sprintT = TUNE.sprintDur;
+    }
+
+    /* --- eating: throttle cap drops, steering is untouched, and there
+           is no cancel. The committed window IS the mechanic. --- */
+    if (r.eating) {
+        r.eatT += dt;
+        if (r.eatT >= FOODS[r.eating].eat) {
+            r.boluses.push(makeBolus(r.eating));
+            if (r.isPlayer) toast("ATE " + FOODS[r.eating].name.toUpperCase(), GI_COLOR[FOODS[r.eating].gi]);
+            r.eating = null; r.eatT = 0;
+        }
+    } else if (inp.eat && r.inventory.length) {
+        r.eating = r.inventory.shift();       // FIFO, per the concept decision
+        r.eatT = 0;
+    }
+
+    /* --- speed cap for the situation --- */
+    var cap = TUNE.maxSpeed * glucoseSpeedMult(r.glucose);
+    var accel = TUNE.accel;
+    if (r.sprintT > 0) { cap *= TUNE.sprintMult; accel *= TUNE.sprintAccel; }
+    if (r.eating) cap *= TUNE.eatSpeedMult;
+
+    r.onRamp = rampAt(r);
+    if (r.onRamp) {
+        cap *= (r.onRamp.to > r.onRamp.from) ? TUNE.rampUpMult : TUNE.rampDownMult;
+    }
+    if (!r.isPlayer) cap *= r.npcSpeed || 1;
+
+    /* --- longitudinal --- */
+    var dir = { x: Math.sin(r.heading), y: Math.cos(r.heading) };
+    var rgt = { x: Math.cos(r.heading), y: -Math.sin(r.heading) };
+    var fwd = r.vx * dir.x + r.vy * dir.y;
+    var lat = r.vx * rgt.x + r.vy * rgt.y;
+
+    if (inp.throttle) {
+        if (fwd < cap) fwd += accel * dt;
+    }
+    if (inp.brake) {
+        fwd -= TUNE.brake * dt;
+        if (fwd < -TUNE.reverseMax) fwd = -TUNE.reverseMax;
+    }
+    if (fwd > cap) fwd -= (fwd - cap) * Math.min(1, 3.2 * dt);   // ease down off sprint
+
+    fwd *= Math.max(0, 1 - TUNE.drag * dt);
+    lat *= Math.exp(-TUNE.grip * dt);
+
+    /* --- steering: proportional to speed, so you cannot pivot in
+           place. This is the car-style handling the concept asked for
+           and it is what makes the bays a real cost. --- */
+    var sp = Math.abs(fwd);
+    if (inp.steer) {
+        var authority = Math.min(1, sp / TUNE.turnSpeedRef);
+        r.heading += inp.steer * TUNE.turnRate * dt * authority * (fwd < 0 ? -1 : 1);
+    }
+    r.lean += (((inp.steer || 0) * Math.min(1, sp / TUNE.turnSpeedRef)) - r.lean) * Math.min(1, 8 * dt);
+
+    dir = { x: Math.sin(r.heading), y: Math.cos(r.heading) };
+    rgt = { x: Math.cos(r.heading), y: -Math.sin(r.heading) };
+    r.vx = dir.x * fwd + rgt.x * lat;
+    r.vy = dir.y * fwd + rgt.y * lat;
+    r.speed = Math.sqrt(r.vx * r.vx + r.vy * r.vy);
+
+    r.x += r.vx * dt;
+    r.y += r.vy * dt;
+    r.stride += r.speed * dt * 0.55;
+
+    /* --- ramp: soft auto-align, so a car-style turning radius never
+           has to negotiate a narrow staircase --- */
+    if (r.onRamp) {
+        // A full-width bank doesn't need to grab your line -- there's
+        // nowhere else to be. A narrow staircase does.
+        if (!r.onRamp.full) {
+            var tx = r.onRamp.side * RAMP_X;
+            r.x += (tx - r.x) * Math.min(1, TUNE.rampAlign * dt);
+        } else if (Math.abs(r.x) > hallHalf(r.onRamp.from)) {
+            r.x = (r.x < 0 ? -1 : 1) * hallHalf(r.onRamp.from);
+        }
+        var wrapped = Math.atan2(Math.sin(-r.heading), Math.cos(-r.heading));
+        r.heading += wrapped * Math.min(1, TUNE.rampAlign * 0.55 * dt);
+
+        var t = (r.y - r.onRamp.y0) / (r.onRamp.y1 - r.onRamp.y0);
+        t = Math.max(0, Math.min(1, t));
+        r.rampT = t;
+        r.z = (r.onRamp.from + (r.onRamp.to - r.onRamp.from) * t) * FLOOR_H;
+
+        if (r.y > r.onRamp.y1) { r.floor = r.onRamp.to; r.onRamp = null; }
+        else if (r.y < r.onRamp.y0) { r.floor = r.onRamp.from; r.onRamp = null; }
+    } else {
+        r.z = r.floor * FLOOR_H;
+
+        /* --- the edge ---
+           Ground floor: a wall, you scrape it. Upstairs: nothing, you
+           fall. Same test, completely different consequence, and that
+           difference is the entire reason to think twice about the oat
+           bowl on floor 3. */
+        var side = r.x < 0 ? -1 : 1;
+        var lim = walkLimit(side, r.floor, r.y);
+        if (Math.abs(r.x) > lim + EDGE_GRACE && r.floor > 0) {
+            startFall(r);
+        } else if (Math.abs(r.x) > lim && r.floor === 0) {
+            r.x = side * lim;
+            var outward = r.vx * side;
+            if (outward > 0) {
+                // The wall absorbs the normal component -- it's a wall,
+                // not a trampoline.
+                r.vx -= outward * side;
+
+                /* Tangential friction has to scale with HOW HARD you hit
+                   it. A flat per-frame fraction compounds sixty times a
+                   second, so anything that so much as leans on a wall
+                   gets pinned to a standstill -- which is exactly what
+                   was happening to the NPCs (one of them spent half a
+                   race scraping the storefronts at 17 u/s). Now a
+                   glancing scrape costs a few percent and a head-on
+                   costs half your speed. */
+                var fric = Math.min(0.55, (outward / TUNE.maxSpeed) * TUNE.wallLoss * 3.2);
+                r.vy *= (1 - fric);
+                r.speed = Math.sqrt(r.vx * r.vx + r.vy * r.vy);
+                if (r.isPlayer && outward > 8) shake(Math.min(9, outward * 0.5));
+            }
+        }
+        if (r.y < 0) { r.y = 0; if (r.vy < 0) r.vy = 0; }
+        // Backstop only. The full-width banks above are what actually
+        // stop anyone reaching this.
+        if (r.y > MALL_END) { r.y = MALL_END; if (r.vy > 0) r.vy = 0; }
+    }
+
+    stepGlucose(r, dt);
+    tryPickup(r);
+
+    if (!r.finished && !r.dnf && r.floor === 0 && r.y >= COURSE_LEN) finishRunner(r);
+}
+
+/* Pickup. Third item is BLOCKED, not swapped -- the item stays on the
+   floor. Concept decision; SCOPE.md Q2 flags the failure case where
+   you're at 60 holding two oat bowls and run over the soda that would
+   have saved you. */
+var fullWarnAt = -1e9;
+function tryPickup(r) {
+    if (r.dnf || r.finished) return;
+    for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (it.taken || it.floor !== r.floor) continue;
+        if (Math.abs(it.y - r.y) > TUNE.pickupR + 1) continue;
+        var dx = it.x - r.x, dy = it.y - r.y;
+        if (dx * dx + dy * dy > TUNE.pickupR * TUNE.pickupR) continue;
+
+        if (r.inventory.length >= TUNE.invSize) {
+            if (r.isPlayer && raceTime - fullWarnAt > 1.4) {
+                fullWarnAt = raceTime;
+                toast("HANDS FULL", "#ff6b6b");
+            }
+            continue;
+        }
+        it.taken = true;
+        r.inventory.push(it.food);
+        if (r.isPlayer) {
+            toast("+ " + FOODS[it.food].name.toUpperCase(), GI_COLOR[FOODS[it.food].gi]);
+            beep(it.food);
+        }
+        return;
+    }
+}
+
+function finishRunner(r) {
+    r.finished = true;
+    r.finishMs = raceTime * 1000;
+    finishOrder.push({ name: r.name, color: r.color, ms: r.finishMs, self: !!r.isPlayer, dnf: false });
+    if (r.isPlayer) endRace("finish");
+}
+
+
+/* ===================================================
+     NPC AI — deliberately easy
+   ===================================================
+   Concept decision: NPCs contest scarce items like a player would, but
+   slower and without sprint spam. They exist to give sprint a reason to
+   exist before multiplayer arrives -- if nothing ever races you for the
+   centre-aisle shake, the double-tap is decoration.
+
+   "Easy" is three specific things, not a difficulty multiplier:
+     1. they decide at 2Hz, so they commit late and overshoot bays;
+     2. their steering carries a jitter term, so they don't drive the
+        perfect line;
+     3. they only sprint when something is genuinely contesting them.
+
+   SCOPE.md §6d: when real players are in the room these should probably
+   just be removed rather than synced. They've done their job by then. */
+
+/* Widened for the doubled course. These are how far an NPC can even SEE
+   food, and on a 3300-unit course a 112-unit horizon meant they were
+   reacting to shops that were already almost past them. */
+var NPC_SCAN_AHEAD = 145;
+var NPC_SCAN_SIDE  = 34;
+
+function npcThink(r, dt) {
+    r.think -= dt;
+    if (r.think > 0) return;
+    r.think = 0.42 + Math.random() * 0.22;
+
+    /* Will I even get there? Distance left, at my burn rate, against
+       what I'm carrying. An NPC that jogs serenely into a hypo crash
+       reads as broken rather than as easy. */
+    var secsLeft = Math.max(0, COURSE_LEN - r.y) / Math.max(8, r.speed);
+    var carried = 0;
+    for (var c = 0; c < r.inventory.length; c++) {
+        var cf = FOODS[r.inventory[c]];
+        carried += cf.peak - (cf.crash || 0) + (cf.hold ? cf.hold * TUNE.baseDecay * (1 - cf.holdX) : 0);
+    }
+    /* Judge starvation over a PLANNING HORIZON, not the whole remaining
+       race. Against the full distance, a 126s course means every NPC
+       thinks it is starving from the starting gun -- which tripled every
+       item score, dropped their detour threshold to nothing, and had them
+       careening across the mall after food they didn't need while
+       actually starving. Food keeps appearing; you only have to survive
+       as far as the next few shops. */
+    var horizon = Math.min(28, secsLeft);
+    var starving = (r.glucose + carried) < horizon * TUNE.baseDecay * 1.05;
+
+    /* Eat first -- an NPC that dies holding two donuts looks broken. */
+    if (!r.eating && r.inventory.length) {
+        /* Eat sooner. Food in hand does nothing -- and with two slots
+           you cannot bank much anyway, so sitting on a sandwich at 118
+           while sliding toward a bonk is just a slower death. */
+        var hungry = r.glucose < (124 + r.aggression * 10);
+        var projected = r.glucose + r.glucoseRate * 4;
+        if (hungry || projected < 95 || starving) { r.wantEat = true; }
+    }
+
+    /* Look for something worth leaving the line for. */
+    r.target = null;
+    if (r.inventory.length < TUNE.invSize) {
+        var best = null, bestScore = 0;
+        for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            if (it.taken || it.floor !== r.floor) continue;
+            var ahead = it.y - r.y;
+            if (ahead < 3 || ahead > NPC_SCAN_AHEAD) continue;
+            if (Math.abs(it.x - r.x) > NPC_SCAN_SIDE + 7) continue;
+
+            var f = FOODS[it.food];
+            /* Value is "how much of my problem does this solve", not
+               raw sugar: a crash-y food is worth less unless I'm
+               actually in trouble right now, and a food that suppresses
+               the burn for 30s is worth far more than its peak says. */
+            /* Weight the crash at nearly its full size. At 0.55 an NPC
+               rated a cake as +35 and happily ate the ground floor's
+               sugar minefield all race -- 59% of everything they ate was
+               high-GI, which is net NEGATIVE, so they were eating
+               themselves into the floor. The desperation clause is also
+               tighter (was 80): reaching for sugar at 78 starts the exact
+               spike-crash-spike spiral the food model is designed to
+               punish. Below 62 it really is the right call. */
+            var value = f.peak - (f.crash || 0) * 0.82 + (f.hold ? 45 : 0);
+            if (r.glucose < 62) value += (f.crash || 0) * 0.9;   // genuinely desperate
+            var detour = Math.abs(it.x - r.x) * 0.9 + f.eat * 7;
+            var score = value / (1 + detour * 0.05);
+            if (starving) score *= 3;
+            // A platform hanging over a drop is worth less than the same
+            // food on solid ground. They are easy, not suicidal.
+            if (it.bay && r.floor > 0) score *= (r.floor === 2 ? 0.45 : 0.65);
+            if (score > bestScore) { bestScore = score; best = it; }
+        }
+        if (best && bestScore > (starving ? 2 : 4)) r.target = best;
+    }
+
+    /* Some NPCs believe in the upper floors. Gives the field variety
+       and makes the ramps look used. */
+    if (!r.target && r.wantsUp && r.floor < 2) {
+        for (var j = 0; j < RAMPS.length; j++) {
+            var ra = RAMPS[j];
+            if (ra.from !== r.floor || ra.to <= ra.from) continue;
+            if (ra.y0 < r.y + 8 || ra.y0 > r.y + 190) continue;
+            r.target = { x: ra.side * RAMP_X, y: (ra.y0 + ra.y1) / 2, ramp: true };
+            break;
+        }
+    }
+
+    /* Late in the race, get back to the ground floor or you can't
+       finish. Same bail-out logic a player has to work out themselves. */
+    if (r.floor > 0 && r.y > COURSE_LEN - 420) {
+        for (var k = 0; k < RAMPS.length; k++) {
+            var rd = RAMPS[k];
+            if (rd.from !== r.floor || rd.to >= rd.from) continue;
+            if (rd.y0 < r.y + 4) continue;
+            r.target = { x: rd.side * RAMP_X, y: (rd.y0 + rd.y1) / 2, ramp: true };
+            break;
+        }
+    }
+}
+
+function npcInput(r, dt) {
+    npcThink(r, dt);
+
+    /* Between 2Hz decisions an item can be taken by someone else or slip
+       behind you. Without this an NPC keeps steering at a pickup that
+       isn't there any more, straight into the storefront wall. */
+    if (r.target && !r.target.ramp && (r.target.taken || r.target.y < r.y - 1)) r.target = null;
+
+    var tx, ty;
+    if (r.target) { tx = r.target.x; ty = r.target.y; }
+    else { tx = r.lane; ty = r.y + 60; }
+
+    /* Reaching for a pickup on a balcony platform: aim SHORT of it.
+       The pickup radius is 2.7, so aiming ~1.8 inside the item still
+       collects it while leaving the runner most of a lane closer to
+       safety. Aiming at the item itself put them right on the lip with
+       nothing left to correct with -- once they started climbing more,
+       that alone doubled their fall rate. */
+    if (r.target && r.target.bay && r.floor > 0) {
+        tx -= (tx < 0 ? -1 : 1) * 1.8;
+    }
+
+    /* Do not wander off a balcony while thinking about something else.
+       Only a target they have actually committed to gets to pull them
+       past the safe band. */
+    if (r.floor > 0) {
+        var safe = hallHalf(r.floor) * 0.82;
+        if (!r.target || !r.target.bay) {
+            tx = Math.max(-safe, Math.min(safe, tx));
+            /* Cut back HARD, aiming past the centre line. Coming off a
+               storefront platform there is very little y left before the
+               floor simply stops, and a gentle correction at 25 units/sec
+               does not arrive in time. */
+            if (Math.abs(r.x) > hallHalf(r.floor) * 0.8) {
+                tx = -(r.x < 0 ? -1 : 1) * hallHalf(r.floor) * 0.35;
+            }
+        }
+    }
+
+    var want = Math.atan2(tx - r.x, Math.max(2, ty - r.y));
+    /* jitter: an NPC that drives the exact optimal line reads as a
+       machine, and reads as unfair when it beats you to a shake */
+    want += Math.sin(raceTime * 1.7 + r.jitter) * 0.055;
+
+    var diff = Math.atan2(Math.sin(want - r.heading), Math.cos(want - r.heading));
+    var steer = Math.max(-1, Math.min(1, diff * 3.1));
+
+    /* Sprint only when actually contested: someone else is near the
+       same item and close enough to take it. */
+    var sprint = false;
+    // never sprint into a platform hanging over a drop
+    var sprintSafe = !(r.target && r.target.bay && r.floor > 0);
+    if (sprintSafe && r.target && !r.target.ramp && r.glucose > 112 && r.sprintCd <= 0) {
+        var dToItem = Math.hypot(r.target.x - r.x, r.target.y - r.y);
+        if (dToItem < 34) {
+            for (var i = 0; i < runners.length; i++) {
+                var o = runners[i];
+                if (o === r || o.finished || o.dnf || o.floor !== r.floor) continue;
+                if (Math.hypot(r.target.x - o.x, r.target.y - o.y) < dToItem + 9) { sprint = true; break; }
+            }
+        }
+    }
+
+    var eat = !!r.wantEat && !r.onRamp;
+    if (eat) r.wantEat = false;
+
+    return {
+        throttle: true,
+        brake: Math.abs(diff) > 1.15 && r.speed > 16,
+        steer: steer,
+        sprint: sprint,
+        eat: eat
+    };
+}
+
+/* ===================================================
+     CAMERA — orthographic top-down
+   ===================================================
+   v5 threw out the perspective renderer. Every graphical bug this
+   project hit came from the projection: near-plane clipping, depth
+   sorting across draw categories, billboarded-vs-wall-plane text,
+   white-on-white silhouettes, and a duplicate quad() that hid inside a
+   2600-line file for a whole revision. None of those failure modes
+   exist here. There is no projection, so nothing can be clipped wrong;
+   there is no depth, so draw order is just source order and is
+   trivially correct by construction.
+
+   Still FIXED TO THE COURSE AXIS, as decided: forward is up the screen
+   and the camera never rotates. The mall winds across the frame because
+   centerX(y) genuinely moves, which is the clearest possible reading of
+   the curve.
+
+   The course is 35 units wide and we show 136 units of it along, so on
+   a wide window the playfield is a ribbon with room either side. That
+   space is deliberate: it reads as a floor plan, and the HUD sits in it
+   without ever covering the course. */
+
+/* VIEW_BEHIND is not really about seeing behind you -- it sets where the
+   runner sits on screen. anchorY = ahead/(ahead+behind), so at 110/26 the
+   player sat at 81% down, directly underneath the glucose monitor. 105/40
+   puts them at 72%, clear of the HUD on any sensible window, and you get
+   to see rivals coming up behind you as a bonus. */
+var VIEW_AHEAD = 105, VIEW_BEHIND = 40;
+var cam = { y: 0, wx: 0, shake: 0, shakeX: 0, shakeY: 0 };
+var VP = { scale: 6, anchorY: 0, cx: 0 };
+
+function updateCamera(dt) {
+    cam.y = player.y;
+    // Follow the centreline fully and the player's lateral position only
+    // partly, so you can feel where you are across the corridor while the
+    // hall stays framed.
+    var targetWX = centerX(player.y) + player.x * 0.6;
+    cam.wx += (targetWX - cam.wx) * Math.min(1, 9 * dt);
+
+    if (cam.shake > 0.05) {
+        cam.shake *= Math.max(0, 1 - 7 * dt);
+        cam.shakeX = (Math.random() - 0.5) * cam.shake;
+        cam.shakeY = (Math.random() - 0.5) * cam.shake;
+    } else { cam.shake = 0; cam.shakeX = 0; cam.shakeY = 0; }
+
+    VP.scale = VIEW.h / (VIEW_AHEAD + VIEW_BEHIND);
+    VP.anchorY = VIEW.h * (VIEW_AHEAD / (VIEW_AHEAD + VIEW_BEHIND));
+
+    /* Where the corridor sits horizontally. Centred when there's room,
+       but slid left when the window is too narrow for both the ribbon and
+       the bottom-right HUD cluster -- otherwise the runner ends up behind
+       the glucose monitor, which is the one thing that must never happen
+       in a game about reading the glucose monitor. */
+    var halfW = (bayOut(0) + 6) * VP.scale;
+    var minC = halfW + 34;                        // clear of the progress rail
+    var maxC = VIEW.w - 300 - halfW;              // clear of the HUD cluster
+    VP.cx = Math.max(minC, Math.min(VIEW.w * 0.5, Math.max(minC, maxC)));
+}
+
+function shake(a) { cam.shake = Math.min(26, cam.shake + a); }
+
+/* Track space -> screen. SX needs the y as well as the x because the
+   centreline moves: that one term is the entire curvature implementation
+   on the render side. */
+function SX(tx, ty) { return VP.cx + ((tx + centerX(ty)) - cam.wx) * VP.scale + cam.shakeX; }
+function SY(ty)     { return VP.anchorY - (ty - cam.y) * VP.scale + cam.shakeY; }
+
+
+/* ===================================================
+     RENDER — top-down floor plan
+   =================================================== */
+
+var C = {
+    outside:   "#e8ebf0",
+    shell:     "#d3d8e0",
+    shellEdge: "#b9c0cc",
+    tile:      ["#f8f7f4", "#f4f7f9", "#f6f9fb"],
+    tileAlt:   ["#e6e2da", "#dfe6ec", "#e2ebef"],
+    wall:      "#8d95a6",
+    aisle:     "#e3ded4",
+    below1:    "#c7ccd6",
+    below2:    "#b4bac6",
+    belowEdge: "#a4abb9",
+    hazDark:   "#2c3242",
+    hazLight:  "#fcbc2a",
+    rampUp:    "#12b886",
+    rampDown:  "#f59f00",
+    ink:       "#39415a"
+};
+
+var PATH_STEP = 4;      // world units between points when tracing a curved edge
+var TILE = 4.0;         // floor tile size, world units
+
+function rgb(c) { return "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")"; }
+function mixc(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+var _hexCache = {};
+function hexRgb(h) {
+    if (_hexCache[h]) return _hexCache[h];
+    var v = [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+    _hexCache[h] = v;
+    return v;
+}
+function hexA(hex, a) {
+    var c = hexRgb(hex);
+    return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
+}
+
+function viewY0() { return cam.y - VIEW_BEHIND - 8; }
+function viewY1() { return cam.y + VIEW_AHEAD + 10; }
+
+/* One closed path per rectangular strip, always wound the same way
+   (up the smaller-x edge, back down the larger-x edge) so that several
+   subpaths union cleanly under the nonzero fill rule instead of
+   cancelling each other out. */
+function stripSubpath(xa, xb, y0, y1) {
+    var lo = Math.min(xa, xb), hi = Math.max(xa, xb), y;
+    ctx.moveTo(SX(lo, y0), SY(y0));
+    for (y = y0; y < y1; y += PATH_STEP) ctx.lineTo(SX(lo, y), SY(y));
+    ctx.lineTo(SX(lo, y1), SY(y1));
+    ctx.lineTo(SX(hi, y1), SY(y1));
+    for (y = y1; y > y0; y -= PATH_STEP) ctx.lineTo(SX(hi, y), SY(y));
+    ctx.lineTo(SX(hi, y0), SY(y0));
+    ctx.closePath();
+}
+
+/* The complete walkable region of a floor: corridor + storefront
+   platforms + stair aprons. Everything else -- filling it, clipping the
+   checkerboard to it, stroking its outline as either a wall or a
+   hazard-striped cliff edge -- is done from this one path, so the floor
+   you can see and the floor you can stand on cannot disagree. */
+function pathWalkable(f, y0, y1) {
+    ctx.beginPath();
+    var hh = hallHalf(f);
+    stripSubpath(-hh, hh, y0, y1);
+
+    var i, st;
+    for (i = 0; i < stores.length; i++) {
+        st = stores[i];
+        if (st.floor !== f) continue;
+        if (st.y1 < y0 || st.y0 > y1) continue;
+        var run = (f === 0) ? 0 : BAY_RUNOFF;
+        stripSubpath(st.side * hh, st.side * bayOut(f),
+                     Math.max(y0, st.y0 - run), Math.min(y1, st.y1 + run));
+    }
+
+    if (f > 0) {
+        for (i = 0; i < RAMPS.length; i++) {
+            var ra = RAMPS[i];
+            if (ra.full || (ra.from !== f && ra.to !== f)) continue;
+            var a = ra.y0 - APRON_IN, b = ra.y1 + APRON_OUT;
+            if (b < y0 || a > y1) continue;
+            stripSubpath(ra.side * hh, ra.side * (RAMP_X + RAMP_HALF + 0.6),
+                         Math.max(y0, a), Math.min(y1, b));
+        }
+    }
+}
+
+function drawChecker(f, y0, y1) {
+    var lo = Math.floor(y0 / TILE) * TILE;
+    var xr = bayOut(f) + TILE;
+    var c0 = Math.floor(-xr / TILE), c1 = Math.ceil(xr / TILE);
+    ctx.fillStyle = C.tileAlt[Math.min(2, f)];
+    for (var y = lo; y < y1; y += TILE) {
+        var row = Math.floor(y / TILE);
+        for (var c = c0; c < c1; c++) {
+            if (((row + c) & 1) === 0) continue;      // base fill is the other colour
+            var xa = c * TILE, xb = xa + TILE;
+            ctx.beginPath();
+            ctx.moveTo(SX(xa, y), SY(y));
+            ctx.lineTo(SX(xb, y), SY(y));
+            ctx.lineTo(SX(xb, y + TILE), SY(y + TILE));
+            ctx.lineTo(SX(xa, y + TILE), SY(y + TILE));
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+}
+
+/* Every level beneath you, drawn first and then covered by your own
+   floor. Whatever is left showing IS the drop -- so the hole you can
+   fall through is exactly the hole you can see, with no separate
+   "void" geometry to get out of step with the collision test. */
+function drawFloorsBelow(f, y0, y1) {
+    for (var lo = f - 1; lo >= 0; lo--) {
+        pathWalkable(lo, y0, y1);
+        ctx.fillStyle = (lo === f - 1) ? C.below1 : C.below2;
+        ctx.fill();
+        ctx.lineWidth = Math.max(1, VP.scale * 0.25);
+        ctx.strokeStyle = C.belowEdge;
+        ctx.stroke();
+    }
+}
+
+function drawFloorPlate(f, y0, y1) {
+    pathWalkable(f, y0, y1);
+    ctx.fillStyle = C.tile[Math.min(2, f)];
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    drawChecker(f, y0, y1);
+    drawFloorMarkings(f, y0, y1);
+    ctx.restore();
+}
+
+function drawFloorMarkings(f, y0, y1) {
+    // centre aisle: dashed, and only where there's room for one
+    if (hallHalf(f) >= 4) {
+        ctx.fillStyle = "rgba(120,128,145,0.28)";
+        for (var ly = Math.floor(y0 / 16) * 16; ly < y1; ly += 16) {
+            ctx.beginPath();
+            ctx.moveTo(SX(-0.35, ly), SY(ly));
+            ctx.lineTo(SX(0.35, ly), SY(ly));
+            ctx.lineTo(SX(0.35, ly + 7), SY(ly + 7));
+            ctx.lineTo(SX(-0.35, ly + 7), SY(ly + 7));
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+    // light spilling from each lit storefront
+    for (var i = 0; i < stores.length; i++) {
+        var st = stores[i];
+        if (st.floor !== f || st.y1 < y0 || st.y0 > y1) continue;
+        var hh = hallHalf(f);
+        ctx.fillStyle = hexA(st.def.sign, (0.085 * st.lit).toFixed(3));
+        ctx.beginPath();
+        ctx.moveTo(SX(st.side * hh, st.y0), SY(st.y0));
+        ctx.lineTo(SX(st.side * Math.max(0.5, hh - 3.0), st.y0), SY(st.y0));
+        ctx.lineTo(SX(st.side * Math.max(0.5, hh - 3.0), st.y1), SY(st.y1));
+        ctx.lineTo(SX(st.side * hh, st.y1), SY(st.y1));
+        ctx.closePath();
+        ctx.fill();
+    }
+    if (f === 0) drawStartFinish2D(y0, y1);
+}
+
+function drawStartFinish2D(y0, y1) {
+    var hh = hallHalf(0), i, k;
+    if (y0 < 6) {
+        for (i = -6; i < 6; i++) {
+            ctx.fillStyle = (i % 2) ? "rgba(44,50,66,0.55)" : "rgba(255,255,255,0.85)";
+            band(i * 2.2, i * 2.2 + 2.2, 0, 2.6);
+        }
+    }
+    if (COURSE_LEN > y0 - 6 && COURSE_LEN < y1 + 6) {
+        for (i = -6; i < 6; i++) {
+            for (k = 0; k < 2; k++) {
+                ctx.fillStyle = ((i + k) % 2) ? "#ffffff" : "#20232e";
+                band(i * 2.2, i * 2.2 + 2.2, COURSE_LEN + k * 2.2, COURSE_LEN + k * 2.2 + 2.2);
+            }
+        }
+    }
+    function band(xa, xb, ya, yb) {
+        ctx.beginPath();
+        ctx.moveTo(SX(xa, ya), SY(ya));
+        ctx.lineTo(SX(xb, ya), SY(ya));
+        ctx.lineTo(SX(xb, yb), SY(yb));
+        ctx.lineTo(SX(xa, yb), SY(yb));
+        ctx.closePath();
+        ctx.fill();
+    }
+}
+
+/* Ground floor gets a wall. Upper floors get a hazard-striped cliff
+   edge, drawn as a dark stroke with a dashed amber stroke over it. */
+function drawEdges(f, y0, y1) {
+    pathWalkable(f, y0, y1);
+    if (f === 0) {
+        ctx.lineWidth = Math.max(2.5, VP.scale * 0.95);
+        ctx.strokeStyle = C.wall;
+        ctx.lineJoin = "round";
+        ctx.stroke();
+    } else {
+        ctx.lineJoin = "round";
+        ctx.lineWidth = Math.max(3, VP.scale * 1.25);
+        ctx.strokeStyle = C.hazDark;
+        ctx.setLineDash([]);
+        ctx.stroke();
+        ctx.strokeStyle = C.hazLight;
+        ctx.setLineDash([VP.scale * 2.2, VP.scale * 2.2]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+}
+
+function drawStores2D(f, y0, y1) {
+    var bo = bayOut(f);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (var i = 0; i < stores.length; i++) {
+        var st = stores[i];
+        if (st.floor !== f || st.y1 < y0 || st.y0 > y1) continue;
+        var xi = st.side * bo, xo = st.side * (bo + 3.2);
+
+        ctx.beginPath();
+        ctx.moveTo(SX(xi, st.y0), SY(st.y0));
+        ctx.lineTo(SX(xo, st.y0), SY(st.y0));
+        ctx.lineTo(SX(xo, st.y1), SY(st.y1));
+        ctx.lineTo(SX(xi, st.y1), SY(st.y1));
+        ctx.closePath();
+        ctx.fillStyle = st.def.sign;
+        ctx.fill();
+
+        // name, running along the shopfront the way a floor-plan label does
+        var lenPx = Math.abs(SY(st.y1) - SY(st.y0));
+        var size = Math.min(VP.scale * 1.9, lenPx / (st.name.length * 0.62));
+        if (size >= 6) {
+            var mid = (st.y0 + st.y1) / 2;
+            ctx.save();
+            ctx.translate(SX(st.side * (bo + 1.6), mid), SY(mid));
+            ctx.rotate(-Math.PI / 2);
+            ctx.font = "800 " + size.toFixed(1) + "px Segoe UI, sans-serif";
+            ctx.fillStyle = "rgba(255,255,255,0.97)";
+            ctx.fillText(st.name, 0, 0);
+            ctx.restore();
+        }
+    }
+}
+
+function drawRamps2D(f, y0, y1) {
+    for (var i = 0; i < RAMPS.length; i++) {
+        var r = RAMPS[i];
+        if (r.from !== f && r.to !== f) continue;
+        if (r.y1 < y0 || r.y0 > y1) continue;
+
+        var up = r.to > r.from;
+        var mine = (r.from === f);
+        var x = r.full ? 0 : r.side * RAMP_X;
+        var half = r.full ? hallHalf(r.from) : RAMP_HALF;
+        var xa = x - half, xb = x + half;
+
+        ctx.beginPath();
+        ctx.moveTo(SX(xa, r.y0), SY(r.y0));
+        ctx.lineTo(SX(xb, r.y0), SY(r.y0));
+        ctx.lineTo(SX(xb, r.y1), SY(r.y1));
+        ctx.lineTo(SX(xa, r.y1), SY(r.y1));
+        ctx.closePath();
+        ctx.fillStyle = mine ? "#eef0f4" : "#dce0e8";
+        ctx.fill();
+        ctx.lineWidth = Math.max(1.5, VP.scale * 0.35);
+        ctx.strokeStyle = up ? C.rampUp : C.rampDown;
+        ctx.stroke();
+
+        // treads
+        ctx.strokeStyle = "rgba(90,98,118,0.35)";
+        ctx.lineWidth = Math.max(1, VP.scale * 0.16);
+        for (var t = r.y0 + 4; t < r.y1; t += 4.5) {
+            ctx.beginPath();
+            ctx.moveTo(SX(xa, t), SY(t));
+            ctx.lineTo(SX(xb, t), SY(t));
+            ctx.stroke();
+        }
+
+        if (!mine) continue;
+
+        // direction chevrons at the mouth
+        ctx.fillStyle = up ? C.rampUp : C.rampDown;
+        for (var ch = 0; ch < 3; ch++) {
+            var cy = r.y0 - 8 + ch * 3.0;
+            ctx.beginPath();
+            ctx.moveTo(SX(x, cy + 2.2), SY(cy + 2.2));
+            ctx.lineTo(SX(x - half * 0.65, cy), SY(cy));
+            ctx.lineTo(SX(x + half * 0.65, cy), SY(cy));
+            ctx.closePath();
+            ctx.fill();
+        }
+        var lbl = (up ? "▲ " : "▼ ") + (r.to + 1);
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.font = "900 " + Math.max(9, VP.scale * 1.7).toFixed(1) + "px Segoe UI, sans-serif";
+        ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.92)"; ctx.lineJoin = "round";
+        ctx.strokeText(lbl, SX(x, r.y0 + 6), SY(r.y0 + 6));
+        ctx.fillStyle = up ? C.rampUp : C.rampDown;
+        ctx.fillText(lbl, SX(x, r.y0 + 6), SY(r.y0 + 6));
+    }
+}
+
+function drawItems2D(f, y0, y1) {
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (it.taken || it.floor !== f) continue;
+        if (it.y < y0 || it.y > y1) continue;
+        var px = SX(it.x, it.y), py = SY(it.y);
+        var food = FOODS[it.food];
+        var col = GI_COLOR[food.gi];
+        var rad = VP.scale * 2.1;
+        var pulse = 1 + Math.sin(raceTime * 3 + it.bob) * 0.06;
+
+        ctx.beginPath();
+        ctx.arc(px, py, rad * pulse, 0, 6.284);
+        ctx.fillStyle = hexA(col, "0.20");
+        ctx.fill();
+        ctx.lineWidth = Math.max(1.5, VP.scale * 0.3);
+        ctx.strokeStyle = col;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(px, py, rad * 0.68, 0, 6.284);
+        ctx.fillStyle = "rgba(255,255,255,0.92)";
+        ctx.fill();
+
+        ctx.font = (rad * 1.05).toFixed(1) + "px Segoe UI Emoji, Apple Color Emoji, serif";
+        ctx.fillText(food.icon, px, py);
+    }
+}
+
+/* Runners seen from directly above: a coloured shoulder disc with the
+   white top of the head inside it, and a nose wedge for heading -- which
+   matters, because with car-style physics you are often not travelling
+   the way you are pointing. Falling shrinks the runner toward a landing
+   ring on the floor below, which is the top-down reading of "going
+   down". */
+function drawRunners2D(f, y0, y1) {
+    for (var i = 0; i < runners.length; i++) {
+        var r = runners[i];
+        if (Math.abs(r.z - player.z) > FLOOR_H * 0.8 && !r.fall) continue;
+        if (r.y < y0 - 6 || r.y > y1 + 6) continue;
+
+        var px = SX(r.x, r.y), py = SY(r.y);
+        var fallT = r.fall ? Math.min(1, r.fall.t / r.fall.dur) : 0;
+        var shrink = 1 - fallT * 0.45;
+        var rad = VP.scale * 1.95 * shrink;
+
+        if (r.fall) {
+            ctx.beginPath();
+            ctx.arc(px, py, VP.scale * 2.6, 0, 6.284);
+            ctx.strokeStyle = "rgba(244,69,63," + (0.75 * (1 - fallT)).toFixed(2) + ")";
+            ctx.lineWidth = Math.max(1.5, VP.scale * 0.3);
+            ctx.stroke();
+        }
+
+        ctx.save();
+        ctx.globalAlpha = r.dnf ? 0.45 : (r.fall ? 1 - fallT * 0.35 : 1);
+
+        /* Heading wedge. With car-style physics you are frequently not
+           travelling the way you are pointing, and from directly above a
+           disc has no facing at all -- so this is the only cue for which
+           way you'll go when you next touch the throttle. It has to be
+           solid, not a hint. */
+        if (!r.fall) {
+            var hx = Math.sin(r.heading), hy = Math.cos(r.heading);
+            ctx.beginPath();
+            ctx.moveTo(px + hx * rad * 2.4, py - hy * rad * 2.4);
+            ctx.lineTo(px + hy * rad * 0.95, py + hx * rad * 0.95);
+            ctx.lineTo(px - hy * rad * 0.95, py - hx * rad * 0.95);
+            ctx.closePath();
+            ctx.fillStyle = hexA(r.color, "0.75");
+            ctx.fill();
+        }
+
+        // soft contact shadow so runners sit ON the floor plan, not in it
+        ctx.beginPath();
+        ctx.arc(px + rad * 0.16, py + rad * 0.22, rad, 0, 6.284);
+        ctx.fillStyle = "rgba(40,48,68,0.16)";
+        ctx.fill();
+
+        // shoulders
+        ctx.beginPath();
+        ctx.arc(px, py, rad, 0, 6.284);
+        ctx.fillStyle = r.color;
+        ctx.fill();
+        ctx.lineWidth = Math.max(1, rad * 0.16);
+        ctx.strokeStyle = "rgba(40,46,64,0.35)";
+        ctx.stroke();
+
+        // top of the head
+        ctx.beginPath();
+        ctx.arc(px, py, rad * 0.44, 0, 6.284);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+
+        if (r.sprintT > 0 && !r.fall) {
+            ctx.beginPath();
+            ctx.arc(px, py, rad * 1.9, 0, 6.284);
+            ctx.strokeStyle = "rgba(18,184,134,0.8)";
+            ctx.lineWidth = Math.max(1.5, rad * 0.22);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        if (r.eating) {
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.font = (rad * 1.5).toFixed(1) + "px Segoe UI Emoji, serif";
+            ctx.fillText(FOODS[r.eating].icon, px + rad * 2.0, py - rad * 1.6);
+        }
+
+        if (!r.isPlayer) {
+            ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+            ctx.font = "700 " + Math.max(9, VP.scale * 1.5).toFixed(1) + "px Segoe UI, sans-serif";
+            ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineJoin = "round";
+            ctx.strokeText(r.name, px, py - rad * 1.9);
+            ctx.fillStyle = C.ink;
+            ctx.fillText(r.name, px, py - rad * 1.9);
+        }
+    }
+}
+
+function render() {
+    var f = player.floor;
+    var y0 = viewY0(), y1 = viewY1();
+
+    ctx.setTransform(VIEW.dpr, 0, 0, VIEW.dpr, 0, 0);
+    ctx.fillStyle = C.outside;
+    ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+
+    // the building footprint, so the mall reads as a building on a plan
+    ctx.beginPath();
+    stripSubpath(-(bayOut(0) + 5), bayOut(0) + 5, y0, y1);
+    ctx.fillStyle = C.shell;
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.5, VP.scale * 0.4);
+    ctx.strokeStyle = C.shellEdge;
+    ctx.stroke();
+
+    // Draw order is just source order -- there is no depth to get wrong.
+    if (f > 0) drawFloorsBelow(f, y0, y1);
+    drawFloorPlate(f, y0, y1);
+    drawRamps2D(f, y0, y1);
+    drawEdges(f, y0, y1);
+    drawStores2D(f, y0, y1);
+    drawItems2D(f, y0, y1);
+    drawRunners2D(f, y0, y1);
+}
+
+
+/* ===================================================
+     HUD
+   ===================================================
+   The exposure effects deliberately stop at the canvas. When you're at
+   38 mg/dL the world should be a grey tunnel -- but the monitor telling
+   you WHY has to stay legible, or the mechanic reads as the game
+   breaking rather than as your body failing. */
+
+var WAVE_N = 300, WAVE_HZ = 10;         // 30 seconds of history
+var waveBuf = new Float32Array(WAVE_N);
+var waveHead = 0, waveFill = 0, waveAcc = 0;
+var railPips = [];
+
+function pushWave(v) {
+    waveBuf[waveHead] = v;
+    waveHead = (waveHead + 1) % WAVE_N;
+    if (waveFill < WAVE_N) waveFill++;
+}
+
+function drawWave() {
+    var w = waveCanvas.width, h = waveCanvas.height, d = VIEW.dpr;
+    waveCtx.setTransform(1, 0, 0, 1, 0, 0);
+    waveCtx.clearRect(0, 0, w, h);
+
+    var LO = 30, HI = 300;
+    function ty(v) { return h - ((Math.max(LO, Math.min(HI, v)) - LO) / (HI - LO)) * h; }
+
+    waveCtx.fillStyle = "rgba(255,255,255,0.03)";
+    waveCtx.fillRect(0, 0, w, h);
+
+    // the three zones, drawn as the background rather than as lines --
+    // you read this at a glance while steering, not by inspecting it
+    waveCtx.fillStyle = "rgba(255,107,107,0.16)";
+    waveCtx.fillRect(0, ty(TUNE.hypo), w, h - ty(TUNE.hypo));
+    waveCtx.fillStyle = "rgba(255,196,84,0.14)";
+    waveCtx.fillRect(0, 0, w, ty(TUNE.hyper));
+    waveCtx.fillStyle = "rgba(108,231,168,0.10)";
+    waveCtx.fillRect(0, ty(TUNE.hyper), w, ty(TUNE.hypo) - ty(TUNE.hyper));
+
+    waveCtx.strokeStyle = "rgba(255,255,255,0.22)";
+    waveCtx.lineWidth = 1 * d;
+    [TUNE.hypo, TUNE.hyper].forEach(function (v) {
+        waveCtx.beginPath();
+        waveCtx.moveTo(0, ty(v) + 0.5); waveCtx.lineTo(w, ty(v) + 0.5);
+        waveCtx.stroke();
+    });
+
+    if (waveFill < 2) return;
+    waveCtx.beginPath();
+    for (var i = 0; i < waveFill; i++) {
+        var idx = (waveHead - waveFill + i + WAVE_N * 2) % WAVE_N;
+        var x = (i / (WAVE_N - 1)) * w;
+        var yy = ty(waveBuf[idx]);
+        if (i === 0) waveCtx.moveTo(x, yy); else waveCtx.lineTo(x, yy);
+    }
+    waveCtx.strokeStyle = zoneColor(player.glucose);
+    waveCtx.lineWidth = 2.2 * d;
+    waveCtx.lineJoin = "round";
+    waveCtx.stroke();
+
+    var hx = ((waveFill - 1) / (WAVE_N - 1)) * w;
+    waveCtx.beginPath();
+    waveCtx.arc(hx, ty(player.glucose), 3.2 * d, 0, 6.284);
+    waveCtx.fillStyle = zoneColor(player.glucose);
+    waveCtx.fill();
+}
+
+function zoneColor(g) {
+    if (g < TUNE.hypo) return "#ff6b6b";
+    if (g > TUNE.hyper) return "#ffc454";
+    return "#6ce7a8";
+}
+
+function progressOf(r) {
+    if (r.finished) return 1e9 - r.finishMs;
+    if (r.dnf) return -1;
+    return r.y;
+}
+
+function placeOf(r) {
+    var better = 1;
+    for (var i = 0; i < runners.length; i++) {
+        if (runners[i] !== r && progressOf(runners[i]) > progressOf(r)) better++;
+    }
+    return better;
+}
+
+function updateHUD(dt) {
+    var g = player.glucose;
+
+    el.place.textContent = placeOf(player) + "/" + runners.length;
+    el.dist.textContent = player.finished ? "0m" :
+        Math.max(0, Math.round((COURSE_LEN - player.y) * 0.5)) + "m";
+    el.time.textContent = raceTime.toFixed(1);
+    el.floor.innerHTML = "FLOOR <b>" + (Math.round(player.z / FLOOR_H) + 1) + "</b>";
+
+    var sp = player.sprintT > 0 ? player.sprintT / TUNE.sprintDur
+        : (player.sprintCd > 0 ? 1 - player.sprintCd / TUNE.sprintCd : 1);
+    el.sprint.style.width = (sp * 100).toFixed(1) + "%";
+    el.sprint.className = player.sprintT > 0 ? "hot" : "";
+
+    el.monVal.textContent = Math.round(g);
+    el.monVal.style.color = zoneColor(g);
+    el.monZone.style.color = zoneColor(g);
+    el.monZone.textContent = g < TUNE.hypo ? "HYPO — EAT NOW"
+        : g > TUNE.hyper ? "SPIKED" : "IN RANGE";
+
+    /* Inventory. The item being eaten has already been shifted OUT of
+       player.inventory, so slot 0 shows it while it's in your mouth and
+       everything else slides up behind it. Rebuilt only when the
+       rendered content actually changes -- innerHTML at 60Hz for a
+       two-slot panel is a lot of garbage for no reason. */
+    var display = player.eating ? [player.eating].concat(player.inventory) : player.inventory;
+    for (var i = 0; i < 2; i++) {
+        var slot = el.slots[i];
+        var key = display[i];
+
+        if (!key) {
+            if (slot.dataset.sig !== "empty") {
+                slot.dataset.sig = "empty";
+                slot.className = "gd-slot empty";
+                slot.innerHTML = '<span class="key">' + (i === 0 ? "SPACE" : "NEXT") + '</span>';
+            }
+            continue;
+        }
+        var fd = FOODS[key];
+        var eating = (i === 0 && player.eating === key);
+        var pct = eating ? Math.min(100, (player.eatT / fd.eat) * 100) : 0;
+        var sig = key + (eating ? "|e" : "");
+        if (slot.dataset.sig !== sig) {
+            slot.dataset.sig = sig;
+            slot.className = "gd-slot gi-" + fd.gi;
+            slot.innerHTML =
+                '<span class="ic">' + fd.icon + '</span>' +
+                '<span class="tx"><span class="nm">' + fd.name + '</span>' +
+                '<span class="gi" style="color:' + GI_COLOR[fd.gi] + '">' +
+                (eating ? "EATING…" : fd.gi.toUpperCase() + " GI") + '</span></span>' +
+                '<span class="key">' + (i === 0 ? "SPACE" : "NEXT") + '</span>' +
+                '<span class="eatbar"></span>';
+        }
+        if (eating) {
+            var bar = slot.querySelector(".eatbar");
+            if (bar) bar.style.width = pct.toFixed(0) + "%";
+        }
+    }
+
+    // warnings
+    var wtxt = "", wcol = "";
+    if (player.dnf) { wtxt = "CRASHED"; wcol = "#ff6b6b"; }
+    else if (g < 40) { wtxt = "CRITICAL — EAT"; wcol = "#ff6b6b"; }
+    else if (g < TUNE.hypo) { wtxt = "LOW · SLOWING"; wcol = "#ff6b6b"; }
+    else if (g > 280) { wtxt = "WAY TOO HIGH"; wcol = "#ffc454"; }
+    else if (g > TUNE.hyper) { wtxt = "SPIKED"; wcol = "#ffc454"; }
+    el.warn.textContent = wtxt;
+    el.warn.style.color = wcol;
+    el.warn.className = wtxt ? (g < 45 || player.dnf ? "on pulse" : "on") : "";
+
+    /* --- the exposure mechanic ---
+       Below 70: saturation and light drain out and the world closes in.
+       Above 200: the sensor blows out and you lose the course. Highs
+       are visual-only by design -- no DNF above range. */
+    var hypoT = Math.max(0, Math.min(1, (TUNE.hypo - g) / TUNE.hypo));
+    var hyperT = Math.max(0, Math.min(1, (g - TUNE.hyper) / 130));
+    /* Retuned for the light mall. The old values assumed a dark scene:
+       a white overlay at 0.55 on an already-white corridor is an instant
+       featureless whiteout with no information left in it. The blowout
+       now comes mostly from saturation and contrast -- the colourful
+       storefronts go neon and smear -- with only a light wash of white
+       on top. Hypo is the opposite: draining a BRIGHT scene to grey and
+       closing a dark vignette over it reads far harder than it did on
+       black, so it can afford to be gentler. */
+    var sat = (1 - 0.90 * hypoT) * (1 + 1.15 * hyperT);
+    var bri = (1 - 0.55 * hypoT) * (1 + 0.26 * hyperT);
+    var con = 1 - 0.30 * hypoT + 0.20 * hyperT;
+    canvas.style.filter = "saturate(" + sat.toFixed(3) + ") brightness(" + bri.toFixed(3) +
+        ") contrast(" + con.toFixed(3) + ")";
+    el.blowout.style.opacity = (hyperT * 0.30).toFixed(3);
+    el.vignette.style.opacity = (hypoT * 0.95).toFixed(3);
+
+    // wave sampling
+    waveAcc += dt;
+    while (waveAcc >= 1 / WAVE_HZ) { waveAcc -= 1 / WAVE_HZ; pushWave(g); }
+    drawWave();
+
+    updateRail();
+}
+
+function updateRail() {
+    for (var i = 0; i < runners.length; i++) {
+        var r = runners[i];
+        var pip = railPips[i];
+        if (!pip) continue;
+        var t = Math.max(0, Math.min(1, r.y / COURSE_LEN));
+        pip.style.top = ((1 - t) * 100).toFixed(2) + "%";
+        pip.style.background = r.color;
+        pip.className = "gd-pip" + (r.isPlayer ? " self" : "") +
+            (Math.abs(r.z - player.z) > FLOOR_H * 0.75 ? " other-floor" : "");
+        pip.style.opacity = r.dnf ? 0.25 : "";
+    }
+}
+
+function toast(text, color) {
+    el.toast.textContent = text;
+    el.toast.style.color = color || "#eef2f7";
+    el.toast.className = "on";
+    if (toastTimer) clearTracked(toastTimer);
+    toastTimer = trackTimeout(function () { el.toast.className = ""; }, 1000);
+}
+
+
+/* ===================================================
+     AUDIO — tiny, gesture-gated
+   ===================================================
+   Mobile browsers refuse audio without a user gesture, and
+   PROJECT_MEMORY records a still-open mobile audio-freeze bug in Gyro
+   Space. So: context created on the Start click, nothing autoplays,
+   every call is wrapped. */
+var audioCtx = null;
+
+function initAudio() {
+    if (audioCtx) return;
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { audioCtx = null; }
+}
+
+function tone(f0, f1, type, dur, vol) {
+    if (!audioCtx) return;
+    try {
+        var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = type; o.connect(g); g.connect(audioCtx.destination);
+        o.frequency.setValueAtTime(f0, audioCtx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), audioCtx.currentTime + dur);
+        g.gain.setValueAtTime(vol, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+        o.start(); o.stop(audioCtx.currentTime + dur);
+    } catch (e) { /* audio is never worth breaking a frame over */ }
+}
+
+function beep(foodKey) {
+    var gi = FOODS[foodKey].gi;
+    if (gi === "high") tone(680, 1180, "square", 0.10, 0.05);
+    else if (gi === "med") tone(520, 760, "triangle", 0.12, 0.05);
+    else tone(380, 620, "sine", 0.16, 0.06);
+}
+
+
+/* ===================================================
+     INPUT
+   ===================================================
+   Arrow keys, per the concept. WASD aliased because it costs one line
+   and half the group will reach for it.
+
+   Double-tap forward = sprint. Tracked as an edge, not a held state:
+   the second press ARMS one sprint, it doesn't hold one open. */
+
+var keys = {};
+var lastFwdTap = -1e9;
+var sprintArmed = false;
+var eatEdge = false;
+
+function isFwd(c) { return c === "ArrowUp" || c === "KeyW"; }
+
+function onKeyDown(e) {
+    var c = e.code;
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].indexOf(c) >= 0) e.preventDefault();
+
+    if (phase === "menu" && (c === "Enter" || c === "Space")) { startRace(); return; }
+    if (phase === "done" && (c === "Enter" || c === "KeyR")) { startRace(); return; }
+    if (c === "KeyP") { togglePause(); return; }
+    if (c === "KeyR" && phase === "racing") { startRace(); return; }
+
+    if (keys[c]) return;                     // ignore auto-repeat
+    keys[c] = true;
+
+    if (isFwd(c)) {
+        var now = performance.now();
+        if (now - lastFwdTap < TUNE.dblTapMs) sprintArmed = true;
+        lastFwdTap = now;
+    }
+    if (c === "Space") eatEdge = true;
+}
+
+function onKeyUp(e) { keys[e.code] = false; }
+
+function playerInput() {
+    var steer = 0;
+    if (keys.ArrowLeft || keys.KeyA) steer -= 1;
+    if (keys.ArrowRight || keys.KeyD) steer += 1;
+    var inp = {
+        throttle: !!(keys.ArrowUp || keys.KeyW),
+        brake: !!(keys.ArrowDown || keys.KeyS),
+        steer: steer,
+        sprint: sprintArmed,
+        eat: eatEdge
+    };
+    sprintArmed = false;
+    eatEdge = false;
+    return inp;
+}
+
+
+/* ===================================================
+     RACE FLOW
+   =================================================== */
+
+var NPC_NAMES = ["RICO", "MABEL", "DEX"];
+
+function setupRunners() {
+    runners = [];
+    var myName = (MP.selfName || MP.identity().name || "YOU").toUpperCase().slice(0, 12);
+    player = makeRunner(myName, MP.selfColor || RUNNER_COLORS[0], true);
+    player.x = 0;
+    runners.push(player);
+
+    /* Easy, per the concept: a shade slower than you, jittery steering,
+       and they only sprint when genuinely contested. */
+    var lanes = [-6.5, 6.5, -3.2];
+    for (var i = 0; i < NPC_NAMES.length; i++) {
+        var n = makeRunner(NPC_NAMES[i], RUNNER_COLORS[i + 1], false);
+        n.x = lanes[i];
+        n.y = -1.5 - i * 0.6;
+        n.lane = lanes[i] * 0.5;
+        n.jitter = i * 2.1;
+        n.npcSpeed = 0.95 + i * 0.02;
+        n.aggression = 0.8 + i * 0.25;
+        /* Two of the three head upstairs. The ground floor is a sugar
+           minefield by design, so an NPC that never climbs is choosing
+           between crash-y foods all race -- and it also means the player
+           never sees the upper floors being used. */
+        n.wantsUp = (i !== 0);
+        runners.push(n);
+    }
+
+    // rail pips, one per runner, created once per race
+    el.rail.innerHTML = "";
+    railPips = runners.map(function (r) {
+        var d = document.createElement("div");
+        d.className = "gd-pip";
+        d.style.background = r.color;
+        el.rail.appendChild(d);
+        return d;
+    });
+}
+
+var raceId = 0;
+
+function startRace() {
+    initAudio();
+    raceId++;
+    buildCourse();
+    setupRunners();
+    finishOrder = [];
+    raceTime = 0;
+    countdownLeft = 3.1;
+    waveHead = 0; waveFill = 0; waveAcc = 0;
+    fullWarnAt = -1e9;
+    cam.y = 0; cam.wx = centerX(0); cam.shake = 0; cam.shakeX = 0; cam.shakeY = 0;
+    phase = "countdown";
+    el.screen.dataset.count = "";
+    hideScreen();
+    for (var i = 0; i < 8; i++) pushWave(TUNE.glucoseStart);
+}
+
+/* The results delay is what lets a crash land before the board covers
+   it. Keyed to raceId so restarting during that window doesn't drop a
+   results screen on top of the new race. */
+function endRace(reason) {
+    if (phase === "done") return;
+    var id = raceId;
+    trackTimeout(function () {
+        if (phase === "done" || id !== raceId) return;
+        phase = "done";
+        showResults(reason);
+    }, reason === "dnf" ? 1500 : 900);
+}
+
+function togglePause() {
+    if (phase === "racing") { phase = "paused"; showPause(); }
+    else if (phase === "paused") { phase = "racing"; hideScreen(); }
+}
+
+function update(dt) {
+    if (phase === "countdown") {
+        countdownLeft -= dt;
+        showCountdown();
+        if (countdownLeft <= 0) { phase = "racing"; hideScreen(); tone(880, 1320, "square", 0.2, 0.08); }
+        // runners hold at the line but the camera settles
+        updateCamera(dt);
+        return;
+    }
+    if (phase !== "racing") { updateCamera(dt); return; }
+
+    raceTime += dt;
+
+    stepRunner(player, playerInput(), dt);
+    for (var i = 1; i < runners.length; i++) {
+        stepRunner(runners[i], npcInput(runners[i], dt), dt);
+    }
+    updateCamera(dt);
+}
+
+function loop(ts) {
+    gdRAF = requestAnimationFrame(loop);
+    if (!lastFrame) lastFrame = ts;
+    var dt = Math.min(0.05, (ts - lastFrame) / 1000);   // clamp: a tab-switch
+    lastFrame = ts;                                     // must not teleport anyone
+
+    // The menu sits over a live course rather than a black screen, so
+    // the game is legible before you've pressed anything.
+    update(dt);
+    render();
+    updateHUD(dt);
+}
+
+
+/* ===================================================
+     SCREENS
+   =================================================== */
+
+function hideScreen() { el.screen.className = "hidden"; }
+
+function showScreen(html) {
+    el.screen.className = "";
+    el.screen.innerHTML = html;
+}
+
+function showMenu() {
+    showScreen(
+        '<h1>Glucose Dash</h1>' +
+        '<p>An ultramarathon through a three-storey mall. The clock is not your problem — ' +
+        '<b>your blood sugar is</b>. It falls the whole way, faster when you sprint. ' +
+        'Under 70 the world greys out. Over 200 the light blows out and you can\'t read the course. ' +
+        'Hit zero and you\'re done.</p>' +
+        '<p style="color:#7f8ea6">Cake gets you out of a hole right now and drops you through the floor twelve seconds later. ' +
+        'The balanced shake in the centre aisle barely registers — and then holds you steady for half a minute. ' +
+        'Climbing costs you speed and buys you better food.</p>' +
+        '<div class="keys">' +
+            '<span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> <b>drive</b></span>' +
+            '<span>double-tap <kbd>↑</kbd> <b>sprint</b> (2× burn)</span>' +
+            '<span><kbd>space</kbd> <b>eat slot 1</b></span>' +
+            '<span><kbd>P</kbd> pause · <kbd>R</kbd> restart</span>' +
+        '</div>' +
+        '<button class="gd-btn" id="gd-start">START RACE</button>'
+    );
+    var b = document.getElementById("gd-start");
+    if (b) b.addEventListener("click", startRace, { signal: gdAbort.signal });
+}
+
+function showCountdown() {
+    var n = Math.ceil(countdownLeft);
+    var txt = n > 0 ? String(n) : "GO";
+    if (el.screen.dataset.count === txt) return;
+    el.screen.dataset.count = txt;
+    showScreen('<div id="gd-count">' + txt + '</div>');
+    tone(n > 0 ? 440 : 880, n > 0 ? 440 : 1320, "square", 0.12, 0.05);
+}
+
+function showPause() {
+    showScreen('<h2>PAUSED</h2><div class="keys"><span><kbd>P</kbd> resume · <kbd>R</kbd> restart</span></div>');
+}
+
+function showResults(reason) {
+    /* Everyone who hasn't finished gets slotted in by how far they got,
+       so the board is complete the moment the player's race ends rather
+       than making them watch the NPCs jog home. */
+    var rest = runners.filter(function (r) { return !r.finished && !r.dnf; })
+        .sort(function (a, b) { return b.y - a.y; });
+    var rows = finishOrder.slice().sort(function (a, b) {
+        if (a.dnf !== b.dnf) return a.dnf ? 1 : -1;
+        return (a.ms || 0) - (b.ms || 0);
+    });
+    var board = rows.filter(function (r) { return !r.dnf; })
+        .concat(rest.map(function (r) { return { name: r.name, color: r.color, ms: null, self: r.isPlayer, dnf: false, unfinished: true }; }))
+        .concat(rows.filter(function (r) { return r.dnf; }));
+
+    var tir = player.timeTotal > 0 ? Math.round(100 * player.timeInRange / player.timeTotal) : 0;
+    var head = reason === "dnf"
+        ? '<h2 style="color:#ff6b6b">HYPOGLYCEMIC CRASH</h2><p>You ran out of glucose at ' +
+          Math.round(player.y * 0.5) + 'm of ' + Math.round(COURSE_LEN * 0.5) + 'm. Did not finish.</p>'
+        : '<h2 style="color:#7af5c8">FINISHED — ' + (raceTime).toFixed(2) + 's</h2>' +
+          '<p>Time in range: <b style="color:' + (tir > 70 ? "#6ce7a8" : "#ffc454") + '">' + tir + '%</b></p>';
+
+    var html = head + '<div id="gd-results">';
+    for (var i = 0; i < board.length; i++) {
+        var b = board[i];
+        html += '<div class="gd-row' + (b.self ? " self" : "") + (b.dnf ? " dnf" : "") + '">' +
+            '<span class="pos">' + (b.dnf ? "—" : (i + 1)) + '</span>' +
+            '<span class="dot" style="background:' + b.color + '"></span>' +
+            '<span class="nm">' + b.name + '</span>' +
+            '<span class="tm">' + (b.dnf ? "DNF" : b.ms != null ? (b.ms / 1000).toFixed(2) + "s" : "—") + '</span>' +
+            '</div>';
+    }
+    html += '</div><button class="gd-btn" id="gd-again">RACE AGAIN</button>';
+    showScreen(html);
+    var again = document.getElementById("gd-again");
+    if (again) again.addEventListener("click", startRace, { signal: gdAbort.signal });
+}
+
+
+/* ===================================================
+     SIZING
+   =================================================== */
+
+function resize() {
+    var r = canvas.parentNode.getBoundingClientRect();
+    VIEW.dpr = Math.min(2, window.devicePixelRatio || 1);
+    VIEW.w = Math.max(320, r.width);
+    VIEW.h = Math.max(240, r.height);
+    canvas.width = Math.round(VIEW.w * VIEW.dpr);
+    canvas.height = Math.round(VIEW.h * VIEW.dpr);
+
+    var wr = waveCanvas.getBoundingClientRect();
+    waveCanvas.width = Math.round(Math.max(80, wr.width) * VIEW.dpr);
+    waveCanvas.height = Math.round(Math.max(40, wr.height) * VIEW.dpr);
+}
+
+
+/* ===================================================
+     GameInstance
+   ===================================================
+   The contract from GAME_PROTOTYPE_INSTRUCTIONS.md, implemented in
+   full. No other game in this repo implements it and the hub links
+   full pages rather than embedding -- see SCOPE.md §7. */
+
+window.GameInstance = {
+    init: function (containerId) {
+        var root = document.getElementById(containerId || "gd-root");
+        if (!root) return false;
+        root.innerHTML = LAYOUT_HTML;
+        gdAbort = new AbortController();
+
+        canvas = root.querySelector("#gd-canvas");
+        ctx = canvas.getContext("2d");
+        waveCanvas = root.querySelector("#gd-wave");
+        waveCtx = waveCanvas.getContext("2d");
+
+        el = {
+            stage: root.querySelector("#gd-stage"),
+            blowout: root.querySelector("#gd-blowout"),
+            vignette: root.querySelector("#gd-vignette"),
+            place: root.querySelector("#gd-place"),
+            dist: root.querySelector("#gd-dist"),
+            time: root.querySelector("#gd-time"),
+            warn: root.querySelector("#gd-warn"),
+            toast: root.querySelector("#gd-toast"),
+            rail: root.querySelector("#gd-rail"),
+            floor: root.querySelector("#gd-floor"),
+            sprint: root.querySelector("#gd-sprint"),
+            slots: [root.querySelector("#gd-slot0"), root.querySelector("#gd-slot1")],
+            monVal: root.querySelector("#gd-mon-val"),
+            monZone: root.querySelector("#gd-mon-zone"),
+            screen: root.querySelector("#gd-screen"),
+            net: root.querySelector("#gd-net")
+        };
+
+        window.addEventListener("keydown", onKeyDown, { signal: gdAbort.signal });
+        window.addEventListener("keyup", onKeyUp, { signal: gdAbort.signal });
+        window.addEventListener("resize", resize, { signal: gdAbort.signal });
+        window.addEventListener("blur", function () {
+            if (phase === "racing") togglePause();
+        }, { signal: gdAbort.signal });
+
+        resize();
+
+        /* Multiplayer today is exactly this much: identity, colour, and
+           the ROOM SEED that decides which candidate slots are stocked.
+           Nothing is broadcast yet -- see SCOPE.md §6 for the ghost /
+           contested-pickup work, which needs no server change. */
+        MP.connect({
+            game: "glucose-dash",
+            onReady: function (info) {
+                mpSeed = info.seed;
+                netOnline = !info.solo;
+                el.net.textContent = info.solo ? "SOLO" : "ROOM " + (MP.room || "PUBLIC");
+                // If the seed landed after the player already hit start,
+                // re-pick the stocked slots so a room races one course.
+                if (phase === "countdown") buildItems();
+            },
+            onStatus: function (s) {
+                netOnline = (s === "online");
+                el.net.textContent = netOnline ? "ROOM " + (MP.room || "PUBLIC") : "SOLO";
+            }
+        });
+
+        // A course exists before Start so the menu isn't sitting on nothing.
+        buildCourse();
+        setupRunners();
+        return true;
+    },
+
+    start: function () {
+        phase = "menu";
+        showMenu();
+        lastFrame = 0;
+        if (!gdRAF) gdRAF = requestAnimationFrame(loop);
+        return true;
+    },
+
+    pause: function () { if (phase === "racing") { phase = "paused"; showPause(); } },
+    resume: function () { if (phase === "paused") { phase = "racing"; hideScreen(); } },
+
+    getState: function () {
+        return {
+            phase: phase,
+            time: raceTime,
+            glucose: player ? Math.round(player.glucose) : null,
+            floor: player ? Math.round(player.z / FLOOR_H) + 1 : null,
+            place: player ? placeOf(player) : null,
+            runners: runners.length,
+            inventory: player ? player.inventory.slice() : [],
+            eating: player ? player.eating : null,
+            metresLeft: player ? Math.max(0, Math.round((COURSE_LEN - player.y) * 0.5)) : null,
+            timeInRangePct: player && player.timeTotal ? Math.round(100 * player.timeInRange / player.timeTotal) : null,
+            finished: player ? player.finished : false,
+            dnf: player ? player.dnf : false,
+            online: netOnline,
+            seed: mpSeed
+        };
+    },
+
+    destroy: function () {
+        if (gdRAF) { cancelAnimationFrame(gdRAF); gdRAF = 0; }
+        GD_TIMEOUTS.forEach(clearTimeout); GD_TIMEOUTS.clear();
+        GD_INTERVALS.forEach(clearInterval); GD_INTERVALS.clear();
+        if (gdAbort) { gdAbort.abort(); gdAbort = null; }
+        try { MP.destroy(); } catch (e) { /* never connected */ }
+        if (audioCtx) { try { audioCtx.close(); } catch (e) {} audioCtx = null; }
+        runners = []; items = []; stores = []; railPips = [];
+        player = null; phase = "menu";
+        var root = document.getElementById("gd-root");
+        if (root) root.innerHTML = "";
+        return true;
+    }
+};
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () {
+        window.GameInstance.init("gd-root");
+        window.GameInstance.start();
+    });
+} else {
+    window.GameInstance.init("gd-root");
+    window.GameInstance.start();
+}
+
+</script>
+</body>
+</html>

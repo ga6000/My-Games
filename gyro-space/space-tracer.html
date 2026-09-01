@@ -284,6 +284,11 @@ button{
 }
 </style>
 
+<!-- Shared multiplayer core. Classic script, so it still loads over
+     file:// -- this game's only module script is the Firebase block in
+     <head>, which is the one accepted exception (see PROJECT_MEMORY). -->
+<script src="../shared/mp-core.js"></script>
+
 <div id="menuOverlay">
     <div class="menu-container">
         <h1>GYRO SPACE</h1>
@@ -559,7 +564,8 @@ for (let i = 0; i < MAX_BULLETS; i++) {
         maxDistance: 500,
         size: 3,
         active: false,
-        gridKey: null
+        gridKey: null,
+        bounced: false
     });
 }
 
@@ -591,6 +597,11 @@ function fireLaser(x, y, angle, color, shotType = "standard", ownerId = null) {
     bullet.maxDistance = maxDist;
     bullet.size = shotType === "beam" ? 6 : 3; // 2x beam size (3 * 2 = 6)
     bullet.active = true;
+    // Reset explicitly, for the same reason ownerId below is: bullets come
+    // back out of bulletPool with whatever the last user of that object
+    // left on them. A stale `bounced: true` would silently rob a fresh
+    // charged beam of its one ricochet.
+    bullet.bounced = false;
     bullet.gridKey = getGridKey(x, y);
     bullet.isLocalShot = true; // Mark as our shot (don't collide with us)
     // ownerId is who fired this shot. Explicitly reset every fire (not just
@@ -989,46 +1000,118 @@ function updateAndDrawExplosions() {
     }
     ctx.globalAlpha = 1.0;
 }
-const socket = new WebSocket("wss://my-games-faxi.onrender.com");
-const remotePlayers = {}; 
+// Networking goes through the shared core now (shared/mp-core.js), the
+// same one Zombie, boids and Glass City use. This file used to own its
+// own raw socket, its own name/room screen and its own colour scheme --
+// three copies of things the rest of the project had already
+// centralised. See HUB_LOBBY_PLAN.md.
+const remotePlayers = {};
+let netOnline = false;
 
 let lastSendTime = 0;
 const SEND_INTERVAL = 1000 / 10; // 10 updates per sec (reduced from 20 for latency optimization)
 
-// The server now ignores "update" messages until "join-room" arrives, so
-// the animate() loop checks this flag before sending anything -- sending
-// early just does nothing (server drops it silently), but gating here
-// avoids spamming empty sends before the player has entered the game.
+// Set once MP has finished its handshake, or has given up and gone
+// solo. The animate() loop checks it before broadcasting, so nothing
+// goes out while the player is still on the start screens.
 let hasJoinedRoom = false;
 let currentRoomCode = null;
 
-function getColorFromId(id) {
-    // Use consistent color palette based on first character of ID
-    const colorIndex = id.charCodeAt(0) % COLOR_PALETTE.length;
-    return COLOR_PALETTE[colorIndex];
+// Called from the "PRESS TO ENTER GAME" handler. The name and room are
+// whatever the hub already recorded -- MP reads them from the URL params
+// the hub appends, then localStorage. Passing them explicitly here only
+// matters for a player who opened this file directly and typed their own
+// on screen 3.
+function joinRoom(room, name) {
+    MP.connect({
+        game: "space-tracer",
+        room: room || undefined,
+        name: name || undefined,
+
+        onReady: function (info) {
+            hasJoinedRoom = true;
+            netOnline = !info.solo;
+            currentRoomCode = MP.room || "public";
+            myPlayerId = MP.selfId;
+
+            // Colour is the server's name-hash answer now. It used to be
+            // derived from the session id (data.id.charCodeAt(0)), so
+            // your ship changed colour on every reconnect and never
+            // matched your own dot on the hub -- precisely what
+            // CLAUDE.md's "never session-ID based" rule exists to stop.
+            if (MP.selfColor) {
+                myColor = MP.selfColor;
+                ship.color = myColor;
+            }
+            if (MP.selfName) ship.name = MP.selfName;
+
+            (info.peers || []).forEach(function (q) {
+                updateRemotePlayer(q.id, q.x, q.y, q.angle, q.color, null, q.isAlive, q.name);
+            });
+
+            console.log("Space Tracer:", info.solo ? "solo" : "room " + currentRoomCode,
+                        "as", ship.name || "(unnamed)");
+        },
+
+        // A dropped connection leaves the game running solo rather than
+        // freezing; a reconnect quietly restores multiplayer.
+        onStatus: function (state) {
+            netOnline = (state === "online");
+        },
+
+        onPeerJoin: function (q) {
+            if (q) updateRemotePlayer(q.id, q.x, q.y, q.angle, q.color, null, q.isAlive, q.name);
+        },
+
+        onPeerLeave: function (q) {
+            if (q) delete remotePlayers[q.id];
+        },
+
+        onMessage: handleNetMessage
+    });
 }
 
-// Called once, from the "PRESS TO ENTER GAME" handler, after the player
-// has chosen a name and (optionally) a room code. Safe to call even if
-// the socket hasn't finished connecting yet -- it waits for "open".
-function joinRoom(room, name) {
-    currentRoomCode = room || "public";
+// Every live message this game sends now rides the generic "relay", so
+// Space Tracer needs no server-side message types of its own -- the last
+// client still using the legacy update/score-update/kill-credit handlers
+// stops using them here. Payloads carry a short `t` tag rather than
+// reusing the old top-level type names, so it stays obvious which
+// messages are this game's own and which belong to the core.
+function handleNetMessage(payload, fromId, fromName) {
+    if (!payload || typeof payload !== "object") return;
 
-    const send = () => {
-        socket.send(JSON.stringify({
-            type: "join-room",
-            room: currentRoomCode,
-            name: name,
-            color: myColor
-        }));
-        hasJoinedRoom = true;
-        console.log("Joining room:", currentRoomCode, "as", name || "(unnamed)");
-    };
+    if (payload.t === "pos") {
+        updateRemotePlayer(fromId, payload.x, payload.y, payload.angle,
+                           payload.color, payload.shot, payload.isAlive, fromName);
 
-    if (socket.readyState === WebSocket.OPEN) {
-        send();
-    } else {
-        socket.addEventListener("open", send, { once: true });
+        // Session best rides along on the position update rather than
+        // getting its own message type: position already goes out at
+        // 10Hz, which is far more resolution than a best score needs, and
+        // it means a remote player's best climbs on everyone's scoreboard
+        // during their good life instead of only once they die.
+        recordRoomBest(fromName || fromId, payload.best);
+
+    } else if (payload.t === "score") {
+        // Display-only relay. The persisted write still goes straight to
+        // Firestore, once, at the end of a life. `best` is preferred over
+        // `score` here (older clients only send `score`); either way
+        // recordRoomBest keeps the higher of the two.
+        recordRoomBest(fromName || fromId,
+                       typeof payload.best === "number" ? payload.best : payload.score);
+        updateScoreboardDisplay();
+
+    } else if (payload.t === "kill") {
+        // Kill credit stays victim-reported -- collision detection only
+        // ever runs on the victim's own client, so a shooter has no way
+        // to know its bullet landed. What changed is delivery: the server
+        // used to address this to the shooter alone, and a relay goes to
+        // the whole room, so the shooter picks its own credit out here.
+        // Same trust model as before (trivially spoofable by a modified
+        // client, a deliberate call for a friend group), one fewer
+        // bespoke server message.
+        if (payload.shooterId === MP.selfId) {
+            creditKill(payload.killType || "player");
+        }
     }
 }
 
@@ -1094,6 +1177,26 @@ function accumulateLiveScore(dtSeconds, distanceThisFrame) {
     const timeComponent = dtSeconds * TIME_POINTS_PER_SECOND;
 
     lifeScore += (distanceComponent + timeComponent) * currentMultiplier();
+
+    updateBestScoreLive();
+}
+
+// Promotes the running life score into the session best the MOMENT it
+// passes it, rather than waiting for death to notice. Without this, a
+// life that is already the best of the session shows nothing on the
+// scoreboard until it ends -- so the corner would sit there displaying a
+// number you had already beaten, for both you and (via the relay below)
+// everyone else in the room.
+//
+// bestLifeScore is kept as a rounded integer, which also means this only
+// marks the scoreboard dirty when the DISPLAYED number would actually
+// change, not on every fractional frame's worth of score.
+function updateBestScoreLive() {
+    const rounded = Math.round(lifeScore);
+    if (rounded > bestLifeScore) {
+        bestLifeScore = rounded;
+        markScoreboardDirty();
+    }
 }
 
 // Multiplier callout: large yellow text, top-center, appears/refreshes
@@ -1142,6 +1245,7 @@ function updateScoreDisplay() {
 function creditKill(killType, sizeRatio = 1) {
     if (killType === "asteroid") {
         lifeScore += ASTEROID_KILL_BONUS * sizeRatio * currentMultiplier();
+        updateBestScoreLive();
         return; // No streak change, no callout -- asteroid kills are a flat top-up, not a combo event
     }
 
@@ -1153,6 +1257,7 @@ function creditKill(killType, sizeRatio = 1) {
     lifeKillStreak += 1;
     showMultiplierCallout();
     updateScoreDisplay();
+    updateBestScoreLive();
 }
 
 // Called once per death (both death sites: border collision, bullet
@@ -1170,17 +1275,27 @@ function reportLifeEnded() {
     }
 
     // Live relay to whoever else is in this room right now (display only).
-    if (hasJoinedRoom && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-            type: "score-update",
-            score: finalScore
-        }));
+    if (hasJoinedRoom) {
+        // `best` is the session high, `score` is just this life. Both go
+        // out because the receiver keeps the max -- sending only `score`
+        // is what used to let a bad life visibly overwrite a good one on
+        // everyone else's scoreboard.
+        MP.send({ t: "score", score: finalScore, best: bestLifeScore });
     }
 
-    // Persisted write, every life. Fire-and-forget -- submitScoreToFirebase
-    // no-ops safely if Firebase hasn't loaded, so a network hiccup here
-    // never blocks or breaks gameplay.
-    submitScoreToFirebase(ship.name || "Anonymous", finalScore, currentRoomCode);
+    // Persisted write, every life. Fire-and-forget, and genuinely optional.
+    //
+    // The typeof guard is load-bearing, not defensive noise: the Firebase
+    // block in <head> is an ES module, and over file:// -- which this
+    // project REQUIRES games to run under -- the browser refuses to load
+    // it, so this global never comes into existence. Calling it bare (as
+    // this line used to) threw a ReferenceError out of the middle of this
+    // function on every single death, which silently skipped the score
+    // relay and the per-life counter resets below it. typeof is the one
+    // check that's safe against a never-declared identifier.
+    if (typeof submitScoreToFirebase === "function") {
+        submitScoreToFirebase(ship.name || "Anonymous", finalScore, currentRoomCode);
+    }
 
     updateScoreboardDisplay();
 
@@ -1195,94 +1310,123 @@ function reportLifeEnded() {
     updateScoreDisplay();
 }
 
+// Cancels an in-progress beam charge. Called on death so a player who
+// was mid-charge when they died doesn't keep the charge ring on screen,
+// keep the charge loop audible, or -- with the input gating added to
+// mouseup/touchend -- get a free shot out of the release.
+function cancelBeamCharge() {
+    isChargingBeam = false;
+    stopBeamChargeAudio();
+}
+
+// Puts dash back to its neutral, ready state. spaceHeld is cleared too,
+// not just the dash timers: without that, a player who died holding the
+// dash button/SPACE would keep accumulating dashChargeDuration while
+// dead and then dash the instant they respawned. The release handlers
+// both check spaceHeld, so clearing it here also makes the eventual
+// keyup/touchend a no-op rather than a delayed dash.
+function resetDashState() {
+    spaceHeld = false;
+    isDashing = false;
+    dashChargeDuration = 0;
+    dashTimeRemaining = 0;
+    ship.speed = ship.baseSpeed;
+    updateDashMeter();
+}
+
+// The single death transition for the local player. All three death
+// sites (world border, asteroid impact, remote bullet hit) call this
+// instead of repeating the same four lines -- which is exactly how the
+// dash and beam-charge resets came to be missing from all three. Each
+// site still owns its own explosion/cleanup specifics before calling
+// this; everything common to "this life just ended" lives here.
+function onLocalDeath() {
+    ship.isAlive = false;
+    ship.deathTime = Date.now();
+    trail = []; // Clear trail immediately
+    cancelBeamCharge();
+    resetDashState();
+    reportLifeEnded();
+}
+
 const scoreboardEl = document.getElementById("scoreboard");
 const scoreboardListEl = document.getElementById("scoreboard-list");
 
-// Renders roomScores (populated by incoming "score-update" broadcasts)
-// plus this client's own best-this-session, sorted high to low. Called
-// on every score-update received and every death.
+// Best score per player now moves LIVE, which means the naive thing --
+// rebuilding this panel's innerHTML from updateBestScoreLive() -- would
+// rewrite the DOM several times a second all game. Instead callers mark
+// it dirty and animate() renders at most every
+// SCOREBOARD_RENDER_INTERVAL ms. Death still calls
+// updateScoreboardDisplay() directly, so the final number of a life is
+// never left waiting on a throttle window.
+let scoreboardDirty = false;
+let lastScoreboardRender = 0;
+const SCOREBOARD_RENDER_INTERVAL = 200; // ms -- 5Hz, well under the rate best actually ticks up
+
+function markScoreboardDirty() {
+    scoreboardDirty = true;
+}
+
+// Renders roomScores (populated by the `best` field on incoming position
+// updates, and by {t:"score"} death relays) plus this client's own
+// best-this-session, sorted high to low.
 function updateScoreboardDisplay() {
     if (!scoreboardEl) return;
     scoreboardEl.style.display = "block";
+    scoreboardDirty = false;
+    lastScoreboardRender = performance.now();
 
-    const rows = Object.entries(roomScores).map(([name, score]) => ({ name, score }));
+    const rows = Object.entries(roomScores).map(([name, score]) => ({ name, score, isMe: false }));
 
+    // Own row is unconditional now (it used to be gated on bestLifeScore
+    // > 0, so you were absent from your own scoreboard until you'd scored
+    // something). It's the row the player looks for, so it should be
+    // there from the first frame, at 0 if that's the honest number.
     const myLabel = ship.name || "You";
     const existingMine = rows.find(r => r.name === myLabel);
     if (existingMine) {
         existingMine.score = Math.max(existingMine.score, bestLifeScore);
-    } else if (bestLifeScore > 0) {
-        rows.push({ name: myLabel, score: bestLifeScore });
+        existingMine.isMe = true;
+    } else {
+        rows.push({ name: myLabel, score: bestLifeScore, isMe: true });
     }
 
     rows.sort((a, b) => b.score - a.score);
 
     scoreboardListEl.innerHTML = rows.length
-        ? rows.map(r => `${r.name}: ${r.score}`).join("<br>")
+        ? rows.map(r => r.isMe
+            ? `<span style="color:${ship.color}; font-weight:bold;">${r.name}: ${r.score}</span>`
+            : `${r.name}: ${r.score}`).join("<br>")
         : "—";
 }
 
-// name -> score, for players currently in this room. Populated by
-// "score-update" broadcasts. Read by the scoreboard overlay above.
-const roomScores = {};
-
-socket.onmessage = event => {
-    try {
-        const data = JSON.parse(event.data);
-
-        if (data.type === "welcome") {
-            myPlayerId = data.id;
-            // Assign color based on player ID (deterministic, same on all clients)
-            const colorIndex = data.id.charCodeAt(0) % COLOR_PALETTE.length;
-            myColor = COLOR_PALETTE[colorIndex];
-            console.log("Connected! My ID is:", data.id, "Color:", myColor);
-        } else if (data.type === "leave") {
-            console.log("Player left:", data.id);
-            delete remotePlayers[data.id];
-        } else if (data.type === "join") {
-            console.log("Player joined:", data.player?.id, data.player?.name);
-            if (data.player) {
-                updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, null, data.player.isAlive, data.player.name);
-            }
-        } else if (data.type === "players") {
-            console.log("Initial players list:", data.players?.length, "room:", data.room);
-            if (Array.isArray(data.players)) {
-                data.players.forEach(p => updateRemotePlayer(p.id, p.x, p.y, p.angle, p.color, null, p.isAlive, p.name));
-            }
-        } else if (data.type === "update" && data.player) {
-            // Log update with shot info
-            if (data.player.shot) {
-                console.log("Received update with shot from", data.player.id, ":", data.player.shot);
-            }
-            updateRemotePlayer(data.player.id, data.player.x, data.player.y, data.player.angle, data.player.color, data.player.shot, data.player.isAlive);
-        } else if (data.type === "score-update") {
-            // Live score relay from another player in the room. This is
-            // display-only -- the authoritative/persisted score write
-            // happens separately, once, to Firestore at game-end.
-            roomScores[data.name || data.id] = data.score;
-            updateScoreboardDisplay();
-        } else if (data.type === "kill-credit") {
-            // This is the ONLY way a shooter's client ever learns one of
-            // its bullets landed -- collision detection runs on the
-            // victim's client only (see the collision check in the
-            // bullet-update loop), so the victim has to tell the server
-            // "you killed me," and the server relays it back to us here.
-            // killType is currently always "player" from the server (see
-            // server.js's kill-credit handler) -- asteroid kills are
-            // detected and credited entirely locally instead, since
-            // asteroids aren't networked entities (see the asteroid
-            // collision check further down), so there's no round-trip
-            // needed for those.
-            creditKill(data.killType || "player");
-        }
-    } catch(e) {
-        console.error("Error parsing server message", e);
+// One place that decides whether an incoming best is actually news. A
+// stored best NEVER goes down -- both callers (live position updates and
+// death relays) can legitimately deliver a number lower than what's
+// already stored, since a player's later life can score less than an
+// earlier one.
+function recordRoomBest(key, value) {
+    if (!key || typeof value !== "number" || !isFinite(value)) return;
+    const previous = roomScores[key] || 0;
+    if (value > previous) {
+        roomScores[key] = value;
+        markScoreboardDirty();
     }
-};
+}
+
+// name -> score, for players currently in this room. Populated by
+// {t:"score"} relays. Read by the scoreboard overlay above.
+const roomScores = {};
 
 function updateRemotePlayer(id, x, y, angle, color, shot, isAlive, name) {
     let p = remotePlayers[id];
-    const playerColor = color || getColorFromId(id);
+
+    // Colour is server-assigned and normally arrives with the payload.
+    // The peer record covers a position update that beats the join it
+    // came with; the palette entry is a last resort, so a missing colour
+    // can never render an invisible ship.
+    const known = (MP.peers() || []).find(function (q) { return q && q.id === id; });
+    const playerColor = color || (known && known.color) || COLOR_PALETTE[0];
 
     if (!p) {
         remotePlayers[id] = { 
@@ -1543,7 +1687,12 @@ let pendingShot = null;
 // ===================================================
 canvas.addEventListener("mousedown", (e) => {
     if (e.target !== canvas || !gameStarted) return;
-    
+
+    // Dead players don't shoot. Gating the press (rather than only the
+    // release) also means no charge ring or charge audio starts up while
+    // waiting out the 2s respawn.
+    if (!ship.isAlive) return;
+
     // Can only start charging if cooldown is complete
     const now = Date.now();
     if (now < beamCooldownEnd) {
@@ -1558,8 +1707,12 @@ canvas.addEventListener("mouseup", (e) => {
     if (e.target !== canvas || !gameStarted) return;
 
     const holdTime = Date.now() - beamChargeStartTime;
-    isChargingBeam = false;
-    stopBeamChargeAudio();
+    cancelBeamCharge();
+
+    // Died mid-hold (or the press itself was rejected while dead): the
+    // charge is already cancelled above, so just swallow the release
+    // rather than letting it fire a shot from a dead ship.
+    if (!ship.isAlive) return;
 
     // Only fire if held long enough
     const shotType = holdTime >= 3000 ? "beam" : "standard";
@@ -1592,7 +1745,13 @@ canvas.addEventListener("mouseup", (e) => {
 // ===================================================
 canvas.addEventListener("touchstart", (e) => {
     if (e.target !== canvas || !gameStarted) return;
-    
+
+    // Same alive gate as mousedown -- see the note there.
+    if (!ship.isAlive) {
+        e.preventDefault();
+        return;
+    }
+
     // Can only start charging if cooldown is complete
     const now = Date.now();
     if (now < beamCooldownEnd) {
@@ -1609,8 +1768,13 @@ canvas.addEventListener("touchend", (e) => {
     if (e.target !== canvas || !gameStarted) return;
 
     const holdTime = Date.now() - beamChargeStartTime;
-    isChargingBeam = false;
-    stopBeamChargeAudio();
+    cancelBeamCharge();
+
+    // Same alive gate as mouseup -- see the note there.
+    if (!ship.isAlive) {
+        e.preventDefault();
+        return;
+    }
 
     // Only fire if held long enough
     const shotType = holdTime >= 3000 ? "beam" : "standard";
@@ -1663,20 +1827,45 @@ const roomCodeInput = document.getElementById("roomCodeInput");
 const nameSubmitBtn = document.getElementById("screen3-submit");
 const enterGameBtn = document.getElementById("screen4-enter-btn");
 
-let playerName = "";
-let roomCode = "";
+// What the hub already recorded: URL params first, then localStorage.
+// Read through MP so the lookup order lives in exactly one place.
+const hubIdentity = MP.identity();
+const cameFromHub = !!hubIdentity.name;
+
+let playerName = hubIdentity.name || "";
+let roomCode = hubIdentity.room || "";
+
+// Only ever seen on the direct-open path, but prefill anyway so a
+// returning player isn't retyping something already stored.
+playerNameInput.value = playerName;
+roomCodeInput.value = roomCode === "PUBLIC" ? "" : roomCode;
+
+// Screen 3 asked for a name and room code that the hub collected one
+// click earlier. Being asked twice was the most visible symptom of this
+// game running its own separate identity system, so it's skipped when
+// the answer is already known.
+function afterModeChosen() {
+    screenMode.style.display = "none";
+
+    if (cameFromHub) {
+        // Straight to press-to-enter. That button stays either way: it's
+        // the user gesture mobile browsers require before audio will
+        // play, so it's load-bearing rather than ceremony.
+        screenEnter.style.display = "flex";
+    } else {
+        screenName.style.display = "flex";
+    }
+}
 
 // Screen: Select mode
 modeMobileBtn.addEventListener("click", () => {
     controlMode = "mobile";
-    screenMode.style.display = "none";
-    screenName.style.display = "flex";
+    afterModeChosen();
 });
 
 modeComputerBtn.addEventListener("click", () => {
     controlMode = "computer";
-    screenMode.style.display = "none";
-    screenName.style.display = "flex";
+    afterModeChosen();
 });
 
 // Screen: Enter name + room code
@@ -1749,7 +1938,8 @@ enterGameBtn.addEventListener("click", () => {
 // ===================================================
 mobileDashButton.addEventListener("touchstart", (e) => {
     if (!gameStarted || controlMode !== "mobile") return;
-    
+    if (!ship.isAlive) return; // No charging a dash while waiting to respawn
+
     spaceHeld = true;
     spaceHoldStartTime = performance.now();
     e.preventDefault();
@@ -1757,7 +1947,15 @@ mobileDashButton.addEventListener("touchstart", (e) => {
 
 mobileDashButton.addEventListener("touchend", (e) => {
     if (!gameStarted || controlMode !== "mobile") return;
-    
+
+    // spaceHeld is cleared by resetDashState() on death, so a release
+    // that arrives after dying (or after a respawn) finds it already
+    // false and correctly produces no dash.
+    if (!spaceHeld || !ship.isAlive) {
+        e.preventDefault();
+        return;
+    }
+
     const holdDurationSec = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
     spaceHeld = false;
     
@@ -1906,10 +2104,7 @@ function updateShip(dt){
         if (!isOutOfBounds(prevX, prevY)) {
             // Just hit the border - kill player
             createExplosion(ship.x, ship.y, 15);
-            ship.isAlive = false;
-            ship.deathTime = Date.now();
-            trail = []; // Clear trail immediately
-            reportLifeEnded();
+            onLocalDeath();
         } else {
             // Clamp position to bounds
             const clamped = clampToBounds(ship.x, ship.y);
@@ -1938,10 +2133,7 @@ function updateShip(dt){
                 createExplosion(a.x, a.y, 10, ASTEROID_COLOR);
                 asteroids.splice(k, 1);
                 spawnAsteroid(); // 1-for-1 respawn, same as destroyAsteroid()
-                ship.isAlive = false;
-                ship.deathTime = Date.now();
-                trail = [];
-                reportLifeEnded();
+                onLocalDeath();
                 break; // Ship can only die once per frame; stop checking further asteroids
             }
         }
@@ -1995,6 +2187,104 @@ function drawTrail(){
 }
 
 // ===================================================
+//     CHARGED BEAM: SLIGHT HOMING & SINGLE BOUNCE
+// ===================================================
+// Both behaviours below apply to `beam` bullets only -- the long-press
+// shot. Standard tap shots are unchanged: straight line, no bounce.
+//
+// Every client simulates its own copy of every beam, including remote
+// ones, so two clients' copies of the same beam will curve slightly
+// differently. That is fine, and is not a new compromise: collision has
+// always been victim-authoritative here (only your own client decides
+// that a bullet hit you), so the copy that matters for whether you die
+// is the one running on your machine. The same reasoning is why the
+// asteroid bounce below is gated to local shots -- asteroid fields are
+// deliberately not network-synced.
+const BEAM_HOMING_RANGE = 500;        // World units. Beyond this the beam flies straight.
+const BEAM_HOMING_TURN_RATE = 0.02;   // Radians per frame (~1.1 deg) -- "slight": it curves, it doesn't chase.
+const BEAM_HOMING_CONE = Math.PI / 3; // Only targets within 60 deg of travel, so a beam never wheels around.
+
+// Nearest steerable target for this beam, or null. Ships only --
+// asteroids are obstacles to bounce off, not things to home toward.
+// Players inside the safe zone are skipped since they can't be hit
+// anyway (see the ship collision check below), and homing at someone
+// invulnerable would just look broken.
+function findBeamHomingTarget(b) {
+    const travelAngle = Math.atan2(b.vy, b.vx);
+    let bestX = 0, bestY = 0, bestDist = Infinity, found = false;
+
+    function consider(tx, ty) {
+        const dx = tx - b.x;
+        const dy = ty - b.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > BEAM_HOMING_RANGE || dist < 1) return;
+        if (Math.abs(wrapAngle(Math.atan2(dy, dx) - travelAngle)) > BEAM_HOMING_CONE) return;
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestX = tx;
+            bestY = ty;
+            found = true;
+        }
+    }
+
+    // Our own ship is a candidate only for beams somebody ELSE fired.
+    // isLocalShot is the right test rather than comparing ownerId to
+    // myPlayerId, since it's set at fire time and doesn't depend on the
+    // network handshake having completed.
+    if (!b.isLocalShot && ship.isAlive && !isInSafeZone(ship.x, ship.y)) {
+        consider(ship.x, ship.y);
+    }
+
+    for (const id in remotePlayers) {
+        const p = remotePlayers[id];
+        if (!p || !p.isAlive) continue;
+        if (b.ownerId && id === b.ownerId) continue; // Never home back onto the shooter
+        if (isInSafeZone(p.x, p.y)) continue;
+        consider(p.x, p.y);
+    }
+
+    return found ? { x: bestX, y: bestY } : null;
+}
+
+// Steers direction only -- speed is untouched, so homing never turns
+// into acceleration.
+function applyBeamHoming(b) {
+    const target = findBeamHomingTarget(b);
+    if (!target) return;
+
+    const speed = Math.hypot(b.vx, b.vy);
+    const travelAngle = Math.atan2(b.vy, b.vx);
+    const desiredAngle = Math.atan2(target.y - b.y, target.x - b.x);
+    const difference = wrapAngle(desiredAngle - travelAngle);
+    const turn = Math.max(-BEAM_HOMING_TURN_RATE, Math.min(BEAM_HOMING_TURN_RATE, difference));
+
+    const newAngle = travelAngle + turn;
+    b.vx = Math.cos(newAngle) * speed;
+    b.vy = Math.sin(newAngle) * speed;
+}
+
+// Reflects the beam about a unit normal and spends its single bounce.
+function bounceBeam(b, nx, ny) {
+    const dot = b.vx * nx + b.vy * ny;
+    b.vx -= 2 * dot * nx;
+    b.vy -= 2 * dot * ny;
+    b.bounced = true;
+
+    // firedAt/maxDistance drive the fade-out, and they measure a STRAIGHT
+    // LINE from the fire point -- which stops meaning anything the moment
+    // the beam changes direction (a beam heading back toward its origin
+    // would see distTraveled shrink and visibly un-fade). Re-base both at
+    // the bounce point carrying only the remaining budget, so the beam's
+    // total travel distance is preserved rather than reset or inverted.
+    const travelled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
+    b.maxDistance = Math.max(0, b.maxDistance - travelled);
+    b.firedAt.x = b.x;
+    b.firedAt.y = b.y;
+
+    createExplosion(b.x, b.y, 5, b.color); // Small spark so the ricochet reads as an impact
+}
+
+// ===================================================
 //            BATCH RENDER BULLETS BY TYPE
 // ===================================================
 function updateAndDrawBullets() {
@@ -2005,29 +2295,81 @@ function updateAndDrawBullets() {
 
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
-        
+
+        // Steer before stepping, so this frame's movement already reflects
+        // the turn rather than lagging a frame behind it.
+        if (b.type === "beam") {
+            applyBeamHoming(b);
+        }
+
+        // Pre-step position. The safe-zone bounce needs it to tell an
+        // INWARD crossing from a beam that was already inside.
+        const prevX = b.x;
+        const prevY = b.y;
+
         b.x += b.vx;
         b.y += b.vy;
         b.life--;
 
         // Check collision with world border (only if bullet still visible)
         if (isOutOfBounds(b.x, b.y)) {
-            // Only explode if bullet hasn't faded out yet
-            const distTraveled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
-            let opacity = 1.0;
-            if (distTraveled > b.maxDistance) {
-                opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
+            if (b.type === "beam" && !b.bounced) {
+                // Charged beam gets exactly one ricochet off the border.
+                // Pull it back onto the wall first so the reflected beam
+                // starts inside the play area instead of outside it.
+                let nx = 0, ny = 0;
+                if (b.x < WORLD_BOUNDS.min) { nx = 1; b.x = WORLD_BOUNDS.min; }
+                else if (b.x > WORLD_BOUNDS.max) { nx = -1; b.x = WORLD_BOUNDS.max; }
+                if (b.y < WORLD_BOUNDS.min) { ny = 1; b.y = WORLD_BOUNDS.min; }
+                else if (b.y > WORLD_BOUNDS.max) { ny = -1; b.y = WORLD_BOUNDS.max; }
+
+                // Corner hit: both axes are out, so the normal is the
+                // diagonal. Normalising it means reflecting about that
+                // diagonal (which reverses the beam) rather than applying
+                // two full-strength reflections.
+                const len = Math.hypot(nx, ny) || 1;
+                bounceBeam(b, nx / len, ny / len);
+            } else {
+                // Everything else -- and a beam that has already spent its
+                // bounce -- dies at the border exactly as before.
+                // Only explode if bullet hasn't faded out yet
+                const distTraveled = Math.hypot(b.x - b.firedAt.x, b.y - b.firedAt.y);
+                let opacity = 1.0;
+                if (distTraveled > b.maxDistance) {
+                    opacity = Math.max(0, 1 - (distTraveled - b.maxDistance) / 100);
+                }
+
+                // Only create explosion if bullet is still visible
+                if (opacity > 0) {
+                    createExplosion(b.x, b.y, 8);
+                }
+
+                removeFromGrid(b.gridKey, b);
+                bulletPool.push(b);
+                bullets.splice(i, 1);
+                continue;
             }
-            
-            // Only create explosion if bullet is still visible
-            if (opacity > 0) {
-                createExplosion(b.x, b.y, 8);
-            }
-            
-            removeFromGrid(b.gridKey, b);
-            bulletPool.push(b);
-            bullets.splice(i, 1);
-            continue;
+        }
+
+        // Safe zone behaves as a solid shell for charged beams: one
+        // ricochet off its surface, and after that beams pass through it
+        // as they always have (players inside are immune regardless --
+        // the ship collision check below exempts them). Gating on an
+        // inward crossing means a beam fired from INSIDE the safe zone
+        // still leaves normally instead of being bounced back in.
+        if (b.type === "beam" && !b.bounced &&
+            isInSafeZone(b.x, b.y) && !isInSafeZone(prevX, prevY)) {
+            let nx = b.x - SAFE_ZONE.x;
+            let ny = b.y - SAFE_ZONE.y;
+            const len = Math.hypot(nx, ny) || 1;
+            nx /= len;
+            ny /= len;
+
+            // Sit it back on the shell before reflecting, so the next
+            // frame doesn't start inside the zone.
+            b.x = SAFE_ZONE.x + nx * (SAFE_ZONE.radius + 1);
+            b.y = SAFE_ZONE.y + ny * (SAFE_ZONE.radius + 1);
+            bounceBeam(b, nx, ny);
         }
 
         // Check collision with player ship (only from remote shots, not in safe zone)
@@ -2036,9 +2378,6 @@ function updateAndDrawBullets() {
             if (dist < ship.size + b.size) {
                 // Hit! Create explosion and kill player
                 createExplosion(ship.x, ship.y, 15);
-                ship.isAlive = false;
-                ship.deathTime = Date.now();
-                trail = []; // Clear trail immediately on death
 
                 // Tell the server who shot us, so it can relay kill
                 // credit to THAT player's client. This only fires when
@@ -2048,14 +2387,16 @@ function updateAndDrawBullets() {
                 // If ownerId is somehow missing, we just skip crediting
                 // rather than guessing -- a death should never crash the
                 // game over an incomplete kill-credit message.
-                if (b.ownerId && hasJoinedRoom && socket.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({
-                        type: "kill-credit",
-                        shooterId: b.ownerId
-                    }));
+                if (b.ownerId && hasJoinedRoom) {
+                    MP.send({ t: "kill", shooterId: b.ownerId, killType: "player" });
                 }
 
-                reportLifeEnded();
+                // Sent BEFORE onLocalDeath() because onLocalDeath ->
+                // reportLifeEnded() resets the per-life counters; the kill
+                // relay above carries no score, but keeping the ordering
+                // explicit here matches the order the two messages should
+                // reach the room in.
+                onLocalDeath();
                 
                 removeFromGrid(b.gridKey, b);
                 bulletPool.push(b);
@@ -2076,7 +2417,29 @@ function updateAndDrawBullets() {
                 const a = asteroids[j];
                 const dist = Math.hypot(b.x - a.x, b.y - a.y);
                 if (dist < a.size + b.size) {
+                    // Captured before destroyAsteroid() splices it out of
+                    // the array -- the bounce normal is measured from
+                    // where the asteroid was at the moment of impact.
+                    const impactX = a.x, impactY = a.y, impactSize = a.size;
                     destroyAsteroid(j);
+
+                    if (b.type === "beam" && !b.bounced) {
+                        // A charged beam smashes the asteroid AND deflects
+                        // off the impact, spending its one bounce, rather
+                        // than being consumed by it. Scoring is unchanged:
+                        // destroyAsteroid() above already credited the kill
+                        // exactly as it does for a standard shot.
+                        let nx = b.x - impactX;
+                        let ny = b.y - impactY;
+                        const len = Math.hypot(nx, ny) || 1;
+                        nx /= len;
+                        ny /= len;
+                        b.x = impactX + nx * (impactSize + b.size + 1);
+                        b.y = impactY + ny * (impactSize + b.size + 1);
+                        bounceBeam(b, nx, ny);
+                        break; // Bullet survives -- stop checking asteroids this frame
+                    }
+
                     removeFromGrid(b.gridKey, b);
                     bulletPool.push(b);
                     bullets.splice(i, 1);
@@ -2332,14 +2695,17 @@ if ("DeviceOrientationEvent" in window) {
 //          KEYBOARD CONTROL FOR COMPUTER DASH
 // ===================================================
 window.addEventListener("keydown", e => {
-    if (e.code === "Space" && controlMode === "computer" && !spaceHeld && !e.repeat) {
+    if (e.code === "Space" && controlMode === "computer" && !spaceHeld && !e.repeat && ship.isAlive) {
         spaceHeld = true;
         spaceHoldStartTime = performance.now();
     }
 });
 
+// The spaceHeld check here is what makes death safe: resetDashState()
+// clears it, so a SPACE release that lands after dying falls straight
+// through instead of granting a dash on respawn.
 window.addEventListener("keyup", e => {
-    if (e.code === "Space" && controlMode === "computer" && spaceHeld) {
+    if (e.code === "Space" && controlMode === "computer" && spaceHeld && ship.isAlive) {
         spaceHeld = false;
         const holdDurationSec = Math.min(10, (performance.now() - spaceHoldStartTime) / 1000);
         if (holdDurationSec > 0.1) {
@@ -2372,31 +2738,37 @@ function animate(now){
         updateTrail(dt);
         updateBeamChargeAudio();
 
+        // Throttled flush of the live best-score panel -- see the note on
+        // SCOREBOARD_RENDER_INTERVAL.
+        if (scoreboardDirty && (frameStartTime - lastScoreboardRender) >= SCOREBOARD_RENDER_INTERVAL) {
+            updateScoreboardDisplay();
+        }
+
         if (now - lastSendTime >= SEND_INTERVAL) {
             // hasJoinedRoom guards this: the server silently drops "update"
             // messages sent before "join-room", so this isn't strictly
             // required for correctness -- but sending real position data
             // into the void every 100ms before the player has even chosen
             // a room is wasted work, so we skip it explicitly.
-            if (socket.readyState === WebSocket.OPEN && hasJoinedRoom) {
+            if (hasJoinedRoom) {
                 const payload = {
-                    type: "update",
+                    t: "pos",
                     x: Number(ship.x.toFixed(1)),
                     y: Number(ship.y.toFixed(1)),
                     angle: Number(ship.angle.toFixed(2)),
                     color: ship.color,
-                    isAlive: ship.isAlive  // ✅ ADD THIS LINE to broadcast alive state
+                    isAlive: ship.isAlive,
+                    best: bestLifeScore
                 };
 
                 if (pendingShot) {
                     payload.shot = pendingShot;
-                    console.log("Sending payload with shot:", payload);
                     pendingShot = null;
-                } else {
-                    console.log("Sending payload (no shot):", payload);
                 }
 
-                socket.send(JSON.stringify(payload));
+                // The two console.logs that used to sit here fired on
+                // every one of these, ten times a second, all session.
+                MP.send(payload);
             }
             lastSendTime = now;
         }

@@ -38,13 +38,14 @@ Pull the latest numbers from there before trusting this table if it's been a whi
 
 | Game | Multiplayer goal | Stable | Stable on mobile | Server-integrated | Firestore-integrated |
 |---|---|---|---|---|---|
-| `gyro-space/space-tracer.html` (Gyro Space) | Yes | Yes | Mostly — **known audio-freezing bug** | Yes | Yes |
+| `gyro-space/space-tracer.html` (Gyro Space) | Yes | Yes | Mostly — **known audio-freezing bug** | **Yes — on `mp-core` + `relay` since 2026-08-28** | Yes |
 | `javelin-battle/javelin-battle.html` | Yes | Yes | No | No | No |
 | `four-d-pong/four-d-pong.html` | Yes | Yes | No | No | No |
 | `zombie/Zombie.html` | Yes | Yes | No | **Yes** (2026-08-24) | No |
 | `boids/boids_1.html` | Yes | Yes | No | **Yes** (2026-08-25) | No |
-| `rd-arena/RDArena.html` | Yes | Yes | No | No | No |
+| `rd-arena/RDArena.html` | Yes | Yes | No | No | No |  <!-- hub-linked 2026-08-28 -->
 | `hex-grid/Hex Grid.html` | Yes | No | No | No | No |
+| `glucose-dash/glucose-dash.html` (Glucose Dash) | Yes | Yes (solo) — **not yet playtested by a human** | No | Seed/identity only — **no ghosts on the wire yet** | No |
 | `reality-rewrite/reality-rewrite.html` | Yes | Yes (tracker) / open task per its own CLAUDE.md — verify | No | No | No |
 | `desert-robot-blaster/desert-robot-blaster.html` | Not sure — **long-term Unity candidate, not a near-term web priority** | Yes | No | No | No |
 | `fruit-dropper/fruit-dropper.html` | **No** (not a multiplayer target) | Yes | Yes | No | No |
@@ -73,12 +74,16 @@ as provisional until someone actually plays through each one.
 
 ---
 
-## Active priorities (updated 2026-08-25)
+## Active priorities (updated 2026-08-28)
 
-0. ⚠️ **The server changes are not deployed yet.** `gyro-space-server` has been rewritten
-   (multi-game rooms, generic relay, host election, room seeds, server-side colour) but needs a
-   Render redeploy before any of the new multiplayer works against the live URL. Until then
-   Zombie / Glass City / boids fall back to solo. The user is handling the redeploy.
+0. ⚠️ **The server needs another Render redeploy** — the hub lobby (leader election,
+   ready-check, launch countdown, `_hub` namespace) was added to `server.js` on 2026-08-28 and
+   is inert against the live URL until it ships. The hub degrades visibly rather than silently:
+   the Continue button renders disabled and says the server needs the update.
+   The *previous* rewrite (multi-game rooms, generic relay, host election, room seeds,
+   server-side colour) does appear to be live — the hub's live cursors work in production,
+   and only the rewritten server handles `cursor-update` at all.
+
 1. **Fix the Gyro Space audio-freezing bug.** Still open.
 2. **Finish `ps1racer.html` and `voice-runner.html`.** Both are marked not-functioning and both
    are linked from the hub, so a friend clicking either card today hits a known-broken game.
@@ -136,8 +141,18 @@ Root `CLAUDE.md` requires games to run via double-click (`file://`, no server). 
 `space-tracer.html` and `leaderboard.html` load `firebase-config.js` via
 `<script type="module">`, which browsers refuse to load over `file://`. In practice this means:
 opened locally by double-click, Gyro Space and the leaderboard still load and mostly work, but
-the Firestore score-submission piece silently fails (no console-visible crash, just no score
-saved) until the page is served over http(s) (GitHub Pages, or a local `python -m http.server`).
+no score is saved until the page is served over http(s) (GitHub Pages, or a local
+`python -m http.server`).
+
+**Corrected 2026-08-31:** this entry used to say the failure was silent ("no console-visible
+crash, just no score saved"). It wasn't. `reportLifeEnded()` called the global
+`submitScoreToFirebase(...)` bare, and over `file://` that global never exists, so **every
+death threw a `ReferenceError` out of the middle of that function** — skipping the live score
+relay to the room and the per-life counter resets that follow the call. Now guarded with
+`typeof submitScoreToFirebase === "function"`. Worth generalising: a `window.x = ...` set from
+a `type="module"` block is not a safe bare call from a classic script, because the two have
+completely different load-failure modes — `typeof` is the only check that survives the
+identifier never being declared at all.
 This is an accepted, working tradeoff today — noting it here so it's not "discovered" again as
 a surprise bug during the multiplayer rollout, since every newly-integrated game will hit the
 same constraint if it also wants Firestore leaderboard support.
@@ -163,6 +178,21 @@ code comment claiming they were. All four are now implemented and covered by tes
 The lesson worth keeping: `index.html` carried detailed comments describing behaviour that
 could not happen. Comments describing a protocol are not evidence the other side implements it —
 check both ends.
+
+### The room roster was a dead end on every phone (fixed 2026-08-28)
+
+`#roomRoster` was a fixed-position sidebar: `right:0; width:240px; height:100vh`, widened to
+`width:100%` under 768px while keeping `height:100vh`, with the content-offset padding applied
+only at `min-width:769px`. On any narrow viewport, **joining a room covered the entire games
+list with an opaque panel whose only control was "Change name / room."** There was no way
+forward to the games at all. Desktop was unaffected, which is why it shipped.
+
+Two related defects went with it: the roster never listed *you* (the server's `players`
+snapshot excludes self and sends it separately as `you`; the hub never added itself back, and
+the `.roster-player-you` style was dead), and the Zombie card carried Space Tracer's rocket icon.
+
+Worth generalising: **a fixed-position panel that goes full-bleed at a breakpoint needs a way
+out at that breakpoint.** The replacement is a top band, which can't cover anything.
 
 ## Recurring technical challenges (real, observed in this repo)
 
@@ -192,6 +222,17 @@ files sharing one global scope (hence the collision checker). **Every current ga
 based on usage allowance") — not a bug, just not started yet. `reality-rewrite/CLAUDE.md`
 documents what its eventual 6-file split should look like, as a reference for whichever game
 gets split first.
+
+### ✅ RESOLVED 2026-08-28 — Space Tracer was still colouring itself by session ID
+
+PROJECT_MEMORY recorded the colour/identity debt as resolved on 2026-08-24, and for remote ships
+it was: `space-tracer.html` renders other players with the colour the server sends. **Its own
+ship was still `COLOR_PALETTE[data.id.charCodeAt(0) % len]`** — the session id. So your ship
+changed colour every reconnect and never matched your own dot on the hub, while everyone else's
+was correct. Now `MP.selfColor`.
+
+The lesson: "identity is server-side now" was verified by looking at what the server sends, not
+at what every client does with it. A resolved-debt note is worth re-checking per client.
 
 ### The `GameInstance` embed contract doesn't match how the hub actually works
 Root `CLAUDE.md` and the (now-rewritten) `GAME_PROTOTYPE_INSTRUCTIONS.md` describe games
@@ -235,4 +276,13 @@ polished product line.
 |---|---|
 | 2026-08-24 | Restructured repo into per-game folders; moved tooling into `scripts/`/`.githooks/`. |
 | 2026-08-24 | Replaced a generic, non-matching version of this file (wrong repo path, wrong DB, wrong folder layout, phantom git history) with this one, grounded in the actual codebase and `Game dev tracking.xlsx`. Captured real priorities: fix Gyro Space audio bug → finish ps1racer/voice-runner → centralize color hash → pilot multiplayer rollout. |
+| 2026-08-28 | Space Tracer migrated onto `shared/mp-core.js`: own namespace (`space-tracer:CODE`), generic `relay` instead of the legacy `update`/`score-update`/`kill-credit` types, hub identity instead of its own name/room screen, and server name-hash colour instead of session-ID colour. Added `MP.identity()`. |
+| 2026-08-28 | Hub board grew to all 17 games with code (added `boids`, `rd-arena`, `hex-grid`, `reality-rewrite`); 6 per page; diagonal red stamps marking what can't be played together yet; cross-game presence so in-game players show in the hub roster without counting toward the ready-check. |
+| 2026-08-28 | Hub reworked into a Wii-style paged board: fixed top/bottom buffers, 8 tiles per page, left/right paging, tiles sized from available space (no scrolling on any screen). Fixed the full-screen-roster dead end. Added a server-backed ready-check + 3s launch countdown, and moved the hub to its own `_hub` room namespace. See `HUB_LOBBY_PLAN.md`. |
+| 2026-08-29 | Glucose Dash **v5**: perspective renderer removed, view rebuilt as a top-down 2D floor plan. Rationale worth generalising: across four revisions every graphical defect in this game traced to the projection (near-plane clipping, cross-category depth sorting, billboarded wall text, white-on-white silhouettes, a shadowing duplicate `quad()`), and 2D makes that whole class *unrepresentable* rather than fixed — no projection, no depth, draw order is source order. Upper floors read by drawing every level below first and covering it, so the visible drop and the fall test share one geometry source (`pathWalkable`, built from `walkLimit`). Gameplay untouched and re-measured identical (ground 123–130s, no-food 100% DNF, NPC 17%). 0.97ms/frame, down from 6.1. Old build kept at `glucose-dash-perspective.html.bak`. |
+| 2026-08-29 | Glucose Dash **v4**: replaced fixed category draw order with a depth-sorted painter (one queue keyed by centroid depth + a tie-break bias, sprites included), fixing "stairs drawing behind shops" and upper-floor layering. **Also corrected a v3 claim:** the near-plane clipping added in v3 had been dead code — an older immediate-mode `quad()` survived the refactor 76 lines further down the same file and shadowed it, since a later function declaration wins. Worth generalising: `check-global-collisions.js` only compares identifiers ACROSS files, so duplicate definitions *within* a single-file game are exactly what it cannot see. |
+| 2026-08-29 | Glucose Dash **v3**: graphics pass + course rework. Fixed the renderer's biggest defect — `quad()` discarded any polygon with a corner behind the near plane, so corridor walls were deleted a frame before you reached them (read as "the floor just ends"); now real Sutherland-Hodgman near-plane clipping. Store names painted onto the wall plane per-character in perspective instead of billboarded; all floors above always visible; draw distance +50%; hazard-striped fall edges. Course doubled to 3300 and **curved** via a `centerX(y)` centreline applied only in `toCam()` — physics/AI stay in flat track space, so curvature carried zero gameplay risk. Doubling exposed three constants silently scaled to the old length (NPC starvation horizon, food supply, NPC crash weighting). Final: no-food 100% DNF, ground 8% @124.5s, top floor 0% @126.6s, NPCs 15% DNF. |
+| 2026-08-29 | Glucose Dash **v2**: light mall aesthetic (white walls, white checkered floor, colourful storefronts), close camera inside the corridor, rounded runners with white heads. Mechanically, the upper floors narrowed (half-widths 11 / 7.5 / 5) and lost their railings, so **you can now fall off them** — ~2.5s and all your momentum, cascading. Measured: climbing to floor 2 is the strongest line (63.1s, 0/10 DNF) vs a ground-only route at the same speed but a 3/10 DNF gamble; floor 3 is the safest and slowest. Three fairness bugs found and fixed — see `glucose-dash/SCOPE.md` §5. |
+| 2026-08-29 | New game: **Glucose Dash** (`glucose-dash/`) — overhead mall footrace where the resource is blood glucose. Solo-complete, not hub-linked. First game in the repo to implement `window.GameInstance` (teardown round-trip verified). Balance was driven headlessly rather than played: 10-seed sim shows a food-free run DNFs 10/10, well-played runs land 62–66s, NPCs 62–84s. Two bugs that found: wall friction compounding 60x/sec (also hit the player — brushing a wall nearly stopped you), and no exit from the upper floors past the finish. See `glucose-dash/SCOPE.md`. |
+| 2026-08-31 | Space Tracer gameplay pass. **Death** now goes through one `onLocalDeath()` instead of the same four lines copy-pasted at all three death sites — which is precisely why *no* site reset dash or beam charge: you could shoot from a dead ship, and a dash charged while dead fired on respawn. Firing and dash inputs now gate on `ship.isAlive`. **Best score is live** — it used to move only inside `reportLifeEnded()`, so a record-setting life showed nothing until it ended; it now promotes as it passes, rides the existing 10Hz `pos` payload as `best` so other players' bests climb live too, and both consumers keep the max (a bad life used to overwrite a good one on everyone's board). Panel render is throttled to 5Hz off a dirty flag. **Charged beam** gained slight homing (rate-limited turn, forward cone, ships only) and one ricochet off border / safe-zone shell / asteroids; `firedAt` and `maxDistance` re-base at the bounce point so the fade still measures total travel after a direction change. Also fixed the `file://` Firebase `ReferenceError` above. Verified with a headless harness (stubbed DOM, 38 assertions) — see `gyro-space/SPACE_TRACER_CLEANUP_PLAN.md`. |
 | 2026-08-24 | Promoted 5 concept games (glass-city-escape, particle-simulation, infected-labyrinth, wasteland-train-sim, and the newly-surfaced kula-world) from `z. Unfinished Concepts/` into their own repo folders. Not yet linked from the hub or verified stable. |

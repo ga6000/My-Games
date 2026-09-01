@@ -2,447 +2,531 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>My Games Hub</title>
     <style>
+        /* ===================================================
+           LAYOUT MODEL
+           Three fixed bands, no page scroll anywhere:
+
+             [ top buffer ]   room code + who's in the room
+             [   board    ]   one page of game tiles, sized to fit
+             [ bottom buf ]   blank until a game is winning, then Continue
+
+           The board never scrolls -- tiles are sized FROM the space
+           available rather than the page growing to fit the tiles. That's
+           the whole point of paging: on any screen you see a full page of
+           tiles at a readable size, and you flip pages instead of scrolling.
+        =================================================== */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
+        [hidden] { display: none !important; }
+
         html, body {
             height: 100%;
             width: 100%;
+            overflow: hidden;
         }
 
         body {
             background-color: #f5f3f0;
             color: #2a2a2a;
             font-family: 'Arial', sans-serif;
-            min-height: 100vh;
+            height: 100vh;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
+            /* Persistent buffers. Named here so the countdown overlay can
+               stop short of the bottom bar and leave the Continue button
+               clickable while the timer runs -- a player must be able to
+               back out during those 3 seconds. */
+            --bottom-h: 104px;
+            --top-h: 68px;
+        }
+
+        @media (max-width: 640px) {
+            body { --bottom-h: 88px; --top-h: 60px; }
+        }
+
+        /* ===================================================
+           TOP BUFFER -- room identity + roster
+           This replaces the old fixed-position sidebar. That sidebar
+           became `width:100%; height:100vh` under 768px, which covered
+           the entire games list with no way back to it -- joining a room
+           on a phone was a dead end. A band across the top can't do that.
+        =================================================== */
+        #topBar {
+            flex: 0 0 auto;
+            min-height: var(--top-h);
+            display: flex;
             align-items: center;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1400px;
-            width: 100%;
-        }
-
-        header {
-            text-align: center;
-            margin-bottom: 40px;
+            gap: 14px;
+            padding: 8px clamp(10px, 2vw, 22px);
             border-bottom: 3px solid #2a2a2a;
-            padding-bottom: 20px;
-        }
-
-        h1 {
-            font-size: clamp(2rem, 8vw, 4rem);
-            color: #2a2a2a;
-            margin-bottom: 10px;
-            letter-spacing: 2px;
-            font-weight: 800;
-        }
-
-        .subtitle {
-            font-size: clamp(0.75rem, 2vw, 1rem);
-            color: #5a5a5a;
-            margin-top: 8px;
-            letter-spacing: 1px;
-        }
-
-        .instructions {
             background: #ede9e6;
-            border: 2px solid #2a2a2a;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 40px;
-            font-size: clamp(0.7rem, 1.5vw, 0.95rem);
-            line-height: 1.6;
         }
 
-        .instructions h2 {
-            color: #2a2a2a;
-            margin-bottom: 12px;
-            font-size: clamp(0.85rem, 2vw, 1.1rem);
+        .top-block {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 0 0 auto;
+        }
+
+        .top-label {
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #7a7268;
             font-weight: bold;
         }
 
-        .instructions p {
-            color: #3a3a3a;
+        #roomCode {
+            font-family: 'Courier New', monospace;
+            font-size: clamp(0.95rem, 2.4vmin, 1.35rem);
+            font-weight: bold;
+            letter-spacing: 3px;
         }
 
-        .games-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 25px;
-            margin-bottom: 50px;
-            width: 100%;
-        }
-
-        .game-card {
-            background: linear-gradient(135deg, #f9f7f4 0%, #ede9e6 100%);
-            border: 3px solid #2a2a2a;
-            border-radius: 8px;
-            padding: 30px 20px;
-            text-decoration: none;
+        .top-btn {
+            font-family: inherit;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 5px 10px;
+            border: 2px solid #2a2a2a;
+            border-radius: 6px;
+            background: #f9f7f4;
             color: #2a2a2a;
             cursor: pointer;
-            transition: all 0.3s ease;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .top-btn:hover { background: #2a2a2a; color: #f5f3f0; }
+
+        /* The roster. Horizontal chips rather than a vertical list,
+           because this band is short and wide. Scrolls sideways on its
+           own if a big group joins -- the PAGE still never scrolls. */
+        #playerStrip {
+            flex: 1 1 auto;
             display: flex;
-            flex-direction: column;
             align-items: center;
-            justify-content: center;
-            min-height: 240px;
-            position: relative;
-            overflow: hidden;
+            gap: 6px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: thin;
+            min-width: 0;
         }
 
-        .game-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(42, 42, 42, 0.1), transparent);
-            transition: left 0.5s ease;
-        }
-
-        .game-card:hover::before {
-            left: 100%;
-        }
-
-        .game-card:hover {
-            transform: translateY(-8px);
-            box-shadow: 0 8px 25px rgba(42, 42, 42, 0.15);
-            background: linear-gradient(135deg, #e8e3df 0%, #dcd8d3 100%);
-            border-color: #1a1a1a;
-        }
-
-        .game-card:active {
-            transform: translateY(-4px);
-        }
-
-        .game-card-content {
-            position: relative;
-            z-index: 1;
-            text-align: center;
-            width: 100%;
+        .player-chip {
             display: flex;
-            flex-direction: column;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
+            padding: 4px 10px;
+            background: #f9f7f4;
+            border: 2px solid #d8d2cc;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            flex: 0 0 auto;
         }
 
-        .game-icon {
-            font-size: clamp(2rem, 6vw, 3rem);
-            margin-bottom: 8px;
-            display: block;
+        .player-chip.is-you { border-color: #2a2a2a; font-weight: bold; }
+
+        .player-chip.is-ready { border-color: #2f7d32; background: #eef7ee; }
+
+        /* Someone in this room code who is inside a game. Shown because
+           "who's around" should include them, muted because they are NOT
+           part of the ready-check -- they can't click Continue from in
+           there, and counting them would stall every launch. */
+        .player-chip.in-game {
+            background: transparent;
+            border-style: dashed;
+            border-color: #c8c2bc;
+            color: #7a7268;
         }
 
-        .game-title {
-            font-size: clamp(0.95rem, 2.5vw, 1.3rem);
-            text-align: center;
-            line-height: 1.3;
-            font-weight: 700;
-            color: #1a1a1a;
-        }
-
-        .game-description {
-            font-size: clamp(0.65rem, 1.5vw, 0.85rem);
-            color: #5a5a5a;
-            margin-top: 8px;
-            text-align: center;
-            font-style: italic;
-        }
-
-        .new-badge {
-            position: absolute;
-            top: 12px;
-            right: 12px;
-            background: #d32f2f;
-            color: #f5f3f0;
-            padding: 6px 12px;
-            font-size: 0.65rem;
-            font-weight: bold;
-            border-radius: 4px;
-            z-index: 2;
+        .player-game-tag {
+            font-size: 0.6rem;
+            color: #8a8278;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
+        .roster-divider {
+            flex: 0 0 auto;
+            width: 2px;
+            height: 20px;
+            background: #d8d2cc;
+            margin: 0 2px;
+        }
+
+        .player-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .player-you-tag {
+            font-size: 0.6rem;
+            color: #8a8278;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        #rosterEmpty {
+            font-size: 0.72rem;
+            color: #8a8278;
+            font-style: italic;
+        }
+
+        /* ===================================================
+           BOARD -- the paged tile grid
+        =================================================== */
+        #board {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            align-items: stretch;
+            gap: clamp(4px, 1.2vw, 14px);
+            padding: clamp(8px, 1.6vmin, 20px) clamp(6px, 1.4vw, 18px);
+        }
+
+        .page-arrow {
+            flex: 0 0 auto;
+            align-self: center;
+            width: clamp(32px, 4.5vw, 54px);
+            height: clamp(64px, 18vmin, 150px);
+            border: 3px solid #2a2a2a;
+            border-radius: 10px;
+            background: #ede9e6;
+            color: #2a2a2a;
+            font-size: clamp(1.1rem, 3vmin, 2rem);
+            font-family: inherit;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.15s ease;
+        }
+
+        .page-arrow:hover:not(:disabled) { background: #2a2a2a; color: #f5f3f0; transform: scale(1.05); }
+        .page-arrow:disabled { opacity: 0.2; cursor: default; }
+
+        #boardInner {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: clamp(6px, 1.2vmin, 12px);
+        }
+
+        #tileGrid {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: repeat(var(--cols, 4), 1fr);
+            grid-template-rows: repeat(var(--rows, 2), 1fr);
+            gap: clamp(6px, 1.4vmin, 18px);
+        }
+
+        #pageDots {
+            flex: 0 0 auto;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .page-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            border: 2px solid #2a2a2a;
+            background: transparent;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .page-dot.active { background: #2a2a2a; }
+
+        /* ---- tiles ---- */
+        .tile {
+            position: relative;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: clamp(2px, 0.8vmin, 8px);
+            padding: clamp(6px, 1.6vmin, 18px);
+            border: 3px solid #2a2a2a;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #f9f7f4 0%, #ede9e6 100%);
+            color: #2a2a2a;
+            text-decoration: none;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        }
+
+        .tile:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 6px 18px rgba(42, 42, 42, 0.18);
+            background: linear-gradient(135deg, #e8e3df 0%, #dcd8d3 100%);
+        }
+
+        .tile:active { transform: translateY(-1px); }
+
+        /* The game the room is currently voting in. Marked on the tile as
+           well as on the Continue button so it's obvious WHICH game the
+           button at the bottom is about, without reading the label. */
+        .tile.is-leader {
+            border-color: #b8860b;
+            box-shadow: 0 0 0 3px rgba(184, 134, 11, 0.3);
+            background: linear-gradient(135deg, #fdf6e3 0%, #f3e9cf 100%);
+        }
+
+        .tile-icon { font-size: clamp(1.3rem, 5.5vmin, 3rem); line-height: 1; }
+
+        .tile-title {
+            font-size: clamp(0.68rem, 2.1vmin, 1.15rem);
+            font-weight: 700;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+        .tile-desc {
+            font-size: clamp(0.55rem, 1.4vmin, 0.8rem);
+            color: #5a5a5a;
+            font-style: italic;
+            text-align: center;
+            line-height: 1.25;
+        }
+
+        /* Set by JS when the computed tile height leaves no room for the
+           description -- measured, not guessed at with a media query,
+           because tile height depends on the board height rather than on
+           any single breakpoint. */
+        #tileGrid.dense .tile-desc { display: none; }
+        #tileGrid.dense .tile-icon { font-size: clamp(1.1rem, 4vmin, 2rem); }
+
+        .tile-empty {
+            border-style: dashed;
+            border-color: #d8d2cc;
+            background: none;
+            cursor: default;
+            pointer-events: none;
+        }
+
+        .new-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #d32f2f;
+            color: #f5f3f0;
+            padding: 3px 7px;
+            font-size: 0.5rem;
+            font-weight: bold;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            z-index: 2;
+        }
+
+        /* Rubber stamp across the tile. Two things get marked, with
+           different words on purpose:
+
+             MULTIPLAYER SOON -- works fine, just no shared play yet
+             COMING SOON      -- doesn't actually run (PROJECT_MEMORY)
+
+           One word for both would put "COMING SOON" across Fruit
+           Dropper, which is stable and is the only game that behaves on
+           a phone -- that reads as broken when it isn't.
+
+           pointer-events:none matters: the stamp sits over the middle of
+           the tile, and the tile is still a link you can click and a
+           game you can vote for. */
+        .tile-stamp {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-21deg);
+            max-width: 94%;
+            padding: 4px 10px;
+            border: 3px solid #c0392b;
+            border-radius: 6px;
+            color: #c0392b;
+            background: rgba(255, 255, 255, 0.55);
+            font-size: clamp(0.48rem, 1.5vmin, 0.85rem);
+            font-weight: 800;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            text-align: center;
+            white-space: nowrap;
+            opacity: 0.88;
+            pointer-events: none;
+            z-index: 4;
+        }
+
+        /* Genuinely broken reads a shade heavier than "solo for now". */
+        .tile-stamp.blocked { opacity: 1; background: rgba(255, 235, 233, 0.8); }
+
         /* ===================================================
            VOTE CHECKMARK
-           Top-left corner of each card (new-badge already occupies
-           top-right). A button, not a span/div, so it's keyboard-
-           focusable and has correct semantics for something clickable
-           that isn't the card's own navigation link.
-
-           Since more than one person can vote for the same game, this
-           shows a small cluster of colored dots (one per voter) rather
-           than trying to force multiple people's colors into a single
-           checkmark shape, which would get muddy fast with 3+ voters.
-           Empty/outlined when nobody's voted for this game yet.
+           Unchanged in behaviour from the previous hub: top-left of each
+           tile, a button (not a div) so it's keyboard-focusable, showing
+           one colored dot per voter rather than trying to blend several
+           people's colors into one checkmark.
         =================================================== */
         .vote-check {
             position: absolute;
-            top: 12px;
-            left: 12px;
-            min-width: 28px;
-            height: 28px;
-            border-radius: 14px;
-            border: 2px solid rgba(42,42,42,0.35);
-            background: rgba(255,255,255,0.6);
-            z-index: 2;
+            top: 8px;
+            left: 8px;
+            min-width: 26px;
+            height: 26px;
+            border-radius: 13px;
+            border: 2px solid rgba(42, 42, 42, 0.35);
+            background: rgba(255, 255, 255, 0.7);
+            z-index: 3;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 3px;
-            padding: 0 6px;
-            transition: all 0.15s ease;
+            padding: 0 5px;
+            transition: transform 0.15s ease, background 0.15s ease;
         }
 
-        .vote-check:hover {
-            border-color: #2a2a2a;
-            background: #fdfcfb;
-            transform: scale(1.08);
-        }
-
-        /* Shown when the CURRENT player is one of the voters for this
-           card -- a slightly heavier border makes "this is my vote"
-           distinguishable at a glance from "others voted, I didn't". */
-        .vote-check.mine {
-            border-color: #2a2a2a;
-            border-width: 3px;
-        }
+        .vote-check:hover { background: #fdfcfb; transform: scale(1.1); }
+        .vote-check.mine { border-color: #2a2a2a; border-width: 3px; }
 
         .vote-check-dot {
-            width: 9px;
-            height: 9px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             flex-shrink: 0;
         }
 
-        /* Fallback glyph shown only when the checkmark has zero voters
-           -- an empty circle with nothing in it reads as broken/loading
-           rather than "available to vote for". */
         .vote-check-empty-icon {
-            font-size: 0.7rem;
-            color: rgba(42,42,42,0.3);
+            font-size: 0.65rem;
+            color: rgba(42, 42, 42, 0.3);
             line-height: 1;
         }
 
-        footer {
-            text-align: center;
-            color: #5a5a5a;
-            font-size: clamp(0.65rem, 1.5vw, 0.85rem);
-            margin-top: 40px;
-            padding-top: 30px;
+        /* ===================================================
+           BOTTOM BUFFER -- blank, then the Continue button
+        =================================================== */
+        #bottomBar {
+            flex: 0 0 auto;
+            height: var(--bottom-h);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 16px;
             border-top: 3px solid #2a2a2a;
-            width: 100%;
-            line-height: 1.8;
+            background: #ede9e6;
+            position: relative;
+            z-index: 800;
         }
 
-        footer p {
-            margin: 6px 0;
+        #continueBtn {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 26px;
+            border: 3px solid #2a2a2a;
+            border-radius: 10px;
+            background: #2a2a2a;
+            color: #f5f3f0;
+            font-family: inherit;
+            font-size: clamp(0.75rem, 2vmin, 1rem);
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            cursor: pointer;
+            transition: transform 0.15s ease, background 0.15s ease;
         }
 
-        /* Mobile optimizations */
-        @media (max-width: 1024px) {
-            .games-grid {
-                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-                gap: 20px;
-            }
+        #continueBtn:hover:not(:disabled) { transform: translateY(-2px); }
+        #continueBtn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-            .game-card {
-                min-height: 220px;
-                padding: 25px 15px;
-            }
+        #continueBtn.iam-ready { background: #2f7d32; border-color: #2f7d32; }
+        #continueBtn.is-launching { background: #b8860b; border-color: #b8860b; }
+
+        /* Same dot cluster as a tile's vote checkmark -- the Continue
+           button is a second vote, so it reads as one. */
+        #continueDots {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            min-width: 26px;
+            height: 22px;
+            padding: 0 7px;
+            border-radius: 11px;
+            background: rgba(255, 255, 255, 0.16);
+            border: 2px solid rgba(245, 243, 240, 0.4);
         }
 
-        @media (max-width: 768px) {
-            body {
-                padding: 15px;
-            }
-
-            .container {
-                width: 100%;
-            }
-
-            header {
-                margin-bottom: 30px;
-                padding-bottom: 15px;
-            }
-
-            h1 {
-                font-size: 1.8rem;
-            }
-
-            .subtitle {
-                font-size: 0.75rem;
-            }
-
-            .instructions {
-                padding: 15px;
-                margin-bottom: 30px;
-                font-size: 0.7rem;
-            }
-
-            .instructions h2 {
-                font-size: 0.85rem;
-                margin-bottom: 10px;
-            }
-
-            .games-grid {
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 15px;
-                margin-bottom: 30px;
-            }
-
-            .game-card {
-                min-height: 180px;
-                padding: 20px 12px;
-            }
-
-            .game-icon {
-                font-size: 2rem;
-                margin-bottom: 6px;
-            }
-
-            .game-title {
-                font-size: 0.95rem;
-            }
-
-            .game-description {
-                font-size: 0.65rem;
-                margin-top: 6px;
-            }
-
-            .new-badge {
-                top: 8px;
-                right: 8px;
-                padding: 4px 8px;
-                font-size: 0.55rem;
-            }
-        }
-
-        @media (max-width: 480px) {
-            body {
-                padding: 12px;
-            }
-
-            header {
-                margin-bottom: 25px;
-                padding-bottom: 12px;
-            }
-
-            h1 {
-                font-size: 1.4rem;
-            }
-
-            .subtitle {
-                font-size: 0.65rem;
-            }
-
-            .instructions {
-                padding: 12px;
-                margin-bottom: 25px;
-                font-size: 0.65rem;
-                line-height: 1.5;
-            }
-
-            .games-grid {
-                grid-template-columns: 1fr;
-                gap: 12px;
-                margin-bottom: 25px;
-            }
-
-            .game-card {
-                min-height: 160px;
-                padding: 18px 15px;
-            }
-
-            .game-icon {
-                font-size: 1.8rem;
-                margin-bottom: 5px;
-            }
-
-            .game-title {
-                font-size: 0.85rem;
-            }
-
-            .game-description {
-                font-size: 0.6rem;
-                margin-top: 5px;
-            }
-
-            footer {
-                font-size: 0.6rem;
-                margin-top: 30px;
-                padding-top: 20px;
-                line-height: 1.6;
-            }
-        }
-
-        /* Smooth color transitions */
-        .game-card {
-            background: linear-gradient(135deg, #f9f7f4 0%, #ede9e6 100%);
-        }
-
-        .game-card:hover {
-            background: linear-gradient(135deg, #e8e3df 0%, #dcd8d3 100%);
+        #continueHint {
+            font-size: 0.65rem;
+            color: #7a7268;
+            letter-spacing: 0.5px;
+            text-align: center;
         }
 
         /* ===================================================
-           IDENTITY ENTRY PANEL
-           Shown when no name/room is stored yet (or the player clicks
-           "change" to re-enter). Matches the existing .instructions
-           block's visual language (cream background, dark border)
-           rather than introducing a new look.
+           OVERLAYS
         =================================================== */
-        #identityPanel {
-            background: #ede9e6;
-            border: 2px solid #2a2a2a;
-            border-radius: 8px;
+        #identityOverlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            background: rgba(245, 243, 240, 0.94);
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
-            margin-bottom: 40px;
-            width: 100%;
         }
 
-        #identityPanel h2 {
-            color: #2a2a2a;
-            margin-bottom: 12px;
-            font-size: clamp(0.85rem, 2vw, 1.1rem);
-            font-weight: bold;
+        .identity-card {
+            width: min(460px, 100%);
+            max-height: 100%;
+            overflow-y: auto;
+            background: #ede9e6;
+            border: 3px solid #2a2a2a;
+            border-radius: 10px;
+            padding: clamp(18px, 3vmin, 28px);
         }
 
-        #identityPanel p {
-            color: #3a3a3a;
-            font-size: clamp(0.7rem, 1.5vw, 0.9rem);
-            margin-bottom: 16px;
+        .identity-card h1 { font-size: clamp(1.2rem, 4vmin, 1.9rem); letter-spacing: 1px; }
+
+        .identity-card p {
+            font-size: 0.8rem;
             line-height: 1.5;
+            color: #3a3a3a;
+            margin: 10px 0 16px;
         }
 
         .identity-form-row {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             flex-wrap: wrap;
             align-items: flex-end;
         }
 
-        .identity-field {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
+        .identity-field { display: flex; flex-direction: column; gap: 4px; }
 
         .identity-field label {
-            font-size: 0.7rem;
+            font-size: 0.62rem;
             color: #5a5a5a;
             text-transform: uppercase;
             letter-spacing: 1px;
@@ -457,17 +541,11 @@
             background: #fdfcfb;
             color: #2a2a2a;
             font-family: inherit;
+            width: 100%;
         }
 
-        #identityRoomInput {
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            width: 140px;
-        }
-
-        #identityNameInput {
-            width: 180px;
-        }
+        #identityNameInput { width: 170px; }
+        #identityRoomInput { width: 130px; text-transform: uppercase; letter-spacing: 2px; }
 
         #identityJoinBtn {
             padding: 11px 24px;
@@ -475,143 +553,56 @@
             color: #f5f3f0;
             border: 2px solid #2a2a2a;
             border-radius: 6px;
+            font-family: inherit;
             font-weight: bold;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             cursor: pointer;
             text-transform: uppercase;
             letter-spacing: 1px;
-            transition: all 0.2s ease;
         }
 
-        #identityJoinBtn:hover {
-            background: #1a1a1a;
-            transform: translateY(-2px);
-        }
+        /* Not a hard requirement -- a blank code still works, it just
+           lands in the shared "public" room. It's a nudge, not a gate:
+           this page's whole purpose is group presence, and a blank
+           default would quietly defeat that for anyone clicking through. */
+        .identity-hint { font-size: 0.66rem; color: #8a5a3a; margin-top: 12px; line-height: 1.5; }
 
-        /* This isn't a hard technical requirement -- a blank room code
-           still works, it just falls back to the shared "public" room
-           on the server. It's here as a nudge, not a gate: blank was a
-           reasonable default for a single game's optional multiplayer
-           field, but this page's whole purpose is group presence, so a
-           blank/public default here would quietly defeat that purpose
-           for anyone who just clicks through without reading. */
-        .identity-hint {
-            font-size: 0.65rem;
-            color: #8a5a3a;
-            margin-top: 8px;
-        }
-
-        /* ===================================================
-           ROOM ROSTER SIDEBAR
-           Fixed-position panel, not part of the existing centered
-           .container flow -- this page's layout wasn't built with a
-           sidebar in mind, and restructuring the whole grid to force
-           one in is a bigger change than this needs. A slide-in panel
-           on the right achieves the same "who's in the room" visibility
-           without disturbing the existing card grid layout.
-        =================================================== */
-        #roomRoster {
+        /* Stops above the bottom bar (pointer-events:none anyway) so the
+           Continue button stays visible AND clickable during the count --
+           un-readying is how you abort a launch you didn't mean. */
+        #countdownOverlay {
             position: fixed;
-            top: 0;
+            left: 0;
             right: 0;
-            width: 240px;
-            height: 100vh;
-            background: #2a2a2a;
-            color: #f5f3f0;
-            padding: 20px 16px;
-            box-sizing: border-box;
-            overflow-y: auto;
-            display: none;
-            z-index: 500;
-            box-shadow: -4px 0 16px rgba(0,0,0,0.15);
-        }
-
-        #roomRoster.visible {
-            display: block;
-        }
-
-        #roomRoster h3 {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #b8b0a8;
-            margin-bottom: 4px;
-        }
-
-        #roomRosterCode {
-            font-size: 1.4rem;
-            font-weight: bold;
-            font-family: 'Courier New', monospace;
-            letter-spacing: 3px;
-            color: #f5f3f0;
-            margin-bottom: 16px;
-        }
-
-        #roomRosterList {
+            top: 0;
+            bottom: var(--bottom-h);
+            z-index: 700;
+            pointer-events: none;
+            background: rgba(42, 42, 42, 0.55);
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            margin-bottom: 20px;
-        }
-
-        .roster-player {
-            display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px 10px;
-            background: rgba(255,255,255,0.06);
-            border-radius: 6px;
-            font-size: 0.85rem;
-        }
-
-        .roster-player-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-
-        .roster-player-name {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .roster-player-you {
-            color: #b8b0a8;
-            font-size: 0.7rem;
-            margin-left: auto;
-        }
-
-        #roomRosterChangeBtn {
-            width: 100%;
-            padding: 8px;
-            background: transparent;
-            border: 1px solid #5a5a5a;
-            color: #b8b0a8;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        #roomRosterChangeBtn:hover {
-            border-color: #f5f3f0;
+            justify-content: center;
+            gap: 6px;
             color: #f5f3f0;
         }
+
+        #countdownNumber { font-size: clamp(4rem, 22vmin, 12rem); font-weight: 800; line-height: 1; }
+        #countdownGame { font-size: clamp(0.8rem, 2.4vmin, 1.3rem); letter-spacing: 3px; text-transform: uppercase; }
 
         /* ===================================================
            REMOTE PLAYER CURSORS
-           Floating labeled dots showing where other players in the
-           room are hovering. pointer-events: none is essential -- these
-           must never intercept clicks meant for whatever's underneath
-           them (a game card, a vote checkmark, etc). Positioned by
-           viewport PERCENTAGE, not raw pixels -- different friends have
-           different screen sizes, so a raw pixel position from one
-           person's desktop would land somewhere meaningless on
-           another's phone. See sendCursorUpdate() in the script below
-           for how the percentage is computed before sending.
+           pointer-events:none is essential -- these must never intercept
+           a click meant for a tile or a vote checkmark underneath them.
+
+           Position comes from an ANCHOR (which tile, or the Continue
+           button, plus where inside it) rather than raw screen position.
+           Raw viewport percentages were fine when everyone saw one long
+           scrolling list; with pages they are not -- a friend hovering a
+           tile on page 2 would otherwise appear to point at whatever
+           happens to sit at those coordinates on YOUR page 1. When the
+           anchor isn't on this screen the cursor falls back to the raw
+           position and dims, which reads as "they're looking elsewhere."
         =================================================== */
         .remote-cursor {
             position: fixed;
@@ -620,274 +611,199 @@
             pointer-events: none;
             z-index: 900;
             transform: translate(-50%, -50%);
-            transition: top 0.08s linear, left 0.08s linear;
+            transition: top 0.08s linear, left 0.08s linear, opacity 0.2s ease;
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 2px;
         }
 
+        .remote-cursor.offscreen { opacity: 0.3; }
+
         .remote-cursor-dot {
-            width: 14px;
-            height: 14px;
+            width: 13px;
+            height: 13px;
             border-radius: 50% 50% 50% 0;
             transform: rotate(-45deg);
-            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
         }
 
         .remote-cursor-label {
-            font-size: 0.65rem;
+            font-size: 0.62rem;
             font-weight: bold;
             color: #f5f3f0;
-            background: rgba(42,42,42,0.85);
+            background: rgba(42, 42, 42, 0.85);
             padding: 2px 6px;
             border-radius: 4px;
             white-space: nowrap;
         }
-
-        /* When the roster is visible, give the main content room on the
-           right so the sidebar doesn't overlap the game grid on wider
-           screens. On narrow screens the sidebar takes full width
-           instead (see media query below), so this padding is skipped
-           there. */
-        @media (min-width: 769px) {
-            body.roster-active {
-                padding-right: 260px;
-            }
-        }
-
-        @media (max-width: 768px) {
-            #roomRoster {
-                width: 100%;
-            }
-        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🎮 GAME HUB</h1>
-            <p class="subtitle">~ Click to Play ~</p>
-        </header>
 
-        <div class="instructions">
-            <h2>📖 HOW TO PLAY</h2>
-            <p>
-                Select a game below to start playing! All games are playable directly in your browser.
-                Use the controls shown in each game to play. Some games support online multiplayer —
-                where they do, enter the same room code as your friends to land in the same game together.
-            </p>
+    <!-- ===== TOP BUFFER ===== -->
+    <header id="topBar">
+        <div class="top-block">
+            <span class="top-label">Room</span>
+            <span id="roomCode">----</span>
+            <button class="top-btn" id="changeIdentityBtn" title="Change your name or room code">change</button>
         </div>
+        <div id="playerStrip"><span id="rosterEmpty">Not connected</span></div>
+        <div class="top-block">
+            <a class="top-btn" id="leaderboardLink" href="leaderboard.html">🏆 Scores</a>
+        </div>
+    </header>
 
-        <!-- Identity entry: name + room code, entered once here rather
-             than separately on every game's own start screen. Stored in
-             localStorage so it persists across navigation into any
-             game -- this is what lets a friend group stay grouped as
-             they move between games, instead of re-entering a room code
-             every time. Shown/hidden by identity.js below based on
-             whether a stored identity already exists. -->
-        <div id="identityPanel">
-            <h2>👥 GROUP PLAY</h2>
-            <p>Enter a name and a room code to see who else is here and stay grouped with them as you move between games. Leave the room code blank to play solo — see the note at the end of this page for what that means.</p>
+    <!-- ===== BOARD ===== -->
+    <main id="board">
+        <button class="page-arrow" id="pagePrev" aria-label="Previous page">&#8249;</button>
+        <div id="boardInner">
+            <div id="tileGrid"></div>
+            <div id="pageDots"></div>
+        </div>
+        <button class="page-arrow" id="pageNext" aria-label="Next page">&#8250;</button>
+    </main>
+
+    <!-- ===== BOTTOM BUFFER ===== -->
+    <footer id="bottomBar">
+        <button id="continueBtn" hidden>
+            <span id="continueLabel">CONTINUE</span>
+            <span id="continueDots"></span>
+        </button>
+        <div id="continueHint"></div>
+    </footer>
+
+    <!-- ===== OVERLAYS ===== -->
+    <div id="countdownOverlay" hidden>
+        <div id="countdownNumber">3</div>
+        <div id="countdownGame"></div>
+    </div>
+
+    <div id="identityOverlay">
+        <div class="identity-card">
+            <h1>🎮 GAME HUB</h1>
+            <p>Enter a name and a room code to see who else is here, vote on what to play, and stay grouped as you move between games.</p>
             <div class="identity-form-row">
                 <div class="identity-field">
                     <label for="identityNameInput">Your Name</label>
-                    <input id="identityNameInput" type="text" placeholder="e.g. Ry" maxlength="20">
+                    <input id="identityNameInput" type="text" placeholder="e.g. Ry" maxlength="20" autocomplete="off">
                 </div>
                 <div class="identity-field">
                     <label for="identityRoomInput">Room Code</label>
-                    <input id="identityRoomInput" type="text" placeholder="e.g. ASDF" maxlength="8">
+                    <input id="identityRoomInput" type="text" placeholder="e.g. ASDF" maxlength="8" autocomplete="off">
                 </div>
-                <button id="identityJoinBtn">JOIN</button>
+                <button id="identityJoinBtn">Join</button>
             </div>
-            <p class="identity-hint">⚠ Leaving this blank puts you in the shared public room along with anyone else who also left it blank — not private to your group. For a group session, agree on a code with your friends first.</p>
+            <p class="identity-hint">⚠ Leaving the room code blank puts you in the shared public room along with anyone else who left it blank — not private to your group. For a group session, agree on a code with your friends first.</p>
         </div>
-
-        <!-- Room roster sidebar: hidden until an identity is actually
-             joined (see identity.js). Lives outside .container since
-             it's fixed-position, not part of the normal page flow. -->
-        <div id="roomRoster">
-            <h3>Room</h3>
-            <div id="roomRosterCode">----</div>
-            <h3>In this room</h3>
-            <div id="roomRosterList"></div>
-            <button id="roomRosterChangeBtn">Change name / room</button>
-        </div>
-
-        <div class="games-grid">
-            <!-- GAME 1: Javelin Battle -->
-            <a href="javelin-battle/javelin-battle.html" class="game-card" data-game-id="javelin-battle">
-                <button class="vote-check" data-game-id="javelin-battle" title="Vote for this game" aria-label="Vote for Javelin Battle"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">⚔️</div>
-                    <div class="game-title">Javelin Battle</div>
-                    <div class="game-description">2-Player Combat Arena</div>
-                </div>
-            </a>
-
-            <!-- GAME 2: Fruit Dropper -->
-            <a href="fruit-dropper/fruit-dropper.html" class="game-card" data-game-id="fruit-dropper">
-                <div class="new-badge">NEW</div>
-                <button class="vote-check" data-game-id="fruit-dropper" title="Vote for this game" aria-label="Vote for Fruit Dropper"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🍎</div>
-                    <div class="game-title">Fruit Dropper</div>
-                    <div class="game-description">Catch the Fruit</div>
-                </div>
-            </a>
-
-            <!-- GAME 3: 4D Pong -->
-            <a href="four-d-pong/four-d-pong.html" class="game-card" data-game-id="four-d-pong">
-                <button class="vote-check" data-game-id="four-d-pong" title="Vote for this game" aria-label="Vote for 4D Pong"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🎾</div>
-                    <div class="game-title">4D Pong</div>
-                    <div class="game-description">Paddle Precision</div>
-                </div>
-            </a>
-
-            <!-- GAME 4: Desert Robot Blaster -->
-            <a href="desert-robot-blaster/desert-robot-blaster.html" class="game-card" data-game-id="desert-robot-blaster">
-                <button class="vote-check" data-game-id="desert-robot-blaster" title="Vote for this game" aria-label="Vote for Desert Robot Blaster"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🤖</div>
-                    <div class="game-title">Desert Robot Blaster</div>
-                    <div class="game-description">Shoot & Survive</div>
-                </div>
-            </a>
-
-            <!-- GAME 5: Voice Runner -->
-            <a href="voice-runner/voice-runner.html" class="game-card" data-game-id="voice-runner">
-                <div class="new-badge">NEW</div>
-                <button class="vote-check" data-game-id="voice-runner" title="Vote for this game" aria-label="Vote for Voice Runner"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🎤</div>
-                    <div class="game-title">Voice Runner</div>
-                    <div class="game-description">Voice Controlled</div>
-                </div>
-            </a>
-
-            <!-- GAME 6: Space Tracer -->
-            <a href="gyro-space/space-tracer.html" class="game-card" data-game-id="space-tracer">
-                <div class="new-badge">NEW</div>
-                <button class="vote-check" data-game-id="space-tracer" title="Vote for this game" aria-label="Vote for Space Tracer"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🚀</div>
-                    <div class="game-title">Space Tracer</div>
-                    <div class="game-description">Multiplayer Ship Combat — enter a room code to play with friends</div>
-                </div>
-            </a>
-
-             <!-- GAME 6: Zombie -->
-            <a href="zombie/Zombie.html" class="game-card" data-game-id="zombie">
-                <div class="new-badge">NEW</div>
-                <button class="vote-check" data-game-id="zombie" title="Vote for this game" aria-label="Vote for Zombie"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🚀</div>
-                    <div class="game-title">Zombie</div>
-                    <div class="game-description">Fight the Dead!</div>
-                </div>
-            </a>
-
-            <!-- GAME 7: Glass City Escape -->
-            <a href="glass-city-escape/glass_city_escape.html" class="game-card" data-game-id="glass-city-escape">
-                <div class="new-badge">NEW</div>
-                <button class="vote-check" data-game-id="glass-city-escape" title="Vote for this game" aria-label="Vote for Glass City Escape"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🏙️</div>
-                    <div class="game-title">Glass City Escape</div>
-                    <div class="game-description">Building-Hopping City Escape</div>
-                </div>
-            </a>
-
-            <!-- GAME 8: Infected Labyrinth -->
-            <a href="infected-labyrinth/infected-labyrinth.html" class="game-card" data-game-id="infected-labyrinth">
-                <div class="new-badge">NEW</div>
-                <button class="vote-check" data-game-id="infected-labyrinth" title="Vote for this game" aria-label="Vote for Infected Labyrinth"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🧟</div>
-                    <div class="game-title">Infected Labyrinth</div>
-                    <div class="game-description">Maze Shooter with Portals</div>
-                </div>
-            </a>
-
-            <!-- GAME 9: Kula World -->
-            <a href="kula-world/kula_world_fixed.html" class="game-card" data-game-id="kula-world">
-                <div class="new-badge">NEW</div>
-                <button class="vote-check" data-game-id="kula-world" title="Vote for this game" aria-label="Vote for Kula World"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🎲</div>
-                    <div class="game-title">Kula World</div>
-                    <div class="game-description">Rolling-Cube Puzzle Platformer</div>
-                </div>
-            </a>
-
-            <!-- GAME 10: Particle Simulation -->
-            <a href="particle-simulation/particle_simulation_game.html" class="game-card" data-game-id="particle-simulation">
-                <div class="new-badge">NEW</div>
-                <button class="vote-check" data-game-id="particle-simulation" title="Vote for this game" aria-label="Vote for Particle Simulation"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">✨</div>
-                    <div class="game-title">Particle Simulation</div>
-                    <div class="game-description">Command a Swarm of Particles</div>
-                </div>
-            </a>
-
-            <!-- GAME 11: Wasteland Train Sim -->
-            <a href="wasteland-train-sim/wasteland_train_sim.html" class="game-card" data-game-id="wasteland-train-sim">
-                <div class="new-badge">NEW</div>
-                <button class="vote-check" data-game-id="wasteland-train-sim" title="Vote for this game" aria-label="Vote for Wasteland Train Sim"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🚂</div>
-                    <div class="game-title">Wasteland Train Sim</div>
-                    <div class="game-description">Survive the Wasteland by Rail</div>
-                </div>
-            </a>
-
-            <!-- GAME 12: PS1 Racer -->
-            <a href="ps1-racer/ps1racer.html" class="game-card" data-game-id="ps1-racer">
-                <button class="vote-check" data-game-id="ps1-racer" title="Vote for this game" aria-label="Vote for PS1 Racer"></button>
-                <div class="game-card-content">
-                    <div class="game-icon">🏎️</div>
-                    <div class="game-title">PS1 Racer</div>
-                    <div class="game-description">Retro Low-Poly Racing</div>
-                </div>
-            </a>
-
-            <!-- Leaderboards: not a game, same card style so it belongs
-                 on the same grid rather than needing its own section.
-                 Deliberately no vote-check button -- voting is for
-                 picking a game to play together, and this isn't one. -->
-            <a href="leaderboard.html" class="game-card">
-                <div class="game-card-content">
-                    <div class="game-icon">🏆</div>
-                    <div class="game-title">Leaderboards</div>
-                    <div class="game-description">See top scores, solo and by room</div>
-                </div>
-            </a>
-        </div>
-
-        <footer>
-            <p>Made with ❤️ | All games run locally in your browser</p>
-            <p>No installation required • No ads • Open source</p>
-        </footer>
     </div>
 
 <script>
 // ===================================================
-//   INDEX-PAGE IDENTITY & ROOM PRESENCE
+//   GAME MANIFEST
 // ===================================================
-// This connects to the SAME server, using the SAME join-room protocol,
-// that space-tracer.html (and any future game) uses. No new server
-// message types were needed for this -- the server already tracks room
-// membership and broadcasts join/leave/players per-room; this page is
-// simply another client listening to that, the same way a game is.
+// The tiles used to be 14 hardcoded <a> blocks. Paging can't work
+// against hardcoded markup -- which page a game lands on has to be
+// computed -- so the list is data now and the markup is generated.
+// Order is unchanged from the old grid, so anyone used to where a game
+// sat still finds it in the same place, just possibly on page 2.
+const PAGE_SIZE = 6;
+
+// mp:true     -- plays together over the server today (no stamp)
+// broken:true -- PROJECT_MEMORY marks it not-functioning
+// Everything else works, but only on your own screen.
 //
-// Deliberately reuses the identical color-hashing scheme from
-// space-tracer.html (same palette, same djb2-style hash over the full
-// name) so a player's roster dot here matches the color they'll
-// actually have in-game -- two different color systems on two pages
-// would quietly undo the point of the color-by-name fix.
+// Order: the four you can actually play together come first, then the
+// rest in the order they sat in the old grid. With 6 to a page that puts
+// every group-ready game on page 1, which is what a room staring at this
+// screen is trying to pick from. Move the first four back down if you'd
+// rather keep the original ordering.
+const GAMES = [
+    { id: "zombie",               icon: "🧟",  title: "Zombie",               desc: "Co-op Survival",                 href: "zombie/Zombie.html", isNew: true, mp: true },
+    { id: "space-tracer",         icon: "🚀",  title: "Space Tracer",         desc: "Multiplayer Ship Combat",        href: "gyro-space/space-tracer.html", isNew: true, mp: true },
+    { id: "glass-city-escape",    icon: "🏙️",  title: "Glass City Escape",    desc: "Building-Hopping Race",          href: "glass-city-escape/glass_city_escape.html", isNew: true, mp: true },
+    { id: "boids",                icon: "🐦",  title: "Boids",                desc: "Competitive Swarm Attractor",    href: "boids/boids_1.html", isNew: true, mp: true },
+    { id: "javelin-battle",       icon: "⚔️",  title: "Javelin Battle",       desc: "2-Player Combat Arena",          href: "javelin-battle/javelin-battle.html" },
+    { id: "fruit-dropper",        icon: "🍎",  title: "Fruit Dropper",        desc: "Catch the Fruit",                href: "fruit-dropper/fruit-dropper.html" },
+    { id: "four-d-pong",          icon: "🎾",  title: "4D Pong",              desc: "Paddle Precision",               href: "four-d-pong/four-d-pong.html" },
+    { id: "desert-robot-blaster", icon: "🤖",  title: "Desert Robot Blaster", desc: "Shoot & Survive",                href: "desert-robot-blaster/desert-robot-blaster.html" },
+    { id: "voice-runner",         icon: "🎤",  title: "Voice Runner",         desc: "Voice Controlled",               href: "voice-runner/voice-runner.html", broken: true },
+    { id: "infected-labyrinth",   icon: "🧠",  title: "Infected Labyrinth",   desc: "Maze Shooter with Portals",      href: "infected-labyrinth/infected-labyrinth.html", isNew: true },
+    { id: "kula-world",           icon: "🎲",  title: "Kula World",           desc: "Rolling-Cube Puzzle Platformer", href: "kula-world/kula_world_fixed.html", isNew: true },
+    { id: "particle-simulation",  icon: "✨",  title: "Particle Simulation",  desc: "Command a Swarm of Particles",   href: "particle-simulation/particle_simulation_game.html", isNew: true },
+    { id: "wasteland-train-sim",  icon: "🚂",  title: "Wasteland Train Sim",  desc: "Survive the Wasteland by Rail",  href: "wasteland-train-sim/wasteland_train_sim.html", isNew: true },
+    { id: "ps1-racer",            icon: "🏎️",  title: "PS1 Racer",            desc: "Retro Low-Poly Racing",          href: "ps1-racer/ps1racer.html", broken: true },
+    { id: "rd-arena",             icon: "🧫",  title: "RD Arena",             desc: "Reaction-Diffusion Arena",       href: "rd-arena/RDArena.html", isNew: true },
+    // The filename really does contain a space; pre-encoded here because
+    // gameHref() appends its query string to this string directly.
+    { id: "hex-grid",             icon: "⬢",  title: "Hex Grid",             desc: "Hex Tile Experiment",            href: "hex-grid/Hex%20Grid.html", isNew: true, broken: true },
+    { id: "reality-rewrite",      icon: "🌀",  title: "Reality Rewrite",      desc: "Rewrite the Rules",              href: "reality-rewrite/reality-rewrite.html", isNew: true }
+];
+
+// Derived once rather than written per game, so "does this play
+// together" stays one fact per entry instead of two that can drift.
+GAMES.forEach(g => {
+    if (g.mp) return;
+    g.stamp = g.broken ? "COMING SOON" : "MULTIPLAYER SOON";
+});
+
+
+function gameById(id) {
+    return GAMES.find(g => g.id === id) || null;
+}
+
+
+// ===================================================
+//   TEARDOWN PLUMBING
+// ===================================================
+// Root CLAUDE.md's hard constraint: every timer through
+// trackTimeout/trackInterval, every listener through one
+// AbortController. The hub isn't a GameInstance and isn't embedded
+// anywhere today, but it now owns a countdown, a reconnect timer and a
+// pile of listeners, and the constraint is cheap to honour up front and
+// expensive to retrofit.
+const hubAbort = new AbortController();
+const hubSignal = hubAbort.signal;
+const timeouts = new Set();
+const intervals = new Set();
+
+function trackTimeout(fn, ms) {
+    const id = setTimeout(() => { timeouts.delete(id); fn(); }, ms);
+    timeouts.add(id);
+    return id;
+}
+
+function trackInterval(fn, ms) {
+    const id = setInterval(fn, ms);
+    intervals.add(id);
+    return id;
+}
+
+function clearTracked(id) {
+    clearTimeout(id);
+    clearInterval(id);
+    timeouts.delete(id);
+    intervals.delete(id);
+}
+
+function destroy() {
+    timeouts.forEach(clearTimeout);
+    intervals.forEach(clearInterval);
+    timeouts.clear();
+    intervals.clear();
+    hubAbort.abort();
+    if (socket) { socket.onclose = null; socket.close(); }
+}
+
+
+// ===================================================
+//   IDENTITY
+// ===================================================
+// The server computes color from the name and hands it back as
+// authoritative (see server.js). This local copy of the hash is a
+// FALLBACK only -- for a player we've heard about but have no color
+// for yet. It is deliberately the same djb2 + palette the server uses,
+// so it can never disagree with it; don't invent a second scheme here.
 const SERVER_URL = "wss://my-games-faxi.onrender.com";
 
 const COLOR_PALETTE = [
@@ -910,29 +826,52 @@ function getColorFromName(name) {
     return COLOR_PALETTE[hashStringToIndex(key, COLOR_PALETTE.length)];
 }
 
-// --- Elements ---
-const identityPanel = document.getElementById("identityPanel");
+
+// ===================================================
+//   ELEMENTS
+// ===================================================
+const roomCodeEl = document.getElementById("roomCode");
+const playerStrip = document.getElementById("playerStrip");
+const changeIdentityBtn = document.getElementById("changeIdentityBtn");
+
+const tileGrid = document.getElementById("tileGrid");
+const pageDots = document.getElementById("pageDots");
+const pagePrev = document.getElementById("pagePrev");
+const pageNext = document.getElementById("pageNext");
+
+const continueBtn = document.getElementById("continueBtn");
+const continueLabel = document.getElementById("continueLabel");
+const continueDots = document.getElementById("continueDots");
+const continueHint = document.getElementById("continueHint");
+
+const countdownOverlay = document.getElementById("countdownOverlay");
+const countdownNumber = document.getElementById("countdownNumber");
+const countdownGame = document.getElementById("countdownGame");
+
+const identityOverlay = document.getElementById("identityOverlay");
 const identityNameInput = document.getElementById("identityNameInput");
 const identityRoomInput = document.getElementById("identityRoomInput");
 const identityJoinBtn = document.getElementById("identityJoinBtn");
-const roomRoster = document.getElementById("roomRoster");
-const roomRosterCode = document.getElementById("roomRosterCode");
-const roomRosterList = document.getElementById("roomRosterList");
-const roomRosterChangeBtn = document.getElementById("roomRosterChangeBtn");
 
-// --- State ---
+
+// ===================================================
+//   STATE
+// ===================================================
 let socket = null;
 let myName = "";
 let myRoom = "";
-// name -> {color}. Populated from the server's "players"/"join"/"leave"
-// messages -- same shape of data space-tracer.html's remotePlayers
-// tracks, just rendered as a list instead of drawn ship positions.
+let reconnectTimer = null;
+
+// name -> {color}. Unlike the old hub this DOES include you: the server's
+// player snapshot excludes self (it sends you separately as `you`), and
+// the old code never added itself back, so your own dot never appeared.
+// It's load-bearing now -- "everyone is ready" can't be counted from a
+// roster that's missing a person.
 const roomMembers = {};
 
-// gameId -> Map<voterName, voterColor>. Grouped by game rather than by
-// voter, because rendering always asks "who voted for THIS card" -- one
-// lookup per card render, not a scan over every voter checking their
-// choice against this card's id.
+// gameId -> Map<voterName, color>. Grouped by game because rendering
+// always asks "who voted for THIS tile" -- one lookup per tile, rather
+// than scanning every voter for each tile.
 const votesByGame = new Map();
 
 function voteMapFor(gameId) {
@@ -940,146 +879,231 @@ function voteMapFor(gameId) {
     return votesByGame.get(gameId);
 }
 
-// --- Persistence ---
-// This is the "source of truth" side of the both-URL-params-and-
-// localStorage approach: writing here is what lets a player reopen any
-// game later in the same browser and have their identity already
-// present, without needing to click a link that carries it.
-function loadStoredIdentity() {
-    return {
-        name: localStorage.getItem("gamehub_playerName") || "",
-        room: localStorage.getItem("gamehub_roomCode") || ""
-    };
+// Players in this room code who are inside a GAME rather than on the
+// hub. They show in the roster but are never counted by the ready-check:
+// nobody can click Continue from inside Zombie, so counting them would
+// stall every launch. See presenceFor() in server.js.
+let presenceList = [];
+
+// Lobby state, server-authoritative once a "lobby" message has arrived.
+let serverLeaderGameId = null;
+let readyNames = [];
+let isLaunching = false;
+
+// Whether the server we're actually talking to implements the lobby
+// protocol. The hub has shipped code for a protocol the server didn't
+// implement once before (votes and cursors did nothing in production for
+// weeks) -- so instead of a Continue button that silently does nothing,
+// an un-upgraded server gets a visibly disabled button that says why.
+let serverHasLobby = false;
+
+let currentPage = 0;
+
+function pageCount() {
+    return Math.max(1, Math.ceil(GAMES.length / PAGE_SIZE));
 }
 
-function storeIdentity(name, room) {
-    localStorage.setItem("gamehub_playerName", name);
-    localStorage.setItem("gamehub_roomCode", room);
+function gamesOnPage(page) {
+    return GAMES.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 }
 
-// --- Connection ---
-function connectAndJoin(name, room) {
-    myName = name;
-    myRoom = room || "public"; // Matches space-tracer.html's own fallback -- see the identity-hint text above for why blank isn't pushed as the default here
 
-    socket = new WebSocket(SERVER_URL);
+// ===================================================
+//   THE WINNING GAME
+// ===================================================
+// Strict plurality: the one game with MORE votes than any other. A tie
+// means no winner, so the group breaks it rather than the page picking
+// for them. The server runs this same rule and its answer wins; this
+// local copy only labels the button before/without a lobby-capable
+// server, and uses identical logic so the two can't disagree.
+function computeLocalLeader() {
+    let leader = null;
+    let best = 0;
+    let tied = false;
 
-    socket.onopen = () => {
-        socket.send(JSON.stringify({
-            type: "join-room",
-            room: myRoom,
-            name: myName,
-            color: getColorFromName(myName)
-        }));
-    };
+    votesByGame.forEach((voters, gameId) => {
+        const count = voters.size;
+        if (count === 0) return;
+        if (count > best) { leader = gameId; best = count; tied = false; }
+        else if (count === best) { tied = true; }
+    });
 
-    socket.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            handleServerMessage(data);
-        } catch (e) {
-            console.error("Error parsing server message:", e);
-        }
-    };
-
-    socket.onclose = () => {
-        // Simple reconnect -- mirrors the pattern already used
-        // elsewhere in this project's networked pages. Doesn't re-show
-        // the identity panel; just quietly re-establishes presence.
-        setTimeout(() => {
-            if (myName || myRoom) connectAndJoin(myName, myRoom);
-        }, 3000);
-    };
-
-    showRoster();
+    return tied ? null : leader;
 }
 
-function handleServerMessage(data) {
-    if (data.type === "players") {
-        // Initial roster snapshot on join -- everyone already in the room.
-        Object.keys(roomMembers).forEach(k => delete roomMembers[k]);
-        (data.players || []).forEach(p => {
-            roomMembers[p.name || "(unnamed)"] = { color: p.color || getColorFromName(p.name) };
-        });
-        renderRoster();
-    } else if (data.type === "join" && data.player) {
-        roomMembers[data.player.name || "(unnamed)"] = {
-            color: data.player.color || getColorFromName(data.player.name)
-        };
-        renderRoster();
-    } else if (data.type === "leave") {
-        // The server now includes the departing player's name alongside
-        // their id (see server.js's disconnect handler), which is what
-        // makes this a direct removal instead of the reconnect
-        // workaround this used before -- no more full-roster flicker
-        // when one person in the room disconnects.
-        if (data.name) {
-            delete roomMembers[data.name];
-            renderRoster();
-        }
-        // Also drop this player's vote, if they had one -- otherwise a
-        // departed player's checkmark dot would sit there indefinitely,
-        // since the server only clears vote state on an explicit
-        // un-vote, not on disconnect (a disconnect isn't necessarily a
-        // "I take back my vote," but for THIS UI, showing a vote from
-        // someone no longer in the room reads as wrong either way).
-        if (data.name) {
-            votesByGame.forEach(voters => voters.delete(data.name));
-            renderAllVoteChecks();
-            removeRemoteCursor(data.name); // Otherwise a departed player's cursor dot freezes in place forever instead of disappearing
-        }
-    } else if (data.type === "votes") {
-        // Initial vote snapshot on join -- votes cast before this
-        // player arrived. Same reasoning as the "players" snapshot
-        // above: without this, a newly-joined player sees an empty
-        // ballot until someone happens to change their vote.
-        votesByGame.clear();
-        (data.votes || []).forEach(v => {
-            voteMapFor(v.gameId).set(v.voterName, roomMembers[v.voterName]?.color || getColorFromName(v.voterName));
-        });
-        renderAllVoteChecks();
-    } else if (data.type === "vote-update") {
-        // Live vote change from any player in the room, including our
-        // own vote echoed back (the server broadcasts to everyone, not
-        // "everyone except the sender" -- see the comment on this in
-        // server.js). gameId is null when the voter un-voted, so first
-        // clear this voter from EVERY game's list (they can only have
-        // one active vote at a time) before applying the new one, if any.
-        votesByGame.forEach(voters => voters.delete(data.voterName));
-        if (data.gameId) {
-            voteMapFor(data.gameId).set(data.voterName, data.voterColor || getColorFromName(data.voterName));
-        }
-        renderAllVoteChecks();
-    } else if (data.type === "cursor-update") {
-        renderRemoteCursor(data.name, data.color, data.x, data.y);
+function effectiveLeader() {
+    return serverHasLobby ? serverLeaderGameId : computeLocalLeader();
+}
+
+
+// ===================================================
+//   LAYOUT
+// ===================================================
+// Same games per page on every device -- only the SHAPE of the grid
+// changes. "Page 2" therefore means the same thing to everyone in the
+// room, which matters when you're telling a friend where to look. A
+// per-device tile count would have put two people on genuinely different
+// pages under the same page number.
+let lastCols = null;
+let lastDense = null;
+
+function applyGridShape() {
+    const cols = window.innerWidth >= window.innerHeight ? 3 : 2;
+
+    // Only write when something actually changed. This runs from a
+    // ResizeObserver, and an unconditional style write on every
+    // observation is how you get an observer that re-triggers itself.
+    if (cols !== lastCols) {
+        lastCols = cols;
+        tileGrid.style.setProperty("--cols", String(cols));
+        tileGrid.style.setProperty("--rows", String(PAGE_SIZE / cols));
     }
+
+    // Measured, not guessed: whether a description fits depends on the
+    // height each tile actually got, which depends on the window, the
+    // grid shape and the buffers all at once.
+    requestAnimationFrame(() => {
+        const first = tileGrid.querySelector(".tile");
+        if (!first) return;
+        const dense = first.getBoundingClientRect().height < 118;
+        if (dense !== lastDense) {
+            lastDense = dense;
+            tileGrid.classList.toggle("dense", dense);
+        }
+        repositionRemoteCursors();
+    });
+}
+
+
+// ===================================================
+//   RENDERING
+// ===================================================
+function gameHref(game) {
+    // Carries identity forward on every tile link, so a game opened from
+    // here knows who you are without you re-entering it -- and so does a
+    // link pasted to a friend, whose browser has no localStorage from
+    // this session. Built by hand rather than via URL(), which mangles
+    // relative paths under file://.
+    if (!myName) return game.href;
+    return game.href
+        + "?name=" + encodeURIComponent(myName)
+        + "&room=" + encodeURIComponent(myRoom);
+}
+
+// Rebuilding the whole page of tiles on every vote would tear down the
+// DOM under the player's cursor mid-hover, and momentarily orphan every
+// remote cursor anchored to a tile. Only the winning tile's highlight
+// depends on the tally, so rebuild just when the winner moves; otherwise
+// repaint the checkmarks in place.
+let renderedLeader = null;
+
+function syncBoard() {
+    const leader = effectiveLeader();
+    if (leader !== renderedLeader) renderTiles();
+    else renderAllVoteChecks();
+}
+
+function renderTiles() {
+    const leader = effectiveLeader();
+    renderedLeader = leader;
+    const games = gamesOnPage(currentPage);
+    const parts = [];
+
+    games.forEach(g => {
+        parts.push(`
+            <a class="tile${g.id === leader ? " is-leader" : ""}" href="${escapeAttr(gameHref(g))}" data-game-id="${escapeAttr(g.id)}">
+                <button class="vote-check" data-game-id="${escapeAttr(g.id)}" title="Vote for this game" aria-label="Vote for ${escapeAttr(g.title)}"></button>
+                ${g.isNew ? '<div class="new-badge">NEW</div>' : ""}
+                ${g.stamp ? `<div class="tile-stamp${g.broken ? " blocked" : ""}">${escapeHtml(g.stamp)}</div>` : ""}
+                <div class="tile-icon">${g.icon}</div>
+                <div class="tile-title">${escapeHtml(g.title)}</div>
+                <div class="tile-desc">${escapeHtml(g.desc)}</div>
+            </a>
+        `);
+    });
+
+    // Empty slots keep every page's tiles the same size. Without them a
+    // 5-tile last page would stretch its tiles to fill an 8-slot grid and
+    // look like a different screen.
+    for (let i = games.length; i < PAGE_SIZE; i++) {
+        parts.push('<div class="tile tile-empty"></div>');
+    }
+
+    tileGrid.innerHTML = parts.join("");
+    renderAllVoteChecks();
+    applyGridShape();
+}
+
+function renderPageDots() {
+    const total = pageCount();
+    pageDots.innerHTML = Array.from({ length: total }, (_, i) =>
+        `<button class="page-dot${i === currentPage ? " active" : ""}" data-page="${i}" aria-label="Page ${i + 1}"></button>`
+    ).join("");
+
+    pagePrev.disabled = currentPage === 0;
+    pageNext.disabled = currentPage >= total - 1;
+}
+
+function setPage(page) {
+    const total = pageCount();
+    currentPage = Math.max(0, Math.min(total - 1, page));
+    renderTiles();
+    renderPageDots();
+    repositionRemoteCursors();
 }
 
 function renderRoster() {
-    roomRosterCode.textContent = myRoom.toUpperCase();
+    roomCodeEl.textContent = (myRoom || "----").toUpperCase();
+
     const names = Object.keys(roomMembers);
 
-    if (names.length === 0) {
-        roomRosterList.innerHTML = '<div style="color:#8a8278;font-size:0.8rem;">Just you so far</div>';
+    // You first, then everyone else -- your own chip shouldn't move
+    // around as people come and go.
+    names.sort((a, b) => (a === myName ? -1 : b === myName ? 1 : a.localeCompare(b)));
+
+    const lobbyChips = names.map(name => {
+        const isYou = name === myName;
+        const isReady = readyNames.includes(name);
+        return `
+            <span class="player-chip${isYou ? " is-you" : ""}${isReady ? " is-ready" : ""}">
+                <span class="player-dot" style="background:${escapeAttr(roomMembers[name].color)}"></span>
+                <span>${escapeHtml(name)}</span>
+                ${isYou ? '<span class="player-you-tag">you</span>' : ""}
+            </span>
+        `;
+    });
+
+    // Someone with the hub open in one tab and a game in another would
+    // otherwise appear twice. The lobby entry wins -- that's the one
+    // that can actually click Continue.
+    const gameChips = presenceList
+        .filter(p => !roomMembers[p.name])
+        .map(p => {
+            const game = gameById(p.game);
+            const label = game ? game.title : "in a game";
+            return `
+                <span class="player-chip in-game" title="${escapeAttr(p.name + " is playing " + label)}">
+                    <span class="player-dot" style="background:${escapeAttr(p.color || getColorFromName(p.name))}"></span>
+                    <span>${escapeHtml(p.name)}</span>
+                    <span class="player-game-tag">${escapeHtml(label)}</span>
+                </span>
+            `;
+        });
+
+    if (lobbyChips.length === 0 && gameChips.length === 0) {
+        playerStrip.innerHTML = '<span id="rosterEmpty">Not connected</span>';
         return;
     }
 
-    roomRosterList.innerHTML = names.map(name => `
-        <div class="roster-player">
-            <span class="roster-player-dot" style="background:${roomMembers[name].color}"></span>
-            <span class="roster-player-name">${escapeHtml(name)}</span>
-        </div>
-    `).join("");
+    playerStrip.innerHTML = lobbyChips.join("")
+        + (gameChips.length ? '<span class="roster-divider"></span>' + gameChips.join("") : "");
 }
 
-// Redraws every .vote-check button on the page from votesByGame. Called
-// on any vote change (this player's or anyone else's), rather than
-// trying to patch just the one button that changed -- with at most ~8
-// cards and votes changing infrequently (a person clicks a checkmark,
-// not a per-frame event like cursor position), re-rendering all of them
-// is simpler and cheap enough not to bother optimizing further.
+// Redraws every vote checkmark on the CURRENT page from votesByGame.
+// Cheap enough to redo wholesale: at most 8 buttons, and a vote is a
+// person clicking, not a per-frame event.
 function renderAllVoteChecks() {
-    document.querySelectorAll(".vote-check").forEach(btn => {
+    tileGrid.querySelectorAll(".vote-check").forEach(btn => {
         const gameId = btn.dataset.gameId;
         const voters = votesByGame.get(gameId);
         const voterNames = voters ? Array.from(voters.keys()) : [];
@@ -1091,166 +1115,504 @@ function renderAllVoteChecks() {
             btn.title = "Vote for this game";
         } else {
             btn.innerHTML = voterNames
-                .map(name => `<span class="vote-check-dot" style="background:${voters.get(name)}"></span>`)
+                .map(n => `<span class="vote-check-dot" style="background:${escapeAttr(voters.get(n))}"></span>`)
                 .join("");
-            btn.title = voterNames.length === 1
-                ? `${voterNames[0]} voted for this`
-                : `${voterNames.join(", ")} voted for this`;
+            btn.title = voterNames.join(", ") + " voted for this";
         }
     });
 }
 
-// One DOM element per remote player, created lazily on their first
-// cursor-update and reused after that (rather than recreated every
-// message) -- recreating on every mousemove-driven update would be
-// wasteful and would also restart the CSS transition each time, making
-// the movement look jumpy instead of smoothly interpolated.
-const remoteCursorElements = {};
+// "Launch cancelled -- a player joined" is only useful if it survives
+// the lobby broadcast that arrives right behind it. Held for a few
+// seconds, then the bar goes back to its normal state.
+let transientHint = "";
+let transientHintUntil = 0;
+let transientHintTimer = null;
 
-function renderRemoteCursor(name, color, xPct, yPct) {
-    if (!name || xPct == null || yPct == null) return;
-    if (name === myName) return; // Never render our own cursor as if it were a remote one
+function flashHint(text) {
+    transientHint = text;
+    transientHintUntil = Date.now() + 4000;
+    if (transientHintTimer) clearTracked(transientHintTimer);
+    transientHintTimer = trackTimeout(() => { transientHintUntil = 0; renderBottomBar(); }, 4000);
+    renderBottomBar();
+}
+
+function renderBottomBar() {
+    renderBottomBarInner();
+    if (Date.now() < transientHintUntil) continueHint.textContent = transientHint;
+}
+
+function renderBottomBarInner() {
+    const leader = effectiveLeader();
+    const game = leader ? gameById(leader) : null;
+
+    // Blank buffer when the room hasn't settled on anything. The space
+    // stays reserved either way so the board doesn't resize under people
+    // the moment a vote lands.
+    if (!game) {
+        continueBtn.hidden = true;
+        continueHint.textContent = myName
+            ? "Vote for a game — the winner unlocks Continue"
+            : "";
+        return;
+    }
+
+    const total = Object.keys(roomMembers).length;
+    const iAmReady = readyNames.includes(myName);
+
+    continueBtn.hidden = false;
+    continueBtn.classList.toggle("iam-ready", iAmReady && !isLaunching);
+    continueBtn.classList.toggle("is-launching", isLaunching);
+    continueBtn.disabled = !serverHasLobby;
+
+    continueLabel.textContent = isLaunching
+        ? "STARTING " + game.title.toUpperCase()
+        : (iAmReady ? "READY — " + game.title.toUpperCase() : "CONTINUE → " + game.title.toUpperCase());
+
+    continueDots.innerHTML = readyNames.length === 0
+        ? '<span class="vote-check-empty-icon" style="color:rgba(245,243,240,0.6)">✓</span>'
+        : readyNames.map(n =>
+            `<span class="vote-check-dot" style="background:${escapeAttr((roomMembers[n] && roomMembers[n].color) || getColorFromName(n))}"></span>`
+        ).join("");
+
+    if (!serverHasLobby) {
+        continueHint.textContent = "Ready-check unavailable — the server needs the lobby update deployed";
+        continueBtn.title = "The connected server doesn't implement the ready-check yet";
+    } else {
+        continueBtn.title = "";
+        continueHint.textContent = isLaunching
+            ? "Everyone's ready — click again to cancel"
+            : `${readyNames.length}/${total} ready • everyone must click Continue`;
+    }
+}
+
+function renderAll() {
+    renderRoster();
+    renderTiles();
+    renderPageDots();
+    renderBottomBar();
+}
+
+
+// ===================================================
+//   CONNECTION
+// ===================================================
+function connectAndJoin(name, room) {
+    myName = name;
+    myRoom = (room || "public").toUpperCase();
+
+    socket = new WebSocket(SERVER_URL);
+
+    socket.onopen = () => {
+        socket.send(JSON.stringify({
+            type: "join-room",
+            // The hub has its own namespace. It used to send no game
+            // field, which put it in the legacy namespace alongside
+            // space-tracer.html -- meaning a friend already playing Gyro
+            // Space counted as someone who had to click Continue, and
+            // couldn't, deadlocking every launch. See server.js.
+            game: "_hub",
+            room: myRoom,
+            name: myName
+        }));
+    };
+
+    socket.onmessage = (event) => {
+        try {
+            handleServerMessage(JSON.parse(event.data));
+        } catch (e) {
+            console.error("Error parsing server message:", e);
+        }
+    };
+
+    socket.onclose = () => {
+        // Quiet reconnect -- doesn't bounce the player back to the join
+        // form, it just re-establishes presence underneath them.
+        if (reconnectTimer) clearTracked(reconnectTimer);
+        reconnectTimer = trackTimeout(() => {
+            if (myName) connectAndJoin(myName, myRoom);
+        }, 3000);
+    };
+
+    showHub();
+}
+
+function handleServerMessage(data) {
+    if (data.type === "players") {
+        Object.keys(roomMembers).forEach(k => delete roomMembers[k]);
+
+        // The snapshot excludes us; `you` is how the server hands us our
+        // own authoritative identity. Adding it here is what finally puts
+        // the player's own dot in their own roster.
+        if (data.you) {
+            myName = data.you.name || myName;
+            roomMembers[myName] = { color: data.you.color || getColorFromName(myName) };
+        }
+
+        (data.players || []).forEach(p => {
+            roomMembers[p.name || "(unnamed)"] = { color: p.color || getColorFromName(p.name) };
+        });
+
+        renderAll();
+
+    } else if (data.type === "join" && data.player) {
+        roomMembers[data.player.name || "(unnamed)"] = {
+            color: data.player.color || getColorFromName(data.player.name)
+        };
+        renderRoster();
+        renderBottomBar();
+
+    } else if (data.type === "leave") {
+        if (data.name) {
+            delete roomMembers[data.name];
+            votesByGame.forEach(voters => voters.delete(data.name));
+            removeRemoteCursor(data.name);
+            renderRoster();
+            renderAllVoteChecks();
+            renderBottomBar();
+        }
+
+    } else if (data.type === "votes") {
+        votesByGame.clear();
+        (data.votes || []).forEach(v => {
+            voteMapFor(v.gameId).set(
+                v.voterName,
+                (roomMembers[v.voterName] && roomMembers[v.voterName].color) || getColorFromName(v.voterName)
+            );
+        });
+        syncBoard();
+        renderBottomBar();
+
+    } else if (data.type === "vote-update") {
+        // Broadcast to everyone including the sender, so our own
+        // checkmark is drawn from server-confirmed state rather than an
+        // optimistic local guess. gameId is null when someone un-voted,
+        // so clear this voter everywhere first -- one vote per person.
+        votesByGame.forEach(voters => voters.delete(data.voterName));
+        if (data.gameId) {
+            voteMapFor(data.gameId).set(data.voterName, data.voterColor || getColorFromName(data.voterName));
+        }
+        syncBoard();
+        renderBottomBar();
+
+    } else if (data.type === "lobby") {
+        serverHasLobby = true;
+        serverLeaderGameId = data.leaderGameId || null;
+        readyNames = data.ready || [];
+        if (!data.launching) stopCountdown();
+        syncBoard();         // the winning tile is highlighted
+        renderRoster();      // ready players are marked in the roster too
+        renderBottomBar();
+
+    } else if (data.type === "launch") {
+        startCountdown(data.gameId, data.delayMs);
+
+    } else if (data.type === "launch-cancel") {
+        stopCountdown();
+        flashHint("Launch cancelled — " + (data.reason || "something changed"));
+
+    } else if (data.type === "presence") {
+        presenceList = data.players || [];
+        renderRoster();
+
+    } else if (data.type === "cursor-update") {
+        renderRemoteCursor(data);
+    }
+}
+
+
+// ===================================================
+//   LAUNCH COUNTDOWN
+// ===================================================
+let countdownTimer = null;
+let countdownTick = null;
+
+function startCountdown(gameId, delayMs) {
+    const game = gameById(gameId);
+    if (!game) return;   // A game this hub doesn't list -- don't navigate anywhere
+
+    stopCountdown();
+    isLaunching = true;
+
+    let remaining = Math.ceil((delayMs || 3000) / 1000);
+    countdownGame.textContent = game.title;
+    countdownNumber.textContent = remaining;
+    countdownOverlay.hidden = false;
+
+    countdownTick = trackInterval(() => {
+        remaining -= 1;
+        countdownNumber.textContent = Math.max(0, remaining);
+    }, 1000);
+
+    countdownTimer = trackTimeout(() => {
+        window.location.href = gameHref(game);
+    }, delayMs || 3000);
+
+    renderBottomBar();
+}
+
+function stopCountdown() {
+    if (countdownTimer) { clearTracked(countdownTimer); countdownTimer = null; }
+    if (countdownTick) { clearTracked(countdownTick); countdownTick = null; }
+    countdownOverlay.hidden = true;
+    isLaunching = false;
+}
+
+
+// ===================================================
+//   REMOTE CURSORS
+// ===================================================
+// One element per remote player, created on their first update and
+// reused after that. Recreating per message would restart the CSS
+// transition every time and make movement look jumpy rather than
+// smoothly interpolated between 10Hz updates.
+const remoteCursorElements = {};
+const remoteCursorState = {};
+
+function resolveAnchorElement(anchor) {
+    if (!anchor) return null;
+    if (anchor === "continue") return continueBtn.hidden ? null : continueBtn;
+    // Network-supplied, so constrain it to the shape this page emits
+    // rather than interpolating arbitrary text into a selector.
+    if (/^tile:[A-Za-z0-9_-]+$/.test(anchor)) {
+        return tileGrid.querySelector('.tile[data-game-id="' + anchor.slice(5) + '"]');
+    }
+    return null;
+}
+
+function renderRemoteCursor(data) {
+    const name = data.name;
+    if (!name || name === myName) return;
+
+    remoteCursorState[name] = {
+        color: data.color || getColorFromName(name),
+        x: data.x,
+        y: data.y,
+        anchor: data.anchor || null,
+        ax: typeof data.ax === "number" ? data.ax : 0.5,
+        ay: typeof data.ay === "number" ? data.ay : 0.5
+    };
 
     let el = remoteCursorElements[name];
     if (!el) {
         el = document.createElement("div");
         el.className = "remote-cursor";
-        el.innerHTML = `
-            <div class="remote-cursor-label">${escapeHtml(name)}</div>
-            <div class="remote-cursor-dot" style="background:${color}"></div>
-        `;
+        el.innerHTML =
+            '<div class="remote-cursor-label">' + escapeHtml(name) + '</div>' +
+            '<div class="remote-cursor-dot" style="background:' + escapeAttr(remoteCursorState[name].color) + '"></div>';
         document.body.appendChild(el);
         remoteCursorElements[name] = el;
     }
 
-    el.style.left = `${xPct}%`;
-    el.style.top = `${yPct}%`;
+    positionRemoteCursor(name);
+}
+
+function positionRemoteCursor(name) {
+    const el = remoteCursorElements[name];
+    const st = remoteCursorState[name];
+    if (!el || !st) return;
+
+    const anchorEl = resolveAnchorElement(st.anchor);
+
+    if (anchorEl) {
+        const r = anchorEl.getBoundingClientRect();
+        el.style.left = (r.left + st.ax * r.width) + "px";
+        el.style.top = (r.top + st.ay * r.height) + "px";
+        el.classList.remove("offscreen");
+    } else {
+        // No anchor, or an anchor that isn't on this screen (they're on
+        // another page). Fall back to raw position and dim it, so it
+        // reads as presence rather than as "pointing at this tile."
+        if (st.x == null || st.y == null) return;
+        el.style.left = (st.x / 100 * window.innerWidth) + "px";
+        el.style.top = (st.y / 100 * window.innerHeight) + "px";
+        el.classList.toggle("offscreen", st.anchor !== null);
+    }
+}
+
+function repositionRemoteCursors() {
+    Object.keys(remoteCursorElements).forEach(positionRemoteCursor);
 }
 
 function removeRemoteCursor(name) {
     const el = remoteCursorElements[name];
-    if (el) {
-        el.remove();
-        delete remoteCursorElements[name];
+    if (el) el.remove();
+    delete remoteCursorElements[name];
+    delete remoteCursorState[name];
+}
+
+// Same 10Hz cadence space-tracer.html uses for its position updates --
+// one convention for "how often do we send live position data" across
+// the whole project rather than a different number per page.
+const CURSOR_SEND_INTERVAL = 1000 / 10;
+let lastCursorSendTime = 0;
+
+function anchorUnder(clientX, clientY) {
+    const el = document.elementFromPoint(clientX, clientY);
+    if (!el) return null;
+
+    const tile = el.closest(".tile[data-game-id]");
+    if (tile) return { anchor: "tile:" + tile.dataset.gameId, rect: tile.getBoundingClientRect() };
+
+    if (el.closest("#continueBtn")) return { anchor: "continue", rect: continueBtn.getBoundingClientRect() };
+
+    return null;
+}
+
+
+// ===================================================
+//   SCREENS
+// ===================================================
+function showHub() {
+    identityOverlay.hidden = true;
+    renderAll();
+}
+
+function showIdentityOverlay() {
+    identityOverlay.hidden = false;
+
+    // Clear everything scoped to the room being left. Without this,
+    // switching from room ASDF to QWER shows ASDF's roster, votes and
+    // cursors bleeding into the new room until each stale entry happens
+    // to be overwritten individually.
+    stopCountdown();
+    Object.keys(roomMembers).forEach(k => delete roomMembers[k]);
+    votesByGame.clear();
+    Object.keys(remoteCursorElements).forEach(removeRemoteCursor);
+    presenceList = [];
+    serverHasLobby = false;
+    serverLeaderGameId = null;
+    readyNames = [];
+    renderAll();
+}
+
+
+// ===================================================
+//   PERSISTENCE
+// ===================================================
+function loadStoredIdentity() {
+    try {
+        return {
+            name: localStorage.getItem("gamehub_playerName") || "",
+            room: localStorage.getItem("gamehub_roomCode") || ""
+        };
+    } catch (e) {
+        return { name: "", room: "" };   // Private mode / blocked storage
     }
 }
 
+function storeIdentity(name, room) {
+    try {
+        localStorage.setItem("gamehub_playerName", name);
+        localStorage.setItem("gamehub_roomCode", room);
+    } catch (e) { /* Not fatal -- identity just won't survive a reload */ }
+}
+
+
+// ===================================================
+//   HELPERS
+// ===================================================
 function escapeHtml(s) {
     const div = document.createElement("div");
-    div.textContent = String(s);
+    div.textContent = String(s == null ? "" : s);
     return div.innerHTML;
 }
 
-function showRoster() {
-    identityPanel.style.display = "none";
-    roomRoster.classList.add("visible");
-    document.body.classList.add("roster-active");
-    renderRoster();
-    rewriteGameLinks();
+function escapeAttr(s) {
+    return escapeHtml(s).replace(/"/g, "&quot;");
 }
 
-function showIdentityPanel() {
-    identityPanel.style.display = "block";
-    roomRoster.classList.remove("visible");
-    document.body.classList.remove("roster-active");
 
-    // Clear everything scoped to the room being left -- without this,
-    // switching from room "ASDF" to room "QWER" would show ASDF's
-    // roster/votes/cursors bleeding into QWER's view until enough new
-    // messages happened to overwrite each stale entry individually.
-    Object.keys(roomMembers).forEach(k => delete roomMembers[k]);
-    votesByGame.clear();
-    renderAllVoteChecks();
-    Object.keys(remoteCursorElements).forEach(name => removeRemoteCursor(name));
-}
-
-// Carries name/room forward as URL params on every game-card link, as
-// the belt-and-suspenders half of the both-localStorage-and-URL-params
-// approach -- this specifically covers a friend sharing a direct link
-// URL (which wouldn't have localStorage from THIS browser's session)
-// and also means opening a game in a new tab still carries identity
-// even before that tab's own localStorage read would.
-function rewriteGameLinks() {
-    document.querySelectorAll(".games-grid a.game-card").forEach(link => {
-        const url = new URL(link.getAttribute("href"), window.location.href);
-        url.searchParams.set("name", myName);
-        url.searchParams.set("room", myRoom);
-        link.setAttribute("href", url.pathname + url.search);
-    });
-}
-
-// --- Event handlers ---
+// ===================================================
+//   EVENTS
+// ===================================================
 identityJoinBtn.addEventListener("click", () => {
     const name = identityNameInput.value.trim();
     const room = identityRoomInput.value.trim().toUpperCase();
 
-    if (!name) {
-        identityNameInput.focus();
-        return;
-    }
+    if (!name) { identityNameInput.focus(); return; }
 
     storeIdentity(name, room);
+    if (socket) { socket.onclose = null; socket.close(); }
     connectAndJoin(name, room);
+}, { signal: hubSignal });
+
+[identityNameInput, identityRoomInput].forEach(input => {
+    input.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") identityJoinBtn.click();
+    }, { signal: hubSignal });
 });
 
-identityNameInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") identityJoinBtn.click();
-});
-identityRoomInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") identityJoinBtn.click();
-});
-
-roomRosterChangeBtn.addEventListener("click", () => {
-    if (socket) socket.close();
-    showIdentityPanel();
+changeIdentityBtn.addEventListener("click", () => {
+    if (socket) { socket.onclose = null; socket.close(); }
+    socket = null;
+    showIdentityOverlay();
     identityNameInput.value = myName;
-    identityRoomInput.value = myRoom === "public" ? "" : myRoom;
-});
+    identityRoomInput.value = myRoom === "PUBLIC" ? "" : myRoom;
+}, { signal: hubSignal });
 
-// Sends a vote-update to the server. voted=false means "clear my vote
-// for this game" -- the server only actually clears it if this is still
-// this voter's CURRENT choice (guards against a stale message clearing
-// a newer vote; see the matching comment in server.js).
-function sendVote(gameId, voted) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({
-        type: "vote-update",
-        gameId: gameId,
-        voted: voted
-    }));
-}
-
-// Delegated listener on the grid rather than one per .vote-check button
-// -- simpler than attaching/detaching listeners if cards are ever
-// added or removed, and there are only ever a handful of clicks here
-// total (this is a deliberate choice by a person, not a per-frame event).
-document.querySelector(".games-grid").addEventListener("click", (e) => {
+// Delegated on the grid rather than per-button, so re-rendering a page
+// of tiles doesn't mean re-attaching eight listeners.
+tileGrid.addEventListener("click", (e) => {
     const btn = e.target.closest(".vote-check");
     if (!btn) return;
 
-    // Critical: these buttons live inside <a class="game-card"> links.
-    // Without stopping propagation, clicking the checkmark would ALSO
-    // trigger the card's own navigation to the game -- the whole point
-    // of a separate vote button is that voting and playing are two
-    // different actions, so this must not fall through to the link.
+    // These buttons sit inside <a class="tile"> links. Without stopping
+    // the event, voting would ALSO navigate into the game -- and voting
+    // and playing are deliberately two different actions.
     e.preventDefault();
     e.stopPropagation();
 
-    if (!myName) return; // Not connected yet -- nothing to vote as
+    if (!myName || !socket || socket.readyState !== WebSocket.OPEN) return;
 
-    const gameId = btn.dataset.gameId;
-    const alreadyMine = btn.classList.contains("mine");
-    sendVote(gameId, !alreadyMine); // Toggle: un-vote if this was already my choice, otherwise vote for it (implicitly replacing any previous vote -- see the single-vote-per-name design in server.js)
-});
+    socket.send(JSON.stringify({
+        type: "vote-update",
+        gameId: btn.dataset.gameId,
+        voted: !btn.classList.contains("mine")   // Toggle: clicking my own vote clears it
+    }));
+}, { signal: hubSignal });
 
-// --- Cursor tracking ---
-// Same 10Hz throttle interval space-tracer.html already uses for its
-// own position updates (SEND_INTERVAL = 1000/10) -- reusing that
-// convention rather than picking a different number for this page, so
-// the whole project has one consistent "how often do we send live
-// position data" answer instead of two.
-const CURSOR_SEND_INTERVAL = 1000 / 10;
-let lastCursorSendTime = 0;
+continueBtn.addEventListener("click", () => {
+    const leader = effectiveLeader();
+    if (!leader || !socket || socket.readyState !== WebSocket.OPEN) return;
+
+    socket.send(JSON.stringify({
+        type: "ready-update",
+        ready: !readyNames.includes(myName),
+        gameId: leader
+    }));
+}, { signal: hubSignal });
+
+pagePrev.addEventListener("click", () => setPage(currentPage - 1), { signal: hubSignal });
+pageNext.addEventListener("click", () => setPage(currentPage + 1), { signal: hubSignal });
+
+pageDots.addEventListener("click", (e) => {
+    const dot = e.target.closest(".page-dot");
+    if (dot) setPage(Number(dot.dataset.page));
+}, { signal: hubSignal });
+
+document.addEventListener("keydown", (e) => {
+    if (!identityOverlay.hidden) return;
+    if (e.key === "ArrowLeft") setPage(currentPage - 1);
+    else if (e.key === "ArrowRight") setPage(currentPage + 1);
+}, { signal: hubSignal });
+
+window.addEventListener("resize", () => {
+    applyGridShape();
+    repositionRemoteCursors();
+}, { signal: hubSignal });
+
+// The resize event alone isn't enough for a layout whose whole promise
+// is "fits your screen without scrolling". A phone's URL bar collapsing
+// changes the board's height without a window resize, and some browsers
+// report an orientation flip through orientationchange first. Watching
+// the board's own box catches every case, including the ones no event
+// covers.
+window.addEventListener("orientationchange", applyGridShape, { signal: hubSignal });
+
+if (window.ResizeObserver) {
+    new ResizeObserver(applyGridShape).observe(document.getElementById("board"));
+}
 
 document.addEventListener("mousemove", (e) => {
     if (!socket || socket.readyState !== WebSocket.OPEN || !myName) return;
@@ -1259,34 +1621,54 @@ document.addEventListener("mousemove", (e) => {
     if (now - lastCursorSendTime < CURSOR_SEND_INTERVAL) return;
     lastCursorSendTime = now;
 
-    // Percentage of viewport, not raw pixels -- see the CSS comment on
-    // .remote-cursor for why (different screen sizes need a coordinate
-    // space that means the same relative thing on every screen).
-    const xPct = (e.clientX / window.innerWidth) * 100;
-    const yPct = (e.clientY / window.innerHeight) * 100;
+    const hit = anchorUnder(e.clientX, e.clientY);
 
     socket.send(JSON.stringify({
         type: "cursor-update",
-        x: Number(xPct.toFixed(2)),
-        y: Number(yPct.toFixed(2))
+        // Raw viewport percentage is still sent as the fallback for
+        // empty space -- it's meaningful for "where on the page are
+        // they", just not for "which tile are they pointing at."
+        x: Number(((e.clientX / window.innerWidth) * 100).toFixed(2)),
+        y: Number(((e.clientY / window.innerHeight) * 100).toFixed(2)),
+        anchor: hit ? hit.anchor : null,
+        ax: hit ? Number(((e.clientX - hit.rect.left) / hit.rect.width).toFixed(3)) : undefined,
+        ay: hit ? Number(((e.clientY - hit.rect.top) / hit.rect.height).toFixed(3)) : undefined
     }));
-});
+}, { signal: hubSignal });
 
-// --- Init ---
-// If a name/room is already stored from a previous visit, skip the
-// entry panel entirely and connect straight away -- this is the actual
-// "fluid group-play session" behavior: a returning player doesn't
-// re-type anything, they just see their room's roster immediately.
-(function init() {
-    const stored = loadStoredIdentity();
-    if (stored.name) {
-        identityNameInput.value = stored.name;
-        identityRoomInput.value = stored.room === "public" ? "" : stored.room;
-        connectAndJoin(stored.name, stored.room);
+// Only tear down when the page is really going away. A pagehide with
+// persisted=true means the browser is putting this page in the back/
+// forward cache -- destroying then would hand back a dead hub to anyone
+// pressing Back out of a game.
+window.addEventListener("pagehide", (e) => { if (!e.persisted) destroy(); }, { signal: hubSignal });
+
+window.addEventListener("pageshow", (e) => {
+    if (e.persisted && myName && (!socket || socket.readyState !== WebSocket.OPEN)) {
+        connectAndJoin(myName, myRoom);
     }
-    // If nothing stored, the identity panel is already visible by
-    // default (no JS needed to show it -- it has no "hidden" state
-    // until showRoster() explicitly sets display:none).
+}, { signal: hubSignal });
+
+
+// ===================================================
+//   INIT
+// ===================================================
+// A returning player doesn't retype anything -- stored identity means
+// straight into the room with the roster already up. That's the actual
+// "fluid group session" behaviour; the join form is only for a first
+// visit or a deliberate change.
+(function init() {
+    renderAll();
+
+    const stored = loadStoredIdentity();
+    identityNameInput.value = stored.name;
+    identityRoomInput.value = stored.room === "PUBLIC" ? "" : stored.room;
+
+    if (stored.name) {
+        connectAndJoin(stored.name, stored.room);
+    } else {
+        identityOverlay.hidden = false;
+        identityNameInput.focus();
+    }
 })();
 </script>
 </body>

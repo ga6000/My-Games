@@ -86,8 +86,9 @@ MP.send(payload)        // relay to everyone else in the room
 MP.random()             // seeded PRNG — deterministic across clients
 MP.reseed(seed)
 MP.isHost()             // true for exactly one client per room
-MP.peers()              // {id: {name, color, isHost}}
-MP.selfId / MP.selfColor
+MP.peers()              // ARRAY of peer objects, not a keyed map
+MP.identity()           // {name, room} the hub wrote -- URL params, then localStorage
+MP.selfId / MP.selfColor / MP.selfName
 ```
 
 Identity (name/room) is read from URL params then localStorage, matching what the hub already
@@ -160,7 +161,11 @@ other three.
 2. ✅ **DONE** — **Zombie**. Validated end-to-end in two live browser clients.
 3. ✅ **DONE** — **Glass City Escape**, as a RACE (decision made 2026-08-25).
 4. ✅ **DONE** — **boids**, as COMPETITIVE parallel worlds (decision made 2026-08-25).
-5. ⬜ RDArena — its own session, full host-authority + periodic bitmask resync approach.
+5. ✅ **DONE 2026-08-28** — **Space Tracer**, retro-fitted onto the same core. It predated
+   `mp-core.js` and kept its own socket, its own message types, its own name/room screen and its
+   own (session-ID-based, therefore wrong) colour scheme. Now indistinguishable from the others:
+   `space-tracer:CODE`, generic `relay`, hub identity, server colour.
+6. ⬜ RDArena — its own session, full host-authority + periodic bitmask resync approach.
 
 ### Three sync models, deliberately different
 
