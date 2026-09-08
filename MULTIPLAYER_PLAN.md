@@ -288,9 +288,29 @@ other three.
    `mp-core.js` and kept its own socket, its own message types, its own name/room screen and its
    own (session-ID-based, therefore wrong) colour scheme. Now indistinguishable from the others:
    `space-tracer:CODE`, generic `relay`, hub identity, server colour.
-6. ⬜ RDArena — its own session, full host-authority + periodic bitmask resync approach.
+6. ✅ **DONE 2026-09-08** — **RDArena**, host authority + periodic field resync. The last of the
+   board games. Verified with two live clients: 149 cells corrected of 17,689 on a packet,
+   carve relay and client damage reports both round-tripping, `?net=0` still today's game.
+   Build record: `rd-arena/MP_BUILD_NOTES.md`. Three departures from the Zombie protocol are
+   recorded there — no down/up/dead (each client owns its own HP), organs and cards never sent,
+   and a multi-source flow field so grunts path to the *nearest* player rather than to the host.
+
+   *Original entry, kept for the sequencing it records:*
+   ⬜ RDArena — its own session, full host-authority + periodic bitmask resync approach.
    Method specified 2026-09-03 in `rd-arena/MP_ROLLOUT.md` (not yet implemented).
    **Now also needs entity/round/progression sync — see the re-scope note in §4d.**
+
+   > **Update 2026-09-07 — the field format is now decided, and it is not a bitmask.**
+   > `rd-arena-bench/rd-curves.html` was built to test whether a coarser field can still look
+   > like this game. It can, and the winning configuration is **133² at 2 bits, every 1.0 s,
+   > field-space lerped between packets** — 4,423 bytes, 30.2 KB/s host-up at 8 players,
+   > **4.52× cheaper than the 400² 1-bit mask** this plan and `MP_ROLLOUT.md` §2 step 4 budget,
+   > while arriving twice as often. The 2 bits are the point: 1 bit leaves nothing to
+   > interpolate, so there is no between-packet motion to hide the update rate behind.
+   >
+   > This shipped into the game **as rendering only** (`rd-arena/rd-netfield.js`,
+   > `rd-arena/NET_FIELD_NOTES.md`) so the coarseness could be judged single-player first.
+   > Collision still reads raw 400² `gridB`. §4d's resync-pop mitigations are unaffected.
 
 > **Scope note 2026-09-04.** The pullback cut the hub from 17 games to 5, which changes what
 > "done" means for this plan. Of the 5 games still on the board, 3 already play together
@@ -298,6 +318,13 @@ other three.
 > Dash is off-board but still partially wired (item 7 below). So the remaining multiplayer
 > work is **three games, not eleven** — RD Arena, Reality Rewrite, and finishing Glucose Dash.
 > Sequencing and the open questions on each are in `COLUMN_COMPLETION_ROADMAP.md`.
+
+> **Update 2026-09-08.** RD Arena is done, so of the 5 games on the board **4 now play
+> together** and the remaining multiplayer work is **Reality Rewrite, and finishing Glucose
+> Dash** (off-board). The hardest one is behind us: §4d called RD Arena "not a wire up the same
+> pattern job", and it was not — but the thing that made it tractable was deciding the field
+> format in a bench (`rd-arena-bench/rd-curves.html`) and shipping it as rendering only for a
+> day before any socket existed.
 >
 > **Superseded 2026-09-06 — the remaining work is now TWO games, not three.** Reality Rewrite was
 > traded off the board for 4D Pong at the user's request. It keeps its `mp-core` identity wiring
@@ -524,4 +551,4 @@ desync, and degrade to solo cleanly.
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: ea409e8b | 2026-09-07 -->
+<!-- doc-sync: 07d2e6c2 | 2026-09-08 -->

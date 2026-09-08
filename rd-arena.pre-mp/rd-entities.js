@@ -24,17 +24,9 @@ const KIND = {
     heavy: { radius: 24, hp: 3, speed: 1.15, color: '#d1491f' }
 };
 
-// Stable per-enemy id for the wire (2026-09-08). Enemies are the only thing
-// the host owns and clients have to talk about by name, and an ARRAY INDEX will
-// not do it: the host splices dead enemies out mid-frame, so index 7 is a
-// different creature either side of a kill. Players keep 0 -- each client owns
-// its own and nobody ever refers to someone else's by id.
-let entitySeq = 0;
-
 class Entity {
     constructor(x, y, kind) {
         const def = KIND[kind];
-        this.netId = kind === 'player' ? 0 : (++entitySeq);
         this.x = x;
         this.y = y;
         this.kind = kind;
@@ -83,20 +75,6 @@ class Entity {
 
     hit(dmg, angle) {
         if (this.dead) return;
-        // Enemies are host-authoritative (MP_ROLLOUT.md 2 step 3). A client
-        // that is not the host reports the hit and lets the host decide -- two
-        // clients both killing the same grunt would otherwise each spawn its
-        // own blood, its own kill credit and its own BIOhack progress.
-        //
-        // Reporting HERE rather than per weapon is the whole trick: bullets,
-        // crawlers, the machete arc and the splatter shockwave already funnel
-        // through this one method, so every one of them keeps its own collision
-        // code untouched. The local player is never forwarded -- you always own
-        // your own HP, same trust model the repo uses for position.
-        if (!this.isPlayer && !RDHOOKS.simsWorld()) {
-            RDHOOKS.damage(this.netId, dmg, angle);
-            return;
-        }
         // The bubble is absolute while a card offer is open.
         if (this.isPlayer && cardOffer) return;
         if (this.isPlayer && (this.invuln > 0 || this.isDashing)) return;
@@ -179,9 +157,8 @@ class Entity {
         } else {
             // Nothing legal anywhere: carve it a pocket so it can always act.
             const a = Math.random() * Math.PI * 2;
-            const tgt = nearestTarget(this.x, this.y);
-            this.x = Math.max(60, Math.min(worldWidth - 60, tgt.x + Math.cos(a) * 700));
-            this.y = Math.max(60, Math.min(worldHeight - 60, tgt.y + Math.sin(a) * 700));
+            this.x = Math.max(60, Math.min(worldWidth - 60, player.x + Math.cos(a) * 700));
+            this.y = Math.max(60, Math.min(worldHeight - 60, player.y + Math.sin(a) * 700));
             clearRadius(this.x, this.y, this.radius + 34);
         }
         this.lastX = this.x; this.lastY = this.y;
@@ -194,9 +171,6 @@ class Entity {
 
     updateEnemy() {
         let dx = 0, dy = 0;
-        // Whoever is nearest, not whoever happens to be hosting (2026-09-08).
-        // Alone this is always the local player, so single-player is unchanged.
-        const player = nearestTarget(this.x, this.y);
         let toPlayer = Math.atan2(player.y - this.y, player.x - this.x);
         let dist = Math.hypot(player.x - this.x, player.y - this.y);
         this.angle = toPlayer;
@@ -374,7 +348,6 @@ class Entity {
 
     updateEnemyFiring() {
         if (this.ammo <= 0) return;
-        const player = nearestTarget(this.x, this.y);
         let dist = Math.hypot(player.x - this.x, player.y - this.y);
 
         if (this.kind === 'heavy') {

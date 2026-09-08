@@ -97,12 +97,6 @@
   retro.js and sfx.js only define globals (RETRO, SFX) and must precede
   rd-core.js, which calls SFX.configure() at load.
 -->
-<!-- Multiplayer. identity.js MUST precede mp-core.js (MULTIPLAYER_PLAN.md 3):
-     mp-core falls back to IDENTITY.colorFromName when there is no server, and
-     file:// double-click play makes that a normal path rather than an
-     exceptional one. -->
-<script src="../shared/identity.js"></script>
-<script src="../shared/mp-core.js"></script>
 <script src="../shared/retro.js"></script>
 <script src="../shared/sfx.js"></script>
 <!-- The L+G dev panel. BEFORE the game's own files: its error capture only
@@ -122,8 +116,5 @@
 <script src="rd-boot.js"></script>
 <!-- LAST, after the loop has already started. Registration only. -->
 <script src="rd-dev.js"></script>
-<!-- Netcode, LAST. MP_ROLLOUT.md 2 step 2: DELETE THIS ONE TAG and the RDHOOKS
-     defaults in rd-core.js take over -- the game is single-player again. -->
-<script src="rd-net.js"></script>
 </body>
 </html>

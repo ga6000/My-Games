@@ -60,45 +60,6 @@ function rdDevReport() {
         ["card offer", cardOffer ? (cardOfferTree + ": " +
             cardOffer.map(function (c) { return c.name; }).join(" / ")) : "none"],
         ["frames", frameCount + (running ? "" : "   LOOP STOPPED")]
-    ].concat(rdDevNetRows());
-}
-
-// MP_ROLLOUT.md 4 -- "capture something objective alongside it". Feel is
-// subjective, so these three numbers decide whether a complaint about the
-// resync is about the RESYNC or about DIVERGENCE:
-//
-//   cells corrected per packet -- DOZENS is healthy. Thousands means the two
-//     fields have genuinely drifted apart, and raising the packet rate will not
-//     help; only determinism would.
-//   guarded -- how often 3.3 refused to resync under someone. Should be near
-//     zero; a steady count means players are living inside contested ground and
-//     3.4 (unstick the player) needs building after all.
-//   KB/s -- the budget was ~8KB/s for the old 400^2 mask. We should be well
-//     under it.
-//
-// Read here rather than from console.log behind NET.debug, for the reason the
-// panel exists: nobody playtests with DevTools open.
-//
-// typeof guard so deleting the rd-net.js tag leaves the panel working.
-function rdDevNetRows() {
-    if (typeof NET === "undefined") return [["net", "rd-net.js not loaded"]];
-    if (!NET.enabled) return [["net", "DISABLED (F9)"]];
-    const flags = (NET.hostSim ? "hostSim " : "-       ") +
-                  (NET.resync ? "resync " : "-      ") +
-                  (NET.carveEvents ? "carve" : "-");
-    const secs = Math.max(1, frameCount / 60);
-    return [
-        ["net", (netOnline ? "online" : "solo") +
-                (netIsHost ? "  HOST" : "  client") +
-                "   peers " + Object.keys(remotePlayers).length],
-        ["net flags", flags + "   (F9 all / F10 resync / F11 hostSim)"],
-        ["resync", "last " + netStats.lastCorrected + " cells" +
-                   "   avg " + (netStats.packets ? Math.round(netStats.corrected / netStats.packets) : 0) +
-                   "   guarded " + netStats.guarded +
-                   "   of " + (RDNET.RES * RDNET.RES)],
-        ["net KB/s", "up " + (netStats.bytesOut / 1024 / secs).toFixed(2) +
-                     "   down " + (netStats.bytesIn / 1024 / secs).toFixed(2) +
-                     "   packets " + netStats.packets]
     ];
 }
 

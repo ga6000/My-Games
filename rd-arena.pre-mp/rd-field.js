@@ -35,32 +35,17 @@ const dB = 0.5;
 const feed = 0.055;
 const k = 0.062;
 
-// The 200 starting blobs. Extracted into a function 2026-09-08 so multiplayer
-// can re-lay them from the SHARED room seed (MULTIPLAYER_PLAN.md 2 -- the world
-// IS the game here, so two players must not start in two different fields).
-// Called once at load with Math.random, exactly as before; rd-net.js calls it
-// again with MP.random the moment a real seed exists, and never after that
-// (MULTIPLAYER_PLAN.md 2's latching rule -- Zombie wiped a ten-round map by
-// rebuilding whenever the server's seed moved).
-function seedField(rand) {
-    gridA.fill(1);
-    gridB.fill(0);
-    nextGridA.fill(1);
-    nextGridB.fill(0);
-    for (let i = 0; i < 200; i++) {
-        let cx = Math.floor(rand() * gridCols);
-        let cy = Math.floor(rand() * gridRows);
-        for (let x = cx - 3; x <= cx + 3; x++) {
-            for (let y = cy - 3; y <= cy + 3; y++) {
-                if (x >= 0 && x < gridCols && y >= 0 && y < gridRows) {
-                    gridB[x + y * gridCols] = 1;
-                }
+for (let i = 0; i < 200; i++) {
+    let cx = Math.floor(Math.random() * gridCols);
+    let cy = Math.floor(Math.random() * gridRows);
+    for (let x = cx - 3; x <= cx + 3; x++) {
+        for (let y = cy - 3; y <= cy + 3; y++) {
+            if (x >= 0 && x < gridCols && y >= 0 && y < gridRows) {
+                gridB[x + y * gridCols] = 1;
             }
         }
     }
 }
-
-seedField(Math.random);
 
 function updateRD() {
     for (let x = 1; x < gridCols - 1; x++) {
@@ -143,25 +128,25 @@ function spawnWallExplosion(x, y) {
     });
 }
 
-// ============================================================
-// THE MUTATION CHOKE POINT (MP_ROLLOUT.md 2, step 1 -- 2026-09-08)
-// ============================================================
-// Every DISCRETE write to gridB in the whole game goes through applyCarve.
-// There were three writers and 2 already knew where they were: clearRadius,
-// suppressRadius, and the blood-particle loop -- which lived inline in
-// rd-boot.js writing gridB by hand, and is now bloodCarve() below, with the
-// others, where it can be seen.
-//
-// CONTINUOUS evolution (updateRD) is deliberately NOT routed through here. It
-// is never sent; it is the thing the periodic field resync corrects for.
-//
-// Step 1 shipped as a verified no-op before any netcode existed, because it is
-// the change most likely to introduce a silent bug and the least likely to be
-// blamed for one.
-//
-//   circular: true  -- round bite (the spray); false -- the old square block
-//   debris:   true  -- spawn wall-explosion particles for cells that were flesh
-function applyCarve(cx, cy, radius, circular, debris) {
+function clearRadius(cx, cy, radius) {
+    let gx = Math.floor(cx / cellSize);
+    let gy = Math.floor(cy / cellSize);
+    let r = Math.ceil(radius / cellSize);
+    for (let x = gx - r; x <= gx + r; x++) {
+        for (let y = gy - r; y <= gy + r; y++) {
+            if (x >= 0 && x < gridCols && y >= 0 && y < gridRows) {
+                let i = x + y * gridCols;
+                if (staticMask[i]) continue;
+                if (gridB[i] > 0.3) spawnWallExplosion(x * cellSize, y * cellSize);
+                gridB[i] = 0;
+                gridA[i] = 1;
+            }
+        }
+    }
+}
+
+// Same carve without the debris -- the antibacterial spray runs this every frame.
+function suppressRadius(cx, cy, radius) {
     let gx = Math.floor(cx / cellSize);
     let gy = Math.floor(cy / cellSize);
     let r = Math.ceil(radius / cellSize);
@@ -169,40 +154,14 @@ function applyCarve(cx, cy, radius, circular, debris) {
     for (let x = gx - r; x <= gx + r; x++) {
         for (let y = gy - r; y <= gy + r; y++) {
             if (x < 0 || x >= gridCols || y < 0 || y >= gridRows) continue;
-            if (circular) {
-                let ox = x - gx, oy = y - gy;
-                if (ox * ox + oy * oy > r2) continue;
-            }
+            let ox = x - gx, oy = y - gy;
+            if (ox * ox + oy * oy > r2) continue;
             let i = x + y * gridCols;
             if (staticMask[i]) continue;
-            if (debris && gridB[i] > 0.3) spawnWallExplosion(x * cellSize, y * cellSize);
             gridB[i] = 0;
             gridA[i] = 1;
         }
     }
-}
-
-function clearRadius(cx, cy, radius) {
-    applyCarve(cx, cy, radius, false, true);
-    RDHOOKS.carve(cx, cy, radius, 'clear');
-}
-
-// Same carve without the debris -- the antibacterial spray runs this every frame.
-// NOT relayed: every mote calls this on every frame, which would be a flood
-// rather than a message. The sprays sit on fixed sanctuaries and the 1 s field
-// packet corrects whatever they drift by, so the wire never has to hear about
-// them. RDHOOKS.carve is still called and rd-net.js is what drops it, so the
-// decision lives with the netcode instead of being hidden here as an omission.
-function suppressRadius(cx, cy, radius) {
-    applyCarve(cx, cy, radius, true, false);
-    RDHOOKS.carve(cx, cy, radius, 'spray');
-}
-
-// The third writer. Blood particles with a CORROSION bite eat what they land
-// on; this used to be an inline gridB loop in rd-boot.js's particle update.
-function bloodCarve(cx, cy, radius) {
-    applyCarve(cx, cy, radius, false, true);
-    RDHOOKS.carve(cx, cy, radius, 'blood');
 }
 
 function spawnShockwave(x, y, angle, spread, maxRadius, speed, isDash, lethalFrac, fromPlayer, rules) {

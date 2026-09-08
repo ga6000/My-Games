@@ -87,10 +87,22 @@ function loop() {
             p.size *= 0.96;
 
             // Blood is cosmetic unless the cast bought CORROSION.
-            // 2026-09-08: this loop WAS the third writer to gridB, inline and
-            // easy to miss. It is now bloodCarve() in rd-field.js with the
-            // other two (MP_ROLLOUT.md 2, step 1).
-            if (p.carve > 0) bloodCarve(p.x, p.y, p.carve);
+            if (p.carve > 0) {
+                let r = Math.max(1, Math.ceil(p.carve / cellSize));
+                let gx = Math.floor(p.x / cellSize);
+                let gy = Math.floor(p.y / cellSize);
+                for (let cx = gx - r; cx <= gx + r; cx++) {
+                    for (let cy = gy - r; cy <= gy + r; cy++) {
+                        if (cx >= 0 && cx < gridCols && cy >= 0 && cy < gridRows) {
+                            let idx = cx + cy * gridCols;
+                            if (staticMask[idx]) continue;
+                            if (gridB[idx] > 0.3) spawnWallExplosion(cx * cellSize, cy * cellSize);
+                            gridB[idx] = 0;
+                            gridA[idx] = 1;
+                        }
+                    }
+                }
+            }
 
             bloodCtx.strokeStyle = p.color;
             bloodCtx.lineWidth = p.size * 2 * bloodScale;
@@ -286,16 +298,7 @@ function loop() {
 
     // Logic
     {
-        // HOST-AUTHORITATIVE from here (MP_ROLLOUT.md 2 step 3). Rounds, spawns
-        // and enemy AI run on exactly one client; everyone else gets them off
-        // the 15Hz snapshot and interpolates in RDHOOKS.tick(). Solo players
-        // are their own host, so simsWorld() is true and this is the old game.
-        //
-        // Organs, bio-carriers and gun terminals are NOT guarded: they are
-        // per-client progression and deliberately never cross the wire.
-        const netSims = RDHOOKS.simsWorld();
-
-        if (netSims) updateRounds();
+        updateRounds();
         updateOrgans();
         updateBioCarriers();
         updateGunTerminals();
@@ -303,11 +306,9 @@ function loop() {
         // The choosing player is frozen in the bubble; everything else runs.
         if (!player.dead && !selecting) player.update();
 
-        if (netSims) {
-            for (let i = enemies.length - 1; i >= 0; i--) {
-                enemies[i].update();
-                if (enemies[i].dead) enemies.splice(i, 1);
-            }
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            enemies[i].update();
+            if (enemies[i].dead) enemies.splice(i, 1);
         }
 
         for (let i = crawlers.length - 1; i >= 0; i--) {
@@ -346,11 +347,6 @@ function loop() {
         }
 
         if (bannerTimer > 0) bannerTimer--;
-
-        // Netcode: interpolate remotes, resolve incoming fire, broadcast.
-        // Last in the logic block so it sees this frame's positions, and inside
-        // it so a torn-down instance stops sending with everything else.
-        RDHOOKS.tick();
     }
 
     // Protective bubble, coloured to the orb that is offering.
@@ -377,7 +373,6 @@ function loop() {
 
     drawGunTerminals();
     drawBioCarriers();
-    RDHOOKS.draw();                 // other players, inside the camera transform
     for (let en of enemies) en.draw();
     for (let c of crawlers) c.draw();
     if (!player.dead) player.draw();

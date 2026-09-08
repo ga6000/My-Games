@@ -418,6 +418,13 @@ per-game section, because it is the part most likely to be violated by an enthus
 | Game | Must survive untouched | Why |
 |---|---|---|
 | **RD Arena** | The **Gray-Scott reaction-diffusion field** — `dA/dB/feed/k`, the 400×400 grid, the `>0.3` threshold, the flow field, the mote system | It is the game. It is also, as §6.4 shows, *already* era-native. |
+
+> **Note 2026-09-07.** Still true, and worth restating precisely because something that looks
+> like a violation landed: `rd-arena/rd-netfield.js` draws the flesh from a 133² 2-bit
+> downsample instead of from `gridB`. **The simulation is untouched** — `dA/dB/feed/k`, the
+> 400×400 grid, the `>0.3` threshold, the flow field and the motes all still run and are still
+> what collision reads. Only the *pixels* come from the coarse field. This is the same
+> render/sim separation §6.4 relied on when discs became cells.
 | **Zombie** | `ambientDarkness()` as the single source of truth, and the light **radius** values | The lighting is a balance-tested mechanic; v2's blackout at 0.94 playtested as a guaranteed loss. Quantize the ramp, never the numbers. |
 | **Glucose Dash** | Colour reserved exclusively for storefronts; `pathWalkable(f)` as the single source of floor geometry | Both are documented hard-won invariants. The second caused invisible holes in every upper storefront when violated. |
 | **Gyro Space** | Server-authoritative `MP.selfColor` | Retro-fitted 2026-08-28 to fix session-ID colouring. Never regress it. |
@@ -889,4 +896,4 @@ this is precisely the kind of cross-cutting root-level plan the 2026-09-02 audit
 - **Whether every game should convert at all.** Desert Robot Blaster and Wasteland Train Sim are
   Unity candidates; spending a session restyling them may be wasted.
 
-<!-- doc-sync: ea409e8b | 2026-09-07 -->
+<!-- doc-sync: 07d2e6c2 | 2026-09-08 -->
