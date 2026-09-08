@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RD Net Bench — diffusion sync with N players</title>
+<style>
+    body { margin:0; background:#0a0a0c; color:#d1d5db; font-family:monospace; font-size:12px;
+           display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+    header { padding:7px 12px; border-bottom:1px solid #23232a; flex:none;
+             display:flex; align-items:baseline; gap:14px; }
+    h1 { margin:0; font-size:15px; letter-spacing:2px; text-transform:uppercase; }
+    #conn { font-size:11px; }
+    .pill { border:1px solid #34343f; padding:2px 7px; margin-left:6px; }
+    .on { color:#7ee787; border-color:#2f6b3f; }
+    .off { color:#ff8080; border-color:#6b2f2f; }
+    .host { color:#ffd76b; border-color:#6b5a2f; }
+    #main { display:flex; flex:1; min-height:0; }
+    #side { width:330px; flex:none; padding:10px 12px; overflow-y:auto; border-right:1px solid #23232a; }
+    #stage { flex:1; padding:10px; min-width:0; display:flex; flex-direction:column; gap:8px; }
+    canvas { background:#000; display:block; flex:none; }
+    fieldset { border:1px solid #26262e; margin:0 0 10px 0; padding:8px 10px; }
+    legend { padding:0 5px; opacity:.65; text-transform:uppercase; letter-spacing:1px; font-size:10px; }
+    label { display:block; margin:6px 0 2px 0; opacity:.75; }
+    select, input[type=text] { width:100%; background:#15151a; color:#e5e7eb; border:1px solid #2e2e38;
+             padding:4px 5px; font-family:monospace; font-size:12px; }
+    input[type=range] { width:100%; }
+    button { background:#1d1d24; color:#e5e7eb; border:1px solid #34343f; padding:6px 9px;
+             font-family:monospace; font-size:12px; cursor:pointer; margin:3px 3px 0 0; }
+    button:hover { background:#26262f; }
+    button.primary { border-color:#4a90e2; color:#cfe4ff; }
+    button:disabled { opacity:.35; cursor:default; }
+    .stat { display:flex; justify-content:space-between; padding:1px 0; }
+    .stat b { font-weight:normal; color:#fff; }
+    .note { opacity:.45; font-size:10px; line-height:1.45; margin:6px 0 0 0; }
+    .val { float:right; color:#9fd4e3; }
+    table { border-collapse:collapse; width:100%; font-size:11px; }
+    th,td { border:1px solid #26262e; padding:3px 6px; text-align:right; white-space:nowrap; }
+    th { background:#15151a; }
+    td.l, th.l { text-align:left; }
+    tr.me td { color:#cfe4ff; }
+    #peers { overflow:auto; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>RD Net Bench</h1>
+    <div id="conn"></div>
+</header>
+
+<div id="main">
+<div id="side">
+
+    <fieldset>
+        <legend>Session</legend>
+        <label>Room</label>
+        <input type="text" id="room" placeholder="public">
+        <label>Name</label>
+        <input type="text" id="name" placeholder="tester">
+        <button id="joinBtn" class="primary">Connect</button>
+        <p class="note">Uses the shared server's generic <code>relay</code>, so this needed no
+        server-side change. Open on several machines (or tabs) with the same room to add players.</p>
+    </fieldset>
+
+    <fieldset>
+        <legend>Host settings <span id="hostLock" style="opacity:.5"></span></legend>
+        <label>Field resolution <span class="val" id="vRes"></span></label>
+        <input type="range" id="res" min="0" max="4" step="1" value="1">
+        <label>Bits per cell <span class="val" id="vBits"></span></label>
+        <input type="range" id="bits" min="1" max="8" step="1" value="4">
+        <label>Send interval <span class="val" id="vInt"></span></label>
+        <input type="range" id="interval" min="200" max="4000" step="100" value="2000">
+        <label>Simulated extra players <span class="val" id="vGhost"></span></label>
+        <input type="range" id="ghosts" min="0" max="16" step="1" value="0">
+        <p class="note">Ghosts do not join the room — they scale the host's reported upstream so you
+        can project N players without opening N browsers. Real peers are measured for real.</p>
+    </fieldset>
+
+    <fieldset>
+        <legend>This client</legend>
+        <div class="stat"><span>role</span><b id="sRole">-</b></div>
+        <div class="stat"><span>fps</span><b id="sFps">-</b></div>
+        <div class="stat"><span>packets received</span><b id="sPk">-</b></div>
+        <div class="stat"><span>wire size</span><b id="sWire">-</b></div>
+        <div class="stat"><span>inter-arrival</span><b id="sGap">-</b></div>
+        <div class="stat"><span>jitter (stddev)</span><b id="sJit">-</b></div>
+        <div class="stat"><span>worst gap</span><b id="sMax">-</b></div>
+        <div class="stat"><span>decode ms</span><b id="sDec">-</b></div>
+        <div class="stat"><span>contour ms</span><b id="sCon">-</b></div>
+        <button id="reset">Reset stats</button>
+    </fieldset>
+
+    <fieldset>
+        <legend>Projected host upstream</legend>
+        <div id="proj"></div>
+    </fieldset>
+
+</div>
+
+<div id="stage">
+    <canvas id="view" width="720" height="560"></canvas>
+    <div id="peers"></div>
+</div>
+</div>
+
+<script src="../shared/mp-core.js"></script>
+<script>
+// =====================================================================
+//  Host-side field. Only the host simulates; everyone else renders what
+//  arrives, which is the arrangement MULTIPLAYER_PLAN 4d specifies.
+// =====================================================================
+const W = 4800, GC = 200, CS = W / GC, NCELL = GC * GC;
+let gA = new Float32Array(NCELL).fill(1);
+let gB = new Float32Array(NCELL).fill(0);
+let nA = new Float32Array(NCELL).fill(1);
+let nB = new Float32Array(NCELL).fill(0);
+const dA = 1.0, dB = 0.5, feed = 0.055, kk = 0.062;
+
+function seedField() {
+    gA.fill(1); gB.fill(0);
+    // Deterministic from the room seed so every client's host produces the
+    // same starting field if the host changes mid-session.
+    const rnd = (typeof MP !== 'undefined' && MP.random) ? MP.random : Math.random;
+    for (let i = 0; i < 120; i++) {
+        const cx = (rnd() * GC) | 0, cy = (rnd() * GC) | 0;
+        for (let x = cx - 4; x <= cx + 4; x++)
+            for (let y = cy - 4; y <= cy + 4; y++)
+                if (x >= 0 && x < GC && y >= 0 && y < GC) gB[x + y * GC] = 1;
+    }
+}
+
+function stepRD() {
+    for (let x = 1; x < GC - 1; x++) {
+        for (let y = 1; y < GC - 1; y++) {
+            const i = x + y * GC, a = gA[i], b = gB[i];
+            const lA = gA[i-GC]*0.2 + gA[i+GC]*0.2 + gA[i-1]*0.2 + gA[i+1]*0.2 +
+                       gA[i-GC-1]*0.05 + gA[i-GC+1]*0.05 + gA[i+GC-1]*0.05 + gA[i+GC+1]*0.05 - a;
+            const lB = gB[i-GC]*0.2 + gB[i+GC]*0.2 + gB[i-1]*0.2 + gB[i+1]*0.2 +
+                       gB[i-GC-1]*0.05 + gB[i-GC+1]*0.05 + gB[i+GC-1]*0.05 + gB[i+GC+1]*0.05 - b;
+            nA[i] = Math.max(0, Math.min(1, a + (dA*lA - a*b*b + feed*(1-a))));
+            nB[i] = Math.max(0, Math.min(1, b + (dB*lB + a*b*b - (kk+feed)*b)));
+        }
+    }
+    let t = gA; gA = nA; nA = t; t = gB; gB = nB; nB = t;
+}
+
+// =====================================================================
+//  Wire format. mp-core relays JSON, so bytes have to survive as text --
+//  base64 costs ~1.33x. That overhead is real and is what gets measured
+//  here, not the theoretical packed size.
+// =====================================================================
+const RESOLUTIONS = [50, 100, 133, 200, 400];
+let netRes = 100, netBits = 4, sendMs = 2000, ghosts = 0;
+
+function packField() {
+    const levels = (1 << netBits) - 1;
+    const ratio = GC / netRes;
+    const perByte = Math.floor(8 / netBits) || 1;
+    const bytes = new Uint8Array(Math.ceil(netRes * netRes / perByte));
+    let bi = 0, slot = 0, acc = 0;
+    for (let y = 0; y < netRes; y++) {
+        for (let x = 0; x < netRes; x++) {
+            let sum = 0, n = 0;
+            const x0 = Math.floor(x*ratio), x1 = Math.min(GC, Math.floor((x+1)*ratio));
+            const y0 = Math.floor(y*ratio), y1 = Math.min(GC, Math.floor((y+1)*ratio));
+            for (let sy = y0; sy < y1; sy++) for (let sx = x0; sx < x1; sx++) { sum += gB[sx+sy*GC]; n++; }
+            const q = Math.round((n ? sum/n : 0) * levels) & levels;
+            acc |= q << (slot * netBits);
+            if (++slot === perByte) { bytes[bi++] = acc; acc = 0; slot = 0; }
+        }
+    }
+    if (slot) bytes[bi++] = acc;
+    return bytes.subarray(0, bi);
+}
+
+function unpackField(bytes, res, bits) {
+    const levels = (1 << bits) - 1;
+    const perByte = Math.floor(8 / bits) || 1;
+    const out = new Float32Array(res * res);
+    let bi = 0, slot = 0;
+    for (let i = 0; i < out.length; i++) {
+        const q = (bytes[bi] >> (slot * bits)) & levels;
+        out[i] = q / levels;
+        if (++slot === perByte) { slot = 0; bi++; }
+    }
+    return out;
+}
+
+function toB64(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+    return btoa(s);
+}
+function fromB64(b64) {
+    const s = atob(b64);
+    const u8 = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
+    return u8;
+}
+
+// =====================================================================
+//  Contour rendering (same technique as rd-curves.html)
+// =====================================================================
+function buildLoops(sample, x0, y0, x1, y1, T) {
+    const pts = new Map(), adj = new Map();
+    const cols = x1 - x0 + 2;
+    const hK = (x,y) => 2*((y-y0+1)*cols + (x-x0+1));
+    const vK = (x,y) => 2*((y-y0+1)*cols + (x-x0+1))+1;
+    function put(k, ax, ay, bx, by, va, vb) {
+        if (pts.has(k)) return k;
+        let t = (T-va)/(vb-va); if (!isFinite(t)) t = .5;
+        t = Math.max(0, Math.min(1, t));
+        pts.set(k, [ax+(bx-ax)*t, ay+(by-ay)*t]); return k;
+    }
+    function link(a,b){ if(a===b)return;
+        if(!adj.has(a))adj.set(a,[]); if(!adj.has(b))adj.set(b,[]);
+        adj.get(a).push(b); adj.get(b).push(a); }
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const a=sample(x,y), b=sample(x+1,y), c=sample(x+1,y+1), d=sample(x,y+1);
+        const cs=(a>T?1:0)|(b>T?2:0)|(c>T?4:0)|(d>T?8:0);
+        if (cs===0||cs===15) continue;
+        const TOP=()=>put(hK(x,y),x,y,x+1,y,a,b), BOT=()=>put(hK(x,y+1),x,y+1,x+1,y+1,d,c);
+        const LEF=()=>put(vK(x,y),x,y,x,y+1,a,d),  RIG=()=>put(vK(x+1,y),x+1,y,x+1,y+1,b,c);
+        if (cs===5||cs===10) {
+            const ci=((a+b+c+d)/4)>T;
+            if (cs===5) { if(ci){link(TOP(),RIG());link(LEF(),BOT());} else {link(LEF(),TOP());link(RIG(),BOT());} }
+            else        { if(ci){link(LEF(),TOP());link(RIG(),BOT());} else {link(TOP(),RIG());link(LEF(),BOT());} }
+            continue;
+        }
+        switch(cs){
+            case 1: case 14: link(LEF(),TOP()); break;
+            case 2: case 13: link(TOP(),RIG()); break;
+            case 3: case 12: link(LEF(),RIG()); break;
+            case 4: case 11: link(RIG(),BOT()); break;
+            case 6: case 9:  link(TOP(),BOT()); break;
+            case 7: case 8:  link(LEF(),BOT()); break;
+        }
+    }
+    const loops=[], seen=new Set();
+    for (const start of adj.keys()) {
+        if (seen.has(start)) continue;
+        let cur=start, prev=-1; const loop=[];
+        for(;;){ seen.add(cur); loop.push(pts.get(cur));
+            const ns=adj.get(cur)||[]; let nx=-1;
+            for(const n of ns){ if(n!==prev&&!seen.has(n)){nx=n;break;} }
+            if(nx===-1)break; prev=cur; cur=nx; }
+        if (loop.length>2) loops.push(loop);
+    }
+    return loops;
+}
+
+// =====================================================================
+//  Client state + stats
+// =====================================================================
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d');
+
+let fieldPrev = null, fieldNext = null, fieldRes = netRes;
+let lastArrival = 0, gaps = [], packets = 0, lastWire = 0;
+let decodeMs = 0, contourMs = 0, fpsEma = 0, lastFrame = performance.now();
+let online = false, amHost = false;
+let peerStats = {};      // id -> {name, fps, gap, jit, dec, con, wire}
+
+function resetStats() { gaps = []; packets = 0; lastArrival = 0; }
+
+function applyPacket(res, bits, b64, arrivedAt) {
+    const t0 = performance.now();
+    const bytes = fromB64(b64);
+    const f = unpackField(bytes, res, bits);
+    decodeMs = decodeMs * 0.8 + (performance.now() - t0) * 0.2;
+    lastWire = b64.length;
+    fieldPrev = fieldNext || f;
+    fieldNext = f;
+    fieldRes = res;
+    if (lastArrival) { gaps.push(arrivedAt - lastArrival); if (gaps.length > 60) gaps.shift(); }
+    lastArrival = arrivedAt;
+    packets++;
+}
+
+function meanOf(a){ return a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0; }
+function stddev(a){ const m=meanOf(a); return a.length ? Math.sqrt(meanOf(a.map(v=>(v-m)*(v-m)))) : 0; }
+
+// =====================================================================
+//  Render
+// =====================================================================
+function draw(now) {
+    const vw = canvas.width, vh = canvas.height;
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, vw, vh);
+    if (!fieldNext) {
+        ctx.fillStyle = '#4b5563'; ctx.font = '13px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(online ? 'waiting for the host’s first packet…' : 'not connected',
+                     vw/2, vh/2);
+        ctx.textAlign = 'left';
+        return;
+    }
+
+    const t0 = performance.now();
+    const cell = W / fieldRes;
+    // Morph across the whole send interval so the surface is always moving
+    // and the wait for the next packet is hidden rather than shown.
+    let t = sendMs > 0 ? Math.max(0, Math.min(1, (now - lastArrival) / sendMs)) : 1;
+    t = t * t * (3 - 2 * t);
+    const prev = fieldPrev || fieldNext, next = fieldNext, res = fieldRes;
+    const sample = (x, y) => {
+        if (x < 0 || x >= res || y < 0 || y >= res) return -1;
+        const i = x + y * res, a = prev[i], b = next[i];
+        return a + (b - a) * t;
+    };
+
+    const scale = Math.min(vw / W, vh / W);
+    ctx.save();
+    ctx.scale(scale, scale);
+    const loops = buildLoops(sample, -1, -1, res, res, 0.30);
+    const ph = now * 0.0012;
+    ctx.beginPath();
+    for (const L of loops) {
+        const n = L.length;
+        const P = L.map(p => {
+            const wx = p[0]*cell, wy = p[1]*cell;
+            return [wx + Math.sin(wy*0.013 + ph)*6, wy + Math.cos(wx*0.0147 + ph*0.9)*6];
+        });
+        let mx = (P[n-1][0]+P[0][0])/2, my = (P[n-1][1]+P[0][1])/2;
+        ctx.moveTo(mx, my);
+        for (let i = 0; i < n; i++) {
+            const c = P[i], q = P[(i+1)%n];
+            ctx.quadraticCurveTo(c[0], c[1], (c[0]+q[0])/2, (c[1]+q[1])/2);
+        }
+        ctx.closePath();
+    }
+    ctx.fillStyle = '#4a0404'; ctx.fill('evenodd');
+    ctx.strokeStyle = 'rgba(255,120,120,0.28)'; ctx.lineWidth = 2/scale; ctx.stroke();
+    ctx.restore();
+    contourMs = contourMs*0.9 + (performance.now()-t0)*0.1;
+
+    const frac = sendMs>0 ? Math.min(1,(now-lastArrival)/sendMs) : 1;
+    ctx.fillStyle='rgba(255,255,255,0.10)'; ctx.fillRect(8, vh-12, vw-16, 4);
+    ctx.fillStyle='#4a90e2'; ctx.fillRect(8, vh-12, (vw-16)*frac, 4);
+}
+
+// =====================================================================
+//  Loop: host sims + broadcasts, everyone renders + reports
+// =====================================================================
+let lastSend = 0, lastReport = 0;
+
+function tick() {
+    const now = performance.now();
+
+    if (amHost) {
+        stepRD();
+        if (now - lastSend >= sendMs) {
+            lastSend = now;
+            const b64 = toB64(packField());
+            MP.send({ k: 'rdfield', res: netRes, bits: netBits, ms: sendMs, d: b64 }, true);
+            // The host renders its own packet through the same path so its
+            // numbers are comparable with everyone else's.
+            applyPacket(netRes, netBits, b64, now);
+        }
+    }
+
+    draw(now);
+
+    const dt = now - lastFrame; lastFrame = now;
+    if (dt > 0) fpsEma = fpsEma*0.9 + (1000/dt)*0.1;
+
+    if (now - lastReport > 1000) {
+        lastReport = now;
+        if (online && typeof MP !== 'undefined') MP.send({ k: 'rdstat', fps: Math.round(fpsEma), gap: Math.round(meanOf(gaps)),
+                              jit: Math.round(stddev(gaps)), dec: +decodeMs.toFixed(2),
+                              con: +contourMs.toFixed(2), wire: lastWire, pk: packets });
+        paintStats();
+    }
+    requestAnimationFrame(tick);
+}
+
+// =====================================================================
+//  UI
+// =====================================================================
+function paintStats() {
+    const g = meanOf(gaps), j = stddev(gaps), mx = gaps.length ? Math.max.apply(null, gaps) : 0;
+    document.getElementById('sRole').textContent = !online ? 'offline' : (amHost ? 'HOST (simulating)' : 'client');
+    document.getElementById('sFps').textContent = fpsEma.toFixed(0);
+    document.getElementById('sPk').textContent = packets;
+    document.getElementById('sWire').textContent = lastWire ? (lastWire/1024).toFixed(2)+' KB' : '-';
+    document.getElementById('sGap').textContent = g ? g.toFixed(0)+' ms' : '-';
+    document.getElementById('sJit').textContent = j ? j.toFixed(0)+' ms' : '-';
+    document.getElementById('sMax').textContent = mx ? mx.toFixed(0)+' ms' : '-';
+    document.getElementById('sDec').textContent = decodeMs.toFixed(2)+' ms';
+    document.getElementById('sCon').textContent = contourMs.toFixed(2)+' ms';
+
+    // Projected upstream: the host sends one copy per other player.
+    const real = Math.max(0, ((online && typeof MP !== 'undefined') ? MP.peers().length : 1) - 1);
+    const n = real + ghosts;
+    const perSec = lastWire / (sendMs/1000);
+    document.getElementById('proj').innerHTML =
+        '<div class="stat"><span>real peers</span><b>'+real+'</b></div>' +
+        '<div class="stat"><span>+ simulated</span><b>'+ghosts+'</b></div>' +
+        '<div class="stat"><span>per-client down</span><b>'+(perSec/1024).toFixed(2)+' KB/s</b></div>' +
+        '<div class="stat"><span>host up @ '+n+'</span><b>'+(perSec*n/1024).toFixed(1)+' KB/s</b></div>' +
+        '<p class="note">Base64 over the JSON relay costs about 1.33x the packed size. These are '+
+        'the real transmitted bytes, not the theoretical minimum.</p>';
+
+    // Peer table
+    let rows = '';
+    const mine = { name: 'me' + (amHost ? ' (host)' : ''), fps: Math.round(fpsEma),
+                   gap: Math.round(g), jit: Math.round(j), dec: +decodeMs.toFixed(2),
+                   con: +contourMs.toFixed(2), wire: lastWire, pk: packets, me: true };
+    const all = [mine].concat(Object.keys(peerStats).map(k => peerStats[k]));
+    for (const p of all) {
+        rows += '<tr class="'+(p.me?'me':'')+'"><td class="l">'+(p.name||'?')+'</td>'+
+                '<td>'+(p.fps||0)+'</td><td>'+(p.gap||0)+'</td><td>'+(p.jit||0)+'</td>'+
+                '<td>'+(p.dec||0)+'</td><td>'+(p.con||0)+'</td>'+
+                '<td>'+((p.wire||0)/1024).toFixed(2)+'</td><td>'+(p.pk||0)+'</td></tr>';
+    }
+    document.getElementById('peers').innerHTML =
+        '<table><thead><tr><th class="l">player</th><th>fps</th><th>gap ms</th><th>jitter</th>'+
+        '<th>decode</th><th>contour</th><th>KB</th><th>pkts</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+
+function paintConn() {
+    const el = document.getElementById('conn');
+    const st = online ? '<span class="pill on">online</span>' : '<span class="pill off">offline</span>';
+    const rl = online ? (amHost ? '<span class="pill host">host</span>' : '<span class="pill">client</span>') : '';
+    const hasMP = typeof MP !== 'undefined';
+    const rm = (online && hasMP) ? '<span class="pill">room '+(MP.room||'public')+'</span>' : '';
+    const pc = (online && hasMP) ? '<span class="pill">'+MP.peers().length+' in room</span>' : '';
+    el.innerHTML = st + rl + rm + pc;
+    document.getElementById('hostLock').textContent = amHost ? '' : '(host controls these)';
+    ['res','bits','interval'].forEach(id => document.getElementById(id).disabled = !amHost && online);
+}
+
+function bindRange(id, lblId, fn, fmt) {
+    const el = document.getElementById(id), out = document.getElementById(lblId);
+    function apply(){ const v = parseFloat(el.value); fn(v); if(out) out.textContent = fmt?fmt(v):v; paintStats(); }
+    el.addEventListener('input', apply); apply();
+}
+bindRange('res','vRes', v => { netRes = RESOLUTIONS[v]; }, v => RESOLUTIONS[v]+'²');
+bindRange('bits','vBits', v => netBits = v, v => v+' bit');
+bindRange('interval','vInt', v => sendMs = v, v => (v/1000).toFixed(1)+' s');
+bindRange('ghosts','vGhost', v => ghosts = v, v => v+'');
+document.getElementById('reset').addEventListener('click', resetStats);
+
+document.getElementById('joinBtn').addEventListener('click', function () {
+    if (typeof MP === 'undefined') {
+        // shared/mp-core.js did not load. Most likely this page was opened
+        // through something that rewrites it (a preview pane, a data: URL)
+        // rather than as a plain file:// sibling of shared/.
+        this.textContent = 'mp-core.js not loaded';
+        document.getElementById('conn').innerHTML =
+            '<span class="pill off">shared/mp-core.js missing</span>' +
+            '<span class="pill">open this file directly from the repo folder</span>';
+        return;
+    }
+    this.disabled = true; this.textContent = 'connecting…';
+    const room = document.getElementById('room').value.trim();
+    const name = document.getElementById('name').value.trim();
+    MP.connect({
+        game: 'rd-netbench',
+        room: room || undefined,
+        name: name || undefined,
+        onReady: function (info) {
+            online = !info.solo;
+            amHost = MP.isHost();
+            MP.resetRandom();
+            seedField();
+            lastSend = 0;
+            document.getElementById('joinBtn').textContent = online ? 'connected' : 'solo (no server)';
+            paintConn();
+        },
+        onStatus: function (s) { online = (s === 'online'); paintConn(); },
+        onPeerSync: function () { amHost = MP.isHost(); paintConn(); },
+        onPeerJoin: function () { amHost = MP.isHost(); paintConn(); },
+        onPeerLeave: function (p) { if (p) delete peerStats[p.id]; amHost = MP.isHost(); paintConn(); },
+        onHostChange: function () {
+            amHost = MP.isHost();
+            if (amHost) { MP.resetRandom(); seedField(); lastSend = 0; }
+            paintConn();
+        },
+        onMessage: function (msg, fromId, fromName) {
+            if (!msg) return;
+            if (msg.k === 'rdfield' && !amHost) {
+                sendMs = msg.ms || sendMs;
+                applyPacket(msg.res, msg.bits, msg.d, performance.now());
+            } else if (msg.k === 'rdstat') {
+                peerStats[fromId] = { name: fromName || fromId.slice(0,6), fps: msg.fps, gap: msg.gap,
+                                      jit: msg.jit, dec: msg.dec, con: msg.con, wire: msg.wire, pk: msg.pk };
+            }
+        }
+    });
+});
+
+seedField();
+for (let i = 0; i < 30; i++) stepRD();
+paintConn();
+paintStats();
+tick();
+</script>
+</body>
+</html>

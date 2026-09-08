@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Glucose Dash</title>
+<!--
+  Shared token layer (AESTHETIC_GUIDE.md 2 and 3), loaded BEFORE this game's own
+  <style> so anything below can override a token without fighting specificity.
+  ../../shared/ and not ../shared/ -- this game lives under under-development/.
+
+  data-cabinet="gel" on <body> is the third cabinet type: a raster tube with a
+  physical sheet of coloured plastic taped over it. It is what PERMITS the
+  scanline overlay (4.6 gates scanlines on raster and gel only), and it is the
+  cabinet 6.5 assigns this game, anchored to Space Invaders' own gel.
+-->
+<link rel="stylesheet" href="../../shared/retro.css">
+<style>
+    /* ===================================================
+         GLUCOSE DASH — styles
+       ===================================================
+       The exposure/desaturation filter is applied to #gd-canvas ONLY,
+       never to the HUD. Blowing out the whole screen reads better for
+       about two seconds and then becomes unfair -- you must always be
+       able to read your own glucose, especially when it's the reason
+       you can't see anything else. */
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+        width: 100%; height: 100%;
+        background: #08090d;
+        overflow: hidden;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        color: #eef2f7;
+        -webkit-user-select: none; user-select: none;
+    }
+
+    #gd-root { position: fixed; inset: 0; }
+
+    #gd-stage { position: absolute; inset: 0; overflow: hidden; }
+
+    #gd-canvas {
+        position: absolute; inset: 0;
+        width: 100%; height: 100%;
+        display: block;
+        /* driven per-frame from the glucose value */
+        filter: saturate(1) brightness(1) contrast(1);
+    }
+
+    /* Hyper: light floods the sensor. Hypo: the world greys out and
+       closes in. Two overlays rather than one so they can run at the
+       same time during a fast swing without fighting each other. */
+    #gd-blowout {
+        position: absolute; inset: 0; pointer-events: none;
+        background: #fffdf4; opacity: 0; mix-blend-mode: screen;
+    }
+    #gd-vignette {
+        position: absolute; inset: 0; pointer-events: none; opacity: 0;
+        background: radial-gradient(ellipse at 50% 58%,
+            rgba(0,0,0,0) 28%, rgba(4,6,10,0.55) 62%, rgba(2,3,6,0.94) 100%);
+    }
+
+    /* ---- top bar ---- */
+    #gd-top {
+        position: absolute; top: 0; left: 0; right: 0;
+        display: flex; justify-content: center; gap: 34px;
+        padding: 12px 18px calc(12px + env(safe-area-inset-top, 0px));
+        pointer-events: none;
+        background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0));
+    }
+    .gd-stat { text-align: center; min-width: 96px; }
+    .gd-stat .k {
+        font-size: 10px; letter-spacing: 2.4px; text-transform: uppercase;
+        color: #6a7690; font-weight: 800;
+    }
+    .gd-stat .v {
+        font-size: 26px; font-weight: 800; line-height: 1.15;
+        font-variant-numeric: tabular-nums;
+        color: #1d2534;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    /* ---- centre warning ---- */
+    #gd-warn {
+        position: absolute; top: 20%; left: 0; right: 0;
+        text-align: center; pointer-events: none;
+        font-size: 30px; font-weight: 900; letter-spacing: 4px;
+        opacity: 0; transition: opacity 160ms linear;
+        text-shadow: 0 0 26px currentColor, 0 3px 12px rgba(0,0,0,0.85);
+    }
+    #gd-warn.on { opacity: 1; }
+    #gd-warn { -webkit-text-stroke: 3px rgba(255,255,255,0.85); paint-order: stroke fill; }
+    @keyframes gdPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    #gd-warn.pulse { animation: gdPulse 720ms ease-in-out infinite; }
+
+    /* ---- bottom-left: floor + sprint ---- */
+    #gd-left {
+        position: absolute; left: 18px; bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+        pointer-events: none; display: flex; flex-direction: column; gap: 10px;
+    }
+    #gd-floor {
+        font-size: 12px; font-weight: 800; letter-spacing: 2px;
+        color: #2f3a52;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.85), 0 0 10px rgba(255,255,255,0.9);
+    }
+    #gd-floor b { color: #b5651d; font-size: 17px; }
+    #gd-sprint-wrap {
+        width: 150px; height: 9px; border-radius: 5px;
+        background: rgba(28,34,48,0.18);
+        border: 1px solid rgba(28,34,48,0.26); overflow: hidden;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.5);
+    }
+    #gd-sprint {
+        height: 100%; width: 100%;
+        background: linear-gradient(90deg, #12b886, #38d6ff);
+        transition: background 140ms linear;
+    }
+    #gd-sprint.hot { background: linear-gradient(90deg, #f4453f, #f59f00); }
+    #gd-sprint-label {
+        font-size: 9px; letter-spacing: 2px; color: #46536e; font-weight: 800;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.8);
+    }
+
+    /* ---- progress rail (left edge) ---- */
+    #gd-rail {
+        position: absolute; left: 18px; top: 22%; bottom: 22%;
+        width: 8px; border-radius: 4px; pointer-events: none;
+        background: rgba(28,34,48,0.16);
+        border: 1px solid rgba(28,34,48,0.24);
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.5);
+    }
+    .gd-pip {
+        position: absolute; left: 50%; width: 16px; height: 16px;
+        margin-left: -8px; margin-top: -8px; border-radius: 50%;
+        border: 2px solid rgba(0,0,0,0.55);
+        box-shadow: 0 0 8px rgba(0,0,0,0.6);
+    }
+    .gd-pip.self { width: 20px; height: 20px; margin-left: -10px; margin-top: -10px;
+        border-color: #fff; z-index: 3; }
+    .gd-pip.other-floor { opacity: 0.45; }
+
+    /* ---- bottom-right: inventory over the monitor ---- */
+    #gd-corner {
+        position: absolute; right: 18px;
+        bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+        display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+        pointer-events: none;
+    }
+
+    #gd-inv { display: flex; gap: 8px; }
+    .gd-slot {
+        flex: 1; height: 62px; border-radius: 10px; position: relative;
+        background: rgba(16,20,30,0.86);
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 4px 16px rgba(30,36,50,0.28);
+        display: flex; align-items: center; gap: 8px; padding: 0 10px;
+        overflow: hidden;
+    }
+    .gd-slot.empty { border-style: dashed; opacity: 0.42; }
+    .gd-slot .ic { font-size: 24px; line-height: 1; flex: none; }
+    .gd-slot .tx {
+        min-width: 0; flex: 1; display: flex; flex-direction: column;
+        justify-content: center; gap: 2px; overflow: hidden;
+    }
+    .gd-slot .nm {
+        font-size: 10.5px; font-weight: 700; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; line-height: 1.2;
+    }
+    .gd-slot .gi {
+        font-size: 8.5px; letter-spacing: 1.4px; font-weight: 800;
+        white-space: nowrap; line-height: 1.2;
+    }
+    .gd-slot .key {
+        position: absolute; top: 4px; right: 6px; font-size: 8px;
+        letter-spacing: 1px; color: #6f8098; font-weight: 800;
+    }
+    .gd-slot .eatbar {
+        position: absolute; left: 0; bottom: 0; height: 4px; width: 0%;
+        background: #7af5c8;
+    }
+    .gd-slot.gi-high { border-color: rgba(255,107,107,0.55); }
+    .gd-slot.gi-med  { border-color: rgba(255,196,84,0.55); }
+    .gd-slot.gi-low  { border-color: rgba(108,231,168,0.55); }
+
+    #gd-monitor {
+        width: 268px; border-radius: 12px; padding: 9px 11px 8px;
+        background: rgba(14,18,28,0.90);
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 10px 30px rgba(30,36,50,0.35);
+    }
+    #gd-mon-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        margin-bottom: 5px;
+    }
+    #gd-mon-title {
+        font-size: 9px; letter-spacing: 2.2px; color: #7f8ea6; font-weight: 800;
+    }
+    #gd-mon-val {
+        font-size: 27px; font-weight: 900; line-height: 1;
+        font-variant-numeric: tabular-nums;
+    }
+    #gd-mon-unit { font-size: 9px; color: #7f8ea6; font-weight: 700; margin-left: 3px; }
+    #gd-wave { display: block; width: 100%; height: 74px; border-radius: 6px; }
+    #gd-mon-zone {
+        margin-top: 4px; font-size: 9px; letter-spacing: 2px; font-weight: 800;
+        text-align: right;
+    }
+
+    /* ---- full-screen panels ---- */
+    #gd-screen {
+        position: absolute; inset: 0; display: flex;
+        flex-direction: column; align-items: center; justify-content: center;
+        gap: 16px; text-align: center; padding: 24px;
+        background: radial-gradient(ellipse at 50% 40%, rgba(18,24,38,0.90), rgba(4,6,11,0.97));
+        backdrop-filter: blur(2px);
+    }
+    #gd-screen.hidden { display: none; }
+    #gd-screen h1 {
+        font-size: clamp(34px, 7vw, 62px); font-weight: 900; letter-spacing: -1px;
+        background: linear-gradient(92deg, #ff8fa3, #ffd166 45%, #7af5c8);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    #gd-screen h2 { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+    #gd-screen p { max-width: 620px; color: #a9b8ce; font-size: 14px; line-height: 1.65; }
+    #gd-screen .keys {
+        display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: center;
+        font-size: 12.5px; color: #94a5bd;
+    }
+    #gd-screen .keys b { color: #ffd479; }
+    kbd {
+        display: inline-block; padding: 2px 7px; border-radius: 5px;
+        background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.20);
+        border-bottom-width: 2px; font-family: inherit; font-size: 11px; font-weight: 700;
+    }
+    .gd-btn {
+        pointer-events: auto; cursor: pointer;
+        padding: 13px 34px; border-radius: 10px; border: none;
+        font-family: inherit; font-size: 15px; font-weight: 800; letter-spacing: 1.5px;
+        color: #08090d; background: linear-gradient(92deg, #ffd166, #7af5c8);
+        box-shadow: 0 8px 26px rgba(122,245,200,0.24);
+    }
+    .gd-btn:hover { filter: brightness(1.08); }
+    .gd-btn.ghost {
+        background: transparent; color: #a9b8ce;
+        border: 1px solid rgba(255,255,255,0.22); box-shadow: none;
+    }
+
+    #gd-count {
+        font-size: clamp(72px, 18vw, 190px); font-weight: 900; line-height: 1;
+        color: #ffd166; text-shadow: 0 0 60px rgba(255,209,102,0.45);
+    }
+
+    #gd-results { width: min(560px, 92vw); display: flex; flex-direction: column; gap: 5px; }
+    .gd-row {
+        display: flex; align-items: center; gap: 12px;
+        padding: 9px 13px; border-radius: 9px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.09);
+        font-size: 14px;
+    }
+    .gd-row.self { background: rgba(122,245,200,0.11); border-color: rgba(122,245,200,0.42); }
+    .gd-row .pos { width: 30px; font-weight: 900; color: #ffd479; }
+    .gd-row .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+    .gd-row .nm { flex: 1; text-align: left; font-weight: 700; }
+    .gd-row .tm { font-variant-numeric: tabular-nums; color: #a9b8ce; }
+    .gd-row.dnf .tm { color: #ff6b6b; font-weight: 800; }
+
+    #gd-net {
+        position: absolute; top: 10px; right: 14px; font-size: 9px;
+        letter-spacing: 1.8px; font-weight: 800; color: #8b97ab; pointer-events: none;
+    }
+
+    #gd-toast {
+        position: absolute; left: 50%; bottom: 24%; transform: translateX(-50%);
+        font-size: 15px; font-weight: 800; letter-spacing: 2px;
+        opacity: 0; transition: opacity 200ms linear; pointer-events: none;
+        -webkit-text-stroke: 3px rgba(255,255,255,0.85); paint-order: stroke fill;
+        text-shadow: 0 2px 12px rgba(255,255,255,0.7);
+    }
+    #gd-toast.on { opacity: 1; }
+
+    @media (max-width: 720px) {
+        #gd-monitor { width: 210px; }
+        .gd-slot { height: 52px; }
+        .gd-slot .nm { font-size: 9.5px; }
+        #gd-top { gap: 16px; }
+        .gd-stat .v { font-size: 20px; }
+        .gd-stat { min-width: 64px; }
+    }
+
+    /* ===================================================
+         GEL CABINET -- AESTHETIC_GUIDE.md 6.5, option (a)
+       ===================================================
+       6.5 offers two routes and says explicitly that (b), inverting to a black
+       ground, "overturns a deliberate call, so it is the user's decision, not a
+       silent change." That call has not been made, so this is (a): THE WHITE
+       MALL STAYS. The documented intent -- "all the colour saved for the
+       storefronts so the thing you're steering toward is the only saturated
+       object on screen" -- survives intact, and the storey gels are laid inside
+       the floor clip in gd-render.js so storefronts still sit on top of them at
+       full saturation.
+
+       4.6 scanlines are attached to #gd-stage::after rather than a new element,
+       so nothing in the game's own DOM construction had to change. They are
+       gated on data-cabinet, exactly like the class version in retro.css, so a
+       Vector cabinet cannot pick them up. */
+    [data-cabinet="gel"] #gd-stage::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 3;
+        background: repeating-linear-gradient(0deg,
+            rgba(0, 0, 0, 0.16) 0 1px,
+            transparent 1px 3px);
+    }
+
+    /* 3.1/3.4 -- the HUD moves onto the period faces. The mall itself is
+       deliberately NOT retro-typed: it is a shopping centre, and its signage
+       reading as 1978 arcade would fight the one thing 6.5 says to protect. */
+    #gd-top, #gd-hud, .gd-readout { font-family: var(--font-ui); letter-spacing: 1px; }
+
+</style>
+</head>
+<body data-game="glucose-dash" data-cabinet="gel">
+
+<div id="gd-root"></div>
+
+<!-- identity.js must load BEFORE mp-core: mp-core falls back to
+     IDENTITY.colorFromName() when there is no server (file:// solo play). -->
+<script src="../../shared/identity.js"></script>
+<script src="../../shared/mp-core.js"></script>
+<!--
+  Split into twelve gd-*.js files 2026-09-05 (FINAL_THREE_PASS_PLAN.md 4). Lines
+  were moved VERBATIM and IN STRICT SOURCE ORDER; nothing was reordered and
+  nothing was reindented.
+
+  EVERY FILE CARRIES ITS OWN "use strict". The original had one directive at the
+  top of a single 2,363-line script; a classic-script split gives each file its
+  own scope for it, so leaving it off would have dropped eleven of the twelve
+  into sloppy mode -- a semantic change, not a cosmetic one.
+
+  Boot order is the game's own start-up order. gd-boot.js ends by calling
+  GameInstance.init("gd-root") + start(), guarded on document.readyState, so the
+  only DOM this file needs to have built by then is #gd-root above.
+
+  retro.js and sfx.js are NOT loaded here. This game already has its own
+  procedural audio (gd-audio.js, tiny and gesture-gated) which shared/sfx.js was
+  in fact derived from, and re-pointing it at SFX would be an audio rewrite of a
+  column that is already Yes.
+-->
+<script src="gd-core.js"></script>
+<script src="gd-tune.js"></script>
+<script src="gd-course.js"></script>
+<script src="gd-glucose.js"></script>
+<script src="gd-runners.js"></script>
+<script src="gd-ai.js"></script>
+<script src="gd-render.js"></script>
+<script src="gd-hud.js"></script>
+<script src="gd-audio.js"></script>
+<script src="gd-input.js"></script>
+<script src="gd-flow.js"></script>
+<script src="gd-boot.js"></script>
+</body>
+</html>

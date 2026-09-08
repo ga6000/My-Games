@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RD Curves — squelch &amp; morph lab</title>
+<style>
+    body { margin:0; background:#0a0a0c; color:#d1d5db; font-family:monospace; font-size:12px;
+           display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+    header { padding:7px 12px; border-bottom:1px solid #23232a; flex:none; }
+    h1 { margin:0; font-size:15px; letter-spacing:2px; text-transform:uppercase; }
+    header p { margin:3px 0 0 0; opacity:.5; font-size:11px; }
+    #main { display:flex; flex:1; min-height:0; }
+    #side { width:340px; flex:none; padding:10px 12px; overflow-y:auto; border-right:1px solid #23232a; }
+    #stage { flex:1; padding:10px; min-width:0; overflow:auto; }
+    canvas { background:#000; display:block; }
+    fieldset { border:1px solid #26262e; margin:0 0 10px 0; padding:8px 10px; }
+    legend { padding:0 5px; opacity:.65; text-transform:uppercase; letter-spacing:1px; font-size:10px; }
+    label { display:block; margin:6px 0 2px 0; opacity:.75; }
+    select { width:100%; background:#15151a; color:#e5e7eb; border:1px solid #2e2e38;
+             padding:4px 5px; font-family:monospace; font-size:12px; }
+    input[type=range] { width:100%; }
+    button { background:#1d1d24; color:#e5e7eb; border:1px solid #34343f; padding:6px 9px;
+             font-family:monospace; font-size:12px; cursor:pointer; margin:3px 3px 0 0; }
+    button:hover { background:#26262f; }
+    button.primary { border-color:#4a90e2; color:#cfe4ff; }
+    .stat { display:flex; justify-content:space-between; padding:1px 0; }
+    .stat b { font-weight:normal; color:#fff; }
+    .note { opacity:.45; font-size:10px; line-height:1.45; margin:6px 0 0 0; }
+    .val { float:right; color:#9fd4e3; }
+    .bw { border:1px solid #2a3a42; background:#0d1418; padding:6px 8px; margin-top:6px; }
+</style>
+</head>
+<body>
+<header>
+    <h1>RD Curves — squelch &amp; morph lab</h1>
+    <p>Contour rendering instead of per-cell discs. Tests whether a coarser network field can still look smooth, and fills the gap between updates with motion.</p>
+</header>
+
+<div id="main">
+<div id="side">
+
+    <fieldset>
+        <legend>Surface</legend>
+        <label>Renderer</label>
+        <select id="renderer">
+            <option value="contour">Marching squares + curves</option>
+            <option value="discs">Overlapping discs (shipping game)</option>
+            <option value="both">Both (discs behind, curve on top)</option>
+        </select>
+        <label>Edge smoothing</label>
+        <select id="smoothing">
+            <option value="bezier">Quadratic Bezier through midpoints</option>
+            <option value="chaikin2">Chaikin x2</option>
+            <option value="chaikin1">Chaikin x1</option>
+            <option value="raw">Raw polyline (no smoothing)</option>
+        </select>
+        <label>Iso threshold <span class="val" id="vThresh"></span></label>
+        <input type="range" id="thresh" min="0.10" max="0.60" step="0.01" value="0.30">
+    </fieldset>
+
+    <fieldset>
+        <legend>Network field (what the host would send)</legend>
+        <label>Resolution <span class="val" id="vNet"></span></label>
+        <input type="range" id="netRes" min="0" max="4" step="1" value="1">
+        <label>Bits per cell <span class="val" id="vBits"></span></label>
+        <input type="range" id="bits" min="1" max="8" step="1" value="4">
+        <label>Update interval <span class="val" id="vInt"></span></label>
+        <input type="range" id="interval" min="200" max="4000" step="100" value="2000">
+        <div class="bw" id="bw"></div>
+        <p class="note">1 bit gives you no sub-cell values to interpolate, so contours collapse to
+        45&deg; chamfers. Multi-bit at lower resolution is usually both cheaper and smoother.</p>
+    </fieldset>
+
+    <fieldset>
+        <legend>Morph between updates</legend>
+        <label>Mode</label>
+        <select id="morph">
+            <option value="field">Field-space lerp (handles topology)</option>
+            <option value="snap">Snap on arrival (no morph)</option>
+        </select>
+        <label>Easing</label>
+        <select id="easing">
+            <option value="smooth">Smoothstep</option>
+            <option value="linear">Linear</option>
+            <option value="elastic">Overshoot (squelchy)</option>
+        </select>
+        <p class="note">Morph duration is locked to the update interval, so the surface finishes
+        arriving exactly as the next packet lands.</p>
+    </fieldset>
+
+    <fieldset>
+        <legend>Squelch (render-only)</legend>
+        <label>Warp amplitude <span class="val" id="vAmp"></span></label>
+        <input type="range" id="amp" min="0" max="24" step="0.5" value="7">
+        <label>Warp frequency <span class="val" id="vFreq"></span></label>
+        <input type="range" id="freq" min="0.002" max="0.05" step="0.001" value="0.013">
+        <label>Warp speed <span class="val" id="vSpeed"></span></label>
+        <input type="range" id="speed" min="0" max="4" step="0.05" value="1.2">
+        <label>Threshold breathing <span class="val" id="vBreath"></span></label>
+        <input type="range" id="breath" min="0" max="0.06" step="0.002" value="0.018">
+        <p class="note">Domain warp and threshold breathing are applied at draw time only. Collision
+        would still read the raw field, so none of this has to be agreed between clients.</p>
+    </fieldset>
+
+    <fieldset>
+        <legend>Readout</legend>
+        <div class="stat"><span>fps</span><b id="sFps">-</b></div>
+        <div class="stat"><span>contour ms</span><b id="sContour">-</b></div>
+        <div class="stat"><span>loops / vertices</span><b id="sLoops">-</b></div>
+        <div class="stat"><span>morph t</span><b id="sT">-</b></div>
+        <button id="pause" class="primary">Pause sim</button>
+        <button id="reseed">Reseed</button>
+    </fieldset>
+
+</div>
+
+<div id="stage"><canvas id="view" width="820" height="820"></canvas></div>
+</div>
+
+<script>
+// =====================================================================
+//  Ground-truth field: the same Gray-Scott kernel RD-Arena runs.
+// =====================================================================
+const W = 4800;                 // world px
+const GC = 400;                 // host sim resolution
+const CS = W / GC;
+const N = GC * GC;
+
+let gA = new Float32Array(N).fill(1);
+let gB = new Float32Array(N).fill(0);
+let nA = new Float32Array(N).fill(1);
+let nB = new Float32Array(N).fill(0);
+const dA = 1.0, dB = 0.5, feed = 0.055, kk = 0.062;
+
+function seed() {
+    gA.fill(1); gB.fill(0); nA.fill(1); nB.fill(0);
+    for (let i = 0; i < 220; i++) {
+        const cx = (Math.random() * GC) | 0, cy = (Math.random() * GC) | 0;
+        for (let x = cx - 4; x <= cx + 4; x++)
+            for (let y = cy - 4; y <= cy + 4; y++)
+                if (x >= 0 && x < GC && y >= 0 && y < GC) gB[x + y * GC] = 1;
+    }
+}
+
+function stepRD() {
+    for (let x = 1; x < GC - 1; x++) {
+        for (let y = 1; y < GC - 1; y++) {
+            const i = x + y * GC, a = gA[i], b = gB[i];
+            const lA = gA[i-GC]*0.2 + gA[i+GC]*0.2 + gA[i-1]*0.2 + gA[i+1]*0.2 +
+                       gA[i-GC-1]*0.05 + gA[i-GC+1]*0.05 + gA[i+GC-1]*0.05 + gA[i+GC+1]*0.05 - a;
+            const lB = gB[i-GC]*0.2 + gB[i+GC]*0.2 + gB[i-1]*0.2 + gB[i+1]*0.2 +
+                       gB[i-GC-1]*0.05 + gB[i-GC+1]*0.05 + gB[i+GC-1]*0.05 + gB[i+GC+1]*0.05 - b;
+            nA[i] = Math.max(0, Math.min(1, a + (dA*lA - a*b*b + feed*(1-a))));
+            nB[i] = Math.max(0, Math.min(1, b + (dB*lB + a*b*b - (kk+feed)*b)));
+        }
+    }
+    let t = gA; gA = nA; nA = t;
+    t = gB; gB = nB; nB = t;
+}
+
+// =====================================================================
+//  The "network" field: downsample + quantise, exactly as a host would
+//  before packing bytes. Two snapshots are kept so the client can morph
+//  from the one it is showing to the one that just arrived.
+// =====================================================================
+const NET_RES = [50, 100, 133, 200, 400];
+let netRes = 100, netBits = 4, intervalMs = 2000;
+let netPrev = null, netNext = null, netCell = W / netRes;
+let lastPacketAt = 0;
+
+function packSnapshot() {
+    const out = new Float32Array(netRes * netRes);
+    const levels = (1 << netBits) - 1;
+    const ratio = GC / netRes;
+    for (let y = 0; y < netRes; y++) {
+        for (let x = 0; x < netRes; x++) {
+            // Box-filter the host field down, then quantise to the wire depth.
+            let sum = 0, n = 0;
+            const x0 = Math.floor(x * ratio), x1 = Math.min(GC, Math.floor((x + 1) * ratio));
+            const y0 = Math.floor(y * ratio), y1 = Math.min(GC, Math.floor((y + 1) * ratio));
+            for (let sy = y0; sy < y1; sy++)
+                for (let sx = x0; sx < x1; sx++) { sum += gB[sx + sy * GC]; n++; }
+            const v = n ? sum / n : 0;
+            out[x + y * netRes] = Math.round(v * levels) / levels;
+        }
+    }
+    return out;
+}
+
+function emitPacket(now) {
+    netPrev = netNext || packSnapshot();
+    netNext = packSnapshot();
+    lastPacketAt = now;
+}
+
+function resizeNet(res) {
+    netRes = res; netCell = W / netRes;
+    netPrev = null; netNext = null; lastPacketAt = 0;
+}
+
+function bytesPerPacket() { return Math.ceil(netRes * netRes * netBits / 8); }
+
+// =====================================================================
+//  Marching squares with linear interpolation.
+//
+//  The smoothness comes from the interpolated crossing positions, not
+//  from the grid -- which is the whole reason a coarse field can still
+//  read as a curved surface. With 1-bit data there is nothing to
+//  interpolate and it degenerates to 45-degree chamfers.
+// =====================================================================
+function buildLoops(sample, x0, y0, x1, y1, T) {
+    const pts = new Map();      // edgeKey -> [wx, wy]
+    const adj = new Map();      // edgeKey -> [edgeKey, ...]
+    const cols = x1 - x0 + 2;
+
+    function hKey(x, y) { return 2 * ((y - y0 + 1) * cols + (x - x0 + 1)); }
+    function vKey(x, y) { return 2 * ((y - y0 + 1) * cols + (x - x0 + 1)) + 1; }
+
+    function put(key, ax, ay, bx, by, va, vb) {
+        if (pts.has(key)) return key;
+        let t = (T - va) / (vb - va);
+        if (!isFinite(t)) t = 0.5;
+        t = Math.max(0, Math.min(1, t));
+        pts.set(key, [ax + (bx - ax) * t, ay + (by - ay) * t]);
+        return key;
+    }
+    function link(a, b) {
+        if (a === b) return;
+        if (!adj.has(a)) adj.set(a, []);
+        if (!adj.has(b)) adj.set(b, []);
+        adj.get(a).push(b);
+        adj.get(b).push(a);
+    }
+
+    for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+            const a = sample(x, y), b = sample(x + 1, y);
+            const c = sample(x + 1, y + 1), d = sample(x, y + 1);
+            let cs = (a > T ? 1 : 0) | (b > T ? 2 : 0) | (c > T ? 4 : 0) | (d > T ? 8 : 0);
+            if (cs === 0 || cs === 15) continue;
+
+            const TOP = () => put(hKey(x, y), x, y, x + 1, y, a, b);
+            const BOT = () => put(hKey(x, y + 1), x, y + 1, x + 1, y + 1, d, c);
+            const LEF = () => put(vKey(x, y), x, y, x, y + 1, a, d);
+            const RIG = () => put(vKey(x + 1, y), x + 1, y, x + 1, y + 1, b, c);
+
+            if (cs === 5 || cs === 10) {
+                // Saddle. Resolve with the cell centre so the two branches
+                // never cross each other.
+                const centreInside = ((a + b + c + d) / 4) > T;
+                if (cs === 5) {
+                    if (centreInside) { link(TOP(), RIG()); link(LEF(), BOT()); }
+                    else              { link(LEF(), TOP()); link(RIG(), BOT()); }
+                } else {
+                    if (centreInside) { link(LEF(), TOP()); link(RIG(), BOT()); }
+                    else              { link(TOP(), RIG()); link(LEF(), BOT()); }
+                }
+                continue;
+            }
+
+            switch (cs) {
+                case 1: case 14: link(LEF(), TOP()); break;
+                case 2: case 13: link(TOP(), RIG()); break;
+                case 3: case 12: link(LEF(), RIG()); break;
+                case 4: case 11: link(RIG(), BOT()); break;
+                case 6: case 9:  link(TOP(), BOT()); break;
+                case 7: case 8:  link(LEF(), BOT()); break;
+            }
+        }
+    }
+
+    // Walk adjacency into closed loops. The sampled window is padded with
+    // below-threshold values, so every loop closes.
+    const loops = [];
+    const seen = new Set();
+    for (const start of adj.keys()) {
+        if (seen.has(start)) continue;
+        let cur = start, prev = -1;
+        const loop = [];
+        for (;;) {
+            seen.add(cur);
+            loop.push(pts.get(cur));
+            const ns = adj.get(cur) || [];
+            let nxt = -1;
+            for (const n of ns) { if (n !== prev && !seen.has(n)) { nxt = n; break; } }
+            if (nxt === -1) break;
+            prev = cur; cur = nxt;
+        }
+        if (loop.length > 2) loops.push(loop);
+    }
+    return loops;
+}
+
+// --- smoothing -------------------------------------------------------
+function chaikin(loop, passes) {
+    let p = loop;
+    for (let k = 0; k < passes; k++) {
+        const out = [];
+        for (let i = 0; i < p.length; i++) {
+            const a = p[i], b = p[(i + 1) % p.length];
+            out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+            out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+        }
+        p = out;
+    }
+    return p;
+}
+
+function pathLoop(ctx, loop, mode) {
+    if (loop.length < 3) return;
+    if (mode === 'bezier') {
+        // Quadratic through midpoints: every original vertex becomes a
+        // control point, so the drawn edge is genuinely curved rather than
+        // a finer polyline.
+        const n = loop.length;
+        let mx = (loop[n - 1][0] + loop[0][0]) / 2;
+        let my = (loop[n - 1][1] + loop[0][1]) / 2;
+        ctx.moveTo(mx, my);
+        for (let i = 0; i < n; i++) {
+            const cur = loop[i], nxt = loop[(i + 1) % n];
+            ctx.quadraticCurveTo(cur[0], cur[1], (cur[0] + nxt[0]) / 2, (cur[1] + nxt[1]) / 2);
+        }
+    } else {
+        ctx.moveTo(loop[0][0], loop[0][1]);
+        for (let i = 1; i < loop.length; i++) ctx.lineTo(loop[i][0], loop[i][1]);
+    }
+    ctx.closePath();
+}
+
+// =====================================================================
+//  Render
+// =====================================================================
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d');
+let camX = 0, camY = 0, camT = 0;
+let paused = false;
+
+let renderer = 'contour', smoothing = 'bezier', morphMode = 'field', easing = 'smooth';
+let thresh = 0.30, warpAmp = 7, warpFreq = 0.013, warpSpeed = 1.2, breath = 0.018;
+
+let contourMs = 0, loopCount = 0, vertCount = 0, fpsEma = 0, lastFrame = performance.now();
+let morphT = 0;
+
+function ease(t) {
+    if (easing === 'linear') return t;
+    if (easing === 'smooth') return t * t * (3 - 2 * t);
+    // Slight overshoot then settle -- reads as the surface flopping into place.
+    const s = 1.70158 * 0.6;
+    const u = t - 1;
+    return u * u * ((s + 1) * u + s) + 1;
+}
+
+function drawFrame(now) {
+    const vw = canvas.width, vh = canvas.height;
+
+    // Slow drift so we see different parts of the field.
+    camT += paused ? 0 : 0.0022;
+    const span = Math.max(0, W - vw);
+    camX = span * (0.5 + 0.5 * Math.sin(camT));
+    camY = span * (0.5 + 0.5 * Math.sin(camT * 0.7 + 1));
+
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, vw, vh);
+    ctx.save();
+    ctx.translate(-camX, -camY);
+
+    // ---- discs, for comparison ----
+    if (renderer === 'discs' || renderer === 'both') {
+        const gx0 = Math.max(0, Math.floor(camX / CS)), gy0 = Math.max(0, Math.floor(camY / CS));
+        const gx1 = Math.min(GC, Math.ceil((camX + vw) / CS)), gy1 = Math.min(GC, Math.ceil((camY + vh) / CS));
+        ctx.fillStyle = renderer === 'both' ? '#2a0303' : '#4a0404';
+        ctx.beginPath();
+        const r = CS * 0.78;
+        for (let x = gx0; x < gx1; x++)
+            for (let y = gy0; y < gy1; y++)
+                if (gB[x + y * GC] > 0.3) {
+                    const bx = (x + 0.5) * CS, by = (y + 0.5) * CS;
+                    ctx.moveTo(bx + r, by); ctx.arc(bx, by, r, 0, Math.PI * 2);
+                }
+        ctx.fill();
+    }
+
+    // ---- contour from the morphing network field ----
+    if (renderer === 'contour' || renderer === 'both') {
+        const t0 = performance.now();
+
+        let tRaw = intervalMs > 0 ? (now - lastPacketAt) / intervalMs : 1;
+        tRaw = Math.max(0, Math.min(1, tRaw));
+        morphT = morphMode === 'snap' ? 1 : ease(tRaw);
+
+        const prev = netPrev || netNext, next = netNext;
+        const res = netRes;
+
+        // Sample the morphing field, padded outside so every loop closes.
+        function sample(x, y) {
+            if (x < 0 || x >= res || y < 0 || y >= res) return -1;
+            const i = x + y * res;
+            const a = prev ? prev[i] : 0, b = next ? next[i] : 0;
+            return a + (b - a) * morphT;
+        }
+
+        // March the visible window plus a margin, so the padded border that
+        // closes the loops sits off-screen rather than cutting the picture.
+        const m = 3;
+        const x0 = Math.max(-1, Math.floor(camX / netCell) - m);
+        const y0 = Math.max(-1, Math.floor(camY / netCell) - m);
+        const x1 = Math.min(res, Math.ceil((camX + vw) / netCell) + m);
+        const y1 = Math.min(res, Math.ceil((camY + vh) / netCell) + m);
+
+        // Breathing threshold: the whole surface inhales slightly.
+        const T = thresh + Math.sin(now * 0.0016) * breath;
+
+        let loops = buildLoops(sample, x0, y0, x1, y1, T);
+
+        // Grid coords -> world px, with the animated domain warp applied
+        // here so it costs nothing extra and never touches the field.
+        const ph = now * 0.001 * warpSpeed;
+        const worldLoops = [];
+        let verts = 0;
+        for (const L of loops) {
+            const out = new Array(L.length);
+            for (let i = 0; i < L.length; i++) {
+                const wx = L[i][0] * netCell, wy = L[i][1] * netCell;
+                out[i] = warpAmp > 0
+                    ? [wx + Math.sin(wy * warpFreq + ph) * warpAmp,
+                       wy + Math.cos(wx * warpFreq * 1.13 + ph * 0.9) * warpAmp]
+                    : [wx, wy];
+            }
+            verts += out.length;
+            worldLoops.push(smoothing === 'chaikin1' ? chaikin(out, 1)
+                          : smoothing === 'chaikin2' ? chaikin(out, 2) : out);
+        }
+
+        const mode = smoothing === 'bezier' ? 'bezier' : 'poly';
+        ctx.beginPath();
+        for (const L of worldLoops) pathLoop(ctx, L, mode);
+        // evenodd makes enclosed loops read as holes with no winding work.
+        ctx.fillStyle = '#4a0404';
+        ctx.fill('evenodd');
+        ctx.strokeStyle = 'rgba(255,120,120,0.30)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        contourMs = contourMs * 0.9 + (performance.now() - t0) * 0.1;
+        loopCount = worldLoops.length;
+        vertCount = verts;
+    }
+
+    ctx.restore();
+
+    // Packet timeline
+    const frac = intervalMs > 0 ? Math.min(1, (now - lastPacketAt) / intervalMs) : 1;
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(10, vh - 16, vw - 20, 5);
+    ctx.fillStyle = '#4a90e2';
+    ctx.fillRect(10, vh - 16, (vw - 20) * frac, 5);
+}
+
+function loop() {
+    const now = performance.now();
+    if (!paused) stepRD();
+    if (now - lastPacketAt >= intervalMs || !netNext) emitPacket(now);
+
+    drawFrame(now);
+
+    const dt = now - lastFrame; lastFrame = now;
+    if (dt > 0) fpsEma = fpsEma * 0.9 + (1000 / dt) * 0.1;
+
+    document.getElementById('sFps').textContent = fpsEma.toFixed(0);
+    document.getElementById('sContour').textContent = contourMs.toFixed(2) + ' ms';
+    document.getElementById('sLoops').textContent = loopCount + ' / ' + vertCount;
+    document.getElementById('sT').textContent = morphT.toFixed(2);
+
+    requestAnimationFrame(loop);
+}
+
+// =====================================================================
+//  UI
+// =====================================================================
+function bindRange(id, labelId, fn, fmt) {
+    const el = document.getElementById(id);
+    const out = document.getElementById(labelId);
+    function apply() {
+        const v = parseFloat(el.value);
+        fn(v);
+        if (out) out.textContent = fmt ? fmt(v) : v;
+        paintBw();
+    }
+    el.addEventListener('input', apply);
+    apply();
+}
+
+function paintBw() {
+    const bytes = bytesPerPacket();
+    const perSec = bytes / (intervalMs / 1000);
+    const cur = Math.ceil(400 * 400 * 1 / 8);       // the currently planned 1-bit 400^2 mask
+    const el = document.getElementById('bw');
+    const cmp = perSec > 0 ? (cur / (intervalMs / 1000)) / perSec : 0;
+    el.innerHTML =
+        '<div class="stat"><span>packet</span><b>' + (bytes / 1024).toFixed(2) + ' KB</b></div>' +
+        '<div class="stat"><span>per player</span><b>' + (perSec / 1024).toFixed(2) + ' KB/s</b></div>' +
+        '<div class="stat"><span>host up @ 8 players</span><b>' + (perSec * 7 / 1024).toFixed(1) + ' KB/s</b></div>' +
+        '<div class="stat"><span>vs planned 400&sup2; 1-bit</span><b style="color:' +
+        (cmp >= 1 ? '#7ee787' : '#ff8080') + '">' + cmp.toFixed(2) + 'x cheaper</b></div>';
+}
+
+bindRange('thresh', 'vThresh', v => thresh = v, v => v.toFixed(2));
+bindRange('netRes', 'vNet', v => { const r = NET_RES[v]; if (r !== netRes) resizeNet(r); },
+          v => NET_RES[v] + '²');
+bindRange('bits', 'vBits', v => { netBits = v; netPrev = netNext = null; }, v => v + ' bit');
+bindRange('interval', 'vInt', v => intervalMs = v, v => (v / 1000).toFixed(1) + ' s');
+bindRange('amp', 'vAmp', v => warpAmp = v, v => v.toFixed(1) + ' px');
+bindRange('freq', 'vFreq', v => warpFreq = v, v => v.toFixed(3));
+bindRange('speed', 'vSpeed', v => warpSpeed = v, v => v.toFixed(2));
+bindRange('breath', 'vBreath', v => breath = v, v => v.toFixed(3));
+
+document.getElementById('renderer').addEventListener('change', e => renderer = e.target.value);
+document.getElementById('smoothing').addEventListener('change', e => smoothing = e.target.value);
+document.getElementById('morph').addEventListener('change', e => morphMode = e.target.value);
+document.getElementById('easing').addEventListener('change', e => easing = e.target.value);
+document.getElementById('pause').addEventListener('click', e => {
+    paused = !paused; e.target.textContent = paused ? 'Resume sim' : 'Pause sim';
+});
+document.getElementById('reseed').addEventListener('click', () => { seed(); netPrev = netNext = null; });
+
+seed();
+resizeNet(NET_RES[1]);
+for (let i = 0; i < 40; i++) stepRD();
+paintBw();
+loop();
+</script>
+</body>
+</html>

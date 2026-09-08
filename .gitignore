@@ -1,0 +1,9 @@
+# Dev-only tooling for the collision checker. Never shipped to the browser,
+# never needed by GitHub Pages.
+node_modules/
+package-lock.json
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -10,6 +10,19 @@
  * *within files that actually load together on the same page* — it does not
  * treat every .js file in the repo as one shared scope.
  *
+ * It reports two things:
+ *   1. The same top-level name declared by two DIFFERENT files on one page.
+ *   2. The same file listed TWICE on one page (added 2026-09-02). This used to be
+ *      the checker's blind spot — the src list was deduped silently, so a repeated
+ *      tag was swallowed and the page reported clean while the browser threw
+ *      `SyntaxError: Identifier 'X' has already been declared` on every load.
+ *      Found in zombie/Zombie.html, which listed zombie-endgame.js twice.
+ *
+ * Still NOT detected: duplicate definitions *within a single file* — the checker
+ * compares across files and never compares a file to itself. (That is what hid
+ * Glucose Dash v4's duplicate `quad()`.) Splitting a game into multiple files is
+ * what makes those visible.
+ *
  * Usage:
  *   node check-global-collisions.js                  # scan every *.html found under cwd
  *   node check-global-collisions.js game1.html game2.html
@@ -31,6 +44,11 @@ function findHtmlFiles(dir, out = []) {
   return out;
 }
 
+// Returns { srcs: [resolved paths, deduped], dupes: [{path, count}] }.
+//
+// The dedupe used to be silent, which made "the same file listed twice on one page"
+// this checker's blind spot: it swallowed the repeat and reported the deduped count as
+// if the page were clean. That is a real defect, not a harmless typo — see checkPage.
 function extractLocalScriptSrcs(htmlPath) {
   const html = fs.readFileSync(htmlPath, "utf8");
   const dir = path.dirname(htmlPath);
@@ -42,7 +60,13 @@ function extractLocalScriptSrcs(htmlPath) {
     if (/^(https?:)?\/\//i.test(src)) continue; // external/CDN, not part of this page's local scope collisions
     srcs.push(path.resolve(dir, src));
   }
-  return [...new Set(srcs)];
+
+  const counts = new Map();
+  for (const s of srcs) counts.set(s, (counts.get(s) || 0) + 1);
+  const dupes = [];
+  for (const [p, count] of counts) if (count > 1) dupes.push({ path: p, count });
+
+  return { srcs: [...new Set(srcs)], dupes };
 }
 
 function namesFromPattern(node, out) {
@@ -109,11 +133,12 @@ function analyzeFile(jsPath) {
 }
 
 function checkPage(htmlPath) {
-  const scripts = extractLocalScriptSrcs(htmlPath);
+  const { srcs: scripts, dupes } = extractLocalScriptSrcs(htmlPath);
   if (scripts.length === 0) return { htmlPath, scripts, collisions: [], errors: [] };
 
   const declMap = new Map(); // name -> [{file, kind}]
   const winMap = new Map(); // name -> [file]
+  const perFile = new Map(); // file -> analyze result, so dupes can report accurate severity
   const errors = [];
 
   for (const jsPath of scripts) {
@@ -127,6 +152,7 @@ function checkPage(htmlPath) {
       errors.push(`${rel}: parse error — ${result.error}`);
       continue;
     }
+    perFile.set(jsPath, result);
     for (const { name, kind } of result.decls) {
       if (!declMap.has(name)) declMap.set(name, []);
       declMap.get(name).push({ file: rel, kind });
@@ -138,6 +164,28 @@ function checkPage(htmlPath) {
   }
 
   const collisions = [];
+
+  // A page listing the same local script twice. The browser runs BOTH tags against one
+  // shared global scope, so this is never harmless:
+  //   - any top-level const/let/class -> SyntaxError, and the whole second tag is discarded
+  //   - only var/function            -> the file silently executes twice, re-running side effects
+  for (const { path: dupPath, count } of dupes) {
+    const rel = path.relative(path.dirname(htmlPath), dupPath);
+    const result = perFile.get(dupPath);
+    const lexical = result && result.decls
+      ? result.decls.filter((d) => d.kind !== "var" && d.kind !== "function")
+      : [];
+    collisions.push({
+      name: rel,
+      type: "duplicate-src",
+      detail: `listed ${count}× in ${path.basename(htmlPath)}`,
+      severity: lexical.length
+        ? `SyntaxError on load — '${lexical[0].name}' (${lexical[0].kind}) is redeclared by the repeat tag` +
+          (lexical.length > 1 ? `, +${lexical.length - 1} more top-level const/let/class` : "")
+        : "file executes twice (top-level side effects re-run)",
+    });
+  }
+
   for (const [name, sites] of declMap) {
     const files = new Set(sites.map((s) => s.file));
     if (files.size > 1) {
@@ -188,7 +236,11 @@ function main() {
     for (const e of errors) console.log(`  ! ${e}`);
     for (const c of collisions) {
       anyCollision = true;
-      console.log(`  ⚠ '${c.name}' declared in: ${c.detail}`);
+      if (c.type === "duplicate-src") {
+        console.log(`  ⚠ duplicate <script src>: '${c.name}' — ${c.detail}`);
+      } else {
+        console.log(`  ⚠ '${c.name}' declared in: ${c.detail}`);
+      }
       console.log(`      -> ${c.severity}`);
     }
   }

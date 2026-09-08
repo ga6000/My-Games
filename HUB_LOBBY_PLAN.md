@@ -88,10 +88,24 @@ sharing a name collide; that is pre-existing in votes and fine for a friend grou
 
 ---
 
-## 5. Hub changes (`index.html`, stays one self-contained file)
+## 5. Hub changes (~~`index.html`, stays one self-contained file~~)
 
 Kept monolithic to match every other page in this repo, so the collision checker stays a no-op
-for the hub. Layout is a fixed three-band flex column at `100dvh` with `overflow:hidden`:
+for the hub. *(**Superseded 2026-09-03:** the hub now loads exactly one external script,
+`shared/identity.js`. Staying self-contained meant keeping a second copy of the name→colour
+palette, and a duplicated identity scheme is a worse problem than an extra `<script src>`.
+The checker is no longer a no-op here — it reports `index.html (1 local script)`.)*
+
+> **Fully superseded 2026-09-04.** The hub is no longer self-contained at all: its 958-line
+> inline script was split into **five `hub/*.js` files**, and it now loads nine local scripts
+> (`shared/identity.js`, `shared/retro.js`, `shared/sfx.js`, and `hub/hub-core|layout|render|net|
+> attract|boot.js`). The monolith argument lost twice for the same reason both times — an extra
+> `<script src>` is a smaller problem than the thing keeping it inline was costing.
+>
+> **The layout below is unchanged and must stay that way.** The split moved lines between files;
+> it did not touch the three-band model, `applyGridShape()`, `PAGE_SIZE`, or the sizing maths.
+> See `hub/HUB_PASS_PLAN.md`, whose governing rule is *"change the skin, not the layout"* —
+> precisely because §1's reason for this structure is still live. Layout is a fixed three-band flex column at `100dvh` with `overflow:hidden`:
 
 - **Top buffer** — room code in the corner, player chips (dot + name, `(you)` on your own)
   beside it, `change` and `Leaderboards` controls. Leaderboards moves here rather than
@@ -104,6 +118,16 @@ for the hub. Layout is a fixed three-band flex column at `100dvh` with `overflow
 `PAGE_SIZE = 8`. 13 games → 2 pages (8 + 5); the short page renders empty slots so tile size
 stays constant. `cols = viewportW >= viewportH ? 4 : 2`, `rows = 8 / cols` — same 8 games per
 page on every device, only the shape differs.
+
+> **Superseded the same day by §7b:** the live hub is `PAGE_SIZE = 6` with **17** games over
+> 3 pages (6/6/5), which made tiles *bigger*, not smaller. The sizing rule itself is unchanged —
+> only the constant moved. Verified in `index.html` 2026-09-02.
+>
+> **Superseded again 2026-09-04 by the scope pullback:** the board is **5 games on a single
+> page**. `PAGE_SIZE` is still 6, so paging is currently a no-op — deliberately left wired up
+> rather than removed, because the list is expected to grow back as games come off the shelf.
+> The short page still renders empty slots, so the one visible consequence is a single blank
+> tile. See `SCOPE_PULLBACK_PLAN.md` §2.
 
 The 14 hardcoded `<a class="game-card">` blocks become a manifest array; paging is not
 practical against hardcoded markup. Same `data-game-id` values, same `.vote-check` buttons, so
@@ -190,7 +214,35 @@ is the only game that behaves on a phone. That reads as broken when it isn't.
 Stamps are **cosmetic**: `pointer-events: none`, tiles stay clickable, votable and launchable.
 A group can still agree to all open the same solo game.
 
+> **Not a game, no card needed (2026-09-03):** `rd-arena-bench/rd-bench.html` is a developer
+> harness for profiling the reaction-diffusion field, not something anyone plays. It is
+> deliberately absent from the hub board, so the "every game in the repo with code" counts below
+> still refer to games only. Do not add a tile for it.
+
 ### 7b. Four more cards - the board is now 17 games
+
+> **Mostly undone 2026-09-04.** Three of the four cards added here (`boids`, `hex-grid`,
+> `reality-rewrite` — only `rd-arena` survives) went to `under-development/` in the scope
+> pullback, along with nine others. The board is 5 games. The reasoning below is still the
+> reasoning for *how* cards are added, and the `Hex Grid.html` filename-space note still
+> applies to anyone promoting that game back; only the count and the ordering claim are dead.
+>
+> **`reality-rewrite` outlasted that note by two days and is now gone too (2026-09-06)** — traded
+> for `four-d-pong`, which came the other way off the shelf. So of the four cards §7b added, only
+> `rd-arena` is still on the board, and the board is still 5.
+>
+> **One thing about card *data* did change that day, and it belongs in this file rather than in
+> the historical note above.** The manifest derived exactly two stamp states from one flag:
+>
+> ```js
+> GAMES.forEach(g => { if (g.mp) return; g.stamp = g.broken ? "COMING SOON" : "MULTIPLAYER SOON"; });
+> ```
+>
+> `mp` means "plays together **over the server**". 4D Pong does not and never will — it is four
+> people at one keyboard — so that rule would have stamped `MULTIPLAYER SOON` on a game whose
+> headline feature is multiplayer that already works. An entry may now declare `couch: true` and
+> gets `COUCH 2-4P`. Three states, because there were always three kinds of game and the board
+> had only ever been able to say two of them.
 
 Added `boids` (server-integrated and shipped, but somehow never linked from the hub),
 `rd-arena`, `hex-grid` and `reality-rewrite`. That is every game in the repo with code.
@@ -202,6 +254,8 @@ Added `boids` (server-integrated and shipped, but somehow never linked from the 
 
 **Ordering changed:** the four games you can actually play together are first, so page 1 is the
 group-play page. Move them back down the manifest if you'd rather have the original order.
+*(2026-09-04: three, not four — `boids` was the fourth and is now shelved. With 5 cards on one
+page the ordering no longer decides what a room sees first, only the reading order.)*
 
 ### 7c. Cross-game presence in the roster
 
@@ -269,10 +323,36 @@ every pixel of the visual design. Worth a real phone and a real desktop.
 ---
 
 
-## 7. Deliberately NOT done
+## 8. Deliberately NOT done
 
-- **`boids` is server-integrated and shipped but has no hub card at all** (nor do `rd-arena`,
-  `hex-grid`, `reality-rewrite`). Adding games to the hub grid is a content decision the user
-  didn't ask for. Flagged, not done — `boids` is the one most worth adding.
+*(This was §7 in the first round — renumbered 2026-09-02, because round two below was also
+written as §7 and the two contradicted each other.)*
+
+- ~~**`boids` is server-integrated and shipped but has no hub card at all** (nor do `rd-arena`,
+  `hex-grid`, `reality-rewrite`).~~ — **DONE later the same day; see §7b.** All four were added,
+  the board went to 17 games, and `PAGE_SIZE` dropped 8 → 6. This bullet is kept only so the
+  original "flagged, not done" reasoning isn't lost.
 - No change to how games themselves read identity; the launch is a plain navigation with
-  `?name=&room=`, exactly what the cards already do.
+  `?name=&room=`, exactly what the cards already do. **Still true.**
+
+### Still not done (as of 2026-09-04)
+
+- ~~**`glucose-dash` has no hub card — and as of 2026-09-04 this is a decision, not an
+  oversight.**~~ **Closed 2026-09-05: it went to `under-development/`.** §7b added every game in
+  the repo with code, but Glucose Dash was created on 2026-08-29, after that pass, and was never
+  added; the scope pullback left it unlisted, which put it neither on the board nor on the shelf.
+  The user resolved that on 2026-09-05 by shelving it, so the one-row *"Built, not hub-linked"*
+  section in `Game dev tracking.xlsx` is gone and the game sits in the same folder as the other
+  twelve. **The hub manifest is unaffected** — this game never had an entry to remove, which is
+  the whole reason the anomaly existed.
+- **Twelve cards were removed 2026-09-04**, which is the inverse of the problem this file spent
+  two rounds solving. Worth stating plainly so it does not read as regression: §7b's goal was
+  "every game with code is reachable," and that turned out to be the wrong goal. Reachable and
+  *worth reaching* are different, and a board of 17 where 12 are unfinished is a worse hub than
+  a board of 5. See `SCOPE_PULLBACK_PLAN.md`.
+- ~~**The server redeploy in §2 may still be outstanding.**~~ — **resolved 2026-09-02.** The
+  user confirmed the Render server is redeployed after each edit, overridden from GitHub, so the
+  ready-check has been live since it shipped. The visible-disabled Continue button (§5) remains
+  as the degradation path, but should not normally be seen.
+
+<!-- doc-sync: ea409e8b | 2026-09-07 -->

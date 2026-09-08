@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RD Diffusion Bench</title>
+<style>
+    body {
+        margin: 0; background: #0a0a0c; color: #d1d5db;
+        font-family: monospace; font-size: 12px;
+        display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+    header { padding: 8px 12px; border-bottom: 1px solid #23232a; flex: none; }
+    h1 { margin: 0; font-size: 15px; letter-spacing: 2px; text-transform: uppercase; }
+    header p { margin: 3px 0 0 0; opacity: .5; font-size: 11px; }
+    #main { display: flex; flex: 1; min-height: 0; }
+    #side {
+        width: 330px; flex: none; padding: 10px 12px; overflow-y: auto;
+        border-right: 1px solid #23232a;
+    }
+    #stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    #canvasWrap { flex: none; padding: 10px; }
+    canvas { background: #000; display: block; }
+    #results { flex: 1; overflow: auto; padding: 0 10px 10px 10px; min-height: 0; }
+
+    fieldset { border: 1px solid #26262e; margin: 0 0 10px 0; padding: 8px 10px; }
+    legend { padding: 0 5px; opacity: .65; text-transform: uppercase; letter-spacing: 1px; font-size: 10px; }
+    label { display: block; margin: 6px 0 2px 0; opacity: .75; }
+    select, input[type=number] {
+        width: 100%; background: #15151a; color: #e5e7eb; border: 1px solid #2e2e38;
+        padding: 4px 5px; font-family: monospace; font-size: 12px;
+    }
+    input[type=range] { width: 100%; }
+    button {
+        background: #1d1d24; color: #e5e7eb; border: 1px solid #34343f;
+        padding: 6px 9px; font-family: monospace; font-size: 12px; cursor: pointer;
+        margin: 3px 3px 0 0;
+    }
+    button:hover { background: #26262f; }
+    button.primary { border-color: #4a90e2; color: #cfe4ff; }
+    button.danger  { border-color: #a33; color: #ffd0d0; }
+    .presets button { padding: 4px 7px; font-size: 11px; }
+    .row { display: flex; gap: 8px; }
+    .row > div { flex: 1; }
+
+    table { border-collapse: collapse; width: 100%; font-size: 11px; }
+    th, td { border: 1px solid #26262e; padding: 3px 6px; text-align: right; white-space: nowrap; }
+    th { background: #15151a; text-align: right; position: sticky; top: 0; }
+    td.l, th.l { text-align: left; }
+    tr.good  td { color: #7ee787; }
+    tr.ok    td { color: #f0c674; }
+    tr.bad   td { color: #ff8080; }
+    .stat { display: flex; justify-content: space-between; padding: 1px 0; }
+    .stat b { font-weight: normal; color: #fff; }
+    .note { opacity: .45; font-size: 10px; line-height: 1.45; margin: 6px 0 0 0; }
+    #verdict { padding: 8px 10px; margin: 0 10px 8px 10px; border: 1px solid #26262e; background: #101014; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>RD Diffusion Bench</h1>
+    <p>Isolated reaction-diffusion sim from RD-Arena. No gameplay, so the numbers are the field's cost alone. Runs from file://.</p>
+</header>
+
+<div id="main">
+<div id="side">
+
+    <fieldset>
+        <legend>Field</legend>
+        <div class="presets" id="presets"></div>
+        <label>Grid resolution (cells per side)</label>
+        <select id="gridSel"></select>
+        <label>World size (px per side)</label>
+        <select id="worldSel"></select>
+        <div class="note" id="derived"></div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Update strategy</legend>
+        <label>Mode</label>
+        <select id="updateMode">
+            <option value="full">Full field every frame</option>
+            <option value="chunk">Chunked — 1 slice per frame</option>
+            <option value="skip">Whole field every Nth frame</option>
+        </select>
+        <label>Slices / N <span id="divLbl"></span></label>
+        <input type="range" id="divisor" min="2" max="8" step="1" value="4">
+        <p class="note">Chunking cuts per-frame cost by the divisor but slows pattern evolution by the
+        same factor. Skipping keeps motion coherent but makes it visibly steppy.</p>
+    </fieldset>
+
+    <fieldset>
+        <legend>Render</legend>
+        <label>Mode</label>
+        <select id="renderMode">
+            <option value="discs">Overlapping discs (current game)</option>
+            <option value="rect">fillRect per cell (pre-smoothing)</option>
+            <option value="upscale">Offscreen 1px/cell + bilinear upscale</option>
+            <option value="none">None (sim cost only)</option>
+        </select>
+        <label>Viewport (px, square)</label>
+        <select id="viewSel">
+            <option value="800" selected>800 (matches the game)</option>
+            <option value="600">600</option>
+            <option value="1000">1000</option>
+        </select>
+    </fieldset>
+
+    <fieldset>
+        <legend>Gray-Scott params</legend>
+        <div class="row">
+            <div><label>feed</label><input type="number" id="feed" value="0.055" step="0.001"></div>
+            <div><label>kill</label><input type="number" id="kill" value="0.062" step="0.001"></div>
+        </div>
+        <div class="row">
+            <div><label>dA</label><input type="number" id="dA" value="1.0" step="0.05"></div>
+            <div><label>dB</label><input type="number" id="dB" value="0.5" step="0.05"></div>
+        </div>
+        <button id="reseed">Reseed field</button>
+    </fieldset>
+
+    <fieldset>
+        <legend>Live</legend>
+        <div class="stat"><span>fps</span><b id="sFps">-</b></div>
+        <div class="stat"><span>updateRD</span><b id="sSim">-</b></div>
+        <div class="stat"><span>render</span><b id="sRender">-</b></div>
+        <div class="stat"><span>frame total</span><b id="sTotal">-</b></div>
+        <div class="stat"><span>solid cells on screen</span><b id="sSolid">-</b></div>
+        <div class="stat"><span>field memory</span><b id="sMem">-</b></div>
+        <button id="playBtn" class="primary">Pause</button>
+    </fieldset>
+
+    <fieldset>
+        <legend>Sweep</legend>
+        <p class="note">Measures a ladder of resolutions at the current world size, update and render
+        settings. Timed with performance.now() rather than rAF, so a hidden tab still progresses.
+        <b style="color:#f0c674">Keep this tab focused and in the foreground while sweeping</b> —
+        background tabs are CPU-throttled and will report inflated milliseconds.</p>
+        <label>Measured frames per config</label>
+        <input type="number" id="sweepFrames" value="90" min="20" max="400">
+        <button id="sweepBtn" class="primary">Run sweep</button>
+        <button id="stopBtn" class="danger">Stop</button>
+        <button id="copyBtn">Copy results as markdown</button>
+        <div class="note" id="sweepStatus"></div>
+    </fieldset>
+
+</div>
+
+<div id="stage">
+    <div id="canvasWrap"><canvas id="view" width="800" height="800"></canvas></div>
+    <div id="verdict">Run a sweep to find the largest field this machine sustains.</div>
+    <div id="results"></div>
+</div>
+</div>
+
+<script>
+// ---------------------------------------------------------------
+//  Field state. Mirrors RD-Arena's kernel exactly -- same stencil,
+//  same clamps, same noGrow branch -- so timings transfer to the game.
+// ---------------------------------------------------------------
+const GRIDS  = [128, 200, 256, 320, 400, 512, 640, 800, 1024, 1280];
+const WORLDS = [2400, 4800, 7200, 9600];
+
+let gridCols = 400, gridRows = 400, gridSize = 0;
+let worldSize = 4800, cellSize = 12;
+let gridA, gridB, nextGridA, nextGridB, noGrow;
+
+let dA = 1.0, dB = 0.5, feed = 0.055, kill = 0.062;
+
+let canvas = document.getElementById('view');
+let ctx = canvas.getContext('2d');
+let fxCanvas = document.createElement('canvas');
+let fxCtx = fxCanvas.getContext('2d');
+let fxImg = null;
+
+let updateMode = 'full', divisor = 4, chunkPhase = 0, frameNo = 0;
+let renderMode = 'discs';
+let viewport = 800;
+let playing = true;
+
+// Camera pans slowly so render cost samples different parts of the field.
+let camX = 0, camY = 0, camT = 0;
+
+function allocate(cols, rows, world) {
+    gridCols = cols; gridRows = rows; gridSize = cols * rows;
+    worldSize = world; cellSize = world / cols;
+    gridA = new Float32Array(gridSize).fill(1);
+    gridB = new Float32Array(gridSize).fill(0);
+    nextGridA = new Float32Array(gridSize).fill(1);
+    nextGridB = new Float32Array(gridSize).fill(0);
+    noGrow = new Uint8Array(gridSize);
+    chunkPhase = 0;
+    seed();
+}
+
+// RD-Arena's field settles around 45% solid. Render cost tracks that number,
+// so seed to it directly rather than waiting hundreds of frames for the
+// pattern to grow -- otherwise small grids measure unfairly cheap to draw.
+const TARGET_COVERAGE = 0.45;
+
+function seed() {
+    gridA.fill(1); gridB.fill(0);
+    nextGridA.fill(1); nextGridB.fill(0);
+
+    const r = Math.max(2, Math.round(3 * (gridCols / 400)));
+    const perBlob = (2 * r + 1) * (2 * r + 1);
+    // Overshoot the blob count because blobs overlap; the loop below stops
+    // on measured coverage, not on a guess.
+    const maxBlobs = Math.ceil((gridSize * TARGET_COVERAGE / perBlob) * 2.2);
+
+    let filled = 0;
+    const want = gridSize * TARGET_COVERAGE;
+    for (let i = 0; i < maxBlobs && filled < want; i++) {
+        const cx = Math.floor(Math.random() * gridCols);
+        const cy = Math.floor(Math.random() * gridRows);
+        for (let x = cx - r; x <= cx + r; x++) {
+            for (let y = cy - r; y <= cy + r; y++) {
+                if (x < 0 || x >= gridCols || y < 0 || y >= gridRows) continue;
+                const idx = x + y * gridCols;
+                if (gridB[idx] < 0.5) filled++;
+                gridB[idx] = 1;
+                gridA[idx] = 0;
+            }
+        }
+    }
+}
+
+function coverage() {
+    let n = 0;
+    // Sample rather than scan: exact coverage is not worth 1.6M reads a frame.
+    const stride = Math.max(1, Math.floor(gridSize / 20000));
+    let seen = 0;
+    for (let i = 0; i < gridSize; i += stride) { if (gridB[i] > 0.3) n++; seen++; }
+    return seen ? n / seen : 0;
+}
+
+// Row-banded so chunked mode can do a slice without changing the kernel.
+function updateRows(y0, y1) {
+    const gc = gridCols;
+    for (let x = 1; x < gc - 1; x++) {
+        for (let y = y0; y < y1; y++) {
+            const i = x + y * gc;
+            if (noGrow[i]) { nextGridA[i] = 1; nextGridB[i] = 0; continue; }
+            const a = gridA[i], b = gridB[i];
+
+            const lapA =
+                gridA[i - gc] * 0.2 + gridA[i + gc] * 0.2 +
+                gridA[i - 1] * 0.2 + gridA[i + 1] * 0.2 +
+                gridA[i - gc - 1] * 0.05 + gridA[i - gc + 1] * 0.05 +
+                gridA[i + gc - 1] * 0.05 + gridA[i + gc + 1] * 0.05 - a;
+
+            const lapB =
+                gridB[i - gc] * 0.2 + gridB[i + gc] * 0.2 +
+                gridB[i - 1] * 0.2 + gridB[i + 1] * 0.2 +
+                gridB[i - gc - 1] * 0.05 + gridB[i - gc + 1] * 0.05 +
+                gridB[i + gc - 1] * 0.05 + gridB[i + gc + 1] * 0.05 - b;
+
+            nextGridA[i] = Math.max(0, Math.min(1, a + (dA * lapA - a * b * b + feed * (1 - a))));
+            nextGridB[i] = Math.max(0, Math.min(1, b + (dB * lapB + a * b * b - (kill + feed) * b)));
+        }
+    }
+}
+
+function swap() {
+    let t = gridA; gridA = nextGridA; nextGridA = t;
+    t = gridB; gridB = nextGridB; nextGridB = t;
+}
+
+// One simulation step under the selected strategy.
+function simStep() {
+    if (updateMode === 'full') {
+        updateRows(1, gridRows - 1);
+        swap();
+    } else if (updateMode === 'chunk') {
+        // A slice per frame. Unbanded rows must be carried across, so copy
+        // the untouched region rather than leaving stale values behind.
+        const band = Math.ceil((gridRows - 2) / divisor);
+        const y0 = 1 + chunkPhase * band;
+        const y1 = Math.min(gridRows - 1, y0 + band);
+        if (y0 < y1) updateRows(y0, y1);
+        // Carry the rest forward unchanged.
+        for (let y = 1; y < gridRows - 1; y++) {
+            if (y >= y0 && y < y1) continue;
+            const off = y * gridCols;
+            for (let x = 1; x < gridCols - 1; x++) {
+                nextGridA[off + x] = gridA[off + x];
+                nextGridB[off + x] = gridB[off + x];
+            }
+        }
+        swap();
+        chunkPhase = (chunkPhase + 1) % divisor;
+    } else {
+        if (frameNo % divisor === 0) { updateRows(1, gridRows - 1); swap(); }
+    }
+}
+
+// ---------------------------------------------------------------
+//  Render modes
+// ---------------------------------------------------------------
+let lastSolid = 0;
+
+function render() {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, viewport, viewport);
+    if (renderMode === 'none') { lastSolid = 0; return; }
+
+    ctx.save();
+    ctx.translate(-camX, -camY);
+
+    const gsx = Math.max(0, Math.floor(camX / cellSize));
+    const gsy = Math.max(0, Math.floor(camY / cellSize));
+    const gex = Math.min(gridCols, Math.ceil((camX + viewport) / cellSize));
+    const gey = Math.min(gridRows, Math.ceil((camY + viewport) / cellSize));
+    let solid = 0;
+
+    if (renderMode === 'rect') {
+        ctx.fillStyle = '#4a0404';
+        for (let x = gsx; x < gex; x++) {
+            for (let y = gsy; y < gey; y++) {
+                if (gridB[x + y * gridCols] > 0.3) {
+                    ctx.fillRect(x * cellSize, y * cellSize, cellSize + 1.5, cellSize + 1.5);
+                    solid++;
+                }
+            }
+        }
+    } else if (renderMode === 'discs') {
+        const r = cellSize * 0.78;
+        ctx.fillStyle = '#4a0404';
+        ctx.beginPath();
+        for (let x = gsx; x < gex; x++) {
+            for (let y = gsy; y < gey; y++) {
+                if (gridB[x + y * gridCols] > 0.3) {
+                    const bx = (x + 0.5) * cellSize, by = (y + 0.5) * cellSize;
+                    ctx.moveTo(bx + r, by);
+                    ctx.arc(bx, by, r, 0, Math.PI * 2);
+                    solid++;
+                }
+            }
+        }
+        ctx.fill();
+    } else {
+        const cols = Math.max(1, gex - gsx), rows = Math.max(1, gey - gsy);
+        if (fxCanvas.width !== cols || fxCanvas.height !== rows) {
+            fxCanvas.width = cols; fxCanvas.height = rows;
+            fxImg = fxCtx.createImageData(cols, rows);
+        }
+        if (!fxImg) fxImg = fxCtx.createImageData(cols, rows);
+        const d = fxImg.data;
+        d.fill(0);
+        for (let x = gsx; x < gex; x++) {
+            for (let y = gsy; y < gey; y++) {
+                if (gridB[x + y * gridCols] > 0.3) {
+                    const o = ((y - gsy) * cols + (x - gsx)) * 4;
+                    d[o] = 0x4a; d[o + 1] = 0x04; d[o + 2] = 0x04; d[o + 3] = 255;
+                    solid++;
+                }
+            }
+        }
+        fxCtx.putImageData(fxImg, 0, 0);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(fxCanvas, gsx * cellSize, gsy * cellSize, cols * cellSize, rows * cellSize);
+    }
+
+    ctx.restore();
+    lastSolid = solid;
+}
+
+// ---------------------------------------------------------------
+//  Live loop
+// ---------------------------------------------------------------
+let simMs = 0, renderMs = 0, fpsEma = 0, lastT = performance.now();
+
+function frame() {
+    if (playing) {
+        let t = performance.now();
+        simStep();
+        const s = performance.now() - t;
+
+        camT += 0.0035;
+        const span = Math.max(0, worldSize - viewport);
+        camX = span * (0.5 + 0.5 * Math.sin(camT));
+        camY = span * (0.5 + 0.5 * Math.sin(camT * 0.7 + 1));
+
+        t = performance.now();
+        render();
+        const r = performance.now() - t;
+
+        simMs = simMs * 0.9 + s * 0.1;
+        renderMs = renderMs * 0.9 + r * 0.1;
+        frameNo++;
+
+        const now = performance.now();
+        const dt = now - lastT; lastT = now;
+        if (dt > 0) fpsEma = fpsEma * 0.9 + (1000 / dt) * 0.1;
+
+        if (frameNo % 10 === 0) paintStats();
+    }
+    requestAnimationFrame(frame);
+}
+
+function fieldMemMB() {
+    // 4 Float32Arrays + 1 Uint8Array
+    return (gridSize * 4 * 4 + gridSize) / (1024 * 1024);
+}
+
+function paintStats() {
+    document.getElementById('sFps').textContent = fpsEma.toFixed(0);
+    document.getElementById('sSim').textContent = simMs.toFixed(2) + ' ms';
+    document.getElementById('sRender').textContent = renderMs.toFixed(2) + ' ms';
+    document.getElementById('sTotal').textContent = (simMs + renderMs).toFixed(2) + ' ms';
+    document.getElementById('sSolid').textContent = lastSolid.toLocaleString();
+    document.getElementById('sMem').textContent = fieldMemMB().toFixed(1) + ' MB';
+}
+
+function paintDerived() {
+    const el = document.getElementById('derived');
+    const visible = Math.pow(Math.ceil(viewport / cellSize), 2);
+    el.innerHTML =
+        'cellSize <b style="color:#fff">' + cellSize.toFixed(2) + 'px</b> &middot; ' +
+        'sim cells <b style="color:#fff">' + gridSize.toLocaleString() + '</b> &middot; ' +
+        'cells in viewport <b style="color:#fff">~' + visible.toLocaleString() + '</b> &middot; ' +
+        'field memory <b style="color:#fff">' + fieldMemMB().toFixed(1) + ' MB</b>';
+}
+
+// ---------------------------------------------------------------
+//  Sweep. Deliberately not rAF-driven: a hidden or throttled tab
+//  stops rAF entirely, which would silently produce garbage.
+// ---------------------------------------------------------------
+let sweep = null;
+
+function startSweep() {
+    const perConfig = Math.max(20, Math.min(400, parseInt(document.getElementById('sweepFrames').value, 10) || 90));
+    sweep = {
+        ladder: GRIDS.slice(),
+        idx: -1,
+        perConfig: perConfig,
+        warmup: 20,
+        rows: [],
+        cur: null
+    };
+    document.getElementById('results').innerHTML = '';
+    nextConfig();
+    setTimeout(sweepStep, 0);
+}
+
+function nextConfig() {
+    sweep.idx++;
+    if (sweep.idx >= sweep.ladder.length) { sweep = null; finishSweep(); return false; }
+    const g = sweep.ladder[sweep.idx];
+    allocate(g, g, worldSize);
+    paintDerived();
+    sweep.cur = { grid: g, frames: 0, sim: [], ren: [], cov: [] };
+    return true;
+}
+
+function sweepStep() {
+    if (!sweep) return;
+    const budgetEnd = performance.now() + 180;   // yield often enough to stay responsive
+
+    while (performance.now() < budgetEnd) {
+        const c = sweep.cur;
+
+        let t = performance.now();
+        simStep();
+        const s = performance.now() - t;
+
+        camT += 0.02;
+        const span = Math.max(0, worldSize - viewport);
+        camX = span * (0.5 + 0.5 * Math.sin(camT));
+        camY = span * (0.5 + 0.5 * Math.sin(camT * 0.7 + 1));
+
+        t = performance.now();
+        render();
+        const r = performance.now() - t;
+
+        c.frames++;
+        if (c.frames > sweep.warmup) {
+            c.sim.push(s); c.ren.push(r);
+            // Cheap sampled coverage, averaged over the window, so the reported
+            // solid % actually corresponds to the render milliseconds beside it.
+            if (c.sim.length % 5 === 1) c.cov.push(coverage());
+        }
+
+        if (c.frames >= sweep.warmup + sweep.perConfig) {
+            recordConfig(c);
+            if (!nextConfig()) return;
+        }
+    }
+
+    const done = sweep ? sweep.idx : sweep;
+    document.getElementById('sweepStatus').textContent =
+        sweep ? ('measuring ' + sweep.cur.grid + '²  (' + (sweep.idx + 1) + '/' + sweep.ladder.length + ')' +
+                 '  frame ' + sweep.cur.frames + '/' + (sweep.warmup + sweep.perConfig)) : '';
+    setTimeout(sweepStep, 0);
+}
+
+function mean(a) { return a.reduce((x, y) => x + y, 0) / Math.max(1, a.length); }
+function pct(a, p) { const b = a.slice().sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(b.length * p))] || 0; }
+
+function recordConfig(c) {
+    const sim = mean(c.sim), ren = mean(c.ren);
+    const total = sim + ren;
+    sweep.rows.push({
+        grid: c.grid,
+        cells: c.grid * c.grid,
+        cellSize: worldSize / c.grid,
+        sim: sim, simP95: pct(c.sim, 0.95),
+        ren: ren, total: total,
+        fps: total > 0 ? 1000 / total : 0,
+        mem: (c.grid * c.grid * 17) / (1024 * 1024),
+        solid: lastSolid,
+        cov: c.cov.length ? mean(c.cov) : coverage()
+    });
+    paintResults();
+}
+
+function verdictClass(total) {
+    if (total <= 16.7) return 'good';
+    if (total <= 33.3) return 'ok';
+    return 'bad';
+}
+function verdictText(total) {
+    if (total <= 16.7) return '60fps';
+    if (total <= 33.3) return '30fps';
+    return 'below 30';
+}
+
+function paintResults() {
+    const rows = (sweep ? sweep.rows : lastRows) || [];
+    if (!rows.length) return;
+    let h = '<table><thead><tr>' +
+        '<th class="l">grid</th><th>cells</th><th>cellSize</th>' +
+        '<th title="mean solid cells over the measured window; render cost tracks this">solid %</th><th>sim ms</th><th>sim p95</th><th>render ms</th><th>frame ms</th>' +
+        '<th>headroom fps</th><th>field MB</th><th class="l">verdict</th>' +
+        '</tr></thead><tbody>';
+    for (const r of rows) {
+        h += '<tr class="' + verdictClass(r.total) + '">' +
+            '<td class="l">' + r.grid + '²</td>' +
+            '<td>' + r.cells.toLocaleString() + '</td>' +
+            '<td>' + r.cellSize.toFixed(2) + '</td>' +
+            '<td>' + (r.cov * 100).toFixed(0) + '</td>' +
+            '<td>' + r.sim.toFixed(2) + '</td>' +
+            '<td>' + r.simP95.toFixed(2) + '</td>' +
+            '<td>' + r.ren.toFixed(2) + '</td>' +
+            '<td>' + r.total.toFixed(2) + '</td>' +
+            '<td>' + r.fps.toFixed(0) + '</td>' +
+            '<td>' + r.mem.toFixed(1) + '</td>' +
+            '<td class="l">' + verdictText(r.total) + '</td>' +
+            '</tr>';
+    }
+    h += '</tbody></table>';
+    document.getElementById('results').innerHTML = h;
+}
+
+let lastRows = [];
+
+function finishSweep() {
+    document.getElementById('sweepStatus').textContent = 'done';
+    // A sweep walks the whole ladder, so the live field is left on the last
+    // rung while the dropdowns still show what the user picked. Put it back.
+    if (window.apply) window.apply();
+    const rows = lastRows;
+    const best60 = rows.filter(r => r.total <= 16.7).pop();
+    const best30 = rows.filter(r => r.total <= 33.3).pop();
+    const game = rows.find(r => r.grid === 400);
+    let v = '';
+    if (best60) v += '<b style="color:#7ee787">Largest field holding 60fps: ' + best60.grid + '²</b> (' +
+                     best60.cells.toLocaleString() + ' cells, ' + best60.total.toFixed(2) + ' ms/frame, cellSize ' +
+                     best60.cellSize.toFixed(2) + 'px at world ' + worldSize + ').';
+    else v += '<b style="color:#ff8080">Nothing on this ladder held 60fps.</b>';
+    if (best30 && (!best60 || best30.grid !== best60.grid)) {
+        v += '<br><span style="color:#f0c674">Largest holding 30fps: ' + best30.grid + '²</span> (' +
+             best30.total.toFixed(2) + ' ms/frame).';
+    }
+    if (game) {
+        v += '<br><span style="opacity:.7">RD-Arena ships 400²: ' + game.total.toFixed(2) +
+             ' ms/frame here (' + game.sim.toFixed(2) + ' sim + ' + game.ren.toFixed(2) + ' render).</span>';
+    }
+    v += '<br><span style="opacity:.45;font-size:10px">Measured with ' + updateMode +
+         ' updates, ' + renderMode + ' rendering, ' + viewport + 'px viewport, world ' + worldSize + 'px.</span>';
+    document.getElementById('verdict').innerHTML = v;
+}
+
+function copyMarkdown() {
+    const rows = lastRows;
+    if (!rows.length) return;
+    let md = '| grid | cells | cellSize | solid % | sim ms | sim p95 | render ms | frame ms | fps | field MB | verdict |\n';
+    md += '|---|---|---|---|---|---|---|---|---|---|---|\n';
+    for (const r of rows) {
+        md += '| ' + r.grid + '² | ' + r.cells.toLocaleString() + ' | ' + r.cellSize.toFixed(2) + ' | ' +
+              (r.cov * 100).toFixed(0) + ' | ' +
+              r.sim.toFixed(2) + ' | ' + r.simP95.toFixed(2) + ' | ' + r.ren.toFixed(2) + ' | ' +
+              r.total.toFixed(2) + ' | ' + r.fps.toFixed(0) + ' | ' + r.mem.toFixed(1) + ' | ' +
+              verdictText(r.total) + ' |\n';
+    }
+    md += '\nworld ' + worldSize + 'px, ' + updateMode + ' updates, ' + renderMode +
+          ' rendering, ' + viewport + 'px viewport.\n';
+    navigator.clipboard.writeText(md).then(
+        () => { document.getElementById('sweepStatus').textContent = 'copied to clipboard'; },
+        () => {
+            // file:// clipboard can be blocked; fall back to a selectable dump.
+            const w = document.getElementById('results');
+            const pre = document.createElement('pre');
+            pre.style.cssText = 'white-space:pre-wrap;font-size:10px;color:#9ca3af;border:1px solid #26262e;padding:8px;';
+            pre.textContent = md;
+            w.appendChild(pre);
+            document.getElementById('sweepStatus').textContent = 'clipboard blocked — dumped below, select and copy';
+        }
+    );
+}
+
+// keep lastRows in sync with the live sweep so results survive completion
+const _record = recordConfig;
+recordConfig = function (c) { _record(c); lastRows = sweep.rows.slice(); };
+
+// ---------------------------------------------------------------
+//  UI wiring
+// ---------------------------------------------------------------
+(function buildUI() {
+    const gs = document.getElementById('gridSel');
+    GRIDS.forEach(g => {
+        const o = document.createElement('option');
+        o.value = g; o.textContent = g + ' × ' + g + '  (' + (g * g).toLocaleString() + ' cells)';
+        if (g === 400) o.selected = true;
+        gs.appendChild(o);
+    });
+    const ws = document.getElementById('worldSel');
+    WORLDS.forEach(w => {
+        const o = document.createElement('option');
+        o.value = w; o.textContent = w + ' × ' + w + (w === 4800 ? '  (current game)' : '');
+        if (w === 4800) o.selected = true;
+        ws.appendChild(o);
+    });
+
+    const pre = document.getElementById('presets');
+    [
+        ['Game today', 400, 4800, 'full', 'discs'],
+        ['2x detail', 800, 4800, 'full', 'discs'],
+        ['2x detail, chunked', 800, 4800, 'chunk', 'discs'],
+        ['Huge world', 400, 9600, 'full', 'discs'],
+        ['Max detail', 1280, 4800, 'chunk', 'upscale']
+    ].forEach(p => {
+        const b = document.createElement('button');
+        b.textContent = p[0];
+        b.onclick = () => {
+            gs.value = p[1]; ws.value = p[2];
+            document.getElementById('updateMode').value = p[3];
+            document.getElementById('renderMode').value = p[4];
+            apply();
+        };
+        pre.appendChild(b);
+    });
+
+    function apply() {
+        updateMode = document.getElementById('updateMode').value;
+        renderMode = document.getElementById('renderMode').value;
+        divisor = parseInt(document.getElementById('divisor').value, 10);
+        viewport = parseInt(document.getElementById('viewSel').value, 10);
+        canvas.width = viewport; canvas.height = viewport;
+        feed = parseFloat(document.getElementById('feed').value);
+        kill = parseFloat(document.getElementById('kill').value);
+        dA = parseFloat(document.getElementById('dA').value);
+        dB = parseFloat(document.getElementById('dB').value);
+        document.getElementById('divLbl').textContent = '= ' + divisor;
+        const g = parseInt(gs.value, 10), w = parseInt(ws.value, 10);
+        if (g !== gridCols || w !== worldSize) allocate(g, g, w);
+        else { cellSize = worldSize / gridCols; }
+        paintDerived();
+    }
+    window.apply = apply;
+
+    ['gridSel','worldSel','updateMode','renderMode','viewSel','divisor','feed','kill','dA','dB']
+        .forEach(id => document.getElementById(id).addEventListener('input', apply));
+
+    document.getElementById('reseed').onclick = () => seed();
+    document.getElementById('playBtn').onclick = e => {
+        playing = !playing;
+        e.target.textContent = playing ? 'Pause' : 'Resume';
+    };
+    document.getElementById('sweepBtn').onclick = startSweep;
+    document.getElementById('stopBtn').onclick = () => {
+        sweep = null;
+        document.getElementById('sweepStatus').textContent = 'stopped';
+    };
+    document.getElementById('copyBtn').onclick = copyMarkdown;
+})();
+
+allocate(400, 400, 4800);
+window.apply();
+frame();
+</script>
+</body>
+</html>

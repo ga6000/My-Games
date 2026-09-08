@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>My Games Hub</title>
+
+    <!-- The shared token layer (AESTHETIC_GUIDE.md 2 and 3), loaded BEFORE this
+         page style block so anything below can override a token.
+
+         The hub deliberately carries NO data-game attribute: 2.5 gives every
+         GAME a world hue so the board reads as a row of different cabinets, and
+         the hub is the arcade floor those cabinets stand on, not a cabinet. Its
+         chrome is --sig-cyan (4.11). No data-cabinet either, which is what keeps
+         the raster-only scanline overlay from ever applying here. -->
+    <link rel="stylesheet" href="shared/retro.css">
     <style>
         /* ===================================================
            LAYOUT MODEL
@@ -33,9 +43,9 @@
         }
 
         body {
-            background-color: #f5f3f0;
-            color: #2a2a2a;
-            font-family: 'Arial', sans-serif;
+            background-color: var(--ground);
+            color: var(--phos-mid);
+            font-family: var(--font-ui);
             height: 100vh;
             height: 100dvh;
             display: flex;
@@ -66,8 +76,8 @@
             align-items: center;
             gap: 14px;
             padding: 8px clamp(10px, 2vw, 22px);
-            border-bottom: 3px solid #2a2a2a;
-            background: #ede9e6;
+            border-bottom: 2px solid var(--sig-cyan);
+            background: var(--ground);
         }
 
         .top-block {
@@ -81,15 +91,16 @@
             font-size: 0.6rem;
             text-transform: uppercase;
             letter-spacing: 1.5px;
-            color: #7a7268;
+            color: var(--phos-dim);
             font-weight: bold;
         }
 
         #roomCode {
-            font-family: 'Courier New', monospace;
-            font-size: clamp(0.95rem, 2.4vmin, 1.35rem);
+            font-family: var(--font-display);
+            font-size: clamp(0.8rem, 2.0vmin, 1.1rem);   /* display face runs wide */
             font-weight: bold;
             letter-spacing: 3px;
+            color: var(--sig-cyan);
         }
 
         .top-btn {
@@ -98,16 +109,16 @@
             text-transform: uppercase;
             letter-spacing: 1px;
             padding: 5px 10px;
-            border: 2px solid #2a2a2a;
+            border: 2px solid var(--sig-cyan);
             border-radius: 6px;
-            background: #f9f7f4;
-            color: #2a2a2a;
+            background: transparent;
+            color: var(--sig-cyan);
             cursor: pointer;
             text-decoration: none;
             white-space: nowrap;
         }
 
-        .top-btn:hover { background: #2a2a2a; color: #f5f3f0; }
+        .top-btn:hover { background: var(--sig-cyan); color: var(--ground); }
 
         /* The roster. Horizontal chips rather than a vertical list,
            because this band is short and wide. Scrolls sideways on its
@@ -128,17 +139,17 @@
             align-items: center;
             gap: 6px;
             padding: 4px 10px;
-            background: #f9f7f4;
-            border: 2px solid #d8d2cc;
+            background: transparent;
+            border: 2px solid var(--phos-dim);
             border-radius: 999px;
             font-size: 0.75rem;
             white-space: nowrap;
             flex: 0 0 auto;
         }
 
-        .player-chip.is-you { border-color: #2a2a2a; font-weight: bold; }
+        .player-chip.is-you { border-color: var(--phos-hot); color: var(--phos-hot); font-weight: bold; }
 
-        .player-chip.is-ready { border-color: #2f7d32; background: #eef7ee; }
+        .player-chip.is-ready { border-color: var(--sig-cyan); background: rgba(0, 229, 255, 0.12); }
 
         /* Someone in this room code who is inside a game. Shown because
            "who's around" should include them, muted because they are NOT
@@ -147,13 +158,13 @@
         .player-chip.in-game {
             background: transparent;
             border-style: dashed;
-            border-color: #c8c2bc;
-            color: #7a7268;
+            border-color: var(--phos-dim);
+            color: var(--phos-dim);
         }
 
         .player-game-tag {
             font-size: 0.6rem;
-            color: #8a8278;
+            color: var(--phos-dim);
             text-transform: uppercase;
             letter-spacing: 1px;
         }
@@ -162,7 +173,7 @@
             flex: 0 0 auto;
             width: 2px;
             height: 20px;
-            background: #d8d2cc;
+            background: var(--phos-dim);
             margin: 0 2px;
         }
 
@@ -175,14 +186,14 @@
 
         .player-you-tag {
             font-size: 0.6rem;
-            color: #8a8278;
+            color: var(--phos-dim);
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
         #rosterEmpty {
             font-size: 0.72rem;
-            color: #8a8278;
+            color: var(--phos-dim);
             font-style: italic;
         }
 
@@ -203,10 +214,10 @@
             align-self: center;
             width: clamp(32px, 4.5vw, 54px);
             height: clamp(64px, 18vmin, 150px);
-            border: 3px solid #2a2a2a;
+            border: 2px solid var(--sig-cyan);
             border-radius: 10px;
-            background: #ede9e6;
-            color: #2a2a2a;
+            background: transparent;
+            color: var(--sig-cyan);
             font-size: clamp(1.1rem, 3vmin, 2rem);
             font-family: inherit;
             line-height: 1;
@@ -214,7 +225,7 @@
             transition: background 0.15s ease, transform 0.15s ease;
         }
 
-        .page-arrow:hover:not(:disabled) { background: #2a2a2a; color: #f5f3f0; transform: scale(1.05); }
+        .page-arrow:hover:not(:disabled) { background: var(--sig-cyan); color: var(--ground); transform: scale(1.05); }
         .page-arrow:disabled { opacity: 0.2; cursor: default; }
 
         #boardInner {
@@ -247,13 +258,13 @@
             width: 9px;
             height: 9px;
             border-radius: 50%;
-            border: 2px solid #2a2a2a;
+            border: 2px solid var(--sig-cyan);
             background: transparent;
             padding: 0;
             cursor: pointer;
         }
 
-        .page-dot.active { background: #2a2a2a; }
+        .page-dot.active { background: var(--sig-cyan); }
 
         /* ---- tiles ---- */
         .tile {
@@ -267,10 +278,10 @@
             justify-content: center;
             gap: clamp(2px, 0.8vmin, 8px);
             padding: clamp(6px, 1.6vmin, 18px);
-            border: 3px solid #2a2a2a;
+            border: 2px solid var(--sig-cyan);
             border-radius: 10px;
-            background: linear-gradient(135deg, #f9f7f4 0%, #ede9e6 100%);
-            color: #2a2a2a;
+            background: var(--ground);
+            color: var(--phos-mid);
             text-decoration: none;
             cursor: pointer;
             transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
@@ -278,8 +289,8 @@
 
         .tile:hover {
             transform: translateY(-4px);
-            box-shadow: 0 6px 18px rgba(42, 42, 42, 0.18);
-            background: linear-gradient(135deg, #e8e3df 0%, #dcd8d3 100%);
+            box-shadow: 0 0 14px rgba(0, 229, 255, 0.45);
+            background: rgba(0, 229, 255, 0.10);
         }
 
         .tile:active { transform: translateY(-1px); }
@@ -288,9 +299,9 @@
            well as on the Continue button so it's obvious WHICH game the
            button at the bottom is about, without reading the label. */
         .tile.is-leader {
-            border-color: #b8860b;
-            box-shadow: 0 0 0 3px rgba(184, 134, 11, 0.3);
-            background: linear-gradient(135deg, #fdf6e3 0%, #f3e9cf 100%);
+            border-color: var(--sig-amber);
+            box-shadow: 0 0 0 2px rgba(255, 176, 0, 0.45);
+            background: rgba(255, 176, 0, 0.12);
         }
 
         .tile-icon { font-size: clamp(1.3rem, 5.5vmin, 3rem); line-height: 1; }
@@ -298,13 +309,16 @@
         .tile-title {
             font-size: clamp(0.68rem, 2.1vmin, 1.15rem);
             font-weight: 700;
+            font-family: var(--font-display);
+            text-transform: uppercase;
             text-align: center;
             line-height: 1.2;
         }
 
         .tile-desc {
             font-size: clamp(0.55rem, 1.4vmin, 0.8rem);
-            color: #5a5a5a;
+            color: var(--phos-dim);
+            font-family: var(--font-ui);
             font-style: italic;
             text-align: center;
             line-height: 1.25;
@@ -317,9 +331,27 @@
         #tileGrid.dense .tile-desc { display: none; }
         #tileGrid.dense .tile-icon { font-size: clamp(1.1rem, 4vmin, 2rem); }
 
+        /* Attract mode (§4.8). Steps rather than fades -- a smooth pulse reads
+           as a modern web page immediately. Suppressed entirely whenever anyone
+           else is in the room; see hub/hub-attract.js. */
+        .tile.attract-on {
+            border-color: var(--sig-amber);
+            box-shadow: 0 0 0 2px rgba(255, 176, 0, 0.5), 0 0 18px rgba(255, 176, 0, 0.35);
+            animation: hub-attract-blink 1.5s steps(2, end) infinite;
+        }
+
+        @keyframes hub-attract-blink {
+            0%, 60%  { background: rgba(255, 176, 0, 0.14); }
+            61%, 100% { background: var(--ground); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .tile.attract-on { animation: none; background: rgba(255, 176, 0, 0.14); }
+        }
+
         .tile-empty {
             border-style: dashed;
-            border-color: #d8d2cc;
+            border-color: var(--phos-dim);
             background: none;
             cursor: default;
             pointer-events: none;
@@ -329,8 +361,8 @@
             position: absolute;
             top: 8px;
             right: 8px;
-            background: #d32f2f;
-            color: #f5f3f0;
+            background: var(--sig-amber);
+            color: var(--ground);
             padding: 3px 7px;
             font-size: 0.5rem;
             font-weight: bold;
@@ -355,15 +387,22 @@
            game you can vote for. */
         .tile-stamp {
             position: absolute;
-            top: 50%;
+            /* Sits over the ICON, not the centre. Centred, the rotated box spans
+               68px and lands exactly on the title and description -- which was
+               survivable in Arial and is not in Press Start 2P, a much wider and
+               heavier face. Moving it up keeps the stamp-across-the-artwork idiom
+               (6.0 says keep the stamps) while leaving the game name readable.
+               The shallower angle is the same fix: most of that 68px was the
+               rotation, not the text. */
+            top: 34%;
             left: 50%;
-            transform: translate(-50%, -50%) rotate(-21deg);
+            transform: translate(-50%, -50%) rotate(-16deg);
             max-width: 94%;
             padding: 4px 10px;
-            border: 3px solid #c0392b;
+            border: 3px solid var(--sig-amber);
             border-radius: 6px;
-            color: #c0392b;
-            background: rgba(255, 255, 255, 0.55);
+            color: var(--sig-amber);
+            background: rgba(0, 0, 0, 0.55);
             font-size: clamp(0.48rem, 1.5vmin, 0.85rem);
             font-weight: 800;
             letter-spacing: 2px;
@@ -376,7 +415,7 @@
         }
 
         /* Genuinely broken reads a shade heavier than "solo for now". */
-        .tile-stamp.blocked { opacity: 1; background: rgba(255, 235, 233, 0.8); }
+        .tile-stamp.blocked { opacity: 1; background: rgba(0, 0, 0, 0.8); }
 
         /* ===================================================
            VOTE CHECKMARK
@@ -392,8 +431,8 @@
             min-width: 26px;
             height: 26px;
             border-radius: 13px;
-            border: 2px solid rgba(42, 42, 42, 0.35);
-            background: rgba(255, 255, 255, 0.7);
+            border: 2px solid rgba(0, 229, 255, 0.45);
+            background: rgba(0, 0, 0, 0.6);
             z-index: 3;
             cursor: pointer;
             display: flex;
@@ -404,8 +443,8 @@
             transition: transform 0.15s ease, background 0.15s ease;
         }
 
-        .vote-check:hover { background: #fdfcfb; transform: scale(1.1); }
-        .vote-check.mine { border-color: #2a2a2a; border-width: 3px; }
+        .vote-check:hover { background: rgba(0, 229, 255, 0.18); transform: scale(1.1); }
+        .vote-check.mine { border-color: var(--sig-cyan); border-width: 3px; }
 
         .vote-check-dot {
             width: 8px;
@@ -416,7 +455,7 @@
 
         .vote-check-empty-icon {
             font-size: 0.65rem;
-            color: rgba(42, 42, 42, 0.3);
+            color: var(--phos-dim);
             line-height: 1;
         }
 
@@ -432,8 +471,8 @@
             justify-content: center;
             gap: 6px;
             padding: 8px 16px;
-            border-top: 3px solid #2a2a2a;
-            background: #ede9e6;
+            border-top: 2px solid var(--sig-cyan);
+            background: var(--ground);
             position: relative;
             z-index: 800;
         }
@@ -443,10 +482,10 @@
             align-items: center;
             gap: 12px;
             padding: 12px 26px;
-            border: 3px solid #2a2a2a;
+            border: 2px solid var(--sig-cyan);
             border-radius: 10px;
-            background: #2a2a2a;
-            color: #f5f3f0;
+            background: transparent;
+            color: var(--sig-cyan);
             font-family: inherit;
             font-size: clamp(0.75rem, 2vmin, 1rem);
             font-weight: bold;
@@ -459,8 +498,8 @@
         #continueBtn:hover:not(:disabled) { transform: translateY(-2px); }
         #continueBtn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-        #continueBtn.iam-ready { background: #2f7d32; border-color: #2f7d32; }
-        #continueBtn.is-launching { background: #b8860b; border-color: #b8860b; }
+        #continueBtn.iam-ready { background: var(--sig-cyan); border-color: var(--sig-cyan); color: var(--ground); }
+        #continueBtn.is-launching { background: var(--sig-amber); border-color: var(--sig-amber); color: var(--ground); }
 
         /* Same dot cluster as a tile's vote checkmark -- the Continue
            button is a second vote, so it reads as one. */
@@ -472,13 +511,13 @@
             height: 22px;
             padding: 0 7px;
             border-radius: 11px;
-            background: rgba(255, 255, 255, 0.16);
-            border: 2px solid rgba(245, 243, 240, 0.4);
+            background: rgba(0, 229, 255, 0.14);
+            border: 2px solid rgba(0, 229, 255, 0.45);
         }
 
         #continueHint {
             font-size: 0.65rem;
-            color: #7a7268;
+            color: var(--phos-dim);
             letter-spacing: 0.5px;
             text-align: center;
         }
@@ -490,7 +529,7 @@
             position: fixed;
             inset: 0;
             z-index: 1000;
-            background: rgba(245, 243, 240, 0.94);
+            background: rgba(0, 0, 0, 0.94);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -501,8 +540,8 @@
             width: min(460px, 100%);
             max-height: 100%;
             overflow-y: auto;
-            background: #ede9e6;
-            border: 3px solid #2a2a2a;
+            background: var(--ground);
+            border: 2px solid var(--sig-cyan);
             border-radius: 10px;
             padding: clamp(18px, 3vmin, 28px);
         }
@@ -512,7 +551,7 @@
         .identity-card p {
             font-size: 0.8rem;
             line-height: 1.5;
-            color: #3a3a3a;
+            color: var(--phos-mid);
             margin: 10px 0 16px;
         }
 
@@ -527,7 +566,7 @@
 
         .identity-field label {
             font-size: 0.62rem;
-            color: #5a5a5a;
+            color: var(--phos-dim);
             text-transform: uppercase;
             letter-spacing: 1px;
             font-weight: bold;
@@ -535,11 +574,11 @@
 
         .identity-field input {
             padding: 10px 12px;
-            border: 2px solid #2a2a2a;
+            border: 2px solid var(--sig-cyan);
             border-radius: 6px;
             font-size: 0.95rem;
-            background: #fdfcfb;
-            color: #2a2a2a;
+            background: var(--ground);
+            color: var(--phos-hot);
             font-family: inherit;
             width: 100%;
         }
@@ -549,9 +588,9 @@
 
         #identityJoinBtn {
             padding: 11px 24px;
-            background: #2a2a2a;
-            color: #f5f3f0;
-            border: 2px solid #2a2a2a;
+            background: var(--sig-cyan);
+            color: var(--ground);
+            border: 2px solid var(--sig-cyan);
             border-radius: 6px;
             font-family: inherit;
             font-weight: bold;
@@ -565,7 +604,7 @@
            lands in the shared "public" room. It's a nudge, not a gate:
            this page's whole purpose is group presence, and a blank
            default would quietly defeat that for anyone clicking through. */
-        .identity-hint { font-size: 0.66rem; color: #8a5a3a; margin-top: 12px; line-height: 1.5; }
+        .identity-hint { font-size: 0.66rem; color: var(--sig-amber); margin-top: 12px; line-height: 1.5; }
 
         /* Stops above the bottom bar (pointer-events:none anyway) so the
            Continue button stays visible AND clickable during the count --
@@ -578,13 +617,13 @@
             bottom: var(--bottom-h);
             z-index: 700;
             pointer-events: none;
-            background: rgba(42, 42, 42, 0.55);
+            background: rgba(0, 0, 0, 0.82);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             gap: 6px;
-            color: #f5f3f0;
+            color: var(--phos-hot);
         }
 
         #countdownNumber { font-size: clamp(4rem, 22vmin, 12rem); font-weight: 800; line-height: 1; }
@@ -631,8 +670,8 @@
         .remote-cursor-label {
             font-size: 0.62rem;
             font-weight: bold;
-            color: #f5f3f0;
-            background: rgba(42, 42, 42, 0.85);
+            color: var(--ground);
+            background: rgba(0, 0, 0, 0.85);
             padding: 2px 6px;
             border-radius: 4px;
             white-space: nowrap;
@@ -698,978 +737,33 @@
         </div>
     </div>
 
-<script>
-// ===================================================
-//   GAME MANIFEST
-// ===================================================
-// The tiles used to be 14 hardcoded <a> blocks. Paging can't work
-// against hardcoded markup -- which page a game lands on has to be
-// computed -- so the list is data now and the markup is generated.
-// Order is unchanged from the old grid, so anyone used to where a game
-// sat still finds it in the same place, just possibly on page 2.
-const PAGE_SIZE = 6;
-
-// mp:true     -- plays together over the server today (no stamp)
-// broken:true -- PROJECT_MEMORY marks it not-functioning
-// Everything else works, but only on your own screen.
-//
-// Order: the four you can actually play together come first, then the
-// rest in the order they sat in the old grid. With 6 to a page that puts
-// every group-ready game on page 1, which is what a room staring at this
-// screen is trying to pick from. Move the first four back down if you'd
-// rather keep the original ordering.
-const GAMES = [
-    { id: "zombie",               icon: "🧟",  title: "Zombie",               desc: "Co-op Survival",                 href: "zombie/Zombie.html", isNew: true, mp: true },
-    { id: "space-tracer",         icon: "🚀",  title: "Space Tracer",         desc: "Multiplayer Ship Combat",        href: "gyro-space/space-tracer.html", isNew: true, mp: true },
-    { id: "glass-city-escape",    icon: "🏙️",  title: "Glass City Escape",    desc: "Building-Hopping Race",          href: "glass-city-escape/glass_city_escape.html", isNew: true, mp: true },
-    { id: "boids",                icon: "🐦",  title: "Boids",                desc: "Competitive Swarm Attractor",    href: "boids/boids_1.html", isNew: true, mp: true },
-    { id: "javelin-battle",       icon: "⚔️",  title: "Javelin Battle",       desc: "2-Player Combat Arena",          href: "javelin-battle/javelin-battle.html" },
-    { id: "fruit-dropper",        icon: "🍎",  title: "Fruit Dropper",        desc: "Catch the Fruit",                href: "fruit-dropper/fruit-dropper.html" },
-    { id: "four-d-pong",          icon: "🎾",  title: "4D Pong",              desc: "Paddle Precision",               href: "four-d-pong/four-d-pong.html" },
-    { id: "desert-robot-blaster", icon: "🤖",  title: "Desert Robot Blaster", desc: "Shoot & Survive",                href: "desert-robot-blaster/desert-robot-blaster.html" },
-    { id: "voice-runner",         icon: "🎤",  title: "Voice Runner",         desc: "Voice Controlled",               href: "voice-runner/voice-runner.html", broken: true },
-    { id: "infected-labyrinth",   icon: "🧠",  title: "Infected Labyrinth",   desc: "Maze Shooter with Portals",      href: "infected-labyrinth/infected-labyrinth.html", isNew: true },
-    { id: "kula-world",           icon: "🎲",  title: "Kula World",           desc: "Rolling-Cube Puzzle Platformer", href: "kula-world/kula_world_fixed.html", isNew: true },
-    { id: "particle-simulation",  icon: "✨",  title: "Particle Simulation",  desc: "Command a Swarm of Particles",   href: "particle-simulation/particle_simulation_game.html", isNew: true },
-    { id: "wasteland-train-sim",  icon: "🚂",  title: "Wasteland Train Sim",  desc: "Survive the Wasteland by Rail",  href: "wasteland-train-sim/wasteland_train_sim.html", isNew: true },
-    { id: "ps1-racer",            icon: "🏎️",  title: "PS1 Racer",            desc: "Retro Low-Poly Racing",          href: "ps1-racer/ps1racer.html", broken: true },
-    { id: "rd-arena",             icon: "🧫",  title: "RD Arena",             desc: "Reaction-Diffusion Arena",       href: "rd-arena/RDArena.html", isNew: true },
-    // The filename really does contain a space; pre-encoded here because
-    // gameHref() appends its query string to this string directly.
-    { id: "hex-grid",             icon: "⬢",  title: "Hex Grid",             desc: "Hex Tile Experiment",            href: "hex-grid/Hex%20Grid.html", isNew: true, broken: true },
-    { id: "reality-rewrite",      icon: "🌀",  title: "Reality Rewrite",      desc: "Rewrite the Rules",              href: "reality-rewrite/reality-rewrite.html", isNew: true }
-];
-
-// Derived once rather than written per game, so "does this play
-// together" stays one fact per entry instead of two that can drift.
-GAMES.forEach(g => {
-    if (g.mp) return;
-    g.stamp = g.broken ? "COMING SOON" : "MULTIPLAYER SOON";
-});
-
-
-function gameById(id) {
-    return GAMES.find(g => g.id === id) || null;
-}
-
-
-// ===================================================
-//   TEARDOWN PLUMBING
-// ===================================================
-// Root CLAUDE.md's hard constraint: every timer through
-// trackTimeout/trackInterval, every listener through one
-// AbortController. The hub isn't a GameInstance and isn't embedded
-// anywhere today, but it now owns a countdown, a reconnect timer and a
-// pile of listeners, and the constraint is cheap to honour up front and
-// expensive to retrofit.
-const hubAbort = new AbortController();
-const hubSignal = hubAbort.signal;
-const timeouts = new Set();
-const intervals = new Set();
-
-function trackTimeout(fn, ms) {
-    const id = setTimeout(() => { timeouts.delete(id); fn(); }, ms);
-    timeouts.add(id);
-    return id;
-}
-
-function trackInterval(fn, ms) {
-    const id = setInterval(fn, ms);
-    intervals.add(id);
-    return id;
-}
-
-function clearTracked(id) {
-    clearTimeout(id);
-    clearInterval(id);
-    timeouts.delete(id);
-    intervals.delete(id);
-}
-
-function destroy() {
-    timeouts.forEach(clearTimeout);
-    intervals.forEach(clearInterval);
-    timeouts.clear();
-    intervals.clear();
-    hubAbort.abort();
-    if (socket) { socket.onclose = null; socket.close(); }
-}
-
-
-// ===================================================
-//   IDENTITY
-// ===================================================
-// The server computes color from the name and hands it back as
-// authoritative (see server.js). This local copy of the hash is a
-// FALLBACK only -- for a player we've heard about but have no color
-// for yet. It is deliberately the same djb2 + palette the server uses,
-// so it can never disagree with it; don't invent a second scheme here.
-const SERVER_URL = "wss://my-games-faxi.onrender.com";
-
-const COLOR_PALETTE = [
-    "hsl(0, 85%, 60%)", "hsl(30, 90%, 55%)", "hsl(50, 95%, 55%)",
-    "hsl(120, 70%, 45%)", "hsl(180, 75%, 45%)", "hsl(210, 85%, 55%)",
-    "hsl(260, 75%, 60%)", "hsl(300, 70%, 55%)", "hsl(330, 80%, 55%)",
-    "hsl(45, 100%, 60%)"
-];
-
-function hashStringToIndex(str, modulo) {
-    let hash = 5381;
-    for (let i = 0; i < str.length; i++) {
-        hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
-    }
-    return Math.abs(hash) % modulo;
-}
-
-function getColorFromName(name) {
-    const key = (name && name.trim()) || "Anonymous";
-    return COLOR_PALETTE[hashStringToIndex(key, COLOR_PALETTE.length)];
-}
-
-
-// ===================================================
-//   ELEMENTS
-// ===================================================
-const roomCodeEl = document.getElementById("roomCode");
-const playerStrip = document.getElementById("playerStrip");
-const changeIdentityBtn = document.getElementById("changeIdentityBtn");
-
-const tileGrid = document.getElementById("tileGrid");
-const pageDots = document.getElementById("pageDots");
-const pagePrev = document.getElementById("pagePrev");
-const pageNext = document.getElementById("pageNext");
-
-const continueBtn = document.getElementById("continueBtn");
-const continueLabel = document.getElementById("continueLabel");
-const continueDots = document.getElementById("continueDots");
-const continueHint = document.getElementById("continueHint");
-
-const countdownOverlay = document.getElementById("countdownOverlay");
-const countdownNumber = document.getElementById("countdownNumber");
-const countdownGame = document.getElementById("countdownGame");
-
-const identityOverlay = document.getElementById("identityOverlay");
-const identityNameInput = document.getElementById("identityNameInput");
-const identityRoomInput = document.getElementById("identityRoomInput");
-const identityJoinBtn = document.getElementById("identityJoinBtn");
-
-
-// ===================================================
-//   STATE
-// ===================================================
-let socket = null;
-let myName = "";
-let myRoom = "";
-let reconnectTimer = null;
-
-// name -> {color}. Unlike the old hub this DOES include you: the server's
-// player snapshot excludes self (it sends you separately as `you`), and
-// the old code never added itself back, so your own dot never appeared.
-// It's load-bearing now -- "everyone is ready" can't be counted from a
-// roster that's missing a person.
-const roomMembers = {};
-
-// gameId -> Map<voterName, color>. Grouped by game because rendering
-// always asks "who voted for THIS tile" -- one lookup per tile, rather
-// than scanning every voter for each tile.
-const votesByGame = new Map();
-
-function voteMapFor(gameId) {
-    if (!votesByGame.has(gameId)) votesByGame.set(gameId, new Map());
-    return votesByGame.get(gameId);
-}
-
-// Players in this room code who are inside a GAME rather than on the
-// hub. They show in the roster but are never counted by the ready-check:
-// nobody can click Continue from inside Zombie, so counting them would
-// stall every launch. See presenceFor() in server.js.
-let presenceList = [];
-
-// Lobby state, server-authoritative once a "lobby" message has arrived.
-let serverLeaderGameId = null;
-let readyNames = [];
-let isLaunching = false;
-
-// Whether the server we're actually talking to implements the lobby
-// protocol. The hub has shipped code for a protocol the server didn't
-// implement once before (votes and cursors did nothing in production for
-// weeks) -- so instead of a Continue button that silently does nothing,
-// an un-upgraded server gets a visibly disabled button that says why.
-let serverHasLobby = false;
-
-let currentPage = 0;
-
-function pageCount() {
-    return Math.max(1, Math.ceil(GAMES.length / PAGE_SIZE));
-}
-
-function gamesOnPage(page) {
-    return GAMES.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
-}
-
-
-// ===================================================
-//   THE WINNING GAME
-// ===================================================
-// Strict plurality: the one game with MORE votes than any other. A tie
-// means no winner, so the group breaks it rather than the page picking
-// for them. The server runs this same rule and its answer wins; this
-// local copy only labels the button before/without a lobby-capable
-// server, and uses identical logic so the two can't disagree.
-function computeLocalLeader() {
-    let leader = null;
-    let best = 0;
-    let tied = false;
-
-    votesByGame.forEach((voters, gameId) => {
-        const count = voters.size;
-        if (count === 0) return;
-        if (count > best) { leader = gameId; best = count; tied = false; }
-        else if (count === best) { tied = true; }
-    });
-
-    return tied ? null : leader;
-}
-
-function effectiveLeader() {
-    return serverHasLobby ? serverLeaderGameId : computeLocalLeader();
-}
-
-
-// ===================================================
-//   LAYOUT
-// ===================================================
-// Same games per page on every device -- only the SHAPE of the grid
-// changes. "Page 2" therefore means the same thing to everyone in the
-// room, which matters when you're telling a friend where to look. A
-// per-device tile count would have put two people on genuinely different
-// pages under the same page number.
-let lastCols = null;
-let lastDense = null;
-
-function applyGridShape() {
-    const cols = window.innerWidth >= window.innerHeight ? 3 : 2;
-
-    // Only write when something actually changed. This runs from a
-    // ResizeObserver, and an unconditional style write on every
-    // observation is how you get an observer that re-triggers itself.
-    if (cols !== lastCols) {
-        lastCols = cols;
-        tileGrid.style.setProperty("--cols", String(cols));
-        tileGrid.style.setProperty("--rows", String(PAGE_SIZE / cols));
-    }
-
-    // Measured, not guessed: whether a description fits depends on the
-    // height each tile actually got, which depends on the window, the
-    // grid shape and the buffers all at once.
-    requestAnimationFrame(() => {
-        const first = tileGrid.querySelector(".tile");
-        if (!first) return;
-        const dense = first.getBoundingClientRect().height < 118;
-        if (dense !== lastDense) {
-            lastDense = dense;
-            tileGrid.classList.toggle("dense", dense);
-        }
-        repositionRemoteCursors();
-    });
-}
-
-
-// ===================================================
-//   RENDERING
-// ===================================================
-function gameHref(game) {
-    // Carries identity forward on every tile link, so a game opened from
-    // here knows who you are without you re-entering it -- and so does a
-    // link pasted to a friend, whose browser has no localStorage from
-    // this session. Built by hand rather than via URL(), which mangles
-    // relative paths under file://.
-    if (!myName) return game.href;
-    return game.href
-        + "?name=" + encodeURIComponent(myName)
-        + "&room=" + encodeURIComponent(myRoom);
-}
-
-// Rebuilding the whole page of tiles on every vote would tear down the
-// DOM under the player's cursor mid-hover, and momentarily orphan every
-// remote cursor anchored to a tile. Only the winning tile's highlight
-// depends on the tally, so rebuild just when the winner moves; otherwise
-// repaint the checkmarks in place.
-let renderedLeader = null;
-
-function syncBoard() {
-    const leader = effectiveLeader();
-    if (leader !== renderedLeader) renderTiles();
-    else renderAllVoteChecks();
-}
-
-function renderTiles() {
-    const leader = effectiveLeader();
-    renderedLeader = leader;
-    const games = gamesOnPage(currentPage);
-    const parts = [];
-
-    games.forEach(g => {
-        parts.push(`
-            <a class="tile${g.id === leader ? " is-leader" : ""}" href="${escapeAttr(gameHref(g))}" data-game-id="${escapeAttr(g.id)}">
-                <button class="vote-check" data-game-id="${escapeAttr(g.id)}" title="Vote for this game" aria-label="Vote for ${escapeAttr(g.title)}"></button>
-                ${g.isNew ? '<div class="new-badge">NEW</div>' : ""}
-                ${g.stamp ? `<div class="tile-stamp${g.broken ? " blocked" : ""}">${escapeHtml(g.stamp)}</div>` : ""}
-                <div class="tile-icon">${g.icon}</div>
-                <div class="tile-title">${escapeHtml(g.title)}</div>
-                <div class="tile-desc">${escapeHtml(g.desc)}</div>
-            </a>
-        `);
-    });
-
-    // Empty slots keep every page's tiles the same size. Without them a
-    // 5-tile last page would stretch its tiles to fill an 8-slot grid and
-    // look like a different screen.
-    for (let i = games.length; i < PAGE_SIZE; i++) {
-        parts.push('<div class="tile tile-empty"></div>');
-    }
-
-    tileGrid.innerHTML = parts.join("");
-    renderAllVoteChecks();
-    applyGridShape();
-}
-
-function renderPageDots() {
-    const total = pageCount();
-    pageDots.innerHTML = Array.from({ length: total }, (_, i) =>
-        `<button class="page-dot${i === currentPage ? " active" : ""}" data-page="${i}" aria-label="Page ${i + 1}"></button>`
-    ).join("");
-
-    pagePrev.disabled = currentPage === 0;
-    pageNext.disabled = currentPage >= total - 1;
-}
-
-function setPage(page) {
-    const total = pageCount();
-    currentPage = Math.max(0, Math.min(total - 1, page));
-    renderTiles();
-    renderPageDots();
-    repositionRemoteCursors();
-}
-
-function renderRoster() {
-    roomCodeEl.textContent = (myRoom || "----").toUpperCase();
-
-    const names = Object.keys(roomMembers);
-
-    // You first, then everyone else -- your own chip shouldn't move
-    // around as people come and go.
-    names.sort((a, b) => (a === myName ? -1 : b === myName ? 1 : a.localeCompare(b)));
-
-    const lobbyChips = names.map(name => {
-        const isYou = name === myName;
-        const isReady = readyNames.includes(name);
-        return `
-            <span class="player-chip${isYou ? " is-you" : ""}${isReady ? " is-ready" : ""}">
-                <span class="player-dot" style="background:${escapeAttr(roomMembers[name].color)}"></span>
-                <span>${escapeHtml(name)}</span>
-                ${isYou ? '<span class="player-you-tag">you</span>' : ""}
-            </span>
-        `;
-    });
-
-    // Someone with the hub open in one tab and a game in another would
-    // otherwise appear twice. The lobby entry wins -- that's the one
-    // that can actually click Continue.
-    const gameChips = presenceList
-        .filter(p => !roomMembers[p.name])
-        .map(p => {
-            const game = gameById(p.game);
-            const label = game ? game.title : "in a game";
-            return `
-                <span class="player-chip in-game" title="${escapeAttr(p.name + " is playing " + label)}">
-                    <span class="player-dot" style="background:${escapeAttr(p.color || getColorFromName(p.name))}"></span>
-                    <span>${escapeHtml(p.name)}</span>
-                    <span class="player-game-tag">${escapeHtml(label)}</span>
-                </span>
-            `;
-        });
-
-    if (lobbyChips.length === 0 && gameChips.length === 0) {
-        playerStrip.innerHTML = '<span id="rosterEmpty">Not connected</span>';
-        return;
-    }
-
-    playerStrip.innerHTML = lobbyChips.join("")
-        + (gameChips.length ? '<span class="roster-divider"></span>' + gameChips.join("") : "");
-}
-
-// Redraws every vote checkmark on the CURRENT page from votesByGame.
-// Cheap enough to redo wholesale: at most 8 buttons, and a vote is a
-// person clicking, not a per-frame event.
-function renderAllVoteChecks() {
-    tileGrid.querySelectorAll(".vote-check").forEach(btn => {
-        const gameId = btn.dataset.gameId;
-        const voters = votesByGame.get(gameId);
-        const voterNames = voters ? Array.from(voters.keys()) : [];
-
-        btn.classList.toggle("mine", voterNames.includes(myName));
-
-        if (voterNames.length === 0) {
-            btn.innerHTML = '<span class="vote-check-empty-icon">✓</span>';
-            btn.title = "Vote for this game";
-        } else {
-            btn.innerHTML = voterNames
-                .map(n => `<span class="vote-check-dot" style="background:${escapeAttr(voters.get(n))}"></span>`)
-                .join("");
-            btn.title = voterNames.join(", ") + " voted for this";
-        }
-    });
-}
-
-// "Launch cancelled -- a player joined" is only useful if it survives
-// the lobby broadcast that arrives right behind it. Held for a few
-// seconds, then the bar goes back to its normal state.
-let transientHint = "";
-let transientHintUntil = 0;
-let transientHintTimer = null;
-
-function flashHint(text) {
-    transientHint = text;
-    transientHintUntil = Date.now() + 4000;
-    if (transientHintTimer) clearTracked(transientHintTimer);
-    transientHintTimer = trackTimeout(() => { transientHintUntil = 0; renderBottomBar(); }, 4000);
-    renderBottomBar();
-}
-
-function renderBottomBar() {
-    renderBottomBarInner();
-    if (Date.now() < transientHintUntil) continueHint.textContent = transientHint;
-}
-
-function renderBottomBarInner() {
-    const leader = effectiveLeader();
-    const game = leader ? gameById(leader) : null;
-
-    // Blank buffer when the room hasn't settled on anything. The space
-    // stays reserved either way so the board doesn't resize under people
-    // the moment a vote lands.
-    if (!game) {
-        continueBtn.hidden = true;
-        continueHint.textContent = myName
-            ? "Vote for a game — the winner unlocks Continue"
-            : "";
-        return;
-    }
-
-    const total = Object.keys(roomMembers).length;
-    const iAmReady = readyNames.includes(myName);
-
-    continueBtn.hidden = false;
-    continueBtn.classList.toggle("iam-ready", iAmReady && !isLaunching);
-    continueBtn.classList.toggle("is-launching", isLaunching);
-    continueBtn.disabled = !serverHasLobby;
-
-    continueLabel.textContent = isLaunching
-        ? "STARTING " + game.title.toUpperCase()
-        : (iAmReady ? "READY — " + game.title.toUpperCase() : "CONTINUE → " + game.title.toUpperCase());
-
-    continueDots.innerHTML = readyNames.length === 0
-        ? '<span class="vote-check-empty-icon" style="color:rgba(245,243,240,0.6)">✓</span>'
-        : readyNames.map(n =>
-            `<span class="vote-check-dot" style="background:${escapeAttr((roomMembers[n] && roomMembers[n].color) || getColorFromName(n))}"></span>`
-        ).join("");
-
-    if (!serverHasLobby) {
-        continueHint.textContent = "Ready-check unavailable — the server needs the lobby update deployed";
-        continueBtn.title = "The connected server doesn't implement the ready-check yet";
-    } else {
-        continueBtn.title = "";
-        continueHint.textContent = isLaunching
-            ? "Everyone's ready — click again to cancel"
-            : `${readyNames.length}/${total} ready • everyone must click Continue`;
-    }
-}
-
-function renderAll() {
-    renderRoster();
-    renderTiles();
-    renderPageDots();
-    renderBottomBar();
-}
-
-
-// ===================================================
-//   CONNECTION
-// ===================================================
-function connectAndJoin(name, room) {
-    myName = name;
-    myRoom = (room || "public").toUpperCase();
-
-    socket = new WebSocket(SERVER_URL);
-
-    socket.onopen = () => {
-        socket.send(JSON.stringify({
-            type: "join-room",
-            // The hub has its own namespace. It used to send no game
-            // field, which put it in the legacy namespace alongside
-            // space-tracer.html -- meaning a friend already playing Gyro
-            // Space counted as someone who had to click Continue, and
-            // couldn't, deadlocking every launch. See server.js.
-            game: "_hub",
-            room: myRoom,
-            name: myName
-        }));
-    };
-
-    socket.onmessage = (event) => {
-        try {
-            handleServerMessage(JSON.parse(event.data));
-        } catch (e) {
-            console.error("Error parsing server message:", e);
-        }
-    };
-
-    socket.onclose = () => {
-        // Quiet reconnect -- doesn't bounce the player back to the join
-        // form, it just re-establishes presence underneath them.
-        if (reconnectTimer) clearTracked(reconnectTimer);
-        reconnectTimer = trackTimeout(() => {
-            if (myName) connectAndJoin(myName, myRoom);
-        }, 3000);
-    };
-
-    showHub();
-}
-
-function handleServerMessage(data) {
-    if (data.type === "players") {
-        Object.keys(roomMembers).forEach(k => delete roomMembers[k]);
-
-        // The snapshot excludes us; `you` is how the server hands us our
-        // own authoritative identity. Adding it here is what finally puts
-        // the player's own dot in their own roster.
-        if (data.you) {
-            myName = data.you.name || myName;
-            roomMembers[myName] = { color: data.you.color || getColorFromName(myName) };
-        }
-
-        (data.players || []).forEach(p => {
-            roomMembers[p.name || "(unnamed)"] = { color: p.color || getColorFromName(p.name) };
-        });
-
-        renderAll();
-
-    } else if (data.type === "join" && data.player) {
-        roomMembers[data.player.name || "(unnamed)"] = {
-            color: data.player.color || getColorFromName(data.player.name)
-        };
-        renderRoster();
-        renderBottomBar();
-
-    } else if (data.type === "leave") {
-        if (data.name) {
-            delete roomMembers[data.name];
-            votesByGame.forEach(voters => voters.delete(data.name));
-            removeRemoteCursor(data.name);
-            renderRoster();
-            renderAllVoteChecks();
-            renderBottomBar();
-        }
-
-    } else if (data.type === "votes") {
-        votesByGame.clear();
-        (data.votes || []).forEach(v => {
-            voteMapFor(v.gameId).set(
-                v.voterName,
-                (roomMembers[v.voterName] && roomMembers[v.voterName].color) || getColorFromName(v.voterName)
-            );
-        });
-        syncBoard();
-        renderBottomBar();
-
-    } else if (data.type === "vote-update") {
-        // Broadcast to everyone including the sender, so our own
-        // checkmark is drawn from server-confirmed state rather than an
-        // optimistic local guess. gameId is null when someone un-voted,
-        // so clear this voter everywhere first -- one vote per person.
-        votesByGame.forEach(voters => voters.delete(data.voterName));
-        if (data.gameId) {
-            voteMapFor(data.gameId).set(data.voterName, data.voterColor || getColorFromName(data.voterName));
-        }
-        syncBoard();
-        renderBottomBar();
-
-    } else if (data.type === "lobby") {
-        serverHasLobby = true;
-        serverLeaderGameId = data.leaderGameId || null;
-        readyNames = data.ready || [];
-        if (!data.launching) stopCountdown();
-        syncBoard();         // the winning tile is highlighted
-        renderRoster();      // ready players are marked in the roster too
-        renderBottomBar();
-
-    } else if (data.type === "launch") {
-        startCountdown(data.gameId, data.delayMs);
-
-    } else if (data.type === "launch-cancel") {
-        stopCountdown();
-        flashHint("Launch cancelled — " + (data.reason || "something changed"));
-
-    } else if (data.type === "presence") {
-        presenceList = data.players || [];
-        renderRoster();
-
-    } else if (data.type === "cursor-update") {
-        renderRemoteCursor(data);
-    }
-}
-
-
-// ===================================================
-//   LAUNCH COUNTDOWN
-// ===================================================
-let countdownTimer = null;
-let countdownTick = null;
-
-function startCountdown(gameId, delayMs) {
-    const game = gameById(gameId);
-    if (!game) return;   // A game this hub doesn't list -- don't navigate anywhere
-
-    stopCountdown();
-    isLaunching = true;
-
-    let remaining = Math.ceil((delayMs || 3000) / 1000);
-    countdownGame.textContent = game.title;
-    countdownNumber.textContent = remaining;
-    countdownOverlay.hidden = false;
-
-    countdownTick = trackInterval(() => {
-        remaining -= 1;
-        countdownNumber.textContent = Math.max(0, remaining);
-    }, 1000);
-
-    countdownTimer = trackTimeout(() => {
-        window.location.href = gameHref(game);
-    }, delayMs || 3000);
-
-    renderBottomBar();
-}
-
-function stopCountdown() {
-    if (countdownTimer) { clearTracked(countdownTimer); countdownTimer = null; }
-    if (countdownTick) { clearTracked(countdownTick); countdownTick = null; }
-    countdownOverlay.hidden = true;
-    isLaunching = false;
-}
-
-
-// ===================================================
-//   REMOTE CURSORS
-// ===================================================
-// One element per remote player, created on their first update and
-// reused after that. Recreating per message would restart the CSS
-// transition every time and make movement look jumpy rather than
-// smoothly interpolated between 10Hz updates.
-const remoteCursorElements = {};
-const remoteCursorState = {};
-
-function resolveAnchorElement(anchor) {
-    if (!anchor) return null;
-    if (anchor === "continue") return continueBtn.hidden ? null : continueBtn;
-    // Network-supplied, so constrain it to the shape this page emits
-    // rather than interpolating arbitrary text into a selector.
-    if (/^tile:[A-Za-z0-9_-]+$/.test(anchor)) {
-        return tileGrid.querySelector('.tile[data-game-id="' + anchor.slice(5) + '"]');
-    }
-    return null;
-}
-
-function renderRemoteCursor(data) {
-    const name = data.name;
-    if (!name || name === myName) return;
-
-    remoteCursorState[name] = {
-        color: data.color || getColorFromName(name),
-        x: data.x,
-        y: data.y,
-        anchor: data.anchor || null,
-        ax: typeof data.ax === "number" ? data.ax : 0.5,
-        ay: typeof data.ay === "number" ? data.ay : 0.5
-    };
-
-    let el = remoteCursorElements[name];
-    if (!el) {
-        el = document.createElement("div");
-        el.className = "remote-cursor";
-        el.innerHTML =
-            '<div class="remote-cursor-label">' + escapeHtml(name) + '</div>' +
-            '<div class="remote-cursor-dot" style="background:' + escapeAttr(remoteCursorState[name].color) + '"></div>';
-        document.body.appendChild(el);
-        remoteCursorElements[name] = el;
-    }
-
-    positionRemoteCursor(name);
-}
-
-function positionRemoteCursor(name) {
-    const el = remoteCursorElements[name];
-    const st = remoteCursorState[name];
-    if (!el || !st) return;
-
-    const anchorEl = resolveAnchorElement(st.anchor);
-
-    if (anchorEl) {
-        const r = anchorEl.getBoundingClientRect();
-        el.style.left = (r.left + st.ax * r.width) + "px";
-        el.style.top = (r.top + st.ay * r.height) + "px";
-        el.classList.remove("offscreen");
-    } else {
-        // No anchor, or an anchor that isn't on this screen (they're on
-        // another page). Fall back to raw position and dim it, so it
-        // reads as presence rather than as "pointing at this tile."
-        if (st.x == null || st.y == null) return;
-        el.style.left = (st.x / 100 * window.innerWidth) + "px";
-        el.style.top = (st.y / 100 * window.innerHeight) + "px";
-        el.classList.toggle("offscreen", st.anchor !== null);
-    }
-}
-
-function repositionRemoteCursors() {
-    Object.keys(remoteCursorElements).forEach(positionRemoteCursor);
-}
-
-function removeRemoteCursor(name) {
-    const el = remoteCursorElements[name];
-    if (el) el.remove();
-    delete remoteCursorElements[name];
-    delete remoteCursorState[name];
-}
-
-// Same 10Hz cadence space-tracer.html uses for its position updates --
-// one convention for "how often do we send live position data" across
-// the whole project rather than a different number per page.
-const CURSOR_SEND_INTERVAL = 1000 / 10;
-let lastCursorSendTime = 0;
-
-function anchorUnder(clientX, clientY) {
-    const el = document.elementFromPoint(clientX, clientY);
-    if (!el) return null;
-
-    const tile = el.closest(".tile[data-game-id]");
-    if (tile) return { anchor: "tile:" + tile.dataset.gameId, rect: tile.getBoundingClientRect() };
-
-    if (el.closest("#continueBtn")) return { anchor: "continue", rect: continueBtn.getBoundingClientRect() };
-
-    return null;
-}
-
-
-// ===================================================
-//   SCREENS
-// ===================================================
-function showHub() {
-    identityOverlay.hidden = true;
-    renderAll();
-}
-
-function showIdentityOverlay() {
-    identityOverlay.hidden = false;
-
-    // Clear everything scoped to the room being left. Without this,
-    // switching from room ASDF to QWER shows ASDF's roster, votes and
-    // cursors bleeding into the new room until each stale entry happens
-    // to be overwritten individually.
-    stopCountdown();
-    Object.keys(roomMembers).forEach(k => delete roomMembers[k]);
-    votesByGame.clear();
-    Object.keys(remoteCursorElements).forEach(removeRemoteCursor);
-    presenceList = [];
-    serverHasLobby = false;
-    serverLeaderGameId = null;
-    readyNames = [];
-    renderAll();
-}
-
-
-// ===================================================
-//   PERSISTENCE
-// ===================================================
-function loadStoredIdentity() {
-    try {
-        return {
-            name: localStorage.getItem("gamehub_playerName") || "",
-            room: localStorage.getItem("gamehub_roomCode") || ""
-        };
-    } catch (e) {
-        return { name: "", room: "" };   // Private mode / blocked storage
-    }
-}
-
-function storeIdentity(name, room) {
-    try {
-        localStorage.setItem("gamehub_playerName", name);
-        localStorage.setItem("gamehub_roomCode", room);
-    } catch (e) { /* Not fatal -- identity just won't survive a reload */ }
-}
-
-
-// ===================================================
-//   HELPERS
-// ===================================================
-function escapeHtml(s) {
-    const div = document.createElement("div");
-    div.textContent = String(s == null ? "" : s);
-    return div.innerHTML;
-}
-
-function escapeAttr(s) {
-    return escapeHtml(s).replace(/"/g, "&quot;");
-}
-
-
-// ===================================================
-//   EVENTS
-// ===================================================
-identityJoinBtn.addEventListener("click", () => {
-    const name = identityNameInput.value.trim();
-    const room = identityRoomInput.value.trim().toUpperCase();
-
-    if (!name) { identityNameInput.focus(); return; }
-
-    storeIdentity(name, room);
-    if (socket) { socket.onclose = null; socket.close(); }
-    connectAndJoin(name, room);
-}, { signal: hubSignal });
-
-[identityNameInput, identityRoomInput].forEach(input => {
-    input.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") identityJoinBtn.click();
-    }, { signal: hubSignal });
-});
-
-changeIdentityBtn.addEventListener("click", () => {
-    if (socket) { socket.onclose = null; socket.close(); }
-    socket = null;
-    showIdentityOverlay();
-    identityNameInput.value = myName;
-    identityRoomInput.value = myRoom === "PUBLIC" ? "" : myRoom;
-}, { signal: hubSignal });
-
-// Delegated on the grid rather than per-button, so re-rendering a page
-// of tiles doesn't mean re-attaching eight listeners.
-tileGrid.addEventListener("click", (e) => {
-    const btn = e.target.closest(".vote-check");
-    if (!btn) return;
-
-    // These buttons sit inside <a class="tile"> links. Without stopping
-    // the event, voting would ALSO navigate into the game -- and voting
-    // and playing are deliberately two different actions.
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (!myName || !socket || socket.readyState !== WebSocket.OPEN) return;
-
-    socket.send(JSON.stringify({
-        type: "vote-update",
-        gameId: btn.dataset.gameId,
-        voted: !btn.classList.contains("mine")   // Toggle: clicking my own vote clears it
-    }));
-}, { signal: hubSignal });
-
-continueBtn.addEventListener("click", () => {
-    const leader = effectiveLeader();
-    if (!leader || !socket || socket.readyState !== WebSocket.OPEN) return;
-
-    socket.send(JSON.stringify({
-        type: "ready-update",
-        ready: !readyNames.includes(myName),
-        gameId: leader
-    }));
-}, { signal: hubSignal });
-
-pagePrev.addEventListener("click", () => setPage(currentPage - 1), { signal: hubSignal });
-pageNext.addEventListener("click", () => setPage(currentPage + 1), { signal: hubSignal });
-
-pageDots.addEventListener("click", (e) => {
-    const dot = e.target.closest(".page-dot");
-    if (dot) setPage(Number(dot.dataset.page));
-}, { signal: hubSignal });
-
-document.addEventListener("keydown", (e) => {
-    if (!identityOverlay.hidden) return;
-    if (e.key === "ArrowLeft") setPage(currentPage - 1);
-    else if (e.key === "ArrowRight") setPage(currentPage + 1);
-}, { signal: hubSignal });
-
-window.addEventListener("resize", () => {
-    applyGridShape();
-    repositionRemoteCursors();
-}, { signal: hubSignal });
-
-// The resize event alone isn't enough for a layout whose whole promise
-// is "fits your screen without scrolling". A phone's URL bar collapsing
-// changes the board's height without a window resize, and some browsers
-// report an orientation flip through orientationchange first. Watching
-// the board's own box catches every case, including the ones no event
-// covers.
-window.addEventListener("orientationchange", applyGridShape, { signal: hubSignal });
-
-if (window.ResizeObserver) {
-    new ResizeObserver(applyGridShape).observe(document.getElementById("board"));
-}
-
-document.addEventListener("mousemove", (e) => {
-    if (!socket || socket.readyState !== WebSocket.OPEN || !myName) return;
-
-    const now = performance.now();
-    if (now - lastCursorSendTime < CURSOR_SEND_INTERVAL) return;
-    lastCursorSendTime = now;
-
-    const hit = anchorUnder(e.clientX, e.clientY);
-
-    socket.send(JSON.stringify({
-        type: "cursor-update",
-        // Raw viewport percentage is still sent as the fallback for
-        // empty space -- it's meaningful for "where on the page are
-        // they", just not for "which tile are they pointing at."
-        x: Number(((e.clientX / window.innerWidth) * 100).toFixed(2)),
-        y: Number(((e.clientY / window.innerHeight) * 100).toFixed(2)),
-        anchor: hit ? hit.anchor : null,
-        ax: hit ? Number(((e.clientX - hit.rect.left) / hit.rect.width).toFixed(3)) : undefined,
-        ay: hit ? Number(((e.clientY - hit.rect.top) / hit.rect.height).toFixed(3)) : undefined
-    }));
-}, { signal: hubSignal });
-
-// Only tear down when the page is really going away. A pagehide with
-// persisted=true means the browser is putting this page in the back/
-// forward cache -- destroying then would hand back a dead hub to anyone
-// pressing Back out of a game.
-window.addEventListener("pagehide", (e) => { if (!e.persisted) destroy(); }, { signal: hubSignal });
-
-window.addEventListener("pageshow", (e) => {
-    if (e.persisted && myName && (!socket || socket.readyState !== WebSocket.OPEN)) {
-        connectAndJoin(myName, myRoom);
-    }
-}, { signal: hubSignal });
-
-
-// ===================================================
-//   INIT
-// ===================================================
-// A returning player doesn't retype anything -- stored identity means
-// straight into the room with the roster already up. That's the actual
-// "fluid group session" behaviour; the join form is only for a first
-// visit or a deliberate change.
-(function init() {
-    renderAll();
-
-    const stored = loadStoredIdentity();
-    identityNameInput.value = stored.name;
-    identityRoomInput.value = stored.room === "PUBLIC" ? "" : stored.room;
-
-    if (stored.name) {
-        connectAndJoin(stored.name, stored.room);
-    } else {
-        identityOverlay.hidden = false;
-        identityNameInput.focus();
-    }
-})();
-</script>
+<!--
+  The ONE external script this page loads. HUB_LOBBY_PLAN.md §5 deliberately
+  kept the hub monolithic ("one inline classic script, no external references")
+  so the collision checker stayed a no-op here. That is superseded 2026-09-03:
+  keeping the hub self-contained meant keeping a second copy of the name->colour
+  palette, and a duplicated identity scheme is a worse problem than an extra
+  <script src>. Classic relative src resolves fine under file:// -- that is the
+  whole reason this project bans modules -- and GitHub Pages serves it normally.
+  It must load BEFORE the inline script, which calls IDENTITY at startup.
+-->
+<script src="shared/identity.js"></script>
+<!-- Shared helpers from the Phase 0 layer: RETRO.attract() drives attract mode
+     (hub-attract.js) and SFX provides the two lobby sounds. Both declare one
+     global each and are covered by check-global-collisions.js. -->
+<script src="shared/retro.js"></script>
+<script src="shared/sfx.js"></script>
+<!-- The hub's own script, split out of this file 2026-09-04 (was one 958-line
+     inline block). Classic scripts sharing ONE global scope -- every top-level
+     name across them must be unique, and scripts/check-global-collisions.js
+     enforces it. Load order matters: hub-core declares the state the rest read,
+     and hub-boot is the only one that executes anything, so it goes last.
+     See hub/HUB_PASS_PLAN.md. -->
+<script src="hub/hub-core.js"></script>
+<script src="hub/hub-layout.js"></script>
+<script src="hub/hub-render.js"></script>
+<script src="hub/hub-net.js"></script>
+<script src="hub/hub-attract.js"></script>
+<script src="hub/hub-boot.js"></script>
 </body>
 </html>

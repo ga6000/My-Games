@@ -249,6 +249,25 @@
 
     function goSolo() {
         setStatus("solo");
+
+        // No server, so no authoritative colour -- but the player still has to
+        // be drawn, and `file://` double-click play is a hard constraint, so
+        // this path is normal rather than exceptional.
+        //
+        // Fall back to the SHARED implementation, never a local one. Because
+        // shared/identity.js is proven equal to the server's palette by
+        // `scripts/check-identity-parity.js`, a solo player gets exactly the
+        // colour the server would have given them -- so reconnecting, or a
+        // friend joining later, doesn't change it. That is what makes the
+        // fallback invisible instead of a second identity scheme.
+        // Name comes from readIdentity(), not opts -- most games don't pass a
+        // name at all and let mp-core resolve it (URL params, then localStorage).
+        if (!MP.selfColor && typeof IDENTITY !== "undefined") {
+            var who = MP.selfName || readIdentity(opts).name;
+            MP.selfName = MP.selfName || who;
+            MP.selfColor = IDENTITY.colorFromName(who);
+        }
+
         fireReady();
     }
 
@@ -389,6 +408,13 @@
 
         isHost: isHost,
         peers: peerList,
+
+        // The name/room the hub wrote, with the same URL-param-then-
+        // localStorage precedence connect() uses. Exposed so a game can
+        // ask "did this player arrive from the hub?" and skip its own
+        // name/room prompt, instead of re-implementing the lookup order
+        // and drifting from it.
+        identity: readIdentity,
         status: function () {
             return status;
         },

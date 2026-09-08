@@ -3,597 +3,413 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>4-Way Pong - Minimalist Edition</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <title>4D Pong</title>
+    <!--
+      Shared token layer (AESTHETIC_GUIDE.md 2/3), loaded BEFORE this game's
+      own <style> so anything below can override a token without fighting
+      specificity.
+
+      data-cabinet="raster" is what SWITCHES THE SCANLINES ON: 4.6 makes them
+      raster-only and shared/retro.css gates the rule on this attribute, so
+      .retro-scanlines does nothing without it. This is the guide's one Raster
+      reference cabinet ( 6.6, anchor: Pong 1972).
+
+      data-game="four-d-pong" resolves --world-hue to #FFFFFF ( 2.5). It is
+      already in shared/retro.css -- the hue was decided for every shelved game
+      too, which is exactly what makes promoting one cheap.
+
+      WHAT THIS FILE DELIBERATELY NO LONGER LOADS (2026-09-06):
+      cdn.tailwindcss.com, cdnjs .../Tone.js, and an @import of Google Fonts.
+      All three were dead on a double-clicked page, which is this repo's FIRST
+      hard constraint, and this file had been violating it since 2026-08-24.
+      Tone.js is replaced by shared/sfx.js + fp-audio.js; the fonts are embedded
+      as data: URIs inside shared/retro.css ( 3.2); Tailwind's handful of
+      utility classes are written out below.
+    -->
+    <link rel="stylesheet" href="../shared/retro.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        :root {
+            /*
+             * The playfield was #e5e7eb on a #f3f4f6 page -- a modern
+             * minimalist skin over literally the ur-arcade game. 2.1: pure
+             * black, no exceptions outside the Gel cabinet, and this is a
+             * Raster one.
+             */
+            --field-ink:   var(--phos-hot);   /* paddles, ball, walls */
+            --field-chrome: var(--phos-dim);  /* centre line, arena rule */
+            --panel:       rgba(0, 0, 0, 0.82);
+        }
+
+        * { box-sizing: border-box; }
+
         html, body {
             height: 100%;
             margin: 0;
-            overflow: hidden; /* Prevent scrollbars */
+            overflow: hidden;
+            background: var(--ground);
         }
+
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6; /* Light Grey Background */
-            color: #111827; /* Dark Grey Text */
             display: flex;
             justify-content: center;
             align-items: center;
         }
-        .container {
+
+        .cabinet {
             width: 100%;
             height: 100%;
-            padding: 2rem;
-            text-align: center;
+            padding: 14px 18px 10px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 1rem;
-            box-sizing: border-box;
+            gap: 10px;
         }
-        .game-wrapper {
-            position: relative;
-            width: 100%;
-            flex-grow: 1; /* Allow wrapper to fill available space */
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        canvas {
-            background-color: #e5e7eb; /* Slightly darker grey for playfield */
-            display: block;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            max-width: 100%;
-            max-height: 100%;
-        }
-        .title {
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: #111827;
-            text-shadow: none;
-            flex-shrink: 0; /* Prevent title from shrinking */
-        }
-        #score-slider-container {
-            width: 90%;
-            max-width: 1200px; /* Max width for the score bar on large screens */
-            height: 25px;
-            background-color: #9ca3af; /* P2 background */
-            border-radius: 8px;
-            overflow: hidden;
-            position: relative;
-            border: 2px solid #e5e7eb;
+
+        /* 3.1 -- Press Start 2P for the marquee, used sparingly. */
+        .marquee {
             flex-shrink: 0;
+            font-family: var(--font-display);
+            font-size: clamp(0.9rem, 2.6vmin, 1.7rem);
+            color: var(--phos-hot);
+            letter-spacing: 6px;
+            margin: 0;
         }
-        #score-slider-p1 {
+        .marquee .sub {
+            display: block;
+            font-family: var(--font-ui);
+            font-size: clamp(0.7rem, 1.6vmin, 1rem);
+            letter-spacing: 3px;
+            color: var(--sig-cyan);
+            margin-top: 4px;
+        }
+
+        /* ===================================================
+           THE SINGLE SCALE  (1P / 2P)
+           The brief keeps the existing tug-o-war bar for every version of the
+           game; in the four-paddle modes it is replaced by the two barbells on
+           #fpBack, so this is hidden rather than restyled. See fp-tug.js.
+           =================================================== */
+        #tugBar {
+            position: relative;
+            flex-shrink: 0;
+            width: min(96%, 1200px);
+            height: 26px;
+            overflow: hidden;
+            border: 2px solid var(--sig-cyan);
+            background: var(--ground);
+        }
+        /* Was a rounded grey pill with a CSS transition on width. Hard edges,
+         * no radius: this is a Raster cabinet and a plate is a plate. */
+        /* --phos-mid, not --phos-dim: at #2E3A34 the filled half and the empty
+           half were the same shade at a glance, which is a scale that does not
+           scale. This is the only readout in the two-paddle modes. */
+        #tugFill {
             height: 100%;
-            background-color: #374151; /* P1 bar */
-            transition: width 0.2s ease-out;
+            width: 50%;
+            background: var(--phos-mid);
+            opacity: 0.55;
         }
-        #score-divider {
+        #tugDivider {
             position: absolute;
             top: 0;
             left: 50%;
             width: 4px;
             height: 100%;
-            background-color: #ffffff;
+            background: var(--sig-cyan);
             transform: translateX(-50%);
-            transition: left 0.2s ease-out;
         }
-        #net-score {
+        #tugNet {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 16px;
-            font-weight: 700;
-            color: #ffffff;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            font-family: var(--font-display);
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+            color: var(--phos-hot);
+            letter-spacing: 2px;
         }
-        /* Cooldown Indicator Styles */
-        .cooldown-indicator {
-            --p: 100; /* Cooldown percentage */
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: conic-gradient(#374151 calc(var(--p) * 1%), #9ca3af 0);
+        #tugBar[hidden] { display: none; }
+
+        /* ===================================================
+           THE STAGE -- two stacked canvases
+           #fpBack sits BEHIND #fpField at a lower z-index and #fpField paints
+           no ground of its own, so the barbells are literally drawn behind the
+           canvas, which is what the brief asks for. It also earns its keep:
+           the back layer only redraws while a barbell is sliding.
+           =================================================== */
+        .stage {
+            position: relative;
+            width: 100%;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        .stage canvas {
             position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        #fpBack  { z-index: 0; }
+        #fpField { z-index: 1; }
+
+        /* 4.6 -- permitted here and nowhere on a Vector cabinet. */
+        .retro-scanlines { z-index: 2; }
+
+        /* ===================================================
+           MENU / OVERLAY
+           =================================================== */
+        .overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: background 0.1s;
+            gap: 18px;
+            background: var(--panel);
+            text-align: center;
+            padding: 20px;
         }
-        #cooldown-p1 {
-            left: 10px;
+        .overlay[hidden] { display: none; }
+
+        /*
+           4.8 -- attract mode. The overlay stays up (it is what INSERT COIN
+           lives on) but thins out and drops everything else, so what you see
+           from across the room is the cabinet playing itself. Any keypress or
+           mouse move ends the demo and brings the menu back; see exitAttract().
+        */
+        .overlay.demo { background: rgba(0, 0, 0, 0.34); }
+        .overlay.demo .row,
+        .overlay.demo .row-label,
+        .overlay.demo .keys,
+        .overlay.demo #startBtn { display: none; }
+
+        .overlay h2 {
+            font-family: var(--font-display);
+            font-size: clamp(0.8rem, 2.2vmin, 1.3rem);
+            color: var(--sig-amber);
+            letter-spacing: 4px;
+            margin: 0;
         }
-        #cooldown-p2 {
-            right: 10px;
+
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+        .row[hidden] { display: none; }
+
+        .row-label {
+            font-family: var(--font-ui);
+            font-size: clamp(0.85rem, 1.8vmin, 1.15rem);
+            letter-spacing: 3px;
+            color: var(--phos-mid);
+            text-transform: uppercase;
+        }
+
+        /*
+         * Buttons, not divs: four people share this keyboard and Tab has to
+         * reach every option. steps() on the focus ring for the same reason
+         * 3.4 gives -- nothing in an arcade cabinet eases.
+         */
+        .btn {
+            font-family: var(--font-display);
+            font-size: clamp(0.6rem, 1.5vmin, 0.85rem);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--phos-hot);
+            background: var(--ground);
+            border: 2px solid var(--phos-dim);
+            padding: 12px 16px;
+            cursor: pointer;
+            min-width: 96px;
+        }
+        .btn:hover,
+        .btn:focus-visible {
+            border-color: var(--sig-cyan);
+            color: var(--sig-cyan);
+            outline: none;
+        }
+        .btn[aria-pressed="true"] {
+            border-color: var(--sig-amber);
+            color: var(--sig-amber);
+        }
+        .btn .k {
+            display: block;
+            font-family: var(--font-ui);
+            font-size: 0.95rem;
+            letter-spacing: 1px;
+            color: var(--phos-mid);
+            margin-top: 6px;
+            text-transform: none;
+        }
+
+        /* Cyan is 2.2's system/navigable signal, and a room code is exactly
+           that -- the same colour the hub gives it. */
+        .net-status {
+            font-family: var(--font-ui);
+            font-size: clamp(0.8rem, 1.7vmin, 1.05rem);
+            letter-spacing: 2px;
+            color: var(--sig-cyan);
+            text-transform: uppercase;
+            min-height: 1.2em;
+        }
+        .net-status.warn { color: var(--sig-amber); }
+
+        .row.locked .btn {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        .keys {
+            font-family: var(--font-ui);
+            font-size: clamp(0.8rem, 1.7vmin, 1.05rem);
+            letter-spacing: 2px;
+            color: var(--phos-mid);
+            line-height: 1.5;
+            max-width: 62ch;
+        }
+        .keys b { color: var(--phos-hot); font-weight: normal; }
+
+        /* 4.8 -- the attract-mode idiom. .retro-insert-coin owns the pulse. */
+        #insertCoin { font-size: clamp(0.7rem, 1.9vmin, 1.1rem); }
+        #insertCoin[hidden] { display: none; }
+
+        .hint {
+            flex-shrink: 0;
+            font-family: var(--font-ui);
+            font-size: clamp(0.75rem, 1.5vmin, 1rem);
+            letter-spacing: 2px;
+            color: var(--phos-dim);
+            text-transform: uppercase;
+        }
+
+        /*
+         * SCOPE_PULLBACK_PLAN.md 1: mobile support is switched off across the
+         * active games. This game is four people at one keyboard and has no
+         * touch scheme at all, so it says so rather than rendering a field
+         * nobody can play. Not a media-query skin -- a statement.
+         */
+        #tooSmall {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9;
+            background: var(--ground);
+            color: var(--phos-mid);
+            font-family: var(--font-ui);
+            font-size: 1.1rem;
+            letter-spacing: 2px;
+            text-align: center;
+            padding: 30px;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+        }
+        @media (pointer: coarse) and (max-width: 820px) {
+            #tooSmall { display: flex; }
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1 class="title">PONG</h1>
-        <div id="score-slider-container">
-            <div id="score-slider-p1"></div>
-            <div id="score-divider"></div>
-            <span id="net-score">0</span>
+<body class="retro-surface" data-game="four-d-pong" data-cabinet="raster">
+
+    <div class="cabinet">
+        <h1 class="marquee">PONG<span class="sub" id="modeLabel">4D &middot; 1-4 PLAYERS</span></h1>
+
+        <!-- The single scale. Hidden by fp-tug.js in the four-paddle modes. -->
+        <div id="tugBar">
+            <div id="tugFill"></div>
+            <div id="tugDivider"></div>
+            <span id="tugNet">0</span>
         </div>
-        <div class="game-wrapper">
-            <div id="cooldown-p1" class="cooldown-indicator"></div>
-            <canvas id="pongCanvas"></canvas>
-            <div id="cooldown-p2" class="cooldown-indicator"></div>
+
+        <div class="stage" id="stage">
+            <canvas id="fpBack"></canvas>
+            <canvas id="fpField"></canvas>
+            <div class="retro-scanlines"></div>
+
+            <div class="overlay" id="menu">
+                <h2 id="menuTitle">SELECT PLAYERS</h2>
+
+                <div class="row" id="modeRow">
+                    <button class="btn" data-mode="1" aria-pressed="false">1P<span class="k">vs CPU</span></button>
+                    <button class="btn" data-mode="2" aria-pressed="false">2P<span class="k">left / right</span></button>
+                    <button class="btn" data-mode="3" aria-pressed="false">3P<span class="k">+ 1 CPU</span></button>
+                    <button class="btn" data-mode="4" aria-pressed="false">4P<span class="k">all four sides</span></button>
+                </div>
+
+                <!--
+                   Online status. When two or more people are in the room the
+                   game engages online play by itself and the mode buttons above
+                   are disabled -- seats are assigned by the host, so letting one
+                   player pick "2P" while the room holds three is a desync with a
+                   button attached to it. See fp-net.js.
+                -->
+                <div class="net-status" id="netStatus"></div>
+
+                <div class="row-label" id="diffLabel" hidden>DIFFICULTY</div>
+                <div class="row" id="diffRow" hidden>
+                    <button class="btn" data-diff="easy" aria-pressed="false">EASY</button>
+                    <button class="btn" data-diff="medium" aria-pressed="true">MEDIUM</button>
+                    <button class="btn" data-diff="hard" aria-pressed="false">HARD</button>
+                </div>
+
+                <div class="keys" id="menuKeys"></div>
+
+                <button class="btn" id="startBtn">START</button>
+                <div class="retro-insert-coin" id="insertCoin" hidden>INSERT COIN</div>
+            </div>
         </div>
+
+        <div class="hint" id="hint">SPACE PAUSE &middot; ESC MENU &middot; M MUTE</div>
     </div>
 
-    <script>
-        const canvas = document.getElementById('pongCanvas');
-        const ctx = canvas.getContext('2d');
-        const scoreSliderP1 = document.getElementById('score-slider-p1');
-        const scoreDivider = document.getElementById('score-divider');
-        const netScoreEl = document.getElementById('net-score');
-        const cooldownP1El = document.getElementById('cooldown-p1');
-        const cooldownP2El = document.getElementById('cooldown-p2');
+    <div id="tooSmall">
+        <div>4D&nbsp;PONG IS A KEYBOARD GAME</div>
+        <div>2 TO 4 PLAYERS AT ONE DESK. OPEN IT ON A COMPUTER.</div>
+    </div>
 
-        // --- Game Configuration ---
-        const PADDLE_WIDTH = 15;
-        const PADDLE_HEIGHT = 100;
-        const PADDLE_SPEED = 6;
-        const BALL_RADIUS = 10;
-        const INITIAL_BALL_SPEED = 5;
-        const MAX_BALL_SPEED = 15;
-        const BLASTER_SPEED = 10;
-        const STUN_DURATION = 1000;
-        const BLASTER_COOLDOWN = 3000;
-        const POWERUP_RADIUS = 7;
-        const POWERUP_RESPAWN_DELAY = 5000;
-        const MAX_SCORE_DIFFERENCE = 10; // Scaled down from 50
-        const NEUTRAL_ZONE_WIDTH = 100;
+<!--
+  identity.js must load BEFORE mp-core: mp-core falls back to it when solo, and
+  a double-clicked page has no server to ask. Neither is load-bearing for
+  gameplay here -- this game is couch multiplayer and syncs nothing -- but the
+  hub passes ?name= and ?room=, so joining identity-only is what puts a player
+  in the hub's presence roster while they are inside a game, and what makes the
+  local paddle's cap the SAME colour it is on the board.
 
-        // --- Desperation Mechanic ---
-        const DESPERATION_THRESHOLD = 6; // Scaled down from 20
-        const PADDLE_GROWTH_RATE = 25; // Scaled up from 4
-        const MACHINE_GUN_RATE = 200; 
-        
-        // --- State Variables ---
-        let paddle1, paddle2, ball, powerup;
-        let score1 = 0;
-        let score2 = 0;
-        let blasters = [];
-        let particles = [];
-        let isPaused = false;
-        let gameOver = false;
-        let winner = null;
-        let powerupRespawnTimer;
-        let gameStarted = false;
-        let countdown = 0;
-        let countdownTimer;
+  retro.js and sfx.js only define globals (RETRO, SFX), so they need only
+  precede this game's own files.
 
-        const keysPressed = {};
-        let synths = {};
-
-        // --- Game Elements ---
-        function createPaddle(x, y, width, height, color) {
-            return { x, y, width, height, color, originalColor: color, speed: PADDLE_SPEED, isStunned: false, canShoot: true, blasterFiredAt: 0, canFireMachineGun: true };
-        }
-
-        function createBall(x, y, radius, color) {
-            return { x, y, radius, color, speedX: INITIAL_BALL_SPEED, speedY: INITIAL_BALL_SPEED };
-        }
-        
-        function createBlaster(x, y, speed, color) {
-            blasters.push({ x, y, width: 20, height: 8, speedX: speed, color, active: true });
-        }
-        
-        function createParticle(x, y) {
-            const size = Math.random() * 5 + 2;
-            const speedX = (Math.random() - 0.5) * 2;
-            const speedY = Math.random() * -3 - 1; 
-            const color = `hsl(${Math.random() * 60}, 100%, 50%)`; 
-            particles.push({ x, y, size, speedX, speedY, color, life: 1 });
-        }
-
-        function createPowerup() {
-            return { x: 0, y: 0, radius: POWERUP_RADIUS, color: '#111827', active: false };
-        }
-
-        function spawnPowerup() {
-            powerup.x = canvas.width / 2;
-            powerup.y = Math.random() * (canvas.height - 40) + 20;
-            powerup.active = true;
-        }
-
-        // --- Game Setup ---
-        function resizeCanvas() {
-            const wrapper = document.querySelector('.game-wrapper');
-            const wrapperWidth = wrapper.clientWidth;
-            const wrapperHeight = wrapper.clientHeight;
-            const aspectRatio = 16 / 9;
-
-            let newWidth = wrapperWidth;
-            let newHeight = newWidth / aspectRatio;
-
-            if (newHeight > wrapperHeight) {
-                newHeight = wrapperHeight;
-                newWidth = newHeight * aspectRatio;
-            }
-            
-            canvas.width = newWidth;
-            canvas.height = newHeight;
-            resetGame();
-        }
-
-        function resetGame() {
-            score1 = 0;
-            score2 = 0;
-            gameOver = false;
-            winner = null;
-            gameStarted = false;
-            countdown = 0;
-            if (countdownTimer) clearInterval(countdownTimer);
-            blasters = [];
-            particles = [];
-            paddle1 = createPaddle(30, canvas.height / 2 - PADDLE_HEIGHT / 2, PADDLE_WIDTH, PADDLE_HEIGHT, '#000000');
-            paddle2 = createPaddle(canvas.width - 30 - PADDLE_WIDTH, canvas.height / 2 - PADDLE_HEIGHT / 2, PADDLE_WIDTH, PADDLE_HEIGHT, '#000000');
-            powerup = createPowerup();
-            resetBall();
-            if (powerupRespawnTimer) clearTimeout(powerupRespawnTimer);
-            powerupRespawnTimer = setTimeout(spawnPowerup, 2000);
-            updateScoreSlider();
-        }
-
-        function resetBall() {
-            ball = createBall(canvas.width / 2, canvas.height / 2, BALL_RADIUS, '#111827');
-            ball.speedX = (Math.random() > 0.5 ? 1 : -1) * INITIAL_BALL_SPEED;
-            ball.speedY = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 3 + 2);
-        }
-
-        // --- Drawing ---
-        function drawRect(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); }
-        function drawCircle(x, y, r, color) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2, false); ctx.closePath(); ctx.fill(); }
-        function drawPowerup() { if (powerup.active) drawCircle(powerup.x, powerup.y, powerup.radius, powerup.color); }
-        
-        function drawParticles() {
-            for (let i = particles.length - 1; i >= 0; i--) {
-                const p = particles[i];
-                ctx.globalAlpha = p.life;
-                drawRect(p.x, p.y, p.size, p.size, p.color);
-                ctx.globalAlpha = 1.0;
-            }
-        }
-        
-        function drawNet() { for (let i = 0; i < canvas.height; i += 25) drawRect(canvas.width / 2 - 1, i, 2, 15, 'rgba(0, 0, 0, 0.1)'); }
-
-        function drawNeutralZone() {
-            drawRect(canvas.width / 2 - NEUTRAL_ZONE_WIDTH / 2, 0, NEUTRAL_ZONE_WIDTH, canvas.height, 'rgba(0, 0, 0, 0.05)');
-        }
-
-        function updateScoreSlider() {
-            const scoreDifference = score2 - score1;
-            const netScore = Math.abs(scoreDifference);
-            const p1WidthPercent = 50 - (scoreDifference / MAX_SCORE_DIFFERENCE) * 50;
-
-            scoreSliderP1.style.width = `${p1WidthPercent}%`;
-            scoreDivider.style.left = `${p1WidthPercent}%`;
-            netScoreEl.textContent = netScore;
-
-            if (scoreDifference > 0) netScoreEl.style.color = '#ef4444';
-            else if (scoreDifference < 0) netScoreEl.style.color = '#ef4444';
-            else netScoreEl.style.color = '#ffffff';
-        }
-        
-        function updateCooldownIndicators() {
-            const now = Date.now();
-            let p1CooldownProgress = Math.min(((now - paddle1.blasterFiredAt) / BLASTER_COOLDOWN) * 100, 100);
-            if (paddle1.canShoot) p1CooldownProgress = 100;
-            cooldownP1El.style.setProperty('--p', p1CooldownProgress);
-            
-            let p2CooldownProgress = Math.min(((now - paddle2.blasterFiredAt) / BLASTER_COOLDOWN) * 100, 100);
-            if (paddle2.canShoot) p2CooldownProgress = 100;
-            cooldownP2El.style.setProperty('--p', p2CooldownProgress);
-        }
-
-        function drawStartScreen() {
-             drawRect(0, 0, canvas.width, canvas.height, 'rgba(243, 244, 246, 0.7)');
-             ctx.fillStyle = '#111827';
-             ctx.textAlign = 'center';
-             if (countdown > 0) {
-                 ctx.font = `bold ${canvas.width * 0.1}px 'Inter'`;
-                 ctx.fillText(countdown, canvas.width / 2, canvas.height / 2 + 20);
-             } else {
-                 ctx.font = `bold ${canvas.width * 0.08}px 'Inter'`;
-                 ctx.fillText("BEGIN", canvas.width / 2, canvas.height / 2);
-                 ctx.font = "16px 'Inter'";
-                 ctx.fillText("Press Space to Start Countdown", canvas.width / 2, canvas.height / 2 + 50);
-             }
-             ctx.textAlign = 'left';
-        }
-        
-        function drawPauseScreen() {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#ffffff'; ctx.font = `bold ${canvas.width * 0.08}px 'Inter'`;
-            ctx.textAlign = 'center'; ctx.fillText("PAUSED", canvas.width / 2, canvas.height / 2); ctx.textAlign = 'left';
-        }
-
-        function drawGameOverScreen() {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#ffffff'; ctx.font = `bold ${canvas.width * 0.08}px 'Inter'`;
-            ctx.textAlign = 'center';
-            ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 40);
-            ctx.fillStyle = '#ef4444';
-            ctx.fillText(`${winner} WINS!`, canvas.width / 2, canvas.height / 2 + 30);
-            ctx.fillStyle = '#ffffff';
-            ctx.font = "16px 'Inter'";
-            ctx.fillText("Press Enter to Restart", canvas.width / 2, canvas.height / 2 + 80);
-            ctx.textAlign = 'left';
-        }
-
-        // --- Game Logic ---
-        function handlePaddleMovement() {
-            const halfNeutralZone = NEUTRAL_ZONE_WIDTH / 2;
-            if (!paddle1.isStunned) {
-                if (keysPressed['w'] && paddle1.y > 0) paddle1.y -= PADDLE_SPEED;
-                if (keysPressed['s'] && paddle1.y < canvas.height - paddle1.height) paddle1.y += PADDLE_SPEED;
-                if (keysPressed['a'] && paddle1.x > 0) paddle1.x -= PADDLE_SPEED;
-                if (keysPressed['d'] && paddle1.x < canvas.width / 2 + halfNeutralZone - paddle1.width) {
-                    paddle1.x += PADDLE_SPEED;
-                }
-            }
-            if (!paddle2.isStunned) {
-                if (keysPressed['i'] && paddle2.y > 0) paddle2.y -= PADDLE_SPEED;
-                if (keysPressed['k'] && paddle2.y < canvas.height - paddle2.height) paddle2.y += PADDLE_SPEED;
-                if (keysPressed['j'] && paddle2.x > canvas.width / 2 - halfNeutralZone) {
-                    paddle2.x -= PADDLE_SPEED;
-                }
-                if (keysPressed['l'] && paddle2.x < canvas.width - paddle2.width) {
-                    paddle2.x += PADDLE_SPEED;
-                }
-            }
-        }
-        
-        function handleAbilities(isP1Desperate, isP2Desperate) {
-             if (keysPressed['a'] && keysPressed['d'] && !paddle1.isStunned) {
-                 if (isP1Desperate) { 
-                     if(paddle1.canFireMachineGun) {
-                        createBlaster(paddle1.x + paddle1.width, paddle1.y + paddle1.height / 2 - 4, BLASTER_SPEED, '#ef4444');
-                        if (synths.blaster) synths.blaster.triggerAttackRelease("32n");
-                        paddle1.canFireMachineGun = false;
-                        setTimeout(() => { paddle1.canFireMachineGun = true; }, MACHINE_GUN_RATE);
-                     }
-                 } else { 
-                     if(paddle1.canShoot) {
-                        createBlaster(paddle1.x + paddle1.width, paddle1.y + paddle1.height / 2 - 4, BLASTER_SPEED, '#111827');
-                        if (synths.blaster) synths.blaster.triggerAttackRelease("16n");
-                        paddle1.canShoot = false;
-                        paddle1.blasterFiredAt = Date.now();
-                        setTimeout(() => { paddle1.canShoot = true; }, BLASTER_COOLDOWN);
-                     }
-                 }
-            }
-            if (keysPressed['arrowleft'] && keysPressed['arrowright'] && !paddle2.isStunned) {
-                if (isP2Desperate) {
-                    if(paddle2.canFireMachineGun) {
-                        createBlaster(paddle2.x, paddle2.y + paddle2.height / 2 - 4, -BLASTER_SPEED, '#ef4444');
-                        if (synths.blaster) synths.blaster.triggerAttackRelease("32n");
-                        paddle2.canFireMachineGun = false;
-                        setTimeout(() => { paddle2.canFireMachineGun = true; }, MACHINE_GUN_RATE);
-                    }
-                } else {
-                    if (paddle2.canShoot) {
-                        createBlaster(paddle2.x, paddle2.y + paddle2.height / 2 - 4, -BLASTER_SPEED, '#111827');
-                        if (synths.blaster) synths.blaster.triggerAttackRelease("16n");
-                        paddle2.canShoot = false;
-                        paddle2.blasterFiredAt = Date.now();
-                        setTimeout(() => { paddle2.canShoot = true; }, BLASTER_COOLDOWN);
-                    }
-                }
-            }
-        }
-
-        function updateBlasters() {
-            for (let i = blasters.length - 1; i >= 0; i--) {
-                const blaster = blasters[i];
-                blaster.x += blaster.speedX;
-                let targetPaddle = blaster.speedX > 0 ? paddle2 : paddle1;
-                if (collision(blaster, targetPaddle)) {
-                    targetPaddle.isStunned = true;
-                    blaster.active = false;
-                    setTimeout(() => { 
-                        targetPaddle.isStunned = false; 
-                    }, STUN_DURATION);
-                }
-                if (blaster.x > canvas.width || blaster.x < 0) blaster.active = false;
-                if (!blasters[i].active) blasters.splice(i, 1);
-            }
-        }
-        
-        function updateParticles() {
-            for (let i = particles.length - 1; i >= 0; i--) {
-                const p = particles[i];
-                p.x += p.speedX;
-                p.y += p.speedY;
-                p.life -= 0.02;
-                if (p.life <= 0) {
-                    particles.splice(i, 1);
-                }
-            }
-        }
-
-        function updatePowerup() {
-             if (!powerup.active) return;
-            const players = [paddle1, paddle2];
-            for (const player of players) {
-                if(collision(player, powerup)) {
-                    player.canShoot = true;
-                    player.blasterFiredAt = 0; // Instantly recharge
-                    powerup.active = false;
-                    powerupRespawnTimer = setTimeout(spawnPowerup, POWERUP_RESPAWN_DELAY);
-                    break;
-                }
-            }
-        }
-        
-        function collision(obj1, obj2) {
-            if (obj1.radius && obj2.radius) {
-                const dx = obj1.x - obj2.x;
-                const dy = obj1.y - obj2.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                return distance < obj1.radius + obj2.radius;
-            }
-            if (obj1.width && obj2.width) {
-                return obj1.x < obj2.x + obj2.width && obj1.x + obj1.width > obj2.x && obj1.y < obj2.y + obj2.height && obj1.y + obj1.height > obj2.y;
-            }
-            let rect, circle;
-            if (obj1.width) { rect = obj1; circle = obj2; } else { rect = obj2; circle = obj1; }
-            if (!rect || !circle || !rect.width || !circle.radius) return false;
-            let testX = circle.x; let testY = circle.y;
-            if (circle.x < rect.x) testX = rect.x;
-            else if (circle.x > rect.x + rect.width) testX = rect.x + rect.width;
-            if (circle.y < rect.y) testY = rect.y;
-            else if (circle.y > rect.y + rect.height) testY = rect.y + rect.height;
-            const distX = circle.x - testX; const distY = circle.y - testY;
-            const distanceSquared = (distX * distX) + (distY * distY);
-            return distanceSquared <= (circle.radius * circle.radius);
-        }
-
-        function update() {
-            const scoreDiff = score2 - score1;
-            const isP1Desperate = scoreDiff >= DESPERATION_THRESHOLD;
-            const isP2Desperate = -scoreDiff >= DESPERATION_THRESHOLD;
-            
-            if (!paddle1.isStunned) {
-                paddle1.color = paddle1.originalColor;
-                paddle1.height = PADDLE_HEIGHT;
-                if(isP1Desperate){
-                    paddle1.height += (scoreDiff - DESPERATION_THRESHOLD) * PADDLE_GROWTH_RATE;
-                    paddle1.color = '#ef4444';
-                    createParticle(paddle1.x + Math.random() * paddle1.width, paddle1.y + Math.random() * paddle1.height);
-                }
-            } else {
-                 paddle1.color = '#9ca3af';
-            }
-            
-            if (!paddle2.isStunned) {
-                paddle2.color = paddle2.originalColor;
-                paddle2.height = PADDLE_HEIGHT;
-                if(isP2Desperate){
-                    paddle2.height += (-scoreDiff - DESPERATION_THRESHOLD) * PADDLE_GROWTH_RATE;
-                    paddle2.color = '#ef4444';
-                    createParticle(paddle2.x + Math.random() * paddle2.width, paddle2.y + Math.random() * paddle2.height);
-                }
-            } else {
-                paddle2.color = '#9ca3af';
-            }
-            
-            handlePaddleMovement();
-            handleAbilities(isP1Desperate, isP2Desperate);
-            updateBlasters();
-            updatePowerup();
-            updateParticles();
-
-            ball.x += ball.speedX; ball.y += ball.speedY;
-            if (ball.y - ball.radius < 0 || ball.y + ball.radius > canvas.height) { ball.speedY = -ball.speedY; }
-
-            let player = (ball.x < canvas.width / 2) ? paddle1 : paddle2;
-            if (collision(ball, player)) {
-                if(synths.paddle) synths.paddle.triggerAttackRelease("G5", "32n");
-                let collidePoint = (ball.y - (player.y + player.height / 2)) / (player.height / 2);
-                collidePoint = Math.max(-1, Math.min(1, collidePoint));
-                let angleRad = collidePoint * (Math.PI / 4);
-                let direction = (ball.x < canvas.width / 2) ? 1 : -1;
-                let currentSpeed = Math.sqrt(ball.speedX**2 + ball.speedY**2);
-                let newSpeed = Math.min(MAX_BALL_SPEED, currentSpeed * 1.07);
-                ball.speedX = direction * newSpeed * Math.cos(angleRad);
-                ball.speedY = newSpeed * Math.sin(angleRad);
-            }
-
-            if (ball.x - ball.radius < 0) { score2++; resetBall(); updateScoreSlider(); if(synths.score) synths.score.triggerAttackRelease("C4", "4n"); } 
-            else if (ball.x + ball.radius > canvas.width) { score1++; resetBall(); updateScoreSlider(); if(synths.score) synths.score.triggerAttackRelease("C4", "4n"); }
-            
-            if (score1 - score2 >= MAX_SCORE_DIFFERENCE) { gameOver = true; winner = 'Player 1'; } 
-            else if (score2 - score1 >= MAX_SCORE_DIFFERENCE) { gameOver = true; winner = 'Player 2'; }
-        }
-
-        function render() {
-            // Base layer
-            drawRect(0, 0, canvas.width, canvas.height, '#e5e7eb');
-            drawNet();
-            drawNeutralZone();
-            
-            // Game objects
-            drawPowerup();
-            drawParticles();
-            drawRect(paddle1.x, paddle1.y, paddle1.width, paddle1.height, paddle1.color);
-            drawRect(paddle2.x, paddle2.y, paddle2.width, paddle2.height, paddle2.color);
-            drawCircle(ball.x, ball.y, ball.radius, ball.color);
-            blasters.forEach(b => drawRect(b.x, b.y, b.width, b.height, b.color));
-            
-            // UI Layer
-            updateCooldownIndicators();
-            if (!gameStarted) {
-                 drawStartScreen();
-            } else if (isPaused && !gameOver) {
-                drawPauseScreen();
-            } else if (gameOver) {
-                drawGameOverScreen();
-            } else if (countdown > 0) {
-                 drawStartScreen();
-            }
-        }
-        
-        function startCountdown() {
-            countdown = 3;
-            if(synths.countdown) synths.countdown.triggerAttackRelease("C5", "8n");
-            countdownTimer = setInterval(() => {
-                countdown--;
-                if (countdown > 0) {
-                    if(synths.countdown) synths.countdown.triggerAttackRelease("C5", "8n");
-                } else {
-                    if(synths.countdown) synths.countdown.triggerAttackRelease("G5", "8n");
-                    clearInterval(countdownTimer);
-                }
-            }, 1000);
-        }
-
-        function gameLoop() {
-            if (!isPaused && !gameOver && gameStarted && countdown <= 0) {
-                update();
-            }
-            render();
-            requestAnimationFrame(gameLoop);
-        }
-
-        window.addEventListener('keydown', (e) => {
-            if (gameOver && e.key === 'Enter') {
-                resetGame();
-                return;
-            }
-             if (!gameStarted && e.key === ' ') {
-                e.preventDefault();
-                if(Tone.context.state !== 'running') {
-                    Tone.start();
-                }
-                gameStarted = true;
-                startCountdown();
-                return;
-            }
-            if (e.key === ' ') { e.preventDefault(); isPaused = !isPaused; return; }
-            keysPressed[e.key.toLowerCase()] = true;
-        });
-        window.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
-        window.addEventListener('resize', resizeCanvas);
-        
-        window.onload = function() { 
-            resizeCanvas(); 
-            synths.countdown = new Tone.Synth().toDestination();
-            synths.score = new Tone.Synth({ oscillator: { type: 'sawtooth' }, envelope: { attack: 0.01, decay: 0.4, sustain: 0, release: 0.1 } }).toDestination();
-            synths.paddle = new Tone.MembraneSynth({ pitchDecay: 0.008, octaves: 2, envelope: { attack: 0.001, decay: 0.2, sustain: 0 } }).toDestination();
-            synths.blaster = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0 } }).toDestination();
-            gameLoop();
-        };
-    </script>
+  THESE TAGS MUST STAY AT THE END OF <body>. fp-core.js resolves the canvases
+  from the DOM and calls resize() at load time, so the markup has to exist
+  first. That is also why the split preserved source order.
+-->
+<script src="../shared/identity.js"></script>
+<script src="../shared/mp-core.js"></script>
+<script src="../shared/retro.js"></script>
+<script src="../shared/sfx.js"></script>
+<!-- The L+G dev panel. BEFORE this game's own files: its error capture only
+     sees throws that happen after it installs, and its keydown listener has
+     to be attached before fp-input.js's so a combo press can be stopped from
+     also reaching a paddle. Registration is fp-dev.js, at the very end --
+     and read its header before touching the combo, because SEAT_KEYS gives
+     KeyG and KeyL to the TOP and BOTTOM seats in the couch modes. -->
+<script src="../shared/devtools.js"></script>
+<script src="fp-core.js"></script>
+<script src="fp-entities.js"></script>
+<script src="fp-tug.js"></script>
+<script src="fp-ai.js"></script>
+<script src="fp-net.js"></script>
+<script src="fp-audio.js"></script>
+<script src="fp-render.js"></script>
+<script src="fp-input.js"></script>
+<script src="fp-boot.js"></script>
+<!-- LAST: it reads names every file above declares, and registers only. -->
+<script src="fp-dev.js"></script>
 </body>
 </html>

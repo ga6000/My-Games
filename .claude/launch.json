@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "games",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/dev-serve.js"],
+      "autoPort": true,
+      "port": 8123
+    }
+  ]
+}

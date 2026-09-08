@@ -1,0 +1,35 @@
+#!/bin/sh
+# Pre-commit checks. Lives at .githooks/pre-commit and is activated by:
+#   git config core.hooksPath .githooks
+#
+# BOTH checks are WARN-ONLY: this hook always exits 0, so it never blocks a commit.
+# To make either one a hard block, delete its "|| true" below.
+#
+# Recommendation (2026-09-02): the collision checker is now worth blocking on. It has
+# caught a real defect (zombie-endgame.js listed twice in Zombie.html) and has no known
+# false positives. The doc-sync checker should stay warn-only — docs lagging code by a
+# commit or two is normal and shouldn't stop you committing.
+#
+# Added 2026-09-07: check-undefined-globals.js, which would have caught the phantom
+# SPAWN_RING_MIN/MAX in zombie-game.js's relocateZombie(). That one threw a
+# ReferenceError out of the host's update loop the first time any zombie wedged, which
+# stopped the world broadcast and froze every other client in the room while the host
+# kept drawing and looked fine. Currently clean apart from three under-development
+# three.js pages, which it reports as WARN (their globals come from a CDN it cannot
+# see) and does not fail on. Worth blocking on for the same reason as the collision
+# checker.
+
+echo "Checking for global-scope collisions across game script files..."
+node scripts/check-global-collisions.js || true
+
+echo ""
+echo "Checking for references to globals nothing declares..."
+node scripts/check-undefined-globals.js || true
+
+echo ""
+echo "Checking client/server name->colour parity..."
+node scripts/check-identity-parity.js || true
+
+echo ""
+echo "Checking whether docs have been reconciled against current code..."
+node scripts/check-doc-sync.js || true

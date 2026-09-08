@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reality Rewrite - Enhanced Arena</title>
+    <!--
+      Shared token layer (AESTHETIC_GUIDE.md §2/§3), loaded BEFORE this game's
+      own <style> so anything below can override a token without fighting
+      specificity. data-cabinet="vector" on <body> is what KEEPS THE SCANLINES
+      OFF: §4.6 makes them raster-only and the CSS is gated on that attribute,
+      so they cannot be switched on by reaching for a class name.
+    -->
+    <link rel="stylesheet" href="../../shared/retro.css">
+    <style>
+        :root {
+            /*
+             * Was a light "paper" surface -- #f4f6f8 ground, #222222 ink,
+             * Helvetica. §2.1: pure black, because a vector monitor's black is
+             * the absence of beam and there is no backlight to leak.
+             */
+            --bg-color: var(--ground);
+            --text-color: var(--phos-mid);
+
+            /*
+             * The stability meter, and ONLY the stability meter.
+             *
+             * §6.12 says the phosphor shift "costs approximately one CSS custom
+             * property because the game already funnels colour through
+             * var(--stable-color)". It does not. --stable-color is used in
+             * exactly two places -- #stability-bar's fill and the threshold swap
+             * in updateUI() -- and both are the health bar. The monitor's colour
+             * is --world-hue, which shared/retro.css deliberately leaves unset
+             * for this game so script can shift it. See rr-phases.js.
+             */
+            --stable-color:   var(--phos-hot);
+            --warn-color:     var(--sig-amber);
+            --critical-color: var(--sig-magenta);
+
+            /* Panels are cut-outs in the black, not white cards floating on it. */
+            --ui-bg: rgba(0, 0, 0, 0.72);
+        }
+
+        * { box-sizing: border-box; }
+
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            font-family: var(--font-ui);
+            letter-spacing: 1px;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%; height: 100%;
+            cursor: crosshair;
+        }
+
+        /* Visibility Vignette. §6.12 is right that this already exists and
+           should be kept -- it is now quantized to three hard steps instead of
+           a smooth falloff, and the blur is gone: a vector tube has no soft
+           lens. renderCards() in rr-phases.js OWNS this property; nothing in
+           rr-render.js may write it (see that file's header for why). */
+        #vignette {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            background: radial-gradient(circle at center,
+                transparent 0 22%,
+                rgba(0,0,0,0.35) 22% 45%,
+                rgba(0,0,0,0.72) 45% 70%,
+                rgba(0,0,0,0.94) 70% 100%);
+            transition: background 1s ease;
+            z-index: 5;
+        }
+
+        /* UI Layer */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            z-index: 10;
+        }
+
+        /* §4.11 -- a thin bezel with a hard inner rule sells "cabinet" more
+           cheaply than any texture. Every panel below shares it. No rounded
+           corners and no drop shadows: neither existed in 1981. */
+        #match-timer, #scoreboard, .card, #player-hud, #author-modal {
+            border: 2px solid var(--sig-cyan);
+            border-radius: 0;
+            background: var(--ui-bg);
+            box-shadow: none;
+        }
+
+        /* Match Timer -- §3.4, scores and clocks are tabular and tick. */
+        #match-timer {
+            position: absolute;
+            top: 20px; right: 20px;
+            font-family: var(--font-display);
+            font-variant-numeric: tabular-nums;
+            font-size: 22px;
+            color: var(--sig-amber);
+            padding: 12px 18px;
+            letter-spacing: 2px;
+        }
+
+        /* Scoreboard */
+        #scoreboard {
+            position: absolute;
+            top: 20px; left: 20px;
+            padding: 15px 20px;
+            pointer-events: auto;
+        }
+
+        .score-row {
+            display: flex; justify-content: space-between;
+            margin-bottom: 8px; font-size: 15px; color: var(--text-color); gap: 20px;
+            text-transform: uppercase;
+        }
+        .score-row.player {
+            color: var(--phos-hot);
+            margin-bottom: 12px; padding-bottom: 12px;
+            border-bottom: 1px solid var(--phos-dim);
+        }
+        .score-row span { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+        .score-row .name { text-align: left; flex-grow: 1; }
+
+        /* Active Cards (Left Side). The left border keeps each shift's own
+           colour -- that is the player-facing key to which rule is live, and
+           it is set from SHIFTS[].color in rr-phases.js. */
+        #active-cards {
+            position: absolute;
+            top: 180px; left: 20px;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .card {
+            padding: 10px 15px;
+            border-left-width: 6px;
+            border-left-style: solid;
+            font-size: 14px; text-transform: uppercase;
+            color: var(--phos-mid);
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn { from { transform: translateX(-20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* Stability Meter */
+        #top-center {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            color: var(--phos-mid);
+        }
+        .meter-container { display: flex; align-items: center; gap: 15px; }
+        #stability-bar-container {
+            width: 300px; height: 8px;
+            background-color: var(--phos-dim);
+            border: 1px solid var(--phos-dim);
+            border-radius: 0; overflow: hidden;
+        }
+        #stability-bar { width: 100%; height: 100%; background-color: var(--stable-color); transition: width 0.1s linear; }
+
+        /* Bottom HUD */
+        #player-hud {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 24px; font-size: 15px;
+            padding: 10px 20px;
+            color: var(--phos-mid);
+            text-transform: uppercase;
+        }
+
+        /* Modals */
+        #author-modal {
+            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            padding: 30px 40px;
+            border-color: var(--sig-magenta);
+            pointer-events: auto; text-align: center; z-index: 100;
+            color: var(--phos-hot);
+        }
+        #author-modal h2 { font-family: var(--font-display); font-size: 18px; color: var(--sig-magenta); }
+        .options-container { display: flex; gap: 15px; justify-content: center; margin-top: 15px; }
+        .author-option {
+            background: var(--ground); border: 2px solid var(--phos-dim); padding: 15px; cursor: pointer; width: 150px;
+            border-radius: 0; transition: none;
+            color: var(--phos-mid);
+        }
+        .author-option:hover { border-color: var(--sig-cyan); color: var(--phos-hot); }
+        .author-option h3 { margin: 0 0 5px 0; font-size: 13px; text-transform: uppercase; color: var(--phos-hot); }
+        .author-option span { font-size: 13px; color: var(--phos-mid); }
+
+        #fullscreen-overlay {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.88); z-index: 200;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        #giant-countdown {
+            font-family: var(--font-display); font-size: 110px;
+            color: var(--sig-magenta); margin: 0; display: none;
+        }
+        #end-rankings { display: none; text-align: center; color: var(--phos-mid); }
+        #end-rankings h1 { font-family: var(--font-display); font-size: 32px; margin-bottom: 20px; color: var(--phos-hot); }
+        .rank-row { font-size: 22px; margin: 10px 0; text-transform: uppercase; font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body oncontextmenu="return false;" data-game="reality-rewrite" data-cabinet="vector">
+
+    <div id="vignette"></div>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div id="match-timer">3:00</div>
+        
+        <div id="scoreboard">
+            <div class="score-row player" id="sb-player">
+                <span class="name">YOU</span><span title="Score">0</span><span>K 0</span><span>D 0</span>
+            </div>
+            <div id="sb-bots"></div>
+        </div>
+
+        <div id="active-cards"></div>
+
+        <div id="top-center">
+            <div class="meter-container">
+                <div id="stability-bar-container"><div id="stability-bar"></div></div>
+            </div>
+            <div style="font-size: 13px; letter-spacing: 2px;">REALITY STABILITY</div>
+        </div>
+
+        <div id="player-hud">
+            <div id="hud-hp">HP: 100</div>
+            <div id="hud-ammo">AMMO: 8/8</div>
+            <div id="hud-orb">ORB [E]: RDY</div>
+        </div>
+    </div>
+
+    <div id="author-modal">
+        <h2 style="margin:0; letter-spacing:2px;">REALITY COLLAPSE</h2>
+        <div id="author-countdown" style="font-size: 22px; color: var(--sig-magenta); font-variant-numeric: tabular-nums;">5.0</div>
+        <div class="options-container" id="author-options"></div>
+    </div>
+
+    <div id="fullscreen-overlay" style="display:none;">
+        <div id="giant-countdown">3</div>
+        <div id="end-rankings"></div>
+    </div>
+
+<!--
+  Added 2026-09-03. This game used to run a name->colour scheme of its own
+  (`nameHash(name) % 360` -> an hsl hue), which agreed with the server's palette
+  0 times out of 10 -- and it could never self-correct, because the hub only
+  passes ?name= and ?room=, never ?color=. So a player was reliably one colour
+  on the hub and a different one here.
+  identity.js must load BEFORE mp-core (mp-core falls back to it when solo).
+-->
+<script src="../../shared/identity.js"></script>
+<script src="../../shared/mp-core.js"></script>
+<!--
+  Split into six rr-*.js files 2026-09-05 (FINAL_THREE_PASS_PLAN.md §2.1) --
+  the 6-file split reality-rewrite/CLAUDE.md had carried as PLANNED since
+  before 2026-09-02, and which did not exist until now. Lines were moved
+  VERBATIM and IN SOURCE ORDER; nothing was reordered.
+
+  THESE TAGS MUST STAY AT THE END OF <body>. rr-core.js resolves #gameCanvas
+  from the DOM and CALLS resize() at load time, so the markup has to exist
+  first. That is also why the cut preserved source order: `mouse` is built from
+  the `width` that resize() set.
+
+  retro.js and sfx.js only define globals (RETRO, SFX), so they need only
+  precede the game's own files.
+-->
+<script src="../../shared/retro.js"></script>
+<script src="../../shared/sfx.js"></script>
+<script src="rr-core.js"></script>
+<script src="rr-entities.js"></script>
+<script src="rr-mapgen.js"></script>
+<script src="rr-phases.js"></script>
+<script src="rr-render.js"></script>
+<script src="rr-boot.js"></script>
+</body>
+</html>
