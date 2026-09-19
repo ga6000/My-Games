@@ -219,7 +219,18 @@ per-player `keys`. The player model needed for network play already exists — t
     same flock, which may just feel muddy.
 - Recommend competitive. **Not yet chosen.**
 
-### 4d. RDArena — reaction-diffusion arena — **HARDEST, do last** — ⬜ still not started
+### 4d. RDArena — reaction-diffusion arena — **HARDEST, do last** — ✅ **BUILT 2026-09-08**
+
+> **Superseded 2026-09-08 (merged to `main` 2026-09-19).** This section is kept for the method
+> it records, but its status line is history: RD Arena's multiplayer is built and on the board.
+> `MP_ROLLOUT.md` steps 1–4 all landed, the three toggles exist as F9/F10/F11, and the build
+> record is `rd-arena/MP_BUILD_NOTES.md`. See §6 item 6 for what shipped and the three
+> deliberate departures from Zombie's protocol.
+>
+> **One claim below is simply wrong and was wrong when written:** this working copy is a real
+> git clone, not a ZIP download, so `git init` is not a prerequisite and the usual revert does
+> exist. `GIT_WORKFLOW.md` corrects the same error at length — check with
+> `git rev-parse --show-toplevel`, never with a doc.
 
 > **Method written 2026-09-03 — see `rd-arena/MP_ROLLOUT.md`.** Still not started, but the *how* is
 > now specified: a mutation choke point shipped as a verified no-op first, netcode split into its
@@ -598,4 +609,4 @@ Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: 690f97fa | 2026-09-19 -->
+<!-- doc-sync: 772d604c | 2026-09-19 -->

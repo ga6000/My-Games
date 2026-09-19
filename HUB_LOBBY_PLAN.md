@@ -223,6 +223,14 @@ A group can still agree to all open the same solo game.
 > harness for profiling the reaction-diffusion field, not something anyone plays. It is
 > deliberately absent from the hub board, so the "every game in the repo with code" counts below
 > still refer to games only. Do not add a tile for it.
+>
+> **Same ruling for `gyro-lab/gravity-lab.html` (2026-09-08):** a slider bench for choosing a
+> gravity model and a lensing method for Gyro Space, not something anyone plays. It is
+> local-only — no room code, no `mp-core`, no score — so none of the three card stamps
+> (`MULTIPLAYER SOON` / `COUCH 2-4P` / `COMING SOON`) describes it. **No tile.** The board is
+> still 5. See `gyro-lab/CLAUDE.md`. This is now twice that a top-level folder has been added
+> that is deliberately not a game, so treat "top-level folder" and "hub candidate" as
+> genuinely separate things when reading the counts in this file.
 
 ### 7b. Four more cards - the board is now 17 games
 
@@ -360,4 +368,4 @@ written as §7 and the two contradicted each other.)*
   ready-check has been live since it shipped. The visible-disabled Continue button (§5) remains
   as the degradation path, but should not normally be seen.
 
-<!-- doc-sync: 690f97fa | 2026-09-19 -->
+<!-- doc-sync: 772d604c | 2026-09-19 -->
