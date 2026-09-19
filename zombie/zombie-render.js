@@ -41,6 +41,9 @@ const uiLoadout = document.getElementById('loadout');
 // The HUD panel itself, so the win sequence can fade the readout with the
 // world instead of leaving live numbers floating over black.
 const uiHudRoot = document.getElementById('ui');
+// THEY HEAR YOUR CALL (2026-09-19).
+const uiHordeCall = document.getElementById('hordecall');
+const uiHordeCallText = uiHordeCall ? uiHordeCall.querySelector('span') : null;
 const uiNetLost = document.getElementById('netlost');
 const uiNetLostTime = document.getElementById('netLostTime');
 const uiNetLostOffer = document.getElementById('netLostOffer');
@@ -242,7 +245,11 @@ function codexMap() {
            "<tr><td class='k'>" + swatch("#AA1122") + "SLUICE, FUNNELS, SILOS</td><td>How a run is won. Two players on the two plates open " +
            "the sluice. Kill zombies <b>on</b> a live funnel to fill the silo piped to it, then throw that silo's switch " +
            "to wake the next funnel. Funnel 1 is in the sluice room; 2 and 3 are in funnel halls — long " +
-           "two-walled halls on a drain floor, a funnel at one end and its silo at the other.</td></tr>" +
+           "two-walled halls on a drain floor, a funnel at one end and its silo at the other. Each silo takes " +
+           "more than the last: " + SILO_CAPACITY.join(" / ") + " kills.</td></tr>" +
+           "<tr><td class='k'>" + swatch(COLOR_SCRAP) + "THE HORDE SWITCH</td><td>A heavy lever in the keep. Throwing it " +
+           "<b>cannot be undone</b>: rounds stop waiting for the last zombie, everything moves faster, and you score " +
+           "for every second you stay on your feet. The music knows.</td></tr>" +
            "</table>" +
            "<p class='lede' style='margin-top:12px'><b>KEYS</b> — <b>ESC</b> goals and how to play · " +
            "<b>M</b> map and stats on/off · <b>N</b> sound on/off · " +
@@ -487,6 +494,7 @@ function draw() {
     drawSiloPipes(now, inView);
     drawEndgame(now, inView);
     drawCodex(now, inView);
+    drawIntensifySwitch(now, inView);
     drawTraps(now, inView);
     drawCrates(inView);
     drawBarrels(inView);
@@ -1060,6 +1068,71 @@ function drawCodex(now, inView) {
     ctx.fillText("MANUAL", c.x + c.w / 2, c.y + 16);
     ctx.fillText("[F]", c.x + c.w / 2, c.y + 30);
     ctx.textAlign = "left";
+}
+
+// THE INTENSIFY SWITCH (2026-09-19). "should look like a switch in the
+// starting room that flips down and is heavy".
+//
+// So: a cast plate bolted to the wall, a fat pivot, and a lever that stands
+// UP before and lies DOWN after. The fall is eased with a slight overshoot
+// and settle, which is the whole read of "heavy" -- a lever that snaps to
+// its new angle in one frame is a toggle, not a piece of gear.
+function drawIntensifySwitch(now, inView) {
+    if (!intensifyRect) return;
+    const r = intensifyRect;
+    if (!inView(r.x - 8, r.y - 34, r.w + 16, r.h + 42)) return;
+
+    const thrown = intensified;
+    // 0 = up, 1 = down.
+    let t = 0;
+    if (thrown) {
+        const e = intensifyAt ? (now - intensifyAt) / INTENSIFY_LEVER_MS : 1;
+        t = e >= 1 ? 1 : 1 - (1 - e) * (1 - e);
+        if (e < 1) t = Math.min(1.06, t * 1.06);       // overshoot, then settle
+    }
+
+    // The plate.
+    ctx.fillStyle = thrown ? "#1A1A1C" : "#241C10";
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = thrown ? "#4A4A50" : COLOR_SCRAP;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    // Four bolts.
+    ctx.fillStyle = thrown ? "#3A3A40" : "#6B5A2A";
+    ctx.fillRect(r.x + 4, r.y + 4, 3, 3);
+    ctx.fillRect(r.x + r.w - 7, r.y + 4, 3, 3);
+    ctx.fillRect(r.x + 4, r.y + r.h - 7, 3, 3);
+    ctx.fillRect(r.x + r.w - 7, r.y + r.h - 7, 3, 3);
+
+    // The lever, pivoting at the bottom centre of the plate.
+    const px = r.x + r.w / 2;
+    const py = r.y + r.h - 8;
+    const len = 30;
+    const a = -Math.PI / 2 + t * (Math.PI / 2 + 0.22);   // up -> down-right
+    const ex = px + Math.cos(a) * len;
+    const ey = py + Math.sin(a) * len;
+    ctx.strokeStyle = thrown ? "#5A5A62" : "#C9A227";
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+    // The ball on the end, and the pivot.
+    ctx.fillStyle = thrown ? "#77777F" : "#E8C34A";
+    ctx.fillRect(Math.round(ex) - 5, Math.round(ey) - 5, 10, 10);
+    ctx.fillStyle = "#2A2A2E";
+    ctx.fillRect(px - 4, py - 4, 8, 8);
+
+    // The label. Only before: afterwards the switch is dead metal and the
+    // keep should stop advertising it.
+    if (!thrown) {
+        ctx.fillStyle = (now % 900 < 450) ? COLOR_SCRAP : "#8A6A1A";
+        ctx.font = "9px Courier";
+        ctx.textAlign = "center";
+        ctx.fillText("CALL THE HORDE", px, r.y - 16);
+        ctx.fillText("[F]", px, r.y - 5);
+        ctx.textAlign = "left";
+    }
 }
 
 // The gun's silhouette on the plate, so a wall-buy says what it sells
@@ -1938,6 +2011,36 @@ function playerName(id) {
     return id.split(":")[0].slice(0, 6);
 }
 
+// THE RED CALL. Shown for a fixed window, and VIBRATED from here rather
+// than from CSS: the jitter is whole pixels on purpose (AESTHETIC_GUIDE 4 --
+// the era had no sub-pixel anything), and driving it from the render loop
+// means it needs no timer of its own and cannot outlive a teardown.
+let hordeCallUntil = 0;
+
+function showHordeCall(ms) {
+    if (!uiHordeCall) return;
+    hordeCallUntil = Date.now() + ms;
+    uiHordeCall.style.display = 'flex';
+}
+
+function hideHordeCall() {
+    hordeCallUntil = 0;
+    if (!uiHordeCall) return;
+    uiHordeCall.style.display = 'none';
+    if (uiHordeCallText) uiHordeCallText.style.transform = '';
+}
+
+function updateHordeCall(now) {
+    if (!hordeCallUntil) return;
+    if (now >= hordeCallUntil) { hideHordeCall(); return; }
+    if (!uiHordeCallText) return;
+    // Whole pixels, and a different offset every frame -- 6px is enough to
+    // read as violent at 8vw type without making the words unreadable.
+    const jx = Math.round((Math.random() - 0.5) * 12);
+    const jy = Math.round((Math.random() - 0.5) * 12);
+    uiHordeCallText.style.transform = 'translate(' + jx + 'px,' + jy + 'px)';
+}
+
 function updateHud(now) {
     // The readout goes out with the world (2026-09-19). Written only while
     // the sequence is running or has just ended, so this is not a style
@@ -2174,6 +2277,11 @@ function renderRunScore(el) {
         ["ROUND " + b.round, fmtScore(b.roundPts), ""],
         ["SILOS " + b.silos + "/" + siloFill.length, fmtScore(b.siloPts), ""]
     ];
+    // Only when the switch was actually thrown -- an ordinary run should not
+    // carry a row reading 0 for a mechanic it never touched (2026-09-19).
+    if (b.alivePts > 0) {
+        lines.push(["HELD OUT " + Math.round(aliveMs / 1000) + "s", fmtScore(b.alivePts), ""]);
+    }
     if (b.won) {
         lines.push(["ESCAPED", "+" + fmtScore(b.winPts), "win"]);
         lines.push(["WIN DOUBLES IT", "x2", "win"]);
@@ -2437,6 +2545,8 @@ function gameLoop(ts) {
     // netLost, and a connection that drops during the walk-out must not
     // leave the world frozen half-faded with no card ever arriving.
     updateWinSequence(now);
+    updateIntensifyAnnounce(now);
+    updateHordeCall(now);
     updateCamera(cameraTargets());
     draw();
 

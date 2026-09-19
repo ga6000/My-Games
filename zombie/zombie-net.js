@@ -495,6 +495,18 @@ function applyWorldSnapshot(msg, now) {
         }
     }
 
+    // The horde being called is a 0 -> 1 transition, so a guest runs the
+    // same three announce beats the host does off one flag, rather than
+    // needing three separate events to survive the trip.
+    if (msg.iz && !intensified) {
+        intensified = true;
+        intensifyAt = Date.now();
+        hordeCalledBy = msg.hc || hordeCalledBy || "SOMEONE";
+        beginIntensifyAnnounce();
+    } else if (msg.iz && msg.hc && !hordeCalledBy) {
+        hordeCalledBy = msg.hc;
+    }
+
     gateStage = msg.gs || 0;
     gateProgress = msg.gp || 0;
     if (msg.fa) for (let i = 0; i < msg.fa.length; i++) funnelActive[i] = !!msg.fa[i];
@@ -726,6 +738,16 @@ function broadcastWorld() {
         // not state, so a client that misses one has simply missed a
         // sound rather than desynced.
         ev: eventQueue.splice(0, eventQueue.length),
+
+        // INTENSIFY (2026-09-19). Two tiny fields on a packet that already
+        // ships 15x/s, riding the generic relay like everything else here.
+        // STATE, not an event: the event queue is capped at ten a snapshot
+        // and is the first thing dropped, and the one packet that says "the
+        // horde has been called" must not be droppable. `hc` is sent only
+        // while the announce window is live, so the name is not on every
+        // frame of the rest of the run.
+        iz: intensified ? 1 : 0,
+        hc: (intensified && Date.now() - intensifyAt < 6000) ? hordeCalledBy : undefined,
 
         rd: round,
         rp: ROUND_PHASES.indexOf(roundPhase),

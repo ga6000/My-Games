@@ -657,6 +657,7 @@ const CENTRE_TEMPLATE =
 let zoneInfo = [];        // 9 entries, index = zone number
 let generatorRect = null; // {x,y,w,h,cost}
 let codexRect = null;     // the field manual terminal, in the keep
+let intensifyRect = null; // the horde switch, in the keep (2026-09-19)
 let generatorOn = false;
 let cardStations = [];    // {x,y,w,h,card,cost}
 
@@ -725,6 +726,7 @@ function generateLevel() {
     zonePassages = {};
     generatorRect = null;
     codexRect = null;
+    intensifyRect = null;
     generatorOn = false;
     genTripped = false;
     genRestart = 0;
@@ -960,6 +962,13 @@ function buildKeep() {
     // card, pickup and enemy. Placed at the centre of the starting area
     // because that is where a new player already is.
     codexRect = { x: kx + Math.round(KEEP_W / 2) - 30, y: ky + 54, w: 60, h: 40 };
+
+    // THE INTENSIFY SWITCH (2026-09-19). A heavy knife switch on the far
+    // side of the keep from the manual, against the SOUTH wall, so the two
+    // F targets can never be mistaken for one another: interactWith tests
+    // rects in order and the manual is first, and these two are now 300px
+    // apart with the ammo crate between them.
+    intensifyRect = { x: kx + Math.round(KEEP_W / 2) - 26, y: ky + KEEP_H - 78, w: 52, h: 44 };
 
     traps.push({ x: gx, y: ky - 8, w: gap, h: 52, cost: 500, armedUntil: 0, readyAt: 0 });
     traps.push({ x: gx, y: ky + KEEP_H - 44, w: gap, h: 52, cost: 500, armedUntil: 0, readyAt: 0 });

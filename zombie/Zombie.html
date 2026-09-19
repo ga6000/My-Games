@@ -141,6 +141,26 @@
             pointer-events: none; z-index: 12;
         }
 
+        /* THEY HEAR YOUR CALL (2026-09-19). Full screen, crude, and it
+           VIBRATES -- a per-frame integer jitter written from
+           zombie-render.js, never a CSS animation, because the jitter has
+           to be whole pixels. A smooth sub-pixel wobble reads as 2016
+           indie, not 1980 arcade (AESTHETIC_GUIDE 4). It CUTS rather than
+           fades: it is not a gentle thing. z-index above the end cards is
+           deliberate -- nothing else may be on top of it while it holds. */
+        #hordecall {
+            position: absolute; inset: 0; display: none;
+            align-items: center; justify-content: center;
+            pointer-events: none; z-index: 40;
+            background: rgba(40, 0, 0, 0.30);
+        }
+        #hordecall span {
+            color: #FF2A18; font-size: 8vw; line-height: 1.05; letter-spacing: 6px;
+            text-align: center; font-weight: bold;
+            text-shadow: 5px 5px 0 #000, -2px -2px 0 #6B0000;
+            will-change: transform;
+        }
+
         #roundcard {
             position: absolute; left: 50%; top: 34%; transform: translate(-50%, -50%);
             color: var(--sig-magenta); font-size: 46px; letter-spacing: 4px; text-align: center;
@@ -400,6 +420,8 @@
     </div>
 
     <div id="objective"></div>
+
+    <div id="hordecall"><span>THEY HEAR<br>YOUR CALL</span></div>
 
     <div id="win">
         YOU GOT OUT.<br>

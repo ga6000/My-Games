@@ -357,6 +357,20 @@ var zDevActions = [
         }
     },
     {
+        label: "CALL THE HORDE",
+        hint: "host only — the intensify switch, from anywhere",
+        fn: function () {
+            const no = zDevHostOnly("intensify");
+            if (no) return no;
+            if (intensified) return "already called";
+            // Exactly what the switch in the keep does, so a playtester can
+            // reach the blitz without walking back to the keep first -- and
+            // so the announce beats can be checked on demand.
+            hostFlipIntensify({ id: netIdFor(zDevPlayer()) });
+            return "called";
+        }
+    },
+    {
         label: "OPEN SLUICE",
         hint: "host only — skips the 2-player gate",
         fn: function () {

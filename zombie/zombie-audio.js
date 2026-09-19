@@ -250,6 +250,7 @@ const SND_ARC = 21;          // arg = packed bolt offset, see arcFrom()
 const SND_POP = 22;          // BLASTCAP burst; arg = radius
 const SND_GEN_TRIP = 23;     // a Blackout takes the generator down
 const SND_DECOY = 24;        // a ping became a lure
+const SND_SIREN = 25;        // the intensify switch: the horde is called
 
 // IDEA 40: every gun already has its own screen-shake kick; this is the
 // matching voice. Indexed by WEAPON_KEYS (zombie-core.js) so it can ride in
@@ -292,6 +293,47 @@ function weaponVoice(idx, g, pan) {
     }
 }
 
+// THE AIR-RAID SIREN (2026-09-19). Two slow rise-and-fall sweeps over ~3.4s
+// on a detuned pair of sawtooths through a lowpass, which is what gives a
+// mechanical siren its beat rather than a clean glide.
+//
+// It is the ONLY sound in this game that is not positional. Everything else
+// pans and falls off with distance (idea 39); this one is meant to be
+// coming from everywhere at once, so it goes straight to the master bus and
+// ignores where the caller stood.
+function sirenCall() {
+    if (!audioCtx || audioMuted) return;
+    try {
+        const t0 = audioCtx.currentTime;
+        const out = audioCtx.createGain();
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.value = 1500;
+        lp.connect(out);
+        out.connect(audioMaster);
+        out.gain.setValueAtTime(0.0001, t0);
+        out.gain.exponentialRampToValueAtTime(0.30, t0 + 0.35);
+        out.gain.setValueAtTime(0.30, t0 + 2.7);
+        out.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.4);
+
+        for (let v = 0; v < 2; v++) {
+            const o = audioCtx.createOscillator();
+            o.type = "sawtooth";
+            const detune = v === 0 ? 1 : 1.006;      // the beat between them
+            o.frequency.setValueAtTime(220 * detune, t0);
+            // Two full rise-and-falls.
+            for (let c = 0; c < 2; c++) {
+                const b = t0 + c * 1.7;
+                o.frequency.exponentialRampToValueAtTime(680 * detune, b + 0.85);
+                o.frequency.exponentialRampToValueAtTime(220 * detune, b + 1.7);
+            }
+            o.connect(lp);
+            o.start(t0);
+            o.stop(t0 + 3.5);
+        }
+    } catch (e) { /* audio is never worth breaking a frame over */ }
+}
+
 function playEvent(code, x, y, arg) {
     if (!audioCtx || audioMuted) return;
     // "sound & player input should stop at this time" (2026-09-19). The walk
@@ -300,6 +342,10 @@ function playEvent(code, x, y, arg) {
     if (winSequenceRunning()) return;
     // The screamer carries much further than anything else -- that is
     // what makes it the target the team calls out (idea 44).
+    // The siren is heard everywhere, at full strength, wherever it was
+    // thrown -- so it skips the positional mix entirely rather than being
+    // given a very large radius.
+    if (code === SND_SIREN) { sirenCall(); return; }
     const place = audioPlacement(x, y, code === SND_SCREAM ? 2.2 : 1);
     if (!place) return;                     // too far away to matter
     const g = place.gain;

@@ -430,6 +430,83 @@ function startGame() {
 // One toast at a time, and a later one is never cut short by an earlier
 // one's timer -- each call used to arm its own hide.
 let toastUntil = 0;
+// ---------------------------------------------------
+//   INTENSIFY  (2026-09-19)
+// ---------------------------------------------------
+// A heavy knife switch in the keep that turns the run into a blitz. Asked
+// for as: a switch that "flips down and is heavy", a normal message saying
+// who called it, a bomb siren, and then a vibrating red THEY HEAR YOUR CALL
+// across the whole screen.
+//
+// ONE WAY. There is no un-intensifying: it is a decision a team makes
+// together and then lives with, which is the only thing that makes it worth
+// a set piece. Host-authoritative like every other world flip, and it rides
+// the world snapshot as `iz`/`hc` rather than an event, because an event
+// queue is capped at ten a snapshot and is the first thing dropped -- the
+// one packet carrying "the horde has been called" must not be droppable.
+//
+// What it changes is in four places, all reading `intensified`:
+//   - update()        a round clears on budget alone, not on an empty map
+//   - zombieSpeed()   x INTENSIFY_SPEED
+//   - runScoreFor()   score per second alive
+//   - zombie-music.js the score turns cold
+const INTENSIFY_SPEED = 1.28;      // "a fair amount but not overkill"
+const INTENSIFY_SIREN_MS = 1200;   // siren -> the screen-filling call
+const INTENSIFY_CALL_MS = 2200;    // how long THEY HEAR YOUR CALL holds
+const INTENSIFY_LEVER_MS = 450;    // the lever falling
+
+let intensified = false;
+let intensifyAt = 0;               // when the switch was thrown (local clock)
+let hordeCalledBy = "";
+let intensifyCallShown = false;    // the red card has been played once
+let aliveMs = 0;                   // this client's own time alive, intensified
+
+// The zombie speed multiplier, read at the point of use rather than written
+// into the zombie -- so throwing the switch speeds up everything ALREADY on
+// the map, not just what spawns afterwards.
+function intensifySpeedMult() {
+    return intensified ? INTENSIFY_SPEED : 1;
+}
+
+// HOST. Free, but still routed through the buy path, because that is the
+// one seam where the host validates a world change a client asked for.
+function hostFlipIntensify(msg) {
+    if (intensified || !intensifyRect) return;
+    intensified = true;
+    intensifyAt = Date.now();
+    hordeCalledBy = nameForNetId(msg && msg.id) || "SOMEONE";
+    beginIntensifyAnnounce();
+}
+
+// Every client runs this: the host from hostFlipIntensify, a guest from the
+// snapshot's `iz` going 0 -> 1 (zombie-net.js).
+function beginIntensifyAnnounce() {
+    intensifyCallShown = false;
+    showToast((hordeCalledBy || "SOMEONE") + " CALLED THE HORDE", 2600);
+    localEvent(SND_SIREN, WORLD_W / 2, WORLD_H / 2);
+    addShake(6);
+}
+
+// Driven from the loop so it needs no timer of its own and cannot outlive
+// a teardown.
+function updateIntensifyAnnounce(now) {
+    if (!intensified || intensifyCallShown || !intensifyAt) return;
+    if (now - intensifyAt >= INTENSIFY_SIREN_MS) {
+        intensifyCallShown = true;
+        showHordeCall(INTENSIFY_CALL_MS);
+    }
+}
+
+// The name behind a netId, for the toast. Local player first, then the
+// remote records, then the id itself so it can never print "undefined".
+function nameForNetId(id) {
+    if (!id) return "";
+    if (isMyNetId(id)) return MP.selfName || "YOU";
+    const r = remotePlayers[id];
+    if (r && r.name) return r.name;
+    return "";
+}
+
 function showToast(text, ms) {
     uiToast.innerText = text;
     uiToast.style.display = 'block';
@@ -688,6 +765,14 @@ const SCORE_KILL_MULT = 10;          // x the type's `score`: walker 10 ... ultr
 const SCORE_ASSIST = 3;
 const SCORE_REVIVE_PER_ROUND = 100;  // a revive on round r is worth 100 * r
 const SCORE_ROUND_K = 50;
+// INTENSIFIED ONLY (2026-09-19): "increased score is earned during time
+// alive in addition to other score earners". 40/s is calibrated against the
+// terms above -- a five-minute intensified stretch is 12,000, which is
+// between one silo (8,000) and the round term at round 16 (12,800). So it
+// is a real reason to throw the switch early without ever competing with
+// kills, which grow ~1.16^r. Only counted while you are UP: a downed player
+// is not surviving, they are being rescued.
+const SCORE_ALIVE_PER_SEC = 40;
 const SCORE_SILO = 8000;
 const SCORE_WIN = 50000;
 
@@ -713,9 +798,12 @@ function runScoreFor(id) {
         silos: silos,
         siloPts: SCORE_SILO * silos,
         won: won,
-        winPts: won ? SCORE_WIN : 0
+        winPts: won ? SCORE_WIN : 0,
+        // Per-client, so it is the only term that is not derived from the
+        // host's scoreBoard row. A guest counts its own seconds.
+        alivePts: Math.round(aliveMs / 1000) * SCORE_ALIVE_PER_SEC
     };
-    const sub = b.combat + b.roundPts + b.siloPts + b.winPts;
+    const sub = b.combat + b.roundPts + b.siloPts + b.winPts + b.alivePts;
     b.total = won ? sub * 2 : sub;
     return b;
 }
@@ -765,6 +853,13 @@ function resetGame() {
     winFade = 0;
     uiWinShown = false;
 
+    intensified = false;
+    intensifyAt = 0;
+    hordeCalledBy = "";
+    intensifyCallShown = false;
+    aliveMs = 0;
+    hideHordeCall();
+
     zAwaitRespawn = false;
     zDiedRound = 0;
     zKeptCards = [];
@@ -813,6 +908,10 @@ function requestBuy(what, index, p) {
 function hostHandleBuy(msg) {
     const now = Date.now();
     const i = msg.i | 0;
+
+    // Costs nothing and is checked first, so it can never be blocked by an
+    // empty scrap pool.
+    if (msg.what === "intensify") { hostFlipIntensify(msg); return; }
 
     if (msg.what === "door") {
         const d = doors[i];
@@ -1027,8 +1126,24 @@ function update(now, dt) {
             }
             // Clears only when the budget is spent AND the map is empty --
             // and, on a Blackout, only once the generator is running again.
-            if (roundBudget === 0 && zombies.length === 0 && !genTripped) endRound(now);
+            //
+            // INTENSIFIED (2026-09-19): the empty-map condition is dropped,
+            // so rounds roll on over the top of whatever is still chasing
+            // you. That is the blitz. The GENERATOR condition deliberately
+            // stays: a Blackout holding a round open until someone restarts
+            // it is the 2026-09-18 mechanic, and it is the one thing that
+            // should still be able to stop the clock.
+            const mapClear = intensified || zombies.length === 0;
+            if (roundBudget === 0 && mapClear && !genTripped) endRound(now);
         }
+    }
+
+    // INTENSIFIED: bank the time you stay on your feet (2026-09-19). Per
+    // client, because it is the one score term the host does not own -- a
+    // guest counts its own seconds and posts them with its own run.
+    if (intensified) {
+        const me = players[0];
+        if (me && !me.downed) aliveMs += dt;
     }
 
     // Any zone a player is standing in OR looking into goes hot, and
@@ -1672,7 +1787,10 @@ function updateZombies(now, dt) {
     const targets = allTargets();
     if (!targets.length) return;
     const isolated = targets.length > 1 ? mostIsolated(targets) : null;
-    const baseSpeed = zombieSpeedForRound(round);
+    // x1.28 while intensified. Applied HERE rather than written into the
+    // zombie at spawn, so throwing the switch speeds up everything already
+    // on the map at that instant, not only what comes afterwards.
+    const baseSpeed = zombieSpeedForRound(round) * intensifySpeedMult();
 
     for (let d = decoys.length - 1; d >= 0; d--) if (now >= decoys[d].until) decoys.splice(d, 1);
 
@@ -2074,6 +2192,14 @@ function interactWith(p) {
 
     if (codexRect && rectsOverlap(box, codexRect)) { openCodex(); return; }
 
+    // The horde switch. Free, but still a world change, so it goes through
+    // the host like every purchase does -- two players hitting it on the
+    // same frame must produce ONE call, not two.
+    if (intensifyRect && !intensified && rectsOverlap(box, intensifyRect)) {
+        requestBuy("intensify", 0, p);
+        return;
+    }
+
     for (let i = 0; i < silos.length; i++) {
         if (!silos[i] || !siloReady(i)) continue;
         if (rectsOverlap(box, silos[i])) { requestBuy("silo", i, p); return; }
@@ -2116,6 +2242,12 @@ function nearestPrompt(p) {
     const box = { x: p.x - 26, y: p.y - 26, w: p.size + 52, h: p.size + 52 };
 
     if (codexRect && rectsOverlap(box, codexRect)) return "FIELD MANUAL — READ";
+
+    // The switch says what it does in as few words as possible, and says it
+    // is one-way, because it IS one-way and nothing else in this game is.
+    if (intensifyRect && rectsOverlap(box, intensifyRect)) {
+        return intensified ? "THE HORDE HAS BEEN CALLED" : "CALL THE HORDE — NO GOING BACK";
+    }
 
     for (let i = 0; i < silos.length; i++) {
         if (!silos[i] || !rectsOverlap(box, silos[i])) continue;

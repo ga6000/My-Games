@@ -70,6 +70,16 @@ const MUS_CUES = {
         [0, 74, 0.9, 1.4], [0.5, 77, 0.8, 1.4], [1, 81, 0.85, 1.4], [1.5, 86, 0.9, 2.6],
         [2, 81, 0.5, 2.6], [2, 62, 0.45, 2.6]
     ] },
+    // INTENSIFIED (2026-09-19): "round increases now carry a harsher more
+    // percussive raising note each time". Short, struck, low-to-high in
+    // three hits instead of a four-note melody, and musCue() transposes the
+    // WHOLE cue up a semitone per intensified round (capped), so the
+    // escalation is audible across a long run rather than only once.
+    roundHard: { align: true, transpose: true, notes: [
+        [0, 50, 1.0, 0.5], [0, 62, 0.8, 0.5],
+        [0.5, 57, 0.9, 0.5],
+        [1, 69, 1.0, 1.1], [1, 62, 0.6, 1.1]
+    ] },
     // Round cleared: it resolves downward.
     clear: { align: true, notes: [
         [0, 81, 0.85, 1.6], [0.5, 77, 0.75, 1.6], [1, 76, 0.75, 1.6], [1.5, 74, 0.9, 3.2],
@@ -327,12 +337,25 @@ function musCutHeld(t) {
     musHeld = [];
 }
 
+// A `transpose` cue climbs a semitone for every round since the switch was
+// thrown, so "a harsher more percussive RAISING note each time" raises across
+// the run and not just within one cue. Capped at an octave: past that the
+// bell partials get thin and it stops reading as the same instrument.
+const MUS_TRANSPOSE_CAP = 12;
+let musIntensifyRound = 0;      // the round the switch was thrown on
+
+function musCueTranspose(cue) {
+    if (!cue.transpose || !musIntensifyRound) return 0;
+    return Math.min(MUS_TRANSPOSE_CAP, Math.max(0, round - musIntensifyRound));
+}
+
 function musPlayCue(name, t) {
     const cue = MUS_CUES[name];
     if (!cue) return;
+    const up = musCueTranspose(cue);
     for (let i = 0; i < cue.notes.length; i++) {
         const n = cue.notes[i];
-        musBellNote(n[1], t + n[0] * MUS_BEAT, n[2] * MUS_CHIME_VOL, n[3]);
+        musBellNote(n[1] + up, t + n[0] * MUS_BEAT, n[2] * MUS_CHIME_VOL, n[3]);
     }
 }
 
@@ -352,6 +375,31 @@ function musScheduleBeat(t) {
     const I = musIntensity;
     const reg = I < 0.35 ? 0 : I < 0.7 ? 1 : 2;
     const bar = MUS_BEAT * 4;
+
+    // COLD DRUMMING (2026-09-19). Replaces the organ bed rather than sitting
+    // on top of it -- the brief said the music CHANGES, and an organ under a
+    // drum kit is a thicker score, not a colder one. The sluice build layer
+    // below is deliberately left running: it is the gate's own tune and it
+    // still has a job after the switch is thrown.
+    if (intensified) {
+        // Kick on 1 and 3, rim on the offbeats. It leans harder as the
+        // count near you climbs, same intensity the organ used.
+        if (inBar === 0) musKick(t, 0.26 + 0.10 * I);
+        if (inBar === 2) musKick(t, 0.20 + 0.10 * I);
+        musRim(t + MUS_BEAT / 2, 0.055 + 0.05 * I);
+        if (I >= 0.5) musRim(t + MUS_BEAT * 0.75, 0.035 + 0.03 * I);
+        // SPARSE MUSICAL NOTES: one chord tone a bar, high, ringing out
+        // over the drums and nothing else.
+        if (inBar === 0) musBellNote(P.chord[0] + 24, t, MUS_CHIME_VOL * 0.5, 1.6, 3);
+        if (inBar === 2 && I >= 0.4) musBellNote(P.chord[2] + 24, t, MUS_CHIME_VOL * 0.32, 1.2, 3);
+        // The pedal stays, very low and very quiet, so the key is still
+        // there under it. No chord, no ostinato, no soprano.
+        musOrgan(P.bass - 12, t, bar, 0.035 + 0.02 * I, 2, true);
+        if (inBar === 0) {
+            musHeld = musHeld.filter(function (h) { return h.until > t; });
+        }
+        return;
+    }
 
     // The bed: always there, just quiet when the map is.
     if (inBar === 0) {
@@ -391,6 +439,57 @@ function musScheduleBeat(t) {
     }
 }
 
+// ---------------------------------------------------
+//   INTENSIFIED: THE SCORE TURNS COLD  (2026-09-19)
+// ---------------------------------------------------
+// Asked for: "the music changes and intensifies to a cold drumming with
+// sparse musical notes".
+//
+// So while `intensified` the organ bed is replaced rather than layered
+// over: drums on the beat grid that is already here, and what is left of
+// the harmony is ONE chord tone a bar on the bell voice. Same MUS_PROG, so
+// the key never moves and the end cues still land in D.
+//
+// "Cold" is a mix decision, not a note choice: short envelopes, no tail, no
+// room. A kick that rings is warm; one that stops is not.
+function musKick(t, vol) {
+    if (!musCtx) return;
+    try {
+        const o = musCtx.createOscillator();
+        const g = musCtx.createGain();
+        o.type = "sine";
+        o.frequency.setValueAtTime(150, t);
+        o.frequency.exponentialRampToValueAtTime(42, t + 0.10);
+        g.gain.setValueAtTime(vol, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+        o.connect(g);
+        g.connect(musOrganBus);
+        o.start(t);
+        o.stop(t + 0.2);
+    } catch (e) { /* ignore */ }
+}
+
+// A dry rim click: a very short noise burst through a tight bandpass.
+function musRim(t, vol) {
+    if (!musCtx || !musWaves) return;
+    try {
+        const len = Math.floor(musCtx.sampleRate * 0.03);
+        const buf = musCtx.createBuffer(1, len, musCtx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        const src = musCtx.createBufferSource();
+        src.buffer = buf;
+        const bp = musCtx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = 2100;
+        bp.Q.value = 6;
+        const g = musCtx.createGain();
+        g.gain.value = vol;
+        src.connect(bp); bp.connect(g); g.connect(musOrganBus);
+        src.start(t);
+    } catch (e) { /* ignore */ }
+}
+
 // Smoothed toward a target with a time constant (seconds), so it behaves
 // the same at 20fps and 144fps.
 function musEase(v, target, dt, riseTau, fallTau) {
@@ -420,13 +519,19 @@ function musTrack(dt) {
     // The moments that earn a cue. Round 1's call is folded into the
     // opening chimes rather than stacked on top of them.
     if (round !== musRound) {
-        if (round > musRound && roundPhase === "active" && musRound > 0) musCue("round");
+        if (round > musRound && roundPhase === "active" && musRound > 0) {
+            musCue(intensified ? "roundHard" : "round");
+        }
         musRound = round;
     }
     if (roundPhase !== musPhase) {
         if (roundPhase === "intermission" && musPhase === "active") musCue("clear");
         musPhase = roundPhase;
     }
+    // The round the horde was called on, so roundHard can climb from there.
+    if (intensified && !musIntensifyRound) musIntensifyRound = round;
+    if (!intensified) musIntensifyRound = 0;
+
     if (genTripped && !musTripped) musCue("trip");
     musTripped = genTripped;
     if (generatorOn && !musGen) musCue("power");
