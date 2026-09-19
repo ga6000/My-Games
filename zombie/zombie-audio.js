@@ -484,4 +484,88 @@ function updateReviveAudio() {
     }
 }
 
+// ---------------------------------------------------
+//   END-CARD READOUT (2026-09-19)
+// ---------------------------------------------------
+// The voices for the score readout typed out on the end cards (the
+// sequencing lives with the card, in zombie-render.js). Everything is in D
+// so it sits on top of the organ's own end cue, which is still ringing
+// out when the readout starts: D minor pentatonic on a death, D major
+// on an escape. Each line lands one step higher than the last.
+const READOUT_STEPS_OVER = [587.33, 698.46, 783.99, 880.00, 1046.50, 1174.66];  // D F G A C D
+const READOUT_STEPS_WIN  = [587.33, 659.25, 739.99, 880.00, 987.77, 1174.66];   // D E F# A B D
+
+let readoutHum = null;             // { oscs, gain } while the final hum rings
+
+// One printer key. Quiet and slightly varied, or thirty a second of the
+// same click turns into a buzz.
+function sndReadoutKey() {
+    const f = 1700 + Math.random() * 400;
+    tone(f, f * 0.8, "square", 0.018, 0.03, 0);
+}
+
+// A line's number has landed.
+function sndReadoutLine(i, won) {
+    const steps = won ? READOUT_STEPS_WIN : READOUT_STEPS_OVER;
+    const f = steps[Math.min(i, steps.length - 1)];
+    tone(f, f, "square", 0.14, 0.09, 0);
+    tone(f * 2, f * 2, "triangle", 0.3, 0.05, 0);
+}
+
+// The total has landed: a chord, and under it a hum that swells in and then
+// takes ~8s to die away. Low D, two detuned saws beating against each other
+// plus an octave sine, through a lowpass so it reads as a hum rather than
+// a buzz. Stops itself; stopReadoutHum() is only for cutting it short.
+function sndReadoutFinal(won) {
+    if (!audioCtx || audioMuted) return;
+    const chord = won ? [146.83, 185.00, 220.00, 293.66, 440.00]   // D major, open
+                      : [146.83, 174.61, 220.00, 293.66];          // D minor
+    for (let i = 0; i < chord.length; i++) {
+        tone(chord[i], chord[i], i % 2 ? "triangle" : "square", 2.4, 0.07, 0);
+    }
+
+    stopReadoutHum();
+    try {
+        const t = audioCtx.currentTime;
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.value = 420;
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.16, t + 0.35);   // swell in
+        g.gain.setValueAtTime(0.16, t + 1.6);                  // hold
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 9.5);  // the long drag out
+        lp.connect(g);
+        g.connect(audioMaster);
+
+        const voices = [[73.42, "sawtooth"], [73.42 * 1.006, "sawtooth"], [146.83, "sine"]];
+        const oscs = [];
+        for (let i = 0; i < voices.length; i++) {
+            const o = audioCtx.createOscillator();
+            o.type = voices[i][1];
+            o.frequency.value = voices[i][0];
+            o.connect(lp);
+            o.start(t);
+            o.stop(t + 9.6);
+            oscs.push(o);
+        }
+        readoutHum = { oscs: oscs, gain: g, endsAt: t + 9.6 };
+    } catch (e) { readoutHum = null; }
+}
+
+// Restart, fold-back into a live room, or teardown while the hum rings.
+function stopReadoutHum() {
+    const h = readoutHum;
+    readoutHum = null;
+    if (!h || !audioCtx) return;
+    try {
+        const t = audioCtx.currentTime;
+        if (t >= h.endsAt) return;
+        h.gain.gain.cancelScheduledValues(t);
+        h.gain.gain.setValueAtTime(Math.max(0.0001, h.gain.gain.value), t);
+        h.gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        for (let i = 0; i < h.oscs.length; i++) h.oscs[i].stop(t + 0.25);
+    } catch (e) { /* already stopped */ }
+}
+
 loadAudioPrefs();

@@ -711,6 +711,7 @@ function resetGame() {
 
     resetEndgame();
     uiWin.style.display = 'none';
+    stopRunScoreReadout();
 
     round = 0;
     roundBudget = 0;

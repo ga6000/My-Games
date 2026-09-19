@@ -876,6 +876,31 @@ SCORE column shows: `runScoreFor(id)` in `zombie-game.js`. All the constants sit
 - Rows posted before this change (score = round reached, e.g. `2`) are still in Firestore.
   They are far below any new score, so they only matter as clutter.
 
+### The typed readout (2026-09-19)
+
+The end cards no longer show the breakdown all at once. `renderRunScore()` types it out like a
+terminal report. Each label types with a quiet printer key-click per character. The line's number
+then lands with a tone, one step higher than the last. **FINAL SCORE** types last, and its number
+lands with a chord and a low hum that swells in, holds, and takes ~8s to fade.
+
+- **Everything is in D**, because the organ's own end cue (`musicEnd`, in D) is still ringing when the
+  readout starts at 1.1s. A death steps up D minor pentatonic and ends on D minor. An escape steps up
+  D major pentatonic and ends on an open D major chord. The voices are `sndReadoutKey`,
+  `sndReadoutLine` and `sndReadoutFinal` in `zombie-audio.js`.
+- **The hum** is two slightly detuned saws on D2 plus an octave sine, through a 420 Hz lowpass. It
+  stops itself at 9.6s. `stopReadoutHum()` only exists to cut it short.
+- **No reflow.** Every cell is laid out with its full text from the start and the untyped part
+  `visibility: hidden` (`.ghost`), so the card is its final size before the first character types.
+  The next character sits under an inverse block cursor (`.cur`).
+- **One pending timer at a time.** The readout is a flat list of `[delay, action]` steps walked by
+  one `trackTimeout` chain. Zero-delay steps run in the same tick, so a line's tone fires the
+  moment its last digit appears. `stopRunScoreReadout()` clears the one timer and cuts the hum. It
+  is called from `resetGame()` (a click restarts immediately, mid-readout or not), from
+  `rejoinRunningRoom()` and from `zDestroy()`.
+- Verified in the browser: a round-15 win typed 94 characters, with five line tones about 0.9s apart
+  and the final chord at 7.5s. A restart while the hum rang silenced it. A restart 2s into a
+  readout left no timer, and nothing sounded after the cut.
+
 ## The field manual
 
 A terminal in the keep (`codexRect`), opened with F. Five tabs: weapons, perks (was "cards"),
@@ -990,4 +1015,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 7d371477 | 2026-09-19 -->
+<!-- doc-sync: d10e12ce | 2026-09-19 -->

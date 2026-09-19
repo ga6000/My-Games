@@ -575,6 +575,7 @@ function applyWorldSnapshot(msg, now) {
 function rejoinRunningRoom() {
     gameOver = false;
     uiGameOver.style.display = 'none';
+    stopRunScoreReadout();
     if (!players.length) {
         zAwaitRespawn = true;
         zDiedRound = round;

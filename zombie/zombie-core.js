@@ -110,6 +110,7 @@ function zDestroy() {
     // which is fine: this only ever runs long after they have loaded.
     if (typeof musicStop === "function") musicStop(true);
     if (typeof stopAllLoops === "function") stopAllLoops();
+    if (typeof stopRunScoreReadout === "function") stopRunScoreReadout();
     if (window.MP && typeof MP.destroy === "function") MP.destroy();
 }
 

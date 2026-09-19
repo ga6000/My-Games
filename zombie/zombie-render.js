@@ -1988,20 +1988,121 @@ function fmtScore(n) {
     return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-// This player's run score, itemised, on whichever end card is showing.
-// Written once when the card opens -- nothing changes after the run ends.
+// ---------------------------------------------------
+//   END-CARD READOUT (2026-09-19)
+// ---------------------------------------------------
+// This player's run score, itemised, on whichever end card is showing --
+// typed out a line at a time like a terminal printing a report. Each line's
+// label types with a key-click per character, its number lands with a tone
+// one step higher than the last, and the total comes last with a chord and
+// a hum that takes ~8s to fade (the voices are in zombie-audio.js).
+//
+// The full text is laid out from the start with the untyped part hidden
+// (.ghost), so the card is its final size before anything types and never
+// reflows mid-readout. The score is computed once, when the card opens --
+// nothing changes after the run ends.
+//
+// One chain of trackTimeout steps, each scheduling the next, so there is
+// only ever one pending timer and stopRunScoreReadout() can cut it cleanly.
+// A click still restarts straight away; resetGame() stops the readout.
+const READOUT_START_MS = 1100;     // let the organ's end cue land first
+const READOUT_CHAR_MS = 32;
+const READOUT_NUM_CHAR_MS = 40;
+const READOUT_LINE_GAP_MS = 320;
+const READOUT_TOTAL_GAP_MS = 650;
+const READOUT_TOTAL_CHAR_MS = 90;
+
+let readoutTimer = 0;
+
 function renderRunScore(el) {
     if (!el) return;
+    stopRunScoreReadout();
     const b = runScoreFor(netIdFor(players[0]));
-    let rows =
-        "<tr><td>KILLS " + b.kills + " / REVIVES " + b.revives + "</td><td class='pts'>" + fmtScore(b.combat) + "</td></tr>" +
-        "<tr><td>ROUND " + b.round + "</td><td class='pts'>" + fmtScore(b.roundPts) + "</td></tr>" +
-        "<tr><td>SILOS " + b.silos + "/" + siloFill.length + "</td><td class='pts'>" + fmtScore(b.siloPts) + "</td></tr>";
+    const lines = [
+        ["KILLS " + b.kills + " / REVIVES " + b.revives, fmtScore(b.combat), ""],
+        ["ROUND " + b.round, fmtScore(b.roundPts), ""],
+        ["SILOS " + b.silos + "/" + siloFill.length, fmtScore(b.siloPts), ""]
+    ];
     if (b.won) {
-        rows += "<tr class='win'><td>ESCAPED</td><td>+" + fmtScore(b.winPts) + "</td></tr>" +
-                "<tr class='win'><td>WIN DOUBLES IT</td><td>x2</td></tr>";
+        lines.push(["ESCAPED", "+" + fmtScore(b.winPts), "win"]);
+        lines.push(["WIN DOUBLES IT", "x2", "win"]);
     }
-    el.innerHTML = "SCORE<br><span class='total'>" + fmtScore(b.total) + "</span><table>" + rows + "</table>";
+
+    let html = "<table>";
+    for (let i = 0; i < lines.length; i++) {
+        html += "<tr class='" + lines[i][2] + "'><td></td><td class='pts'></td></tr>";
+    }
+    html += "</table><div class='totalline'><span class='lbl'></span><br><span class='total'></span></div>";
+    el.innerHTML = html;
+
+    const cells = el.querySelectorAll("td");
+    const lbl = el.querySelector(".lbl");
+    const total = el.querySelector(".total");
+
+    // Build the whole readout as a flat list of [delay before, action].
+    const steps = [];
+    function typeInto(cell, text, charMs, click) {
+        cell._text = text;
+        setTyped(cell, 0, false);
+        for (let n = 1; n <= text.length; n++) {
+            steps.push([charMs, function () {
+                setTyped(cell, n, n < text.length);
+                if (click && text.charAt(n - 1) !== " ") sndReadoutKey();
+            }]);
+        }
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+        const at = steps.length;
+        typeInto(cells[i * 2], lines[i][0], READOUT_CHAR_MS, true);
+        typeInto(cells[i * 2 + 1], lines[i][1], READOUT_NUM_CHAR_MS, true);
+        const line = i;
+        steps.push([0, function () { sndReadoutLine(line, b.won); }]);
+        steps[at][0] = i === 0 ? READOUT_START_MS : READOUT_LINE_GAP_MS;
+    }
+    const at = steps.length;
+    typeInto(lbl, "FINAL SCORE", READOUT_CHAR_MS, true);
+    steps[at][0] = READOUT_TOTAL_GAP_MS;
+    typeInto(total, fmtScore(b.total), READOUT_TOTAL_CHAR_MS, true);
+    steps.push([0, function () {
+        total.classList.add("landed");
+        sndReadoutFinal(b.won);
+    }]);
+
+    let k = 0;
+    function next() {
+        readoutTimer = 0;
+        // Zero-delay steps run in the same tick as the one before them, so
+        // a line's tone fires the moment its last digit appears.
+        while (k < steps.length) {
+            steps[k++][1]();
+            if (k < steps.length && steps[k][0] > 0) {
+                readoutTimer = trackTimeout(next, steps[k][0]);
+                return;
+            }
+        }
+    }
+    readoutTimer = trackTimeout(next, steps[0][0]);
+}
+
+// Typed text, a block cursor over the next character, and the untyped rest
+// held invisibly so the cell keeps its final width. Only digits, letters and
+// "+/x," ever reach here, so no escaping is needed.
+function setTyped(cell, n, cursor) {
+    const t = cell._text;
+    if (cursor && n < t.length) {
+        cell.innerHTML = t.slice(0, n) + "<span class='cur'>" + t.charAt(n) +
+            "</span><span class='ghost'>" + t.slice(n + 1) + "</span>";
+    } else {
+        cell.innerHTML = t.slice(0, n) + "<span class='ghost'>" + t.slice(n) + "</span>";
+    }
+}
+
+// Restart, fold-back into a live room, or teardown mid-readout.
+function stopRunScoreReadout() {
+    if (readoutTimer) clearTimeout(readoutTimer);
+    readoutTimer = 0;
+    stopReadoutHum();
 }
 
 // ---------------------------------------------------
