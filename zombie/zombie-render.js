@@ -8,16 +8,17 @@
 // ---------------------------------------------------
 //   AESTHETIC (AESTHETIC_GUIDE.md §6.3 -- RASTER, Berzerk)
 // ---------------------------------------------------
-// Frame counter for the flicker budget (§4.7). Nothing else reads it, and
-// it deliberately is NOT a timer -- it ticks once per rendered frame in
-// gameLoop, so it needs no trackTimeout/trackInterval registration.
+// Frame counter. It drove the flicker budget (§4.7); now it only animates
+// flame and burn pixels. Deliberately NOT a timer -- it ticks once per
+// rendered frame in gameLoop, so it needs no trackTimeout registration.
 let zFrameCount = 0;
 
-// Past this many zombies ON SCREEN, the overflow renders on alternating
-// frames. Era hardware flickered when too many sprites shared a scanline;
-// this adopts the vocabulary rather than simulating a glitch, and it
-// genuinely halves the draw cost of a late-round horde.
-const ZOMBIE_DRAW_CAP = 40;
+// THE FLICKER BUDGET IS GONE (2026-09-18). Past 40 zombies on screen the
+// overflow used to draw on alternate frames -- §4.7's "flicker as a
+// budget". The playtest found it distracting and, worse, hard to read:
+// exactly when the screen is fullest you most need to see what is on it.
+// Drawing every zombie every frame costs two fillRects each; it was never
+// the frame budget.
 
 // Four bands: lit / near / far / ambient. The era had no smooth gradients.
 const LIGHT_BANDS = 4;
@@ -27,15 +28,26 @@ const uiZombies = document.getElementById('zombieCount');
 const uiKills = document.getElementById('killCount');
 const uiRound = document.getElementById('roundDisplay');
 const uiScrap = document.getElementById('scrapDisplay');
-const uiWeapon = document.getElementById('weaponDisplay');
 const uiPrompt = document.getElementById('prompt');
+// The loadout HUD, bottom left (2026-09-18).
+const uiGunIcon = document.getElementById('gunIcon');
+const uiGunName = document.getElementById('gunName');
+const uiAmmo = document.getElementById('ammoBig');
+const uiGunStrip = document.getElementById('gunStrip');
+const uiPerks = document.getElementById('perks');
+const uiStats = document.getElementById('stats');
+const uiSpectate = document.getElementById('spectate');
+const uiLoadout = document.getElementById('loadout');
+const uiNetLost = document.getElementById('netlost');
+const uiNetLostTime = document.getElementById('netLostTime');
+const uiNetLostOffer = document.getElementById('netLostOffer');
+const uiNetWarn = document.getElementById('netwarn');
 const uiToast = document.getElementById('toast');
 const uiRoundCard = document.getElementById('roundcard');
 const uiScores = document.getElementById('scores');
 const uiGameOver = document.getElementById('gameover');
 const uiFinalRound = document.getElementById('finalRound');
 const uiStart = document.getElementById('startprompt');
-const uiCards = document.getElementById('cards');
 const uiZone = document.getElementById('zonename');
 const uiAudio = document.getElementById('audioState');
 const uiWin = document.getElementById('win');
@@ -58,7 +70,8 @@ let codexTab = "weapons";
 
 const CODEX_TABS = [
     ["weapons", "WEAPONS"],
-    ["cards", "CARDS"],
+    ["cards", "PERKS"],
+    ["roles", "CLASSES"],
     ["pickups", "PICKUPS"],
     ["enemies", "ENEMIES"],
     ["map", "THE MAP"]
@@ -85,18 +98,23 @@ function swatch(color) {
 
 function codexWeapons() {
     let h = "<p class='lede'>One of each is sold somewhere on the map — never two. " +
-            "The pistol is always with you and never runs dry.</p>" +
-            "<table><tr><th>WEAPON</th><th>DAMAGE</th><th>RATE</th><th>RANGE</th><th>AMMO</th><th>NOTES</th></tr>";
-    const order = ["pistol", "rifle", "shotgun", "smg", "sniper"];
-    for (let i = 0; i < order.length; i++) {
-        const k = order[i], w = WEAPONS[k];
+            "The pistol is always with you and never runs dry. Everything you buy stays yours: " +
+            "<b>1–7</b> or the <b>mouse wheel</b> switch guns, and a gun that runs dry hands over " +
+            "to the next one you own. Crates refill every gun you own.</p>" +
+            "<table><tr><th></th><th>WEAPON</th><th>KEY</th><th>DAMAGE</th><th>RATE</th><th>RANGE</th><th>AMMO</th><th>NOTES</th></tr>";
+    for (let i = 0; i < WEAPON_KEYS.length; i++) {
+        const k = WEAPON_KEYS[i], w = WEAPONS[k];
         const buy = wallBuys.filter(function (b) { return b.weapon === k; })[0];
         const notes = [];
-        if (w.pellets > 1) notes.push(w.pellets + " pellets");
-        if (w.pierce) notes.push("pierces " + w.pierce);
+        if (w.pellets > 1 && k !== "flamer") notes.push(w.pellets + " pellets");
+        if (w.pierce && k !== "flamer") notes.push("pierces " + w.pierce);
+        if (w.splash) notes.push("explodes: " + w.splash.dmg + " damage in " + w.splash.r + "px, sets off barrels");
+        if (w.burn) notes.push("hits everything in the cone and sets it burning");
+        if (w.crateFrac) notes.push("crates only half-fill it");
         if (w.infinite) notes.push("never runs out");
         if (buy) notes.push("buy in " + zoneName(buy.zone) + " — " + buy.cost);
-        h += "<tr><td class='k'>" + w.name + "</td><td class='n'>" + w.dmg +
+        h += "<tr><td>" + iconImg("gun", k, 2) + "</td><td class='k'>" + w.name + "</td><td class='n'>" + (i + 1) +
+             "</td><td class='n'>" + w.dmg +
              "</td><td class='n'>" + (1000 / w.cooldown).toFixed(1) + "/s</td><td class='n'>" + w.range +
              "</td><td class='n'>" + (w.infinite ? "&#8734;" : w.capacity) +
              "</td><td>" + notes.join(", ") + "</td></tr>";
@@ -104,17 +122,53 @@ function codexWeapons() {
     return h + "</table>";
 }
 
+// PERKS (called cards in the code). What each does lives HERE now, not on
+// the station prompt -- the icon on the station is how you recognise it.
 function codexCards() {
-    let h = "<p class='lede'>Bought at card stations, which stay dead until the GENERATOR is running. " +
-            "Three slots. Each card stacks to x" + CARD_MAX_STACK +
+    let h = "<p class='lede'>Bought at perk stations, which stay dead until the GENERATOR is running " +
+            "(and go dead again if a Blackout trips it). Three slots. Each perk stacks to x" + CARD_MAX_STACK +
             ", and every stack costs more than the last (x1, x" + CARD_STACK_COST[1] +
-            ", x" + CARD_STACK_COST[2] + ").</p>" +
-            "<table><tr><th>CARD</th><th>EFFECT</th><th>ON THIS MAP</th></tr>";
+            ", x" + CARD_STACK_COST[2] + "). Every map sells " + cardStations.length + " of the " +
+            CARD_KEYS.length + "; OVERDRIVE is always one of them.</p>" +
+            "<table><tr><th></th><th>PERK</th><th>WHAT IT DOES</th><th>ON THIS MAP</th></tr>";
+    const absent = absentCardKeys();
     for (let i = 0; i < CARD_KEYS.length; i++) {
         const k = CARD_KEYS[i], c = CARDS[k];
+        if (absent.indexOf(k) !== -1) continue;
         const st = cardStations.filter(function (s2) { return s2.card === k; })[0];
-        h += "<tr><td class='k'>" + c.name + "</td><td>" + c.blurb + "</td><td>" +
-             (st ? zoneName(st.zone) + " — " + st.cost : "not on this map") + "</td></tr>";
+        h += "<tr><td>" + iconImg("perk", k, 2) + "</td><td class='k'>" + c.name + "</td><td>" + c.blurb +
+             "<br><span style='color:#6FA06F'>" + c.detail + "</span></td><td>" +
+             (st ? zoneName(st.zone) + " — " + st.cost : "") + "</td></tr>";
+    }
+    h += "</table>";
+    if (absent.length) {
+        h += "<p class='lede' style='margin-top:14px'><b>NOT ON THIS MAP:</b></p>" +
+             "<table><tr><th></th><th>PERK</th><th>WHAT IT DOES</th></tr>";
+        for (let i = 0; i < absent.length; i++) {
+            const c = CARDS[absent[i]];
+            h += "<tr style='opacity:.55'><td>" + iconImg("perk", absent[i], 2, ICON_DIM) + "</td><td class='k'>" +
+                 c.name + "</td><td>" + c.blurb + "<br><span style='color:#6FA06F'>" + c.detail + "</span></td></tr>";
+        }
+        h += "</table>";
+    }
+    return h;
+}
+
+// CLASSES (roles in the code). Asked for 2026-09-18: "add to field manual
+// what each class trait does". From ROLES[].detail, with your own row lit.
+function codexRoles() {
+    const mine = myRole();
+    let h = "<p class='lede'>Everyone is dealt one of four classes on joining — worked out from your " +
+            "player id, so it costs no network traffic and stays the same if you reconnect. Two " +
+            "players can share one. It is shown under your scrap. <b>You are " + ROLES[mine].name +
+            ".</b></p>" +
+            "<table><tr><th>CLASS</th><th>IN SHORT</th><th>EXACTLY</th></tr>";
+    for (let i = 0; i < ROLE_KEYS.length; i++) {
+        const k = ROLE_KEYS[i], r = ROLES[k];
+        const you = k === mine;
+        h += "<tr" + (you ? " style='background:rgba(255,74,28,0.12)'" : "") + ">" +
+             "<td class='k'>" + r.name + (you ? " <span style='color:#FF4A1C'>(YOU)</span>" : "") +
+             "</td><td>" + r.blurb + "</td><td>" + r.detail + "</td></tr>";
     }
     return h + "</table>";
 }
@@ -137,13 +191,15 @@ function codexEnemies() {
         brute: "Heavy, tough, and tears through barricades. Focus it.",
         screamer: "Summons more until it dies. Kill it FIRST — you can hear it much further away than anything else.",
         splitter: "Bursts into three fast spawnlings when killed. Do not shoot it point blank.",
-        spawnling: "What a splitter leaves behind."
+        spawnling: "What a splitter leaves behind.",
+        ultra: "From round 16. Huge, slow and armoured: rounds stop in it instead of piercing through, " +
+               "and it goes through a boarded window in moments. Rockets and flame are the answer."
     };
     let h = "<p class='lede'>HP shown for round 1; it rises every six rounds.</p>" +
             "<table><tr><th>ENEMY</th><th>HP</th><th>SPEED</th><th>SCRAP</th><th>BEHAVIOUR</th></tr>";
     for (let i = 0; i < Z_TYPE_KEYS.length; i++) {
         const k = Z_TYPE_KEYS[i], z = ZOMBIE_TYPES[k];
-        h += "<tr><td class='k'>" + swatch(z.color) + k.toUpperCase() + "</td><td class='n'>" + z.hp +
+        h += "<tr><td class='k'>" + swatch(z.color) + zombieDisplayName(k) + "</td><td class='n'>" + z.hp +
              "</td><td class='n'>" + z.speed.toFixed(2) + "x</td><td class='n'>" + z.scrap +
              "</td><td>" + (notes[k] || "") + "</td></tr>";
     }
@@ -158,12 +214,23 @@ function codexMap() {
            "<b>Buy it to open a new zone.</b> Never breaks. Players and zombies both use it once open.</td></tr>" +
            "<tr><td class='k'>" + swatch(COLOR_WINDOW) + "BOARDED WINDOW</td><td>Brown planks with nail heads. " +
            "<b>Zombies chew through these to reach you</b> — you will hear it. You can never walk through one, " +
-           "even after it breaks. Re-board them free during the breather between rounds.</td></tr>" +
-           "<tr><td class='k'>" + swatch(COLOR_BUY) + "GENERATOR</td><td>Start it to light the map and switch on the card stations.</td></tr>" +
-           "<tr><td class='k'>" + swatch(COLOR_PICKUP) + "AMMO CRATE</td><td>Free, limited uses, refills what you carry.</td></tr>" +
+           "even after it breaks. Every window is re-boarded free at each breather between rounds — " +
+           "at 150%, with a light frame round it, while an ENGINEER is in the game.</td></tr>" +
+           "<tr><td class='k'>" + swatch(COLOR_BUY) + "GENERATOR</td><td>Start it to light the map and switch on the perk stations. " +
+           "<b>A Blackout trips it</b>: the map goes dark, the stations die, and the round will not end until " +
+           "someone stands at the generator for " + (GEN_RESTART_MS / 1000) + " seconds to restart it. Free.</td></tr>" +
+           "<tr><td class='k'>" + swatch(COLOR_PICKUP) + "AMMO CRATE</td><td>Free, limited uses, refills every gun you own.</td></tr>" +
            "<tr><td class='k'>" + swatch(COLOR_TRAP) + "TRAP</td><td>Arm it with scrap to hurt everything that walks over it.</td></tr>" +
            "<tr><td class='k'>" + swatch(COLOR_BARREL) + "BARREL</td><td>Shoot it. It chains to nearby barrels.</td></tr>" +
-           "</table>";
+           "<tr><td class='k'>" + swatch("#AA1122") + "SLUICE, FUNNELS, SILOS</td><td>How a run is won. Two players on the two plates open " +
+           "the sluice. Kill zombies <b>on</b> a live funnel to fill the silo piped to it, then throw that silo's switch " +
+           "to wake the next funnel. Funnel 1 is in the sluice room; 2 and 3 are in funnel halls — long " +
+           "two-walled halls on a drain floor, a funnel at one end and its silo at the other.</td></tr>" +
+           "</table>" +
+           "<p class='lede' style='margin-top:12px'><b>KEYS</b> — <b>ESC</b> goals and how to play · " +
+           "<b>M</b> map and stats on/off · <b>N</b> sound on/off · " +
+           "<b>1–7</b> / wheel guns · <b>F</b> use · <b>Q</b> ping. If you bleed out while a teammate is still up, " +
+           "you are back at the next breather. If everyone is down at once, the run is over.</p>";
 }
 
 function renderCodex() {
@@ -177,6 +244,7 @@ function renderCodex() {
     let body = "";
     if (codexTab === "weapons") body = codexWeapons();
     else if (codexTab === "cards") body = codexCards();
+    else if (codexTab === "roles") body = codexRoles();
     else if (codexTab === "pickups") body = codexPickups();
     else if (codexTab === "enemies") body = codexEnemies();
     else body = codexMap();
@@ -193,10 +261,179 @@ uiCodexTabs.addEventListener('click', function (e) {
 uiCodexClose.addEventListener('click', closeCodex, { signal: zSignal() });
 
 let lastZoneShown = -1;
-let beaconUntil = 0;
 
 let mouseX = WORLD_W / 2;
 let mouseY = WORLD_H / 2;
+
+// ---------------------------------------------------
+//   HUD STATE (2026-09-18)
+// ---------------------------------------------------
+// M shows/hides the minimap and the TIME / ZOMBIES / KILLS lines together
+// (it used to mute; N does that now).
+//
+// HIDDEN AT START (2026-09-18, asked for mid-playtest: "start game without
+// minimap"). Every page load starts with it off. It was remembered in
+// localStorage for a few hours, which would have brought it back on for
+// anyone who had ever pressed M -- so it is deliberately NOT persisted. The
+// choice does hold across restarts within a session: turning it on and
+// then dying should not take it away again.
+let hudMapOn = false;
+
+function toggleHudMap() {
+    hudMapOn = !hudMapOn;
+    uiStats.style.display = hudMapOn ? "" : "none";
+}
+
+// The HUD rewrites only what changed. innerHTML every frame rebuilt the
+// perk chips 60 times a second -- with <img> tags in them now, that would
+// also re-decode every icon every frame.
+let hudGunSig = "";
+let hudAmmoSig = "";
+let hudStripSig = "";
+let hudPerkSig = "";
+let hudSeenPower = false;       // the first time the lights come on this run
+let hudAbsentUntil = 0;         // ...the absent perks are announced until then
+
+function hudReset() {
+    hudGunSig = hudAmmoSig = hudStripSig = hudPerkSig = "";
+    hudSeenPower = false;
+    hudAbsentUntil = 0;
+    helpSig = "";
+}
+
+// ---------------------------------------------------
+//   GOALS, AND THE ESC DIALOG (2026-09-18)
+// ---------------------------------------------------
+// Asked for mid-playtest: take the instructions off the start prompt and put
+// them behind ESC, "which includes the map goals with check boxes as
+// applies", and show the NEXT goal above the minimap while it is up.
+//
+// The goals are computed from state every client already has -- the
+// generator, the gate, the silos, the flood and the escape all ride the
+// world snapshot -- so a guest ticks exactly the boxes the host does, with no
+// new traffic. A goal is DONE by state, not by order: a Blackout un-ticks
+// the generator (and puts it back at the top as "restart") while the sluice
+// stays ticked, because it is.
+let helpOpen = false;
+let helpSig = "";
+const uiHelp = document.getElementById('help');
+const uiGoalList = document.getElementById('goalList');
+const uiGoalNote = document.getElementById('goalNote');
+const uiHelpClose = document.getElementById('helpClose');
+
+function zoneAt(r) {
+    return r ? zoneName(zoneOf(r.x + (r.w || 0) / 2, r.y + (r.h || 0) / 2)) : "";
+}
+
+// In order. `short` is the minimap label; `note` explains; `progress` is
+// live numbers where there are any.
+function mapGoals() {
+    const goals = [];
+    goals.push({
+        text: genTripped ? "Restart the generator" : "Start the generator",
+        short: genTripped ? "RESTART THE GENERATOR" : "START THE GENERATOR",
+        where: zoneAt(generatorRect),
+        note: genTripped ? "a Blackout tripped it — stand at it for " + (GEN_RESTART_MS / 1000) + "s"
+                         : "lights the map and powers the perk stations",
+        progress: (genTripped && genRestart > 0) ? Math.floor(clamp(genRestart, 0, 1) * 100) + "%" : "",
+        done: generatorOn
+    });
+    goals.push({
+        text: "Open the sluice gate",
+        short: "OPEN THE SLUICE GATE",
+        where: zoneAt(sluiceRoom),
+        note: "two players, one on each plate, through two locks",
+        progress: (gateStage < GATE_STAGES && (gateStage > 0 || gateProgress > 0))
+                  ? "lock " + (gateStage + 1) + "/" + GATE_STAGES + "  " + Math.floor(clamp(gateProgress, 0, 1) * 100) + "%" : "",
+        done: gateStage >= GATE_STAGES
+    });
+    for (let k = 0; k < 3; k++) {
+        const where = k === 0 ? zoneAt(sluiceRoom) + " (the sluice room)"
+                    : (funnelHalls[k] ? zoneName(funnelHalls[k].zone) : (funnels[k] ? zoneName(funnels[k].zone) : ""));
+        const full = siloFill[k] >= SILO_CAPACITY;
+        goals.push({
+            text: "Fill silo " + (k + 1) + " and throw its switch",
+            short: full ? "THROW SILO " + (k + 1) + "'S SWITCH" : "FILL SILO " + (k + 1),
+            where: where,
+            note: full ? "full — throw the switch on the silo" : "kill zombies standing ON funnel " + (k + 1),
+            progress: (!siloFlipped[k] && siloFill[k] > 0) ? siloFill[k] + "/" + SILO_CAPACITY : "",
+            done: !!siloFlipped[k]
+        });
+    }
+    goals.push({
+        text: "Survive the flood",
+        short: "SURVIVE THE FLOOD",
+        where: "",
+        note: "it comes in off every edge of the map at once",
+        progress: floodActive ? zombies.length + " left" : "",
+        done: escapeAt > 0 || won
+    });
+    goals.push({
+        text: "Reach the south gate",
+        short: "REACH THE SOUTH GATE",
+        where: zoneAt(escapeRect),
+        note: (escapeAt > 0 && !escapeOpen()) ? "grinding open" : "it opens slowly once the flood is over",
+        progress: escapeAt > 0 ? (escapeOpen() ? "OPEN" : Math.ceil((escapeAt - Date.now()) / 1000) + "s") : "",
+        done: won
+    });
+    return goals;
+}
+
+function nextGoal(goals) {
+    const g = goals || mapGoals();
+    for (let i = 0; i < g.length; i++) if (!g[i].done) return g[i];
+    return null;
+}
+
+// Rebuilt only when something on it changed (it is checked every frame
+// while the dialog is up).
+function renderHelp(force) {
+    const goals = mapGoals();
+    let sig = "";
+    for (let i = 0; i < goals.length; i++) sig += (goals[i].done ? 1 : 0) + goals[i].text + goals[i].progress + goals[i].note + "|";
+    if (!force && sig === helpSig) return;
+    helpSig = sig;
+
+    const cur = nextGoal(goals);
+    let h = "";
+    for (let i = 0; i < goals.length; i++) {
+        const g = goals[i];
+        const cls = g.done ? "done" : (g === cur ? "current" : "later");
+        h += "<li class='" + cls + "'><span class='gbox'></span><span class='gt'>" + g.text.toUpperCase() +
+             (g.where ? " <span class='gw'>— " + g.where + "</span>" : "") +
+             "<span class='gn'>" + g.note + "</span></span>" +
+             (g.progress ? "<span class='gp'>" + g.progress + "</span>" : "") + "</li>";
+    }
+    uiGoalList.innerHTML = h;
+
+    // The one goal that cannot be done alone, said plainly.
+    const alone = !netOnline || teamSize() < 2;
+    uiGoalNote.innerHTML = (alone && gateStage < GATE_STAGES)
+        ? "The sluice gate needs <b>two players</b>. Alone, a run is survival until you go down."
+        : "Round " + round + (roundPhase === "intermission" ? " — breather" : "") + ".";
+}
+
+function releaseHeldKeys() {
+    const p = players[0];
+    if (p) { p.keys.up = p.keys.down = p.keys.left = p.keys.right = p.keys.shoot = false; }
+}
+
+// Like the field manual: it takes the keyboard and mouse while it is up, and
+// it does NOT pause -- the host simulates for the whole room.
+function openHelp() {
+    helpOpen = true;
+    releaseHeldKeys();
+    uiHelp.classList.add('open');
+    renderHelp(true);
+}
+
+function closeHelp() {
+    helpOpen = false;
+    releaseHeldKeys();
+    uiHelp.classList.remove('open');
+}
+
+uiHelpClose.addEventListener('click', closeHelp, { signal: zSignal() });
 
 // ---------------------------------------------------
 //   DRAW
@@ -207,6 +444,9 @@ function draw() {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Pixel art stays square: floors, icons. Set every frame because a
+    // canvas resize resets the whole context state, this included.
+    ctx.imageSmoothingEnabled = false;
 
     applyCameraTransform();
 
@@ -219,27 +459,31 @@ function draw() {
                y + h > vr.y - pad && y < vr.y + vr.h + pad;
     };
 
-    drawGround(vr);
+    // Zone floors (zombie-floors.js); the old grid only if they failed.
+    if (!drawZoneFloors(vr)) drawGround(vr);
 
     // World border
     ctx.strokeStyle = COLOR_WALL;
     ctx.lineWidth = 3;
     ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
 
+    drawSiloPipes(now, inView);
     drawEndgame(now, inView);
     drawCodex(now, inView);
     drawTraps(now, inView);
     drawCrates(inView);
     drawBarrels(inView);
     drawGenerator(inView, now);
-    drawCardStations(inView);
+    drawCardStations(inView, now);
     drawWallBuys(inView);
     drawPickups(now, inView);
+    drawDecoys(now);
     drawWalls(inView);
     drawDoors(inView);
     drawBarricades(inView);
     drawBlasts(now);
     drawZombies(now, inView);
+    drawBolts(now);
     drawBullets(inView);
     drawRemotePlayers(now, inView);
     drawLocalPlayers(now);
@@ -251,10 +495,12 @@ function draw() {
     drawBlackoutMonochrome();
     drawLighting();
     drawOffscreenMarkers(now);
-    drawMinimap();
+    if (hudMapOn) drawMinimap();
     updateHud(now);
 }
 
+// The fallback floor: a faint grid. Only drawn if the zone floors failed
+// to build -- see drawZoneFloors.
 function drawGround(vr) {
     // A faint grid: on a map this size with a moving camera, a flat black
     // field gives no sense of speed or direction.
@@ -408,9 +654,18 @@ function drawBarricades(inView) {
 
         // Intact: individual planks, so damage reads as boards being torn
         // off rather than a bar quietly shrinking.
-        const frac = b.hp / b.maxHp;
+        // Above 1 when an ENGINEER's breather re-board left it at 150%: the
+        // planks cap at four (more would be drawn past the window's ends) and
+        // a reinforcing frame shows the extra instead.
+        const reinforced = b.hp > b.maxHp;
+        const frac = Math.min(1, b.hp / b.maxHp);
         const planks = 4;
         const shown = Math.max(1, Math.ceil(planks * frac));
+        if (reinforced) {
+            ctx.strokeStyle = "#C89B5A";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(b.x - 8, b.y - 8, b.w + 16, b.h + 16);
+        }
         const step = span / planks;
         ctx.fillStyle = COLOR_WINDOW;
         for (let k = 0; k < shown; k++) {
@@ -531,6 +786,10 @@ function drawEndgame(now, inView) {
         const h = si.h * frac;
         ctx.fillStyle = "#AA1122";
         ctx.fillRect(si.x + 3, si.y + si.h - h, si.w - 6, Math.max(0, h - 3));
+        // Hoops, so it reads as a tank and not a gauge.
+        ctx.fillStyle = "#3A1418";
+        ctx.fillRect(si.x, si.y + Math.round(si.h * 0.33), si.w, 3);
+        ctx.fillRect(si.x, si.y + Math.round(si.h * 0.66), si.w, 3);
         ctx.strokeStyle = siloFlipped[i] ? "#335533" : (siloReady(i) ? COLOR_BUY : "#884455");
         ctx.lineWidth = 3;
         ctx.strokeRect(si.x, si.y, si.w, si.h);
@@ -565,6 +824,60 @@ function drawEndgame(now, inView) {
         ctx.textAlign = "center";
         ctx.fillText(open ? "ESCAPE" : "SEALED", escapeRect.x + escapeRect.w / 2, escapeRect.y + 42);
         ctx.textAlign = "left";
+    }
+}
+
+// Funnel -> silo pipes (2026-09-18). Drawn under everything else in the
+// endgame so the funnel ring and the tank sit on top of the pipe ends. A
+// live funnel runs blood along its pipe toward the silo; a full or spent
+// one is dry.
+function drawSiloPipes(now, inView) {
+    for (let i = 0; i < siloPipes.length; i++) {
+        const p = siloPipes[i];
+        if (!p) continue;
+        const x0 = Math.min(p.x1, p.x2), y0 = Math.min(p.y1, p.y2);
+        if (!inView(x0 - 10, y0 - 10, Math.abs(p.x2 - p.x1) + 20, Math.abs(p.y2 - p.y1) + 20)) continue;
+        const len = Math.hypot(p.x2 - p.x1, p.y2 - p.y1);
+        if (len < 1) continue;
+        const ux = (p.x2 - p.x1) / len, uy = (p.y2 - p.y1) / len;
+
+        ctx.lineCap = "butt";
+        ctx.strokeStyle = "#2A1416";
+        ctx.lineWidth = 12;
+        ctx.beginPath();
+        ctx.moveTo(p.x1, p.y1);
+        ctx.lineTo(p.x2, p.y2);
+        ctx.stroke();
+        ctx.strokeStyle = "#4A2226";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(p.x1 - uy * 3, p.y1 + ux * 3);
+        ctx.lineTo(p.x2 - uy * 3, p.y2 + ux * 3);
+        ctx.stroke();
+
+        // Flanges every 30px.
+        ctx.fillStyle = "#5A2A2E";
+        for (let d = 8; d < len - 4; d += 30) {
+            const fx = p.x1 + ux * d, fy = p.y1 + uy * d;
+            ctx.save();
+            ctx.translate(fx, fy);
+            ctx.rotate(Math.atan2(uy, ux));
+            ctx.fillRect(-2, -9, 4, 18);
+            ctx.restore();
+        }
+
+        if (funnelActive[i] && siloFill[i] < SILO_CAPACITY) {
+            ctx.strokeStyle = "#CC1A2A";
+            ctx.lineWidth = 4;
+            ctx.setLineDash([6, 10]);
+            ctx.lineDashOffset = -((now / 40) % 16);
+            ctx.beginPath();
+            ctx.moveTo(p.x1, p.y1);
+            ctx.lineTo(p.x2, p.y2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.lineDashOffset = 0;
+        }
     }
 }
 
@@ -618,6 +931,8 @@ function drawCodex(now, inView) {
     ctx.textAlign = "left";
 }
 
+// The gun's silhouette on the plate, so a wall-buy says what it sells
+// before you are close enough for the prompt.
 function drawWallBuys(inView) {
     for (let i = 0; i < wallBuys.length; i++) {
         const wb = wallBuys[i];
@@ -627,9 +942,11 @@ function drawWallBuys(inView) {
         ctx.strokeStyle = COLOR_BUY;
         ctx.lineWidth = 2;
         ctx.strokeRect(wb.x, wb.y, wb.w, wb.h);
+        const icon = gunIcon(wb.weapon, COLOR_BUY);
+        if (icon) ctx.drawImage(icon, wb.x + 4, wb.y + 6, icon.width * 2, icon.height * 2);
         ctx.fillStyle = COLOR_BUY;
-        ctx.font = "11px Courier";
-        ctx.fillText(WEAPONS[wb.weapon].name, wb.x + 6, wb.y + 17);
+        ctx.font = "10px Courier";
+        ctx.fillText(weaponShortName(wb.weapon), wb.x + 56, wb.y + 18);
     }
 }
 
@@ -666,9 +983,13 @@ function drawGenerator(inView, now) {
     const g = generatorRect;
     if (!inView(g.x, g.y, g.w, g.h)) return;
 
-    ctx.fillStyle = generatorOn ? "#224422" : "#332200";
+    // Tripped by a Blackout: flashing red, and the restart zone marked out
+    // on the floor with how far the restart has got.
+    const tripped = genTripped;
+    const edge = generatorOn ? COLOR_BUY : (tripped ? ((now % 500 < 250) ? "#FF3344" : "#881122") : COLOR_PICKUP);
+    ctx.fillStyle = generatorOn ? "#224422" : (tripped ? "#2A0A0E" : "#332200");
     ctx.fillRect(g.x, g.y, g.w, g.h);
-    ctx.strokeStyle = generatorOn ? COLOR_BUY : COLOR_PICKUP;
+    ctx.strokeStyle = edge;
     ctx.lineWidth = 3;
     ctx.strokeRect(g.x, g.y, g.w, g.h);
 
@@ -678,28 +999,51 @@ function drawGenerator(inView, now) {
         ctx.lineWidth = 1;
         ctx.strokeRect(g.x - 5, g.y - 5, g.w + 10, g.h + 10);
     }
-    ctx.fillStyle = generatorOn ? COLOR_BUY : COLOR_PICKUP;
-    ctx.font = "bold 22px Courier";
-    ctx.textAlign = "center";
-    ctx.fillText("\u26A1", g.x + g.w / 2, g.y + g.h / 2 + 8);
-    ctx.textAlign = "left";
+    // A bolt in the same pixel language as the perk icons -- this used to
+    // be the U+26A1 emoji, which renders as a colour picture on some systems.
+    const bolt = miscIcon("power", edge);
+    if (bolt) ctx.drawImage(bolt, g.x + g.w / 2 - 18, g.y + g.h / 2 - 18, 36, 36);
+
+    if (tripped) {
+        const r = GEN_RESTART_REACH;
+        ctx.strokeStyle = "#FF3344";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 6]);
+        ctx.strokeRect(g.x - r, g.y - r, g.w + r * 2, g.h + r * 2);
+        ctx.setLineDash([]);
+        const w = g.w + r * 2;
+        ctx.fillStyle = "#220008";
+        ctx.fillRect(g.x - r, g.y - r - 18, w, 9);
+        ctx.fillStyle = "#FF3344";
+        ctx.fillRect(g.x - r, g.y - r - 18, w * clamp(genRestart, 0, 1), 9);
+        ctx.fillStyle = "#FF8899";
+        ctx.font = "bold 11px Courier";
+        ctx.textAlign = "center";
+        ctx.fillText("TRIPPED \u2014 STAND HERE TO RESTART", g.x + g.w / 2, g.y - r - 24);
+        ctx.textAlign = "left";
+    }
 }
 
-function drawCardStations(inView) {
+// A perk station is its ICON (2026-09-18: "each perk should have its own
+// unique icon that corresponds to its function"), lit in the world hue
+// while there is power and grey when there is not, with the price under
+// it. The name and what it does are in the prompt and the manual.
+function drawCardStations(inView, now) {
     for (let i = 0; i < cardStations.length; i++) {
         const st = cardStations[i];
         if (!inView(st.x, st.y, st.w, st.h)) continue;
         const live = generatorOn;
-        ctx.fillStyle = live ? "#2A1436" : "#161616";
+        ctx.fillStyle = live ? "#1E0C08" : "#141414";
         ctx.fillRect(st.x, st.y, st.w, st.h);
-        ctx.strokeStyle = live ? COLOR_POWERFUL : "#3A3A3A";
+        ctx.strokeStyle = live ? ICON_WORLD_HUE : "#3A3A3A";
         ctx.lineWidth = 2;
         ctx.strokeRect(st.x, st.y, st.w, st.h);
-        ctx.fillStyle = live ? "#FF99FF" : "#555555";
-        ctx.font = "10px Courier";
+        const icon = perkIcon(st.card, live ? ICON_WORLD_HUE : "#4A4A4A");
+        if (icon) ctx.drawImage(icon, st.x + st.w / 2 - 12, st.y + 3, 24, 24);
+        ctx.fillStyle = live ? "#FFB000" : "#555555";
+        ctx.font = "9px Courier";
         ctx.textAlign = "center";
-        ctx.fillText(CARDS[st.card].name.slice(0, 8), st.x + st.w / 2, st.y + 17);
-        ctx.fillText(live ? String(st.cost) : "NO PWR", st.x + st.w / 2, st.y + 31);
+        ctx.fillText(live ? String(st.cost) : "NO PWR", st.x + st.w / 2, st.y + st.h - 5);
         ctx.textAlign = "left";
     }
 }
@@ -732,23 +1076,12 @@ function drawPickups(now, inView) {
     }
 }
 
-// Blocky sprites, at most three colours, on a flicker budget (§6.3, §4.7, §4.4).
+// Blocky sprites, at most three colours (§6.3, §4.4). Every zombie on screen
+// is drawn on every frame -- the flicker budget is gone, see the top.
 function drawZombies(now, inView) {
-    let onScreen = 0;
-
     for (let i = 0; i < zombies.length; i++) {
         const z = zombies[i];
         if (!inView(z.x, z.y, z.size, z.size)) continue;
-
-        const screamer = z.type === "screamer";
-        // Counted against zombies actually ON SCREEN, not the array index --
-        // otherwise the budget would depend on where the camera is pointing.
-        const slot = onScreen++;
-
-        // Screamers are EXEMPT from the flicker budget. The white outline is
-        // how you find the callout target in a crowd; a screamer rendering on
-        // alternate frames is a gameplay regression wearing an aesthetic hat.
-        if (!screamer && !RETRO.flicker(slot, ZOMBIE_DRAW_CAP, zFrameCount)) continue;
 
         // Render-space quantization ONLY (§4.4). z.x/z.y are never written --
         // physics and collision keep full precision, the same discipline as
@@ -759,38 +1092,250 @@ function drawZombies(now, inView) {
         const s = z.size;
         const flash = now < z.flashUntil;
 
-        ctx.fillStyle = flash ? "#FFFFFF" : z.color;
-        ctx.fillRect(x, y, s, s);
+        if (z.type === "ultra") {
+            drawUltra(x, y, s, flash, now);
+        } else {
+            ctx.fillStyle = flash ? "#FFFFFF" : z.color;
+            ctx.fillRect(x, y, s, s);
 
-        if (!flash) {
-            // Colour two of three: a hard-edged shadow band, no gradient. A
-            // flat constant rather than a computed shade, because this runs
-            // for every zombie on screen every frame.
-            const band = Math.max(4, s >> 2);
-            ctx.fillStyle = "rgba(0,0,0,0.38)";
-            ctx.fillRect(x, y + s - band, s, band);
+            if (!flash) {
+                // Colour two of three: a hard-edged shadow band, no gradient.
+                // A flat constant rather than a computed shade, because this
+                // runs for every zombie on screen every frame.
+                const band = Math.max(4, s >> 2);
+                ctx.fillStyle = "rgba(0,0,0,0.38)";
+                ctx.fillRect(x, y + s - band, s, band);
+            }
         }
 
-        if (screamer) {
+        if (z.type === "screamer") {
             ctx.strokeStyle = "#FFFFFF";
             ctx.lineWidth = 1;
             ctx.strokeRect(x - 3, y - 3, s + 6, s + 6);
         }
+
+        // FLAMETHROWER: burning zombies carry flame pixels that jump about.
+        if (z.burnUntil && now < z.burnUntil) {
+            const f = zFrameCount + i * 7;
+            ctx.fillStyle = (f & 4) ? "#FFB000" : "#FF4A1C";
+            ctx.fillRect(x + ((f * 5) % Math.max(1, s - 4)), y - 4, 4, 6);
+            ctx.fillStyle = (f & 2) ? "#FFE680" : "#FF7A1C";
+            ctx.fillRect(x + ((f * 11 + 3) % Math.max(1, s - 4)), y - 7, 3, 5);
+            ctx.fillStyle = "rgba(255,90,20,0.35)";
+            ctx.fillRect(x, y, s, s);
+        }
     }
 }
 
-function drawBullets(inView) {
-    for (let i = 0; i < bullets.length; i++) {
-        const b = bullets[i];
-        if (!inView(b.x, b.y, b.size, b.size)) continue;
-        ctx.fillStyle = b.ownerColor;
-        ctx.fillRect(b.x, b.y, b.size, b.size);
+// ULTRA HEAVY: not a square. An octagon with shoulder plates wider than
+// its body and two eyes, in three colours plus the hit flash. Collision is
+// still the 34px square underneath -- the plates are paint.
+function drawUltra(x, y, s, flash, now) {
+    const c = s / 4;                     // corner cut
+    ctx.fillStyle = flash ? "#FFFFFF" : COLOR_ULTRA;
+    ctx.beginPath();
+    ctx.moveTo(x + c, y);
+    ctx.lineTo(x + s - c, y);
+    ctx.lineTo(x + s, y + c);
+    ctx.lineTo(x + s, y + s - c);
+    ctx.lineTo(x + s - c, y + s);
+    ctx.lineTo(x + c, y + s);
+    ctx.lineTo(x, y + s - c);
+    ctx.lineTo(x, y + c);
+    ctx.closePath();
+    ctx.fill();
+    if (flash) return;
+    // Shoulder plates and a spine plate, in bone.
+    ctx.fillStyle = COLOR_ULTRA_PLATE;
+    ctx.fillRect(x - 6, y + 4, 10, 12);
+    ctx.fillRect(x + s - 4, y + 4, 10, 12);
+    ctx.fillRect(x + s / 2 - 3, y + s - 12, 6, 10);
+    // Shadow band, as every zombie has.
+    ctx.fillStyle = "rgba(0,0,0,0.38)";
+    ctx.fillRect(x + c, y + s - 8, s - c * 2, 8);
+    // Eyes, which blink slowly -- the one living thing about it.
+    if (now % 2400 > 180) {
+        ctx.fillStyle = "#FFFF55";
+        ctx.fillRect(x + s / 2 - 8, y + 9, 5, 4);
+        ctx.fillRect(x + s / 2 + 3, y + 9, 5, 4);
     }
-    for (let i = 0; i < remoteBullets.length; i++) {
-        const b = remoteBullets[i];
-        if (!inView(b.x, b.y, b.size, b.size)) continue;
-        ctx.fillStyle = b.ownerColor;
-        ctx.fillRect(b.x, b.y, b.size, b.size);
+}
+
+// ROUND SHAPES (2026-09-18: "modify bullet shape depending on gun"). Every
+// gun fired the same 8px square. Each now has its own shape, drawn along
+// its velocity, in the shooter's colour -- the colour still says WHO,
+// the shape now says WHAT:
+//   pistol  a small cross-shaped slug        rifle   a tracer streak
+//   shotgun small square pellets             smg     a thin needle
+//   sniper  a long hot line                  rocket  a finned body + exhaust
+//   flame   growing, cooling, fading blocks, drawn additively
+// Collision boxes are unchanged -- this is paint (WEAPONS[].bsize).
+function drawBullets(inView) {
+    const lists = [bullets, remoteBullets];
+    // Solid rounds first, then every flame in one additive pass.
+    for (let l = 0; l < 2; l++) {
+        const list = lists[l];
+        for (let i = 0; i < list.length; i++) {
+            const b = list[i];
+            if (b.kind === "flamer" || !inView(b.x - 40, b.y - 40, b.size + 80, b.size + 80)) continue;
+            drawRound(b);
+        }
+    }
+    const prevOp = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = "lighter";
+    for (let l = 0; l < 2; l++) {
+        const list = lists[l];
+        for (let i = 0; i < list.length; i++) {
+            const b = list[i];
+            if (b.kind !== "flamer" || !inView(b.x - 20, b.y - 20, b.size + 40, b.size + 40)) continue;
+            drawFlame(b, i);
+        }
+    }
+    ctx.globalCompositeOperation = prevOp;
+    ctx.globalAlpha = 1;
+}
+
+function drawRound(b) {
+    const w = WEAPONS[b.kind || "pistol"] || WEAPONS.pistol;
+    const cx = b.x + b.size / 2;
+    const cy = b.y + b.size / 2;
+    const sp = Math.hypot(b.vx, b.vy) || 1;
+    const ux = b.vx / sp, uy = b.vy / sp;
+    ctx.lineCap = "butt";
+
+    switch (w.shape) {
+        case "tracer":
+            ctx.strokeStyle = b.ownerColor;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(cx - ux * 14, cy - uy * 14);
+            ctx.lineTo(cx, cy);
+            ctx.stroke();
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3);
+            break;
+        case "pellet":
+            ctx.fillStyle = b.ownerColor;
+            ctx.fillRect(cx - 2, cy - 2, 4, 4);
+            break;
+        case "needle":
+            ctx.strokeStyle = b.ownerColor;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(cx - ux * 9, cy - uy * 9);
+            ctx.lineTo(cx, cy);
+            ctx.stroke();
+            break;
+        case "streak":
+            ctx.strokeStyle = b.ownerColor;
+            ctx.globalAlpha = 0.45;
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.moveTo(cx - ux * 40, cy - uy * 40);
+            ctx.lineTo(cx, cy);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = "#FFFFFF";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(cx - ux * 32, cy - uy * 32);
+            ctx.lineTo(cx, cy);
+            ctx.stroke();
+            break;
+        case "rocket": {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(Math.atan2(uy, ux));
+            // Exhaust, flickering behind it.
+            const f = (zFrameCount >> 1) & 1;
+            ctx.fillStyle = f ? "#FFB000" : "#FF4A1C";
+            ctx.fillRect(-18 - f * 3, -3, 8 + f * 3, 6);
+            ctx.fillStyle = "#FFE680";
+            ctx.fillRect(-11, -2, 4, 4);
+            // Body, fins, nose.
+            ctx.fillStyle = b.ownerColor;
+            ctx.fillRect(-8, -3, 14, 6);
+            ctx.fillRect(-8, -6, 4, 12);
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(6, -2, 3, 4);
+            ctx.restore();
+            break;
+        }
+        default:                                    // "round": the pistol slug
+            ctx.fillStyle = b.ownerColor;
+            ctx.fillRect(cx - 3, cy - 2, 6, 4);
+            ctx.fillRect(cx - 2, cy - 3, 4, 6);
+            break;
+    }
+}
+
+// A flame cools as it goes: white-hot, yellow, orange, red, and grows and
+// fades on the way. Snapped to 2px so it stays a stack of blocks.
+function drawFlame(b, i) {
+    const range = b.range || WEAPONS.flamer.range;
+    const t = clamp((b.travelled || 0) / range, 0, 1);
+    const size = 8 + 16 * t + ((zFrameCount + i) & 1) * 2;
+    const cx = RETRO.snap(b.x + b.size / 2, 2);
+    const cy = RETRO.snap(b.y + b.size / 2, 2);
+    // Burns out rather than lingering: the last 30% of its run fades to
+    // nothing, or old flame hangs in the air as dark red boxes that read
+    // as blood, not fire.
+    ctx.globalAlpha = t < 0.7 ? 1 - 0.45 * t : Math.max(0, (1 - t) * 2.3);
+    ctx.fillStyle = t < 0.12 ? "#FFF4C0" : t < 0.35 ? "#FFD23A" : t < 0.6 ? "#FF8A1C" : "#E8481A";
+    ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
+}
+
+// PERK: ARC bolts. A jagged line, jittered from a per-bolt seed rather than
+// Math.random(), so a bolt holds its shape for the 220ms it lives instead
+// of boiling every frame.
+function drawBolts(now) {
+    if (!bolts.length) return;
+    ctx.lineCap = "butt";
+    for (let i = 0; i < bolts.length; i++) {
+        const bo = bolts[i];
+        const age = (now - bo.born) / 220;
+        if (age > 1) continue;
+        const dx = bo.x2 - bo.x1, dy = bo.y2 - bo.y1;
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = -dy / len, ny = dx / len;
+        ctx.globalAlpha = 1 - age;
+        ctx.strokeStyle = (i & 1) ? "#AEE8FF" : "#FFFFFF";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(bo.x1, bo.y1);
+        let s = bo.seed;
+        for (let k = 1; k < 6; k++) {
+            s = (s * 1103515245 + 12345) & 0x7fffffff;
+            const off = ((s % 21) - 10) * 1.2;
+            ctx.lineTo(bo.x1 + dx * k / 6 + nx * off, bo.y1 + dy * k / 6 + ny * off);
+        }
+        ctx.lineTo(bo.x2, bo.y2);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+}
+
+// PERK: DECOY. Each live lure is a dashed ring the size of its pull, so
+// the team can see what it covers and for how long.
+function drawDecoys(now) {
+    for (let i = 0; i < decoys.length; i++) {
+        const d = decoys[i];
+        const left = d.until - now;
+        if (left <= 0) continue;
+        ctx.strokeStyle = (now % 500 < 250) ? "#FFB000" : "#AA7700";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 8]);
+        ctx.lineDashOffset = -((now / 30) % 18);
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineDashOffset = 0;
+        ctx.fillStyle = "#FFB000";
+        ctx.font = "bold 11px Courier";
+        ctx.textAlign = "center";
+        ctx.fillText("DECOY " + Math.ceil(left / 1000) + "s", d.x, d.y - 38);
+        ctx.textAlign = "left";
     }
 }
 
@@ -833,11 +1378,19 @@ function drawPlayerBody(p, now, name) {
     if (downed) {
         // Revive progress bar — the thing a teammate is watching while
         // they stand over you.
+        //
+        // EASED (2026-09-19). Progress now has one source, the host, which
+        // publishes it every 100ms; drawn raw that is a staircase. The shown
+        // value glides toward the real one, and drops at once when the real
+        // one falls (a revive broken off must read as broken off).
+        const target = clamp(p.reviveProgress || 0, 0, 1);
+        const shown = p.reviveShown || 0;
+        p.reviveShown = target < shown ? target : shown + (target - shown) * 0.25;
         const w = 40;
         ctx.fillStyle = "#330000";
         ctx.fillRect(p.x + p.size / 2 - w / 2, p.y - 14, w, 5);
         ctx.fillStyle = COLOR_BUY;
-        ctx.fillRect(p.x + p.size / 2 - w / 2, p.y - 14, w * clamp(p.reviveProgress || 0, 0, 1), 5);
+        ctx.fillRect(p.x + p.size / 2 - w / 2, p.y - 14, w * p.reviveShown, 5);
         ctx.fillStyle = COLOR_DOWNED;
         ctx.font = "10px Courier";
         ctx.textAlign = "center";
@@ -863,6 +1416,19 @@ function drawRemotePlayers(now, inView) {
         if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
         const r = remotePlayers[id];
         if (!inView(r.x, r.y, r.size, r.size)) continue;
+        // AWAY: a ghost where they were, so the team can see who is missing
+        // and that zombies are ignoring that spot.
+        if (r.away) {
+            ctx.globalAlpha = 0.35;
+            drawPlayerBody(r, now, r.name || "");
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = (now % 1000 < 500) ? "#8FA89C" : "#2E3A34";
+            ctx.font = "10px Courier";
+            ctx.textAlign = "center";
+            ctx.fillText("RECONNECTING", r.x + (r.size || 16) / 2, r.y + (r.size || 16) + 14);
+            ctx.textAlign = "left";
+            continue;
+        }
         drawPlayerBody(r, now, r.name || "");
     }
 }
@@ -913,14 +1479,17 @@ function drawLighting() {
     if (dark <= 0.005) return;                 // generator on, normal round
 
     const me = players[0];
-    if (!me) {
+    // Spectating after a bleed-out: see by the light of whoever the camera
+    // is following, or the wait is spent staring at black.
+    const watching = !me && zAwaitRespawn && gameStarted;
+    if (!me && !watching) {
         ctx.fillStyle = "rgba(0,0,0," + dark + ")";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         return;
     }
 
-    const c = worldToScreen(me.x + me.size / 2, me.y + me.size / 2);
-    const inner = (me.downed ? LIGHT_RADIUS * 0.55 : LIGHT_RADIUS) * camera.scale;
+    const c = me ? worldToScreen(me.x + me.size / 2, me.y + me.size / 2) : worldToScreen(camera.x, camera.y);
+    const inner = ((me && me.downed) ? LIGHT_RADIUS * 0.55 : LIGHT_RADIUS) * camera.scale;
     const outer = inner * LIGHT_FADE;
 
     // Drawn as DISJOINT REGIONS, each filled once at its own flat alpha.
@@ -1030,12 +1599,14 @@ function drawOffscreenMarkers(now) {
         const ex = cx + Math.cos(ang) * scale;
         const ey = cy + Math.sin(ang) * scale;
 
-        const urgent = !!t.downed;
+        // An away teammate's arrow is grey and never "urgent": nothing can be
+        // done for them until they are back.
+        const urgent = !!t.downed && !t.away;
         ctx.save();
         ctx.translate(ex, ey);
         ctx.rotate(ang);
-        ctx.fillStyle = urgent
-            ? ((now % 400 < 200) ? "#FFFFFF" : COLOR_DOWNED)
+        ctx.fillStyle = t.away ? "#3A4A44"
+            : urgent ? ((now % 400 < 200) ? "#FFFFFF" : COLOR_DOWNED)
             : (t.color || "#55FFFF");
         ctx.beginPath();
         ctx.moveTo(14, 0);
@@ -1077,6 +1648,16 @@ function drawMinimap() {
 
     ctx.fillStyle = "rgba(0,0,0,0.72)";
     ctx.fillRect(ox, oy, MAP_W, MAP_H);
+    // Each zone in its floor's tint (zombie-floors.js), so the map carries
+    // the same identity the ground does.
+    ctx.globalAlpha = 0.28;
+    for (let z = 0; z < ZONE_COLS * ZONE_ROWS; z++) {
+        const key = zoneInfo[z] && zoneInfo[z].tpl ? zoneInfo[z].tpl.key : "centre";
+        const b = zoneBounds(z);
+        ctx.fillStyle = ZONE_FLOOR_TINT[key] || "#333333";
+        ctx.fillRect(ox + b.x * sx, oy + b.y * sy, b.w * sx, b.h * sy);
+    }
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = COLOR_WALL;
     ctx.lineWidth = 1;
     ctx.strokeRect(ox, oy, MAP_W, MAP_H);
@@ -1102,19 +1683,28 @@ function drawMinimap() {
         ctx.fillRect(ox + b.x * sx - 1, oy + b.y * sy - 1, 3, 3);
     }
 
-    // CARD: BEACON -- a ping lights every zombie on the minimap briefly.
-    const beacon = Date.now() < beaconUntil;
-    ctx.fillStyle = beacon ? "#FFFFFF" : COLOR_ZOMBIE;
-    const zs = beacon ? 3 : 2;
+    ctx.fillStyle = COLOR_ZOMBIE;
     for (let i = 0; i < zombies.length; i++) {
-        ctx.fillRect(ox + zombies[i].x * sx, oy + zombies[i].y * sy, zs, zs);
+        const z = zombies[i];
+        const big = z.type === "ultra";
+        if (big) ctx.fillStyle = COLOR_ULTRA_PLATE;
+        ctx.fillRect(ox + z.x * sx, oy + z.y * sy, big ? 4 : 2, big ? 4 : 2);
+        if (big) ctx.fillStyle = COLOR_ZOMBIE;
     }
 
     if (generatorRect) {
-        ctx.fillStyle = generatorOn ? COLOR_BUY : COLOR_PICKUP;
-        ctx.fillRect(ox + generatorRect.x * sx - 2, oy + generatorRect.y * sy - 2, 5, 5);
+        // Tripped: a big flashing marker, because finding it in the dark is
+        // the whole of a Blackout now.
+        const now = Date.now();
+        if (genTripped) {
+            ctx.fillStyle = (now % 500 < 250) ? "#FF3344" : "#FFFFFF";
+            ctx.fillRect(ox + generatorRect.x * sx - 4, oy + generatorRect.y * sy - 4, 9, 9);
+        } else {
+            ctx.fillStyle = generatorOn ? COLOR_BUY : COLOR_PICKUP;
+            ctx.fillRect(ox + generatorRect.x * sx - 2, oy + generatorRect.y * sy - 2, 5, 5);
+        }
     }
-    ctx.fillStyle = COLOR_POWERFUL;
+    ctx.fillStyle = generatorOn ? ICON_WORLD_HUE : "#553322";
     for (let i = 0; i < cardStations.length; i++) {
         ctx.fillRect(ox + cardStations[i].x * sx - 1, oy + cardStations[i].y * sy - 1, 4, 4);
     }
@@ -1134,7 +1724,7 @@ function drawMinimap() {
     for (const id in remotePlayers) {
         if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
         const r = remotePlayers[id];
-        ctx.fillStyle = r.downed ? COLOR_DOWNED : (r.color || "#55FFFF");
+        ctx.fillStyle = r.away ? "#3A4A44" : (r.downed ? COLOR_DOWNED : (r.color || "#55FFFF"));
         ctx.fillRect(ox + r.x * sx - 2, oy + r.y * sy - 2, 4, 4);
     }
     for (let i = 0; i < players.length; i++) {
@@ -1168,6 +1758,31 @@ function drawMinimap() {
     ctx.strokeStyle = "#FFFFFF";
     ctx.lineWidth = 1;
     ctx.strokeRect(ox + vr.x * sx, oy + vr.y * sy, vr.w * sx, vr.h * sy);
+
+    drawNextGoal(ox, oy, MAP_W);
+}
+
+// The NEXT goal, sat on the minimap's top edge and right-aligned to it
+// (2026-09-18). Only drawn with the minimap, which is the ask: "above minimap
+// (when minimap is active)". Amber, because it is the thing to act on.
+function drawNextGoal(ox, oy, mapW) {
+    const g = nextGoal();
+    if (!g || won) return;
+    const text = "NEXT: " + g.short + (g.where ? " — " + g.where.replace(" (the sluice room)", "") : "") +
+                 (g.progress ? "  " + g.progress : "");
+    ctx.font = "bold 12px 'Courier New', Courier, monospace";
+    const tw = Math.ceil(ctx.measureText(text).width);
+    const bw = tw + 14;
+    const bx = Math.max(4, ox + mapW - bw);
+    const by = oy - 26;
+    ctx.fillStyle = "rgba(0,0,0,0.78)";
+    ctx.fillRect(bx, by, bw, 20);
+    ctx.strokeStyle = "#FFB000";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, 19);
+    ctx.fillStyle = "#FFB000";
+    ctx.textAlign = "left";
+    ctx.fillText(text, bx + 7, by + 14);
 }
 
 // ---------------------------------------------------
@@ -1200,39 +1815,44 @@ function updateHud(now) {
     }
 
     const me = players[0];
+    uiLoadout.style.display = me ? '' : 'none';
     if (me) {
-        const key = currentWeaponKey(me);
-        const w = WEAPONS[key];
-        const ammo = w.infinite ? "∞" : String(me.ammo[key]);
-        uiWeapon.innerText = w.name + " " + ammo;
+        updateLoadoutHud(me);
         const prompt = me.downed ? "" : nearestPrompt(me);
         uiPrompt.innerText = prompt;
         uiPrompt.style.display = prompt ? 'block' : 'none';
-
-        // One chip per distinct card, with its stack level above it.
-        // me.cards is a flat array with repeats, so distinct-then-count.
-        const held = [];
-        for (let i = 0; i < me.cards.length; i++) {
-            if (held.indexOf(me.cards[i]) === -1) held.push(me.cards[i]);
-        }
-        let ch = "";
-        for (let i = 0; i < CARD_SLOTS; i++) {
-            const key = held[i];
-            if (key) {
-                ch += "<span class='card'><b>" + cardLevel(me, key) + "</b>" +
-                      CARDS[key].name + "</span>";
-            } else {
-                ch += "<span class='card empty'>-- --</span>";
-            }
-        }
-        uiCards.innerHTML = ch;
     } else {
-        uiWeapon.innerText = "--";
         uiPrompt.style.display = 'none';
     }
 
+    // Bled out, waiting for the breather.
+    const waiting = zAwaitRespawn && gameStarted && !gameOver && !won;
+    uiSpectate.style.display = waiting ? 'block' : 'none';
+
+    // Connection trouble (2026-09-19): holding for a reconnect, and the
+    // softer "no snapshot lately" warning for a guest whose socket is up
+    // but whose packets are not arriving.
+    if (netLost) {
+        uiNetLost.style.display = 'block';
+        uiNetLostTime.innerText = Math.floor((now - netLostAt) / 1000) + "s";
+        uiNetLostOffer.style.display = (now - netLostAt >= NET_LOST_OFFER_MS) ? 'block' : 'none';
+    } else {
+        uiNetLost.style.display = 'none';
+    }
+    const unstable = !netLost && netOnline && !netIsHost && gameStarted && !gameOver &&
+                     lastWorldAt > 0 && now - lastWorldAt > 1500;
+    uiNetWarn.style.display = unstable ? 'block' : 'none';
+
     uiRole.innerText = ROLES[myRole()].name;
-    const obj = endgameObjective();
+    if (helpOpen) renderHelp(false);
+
+    // The first time the lights come on in a run, say which perks this map
+    // does not sell (playtest item 6) -- the manual also lists them.
+    if (generatorOn && !hudSeenPower && gameStarted) {
+        hudSeenPower = true;
+        if (absentCardKeys().length) hudAbsentUntil = now + 9000;
+    }
+    const obj = hudObjective(now);
     uiObjective.innerText = obj;
     uiObjective.style.display = obj ? 'block' : 'none';
 
@@ -1250,6 +1870,95 @@ function updateHud(now) {
     } else {
         uiRoundCard.style.display = 'none';
         uiScores.style.display = 'none';
+    }
+}
+
+// The line above the prompt. A tripped generator outranks everything: it
+// is the one thing that will stop the round ending.
+function hudObjective(now) {
+    if (genTripped && gameStarted && !gameOver) {
+        const where = generatorRect ? zoneName(zoneOf(generatorRect.x, generatorRect.y)) : "";
+        return "GENERATOR TRIPPED — RESTART IT IN " + where +
+               (genRestart > 0 ? "  " + Math.floor(clamp(genRestart, 0, 1) * 100) + "%" : "");
+    }
+    if (now < hudAbsentUntil) {
+        return "PERKS NOT ON THIS MAP: " + absentCardKeys().map(function (k) { return CARDS[k].name; }).join(" · ");
+    }
+    return endgameObjective();
+}
+
+// BOTTOM-LEFT LOADOUT (2026-09-18: "ammo + gun to a HUD at the bottom left
+// with an icon for the active gun, a larger rounds-left readout", and
+// "icons with a stack number for your perks next to it"). Each piece is
+// rewritten only when its signature changes.
+function updateLoadoutHud(me) {
+    const key = me.downed ? (downedWeaponKey(me) || "") : currentWeaponKey(me);
+    const w = WEAPONS[key];
+
+    const gunSig = key + (me.downed ? ":down" : "");
+    if (gunSig !== hudGunSig) {
+        hudGunSig = gunSig;
+        if (w) {
+            uiGunIcon.src = iconUrl("gun", key, ICON_CYAN);
+            uiGunIcon.width = 24 * 4;
+            uiGunIcon.height = 8 * 4;
+            uiGunIcon.style.visibility = "visible";
+            uiGunName.innerText = w.name + (me.downed ? " — LAST STAND" : "");
+        } else {
+            uiGunIcon.style.visibility = "hidden";
+            uiGunName.innerText = "DOWN";
+        }
+    }
+
+    const ammoSig = w ? (w.infinite ? "inf" : String(me.ammo[key])) : "";
+    if (ammoSig !== hudAmmoSig) {
+        hudAmmoSig = ammoSig;
+        uiAmmo.innerHTML = !w ? "--" : (w.infinite ? "&#8734;" : ammoSig);
+        const low = w && !w.infinite && me.ammo[key] <= Math.max(3, w.capacity * 0.15);
+        uiAmmo.className = low ? "low" : "";
+    }
+
+    // Every gun you own, with its number key; the one in your hands lit.
+    let strip = "";
+    for (let i = 0; i < WEAPON_KEYS.length; i++) {
+        const k = WEAPON_KEYS[i];
+        if (!ownsWeapon(me, k)) continue;
+        const usable = weaponUsable(me, k);
+        strip += k + (k === key ? "*" : "") + (usable ? "" : "!") + ",";
+    }
+    if (strip !== hudStripSig) {
+        hudStripSig = strip;
+        let h = "";
+        for (let i = 0; i < WEAPON_KEYS.length; i++) {
+            const k = WEAPON_KEYS[i];
+            if (!ownsWeapon(me, k)) continue;
+            const cls = "slot" + (k === key ? " on" : "") + (weaponUsable(me, k) ? "" : " dry");
+            h += "<span class='" + cls + "'><i>" + (i + 1) + "</i>" + iconImg("gun", k, 1, k === key ? ICON_CYAN : "#5A8A96") + "</span>";
+        }
+        uiGunStrip.innerHTML = h;
+    }
+
+    // Perks: one tile per distinct perk, the icon with its stack under it.
+    // me.cards is a flat array with repeats, so distinct-then-count.
+    const held = [];
+    for (let i = 0; i < me.cards.length; i++) {
+        if (held.indexOf(me.cards[i]) === -1) held.push(me.cards[i]);
+    }
+    let perkSig = "";
+    for (let i = 0; i < held.length; i++) perkSig += held[i] + cardLevel(me, held[i]) + ",";
+    if (perkSig !== hudPerkSig) {
+        hudPerkSig = perkSig;
+        let h = "";
+        for (let i = 0; i < CARD_SLOTS; i++) {
+            const k = held[i];
+            if (k) {
+                h += "<span class='perk' title='" + CARDS[k].name + "'>" + iconImg("perk", k, 3) +
+                     "<b>x" + cardLevel(me, k) + "</b></span>";
+            } else {
+                h += "<span class='perk empty'></span>";
+            }
+        }
+        uiPerks.innerHTML = h;
     }
 }
 
@@ -1276,9 +1985,9 @@ function renderScores() {
 // project's teardown constraint.
 const KEY_OPTS = { signal: zSignal() };
 
+// PERK: DECOY hangs off the ping, but the host decides it (registerDecoy,
+// via sendPing or the relayed ping), so nothing perk-shaped happens here.
 function pingFrom(p) {
-    // CARD: BEACON.
-    if (hasCard(p, "beacon")) beaconUntil = Date.now() + 5000;
     // ROLE: SCOUT reaches twice as far.
     const reach = myRole() === "scout" ? 520 : 260;
     sendPing(
@@ -1313,11 +2022,42 @@ window.addEventListener('keydown', function (e) {
         return;
     }
 
+    // ESC: how to play, and the map's goals (2026-09-18). Same rules as the
+    // manual -- it owns the keyboard while it is up. Works on the start
+    // screen too, which is where a new player looks for it. (With the dev
+    // panel up, the panel eats ESC itself and this never sees it.)
+    if (helpOpen) {
+        if (key === 'escape') closeHelp();
+        return;
+    }
+    // Holding for a reconnect: nothing acts on a world that is not moving.
+    // ENTER, once offered, carries on alone. ESC still opens the dialog.
+    if (netLost) {
+        if (key === 'enter' && Date.now() - netLostAt >= NET_LOST_OFFER_MS) { goSoloAfterLoss(); return; }
+        if (key !== 'escape') return;
+    }
+    if (key === 'escape') {
+        openHelp();
+        return;
+    }
+
+    // M = map and stats (2026-09-18, on request). Mute moved to N.
     if (key === 'm') {
+        toggleHudMap();
+        return;
+    }
+    if (key === 'n') {
         const muted = toggleMute();
         uiAudio.innerText = muted ? "MUTED" : "SOUND ON";
         uiAudio.style.opacity = "1";
         trackTimeout(function () { uiAudio.style.opacity = "0"; }, 1400);
+        return;
+    }
+
+    // 1-7 pick a gun you own. Never spawns you: it is not a "join" key.
+    if (key >= '1' && key <= '7') {
+        const p = players[0];
+        if (p) selectWeapon(p, WEAPON_KEYS[key.charCodeAt(0) - 49]);
         return;
     }
 
@@ -1332,8 +2072,21 @@ window.addEventListener('keydown', function (e) {
     else if (key === 'q') pingFrom(p);
 }, { signal: zSignal(), passive: false });
 
+// The wheel cycles through the guns you own. Throttled, because one flick
+// of a free-spinning wheel is a dozen events.
+let wheelAt = 0;
+window.addEventListener('wheel', function (e) {
+    if (codexOpen || helpOpen) return;
+    const p = players[0];
+    if (!p || !e.deltaY) return;
+    const now = Date.now();
+    if (now - wheelAt < 90) return;
+    wheelAt = now;
+    cycleWeapon(p, e.deltaY > 0 ? 1 : -1);
+}, { signal: zSignal(), passive: true });
+
 window.addEventListener('keyup', function (e) {
-    if (codexOpen) return;
+    if (codexOpen || helpOpen) return;
     const p = players[0];
     if (!p) return;
     const move = MOVE_KEYS[e.key.toLowerCase()];
@@ -1349,8 +2102,8 @@ window.addEventListener('mousemove', function (e) {
 window.addEventListener('mousedown', function (e) {
     initAudio();
     // Clicks belong to the manual's tabs while it is open -- otherwise
-    // every tab press also fires the gun.
-    if (codexOpen) return;
+    // every tab press also fires the gun. The ESC dialog likewise.
+    if (codexOpen || helpOpen) return;
     if (gameOver) { requestReset(); return; }
     const p = players[0] || spawnPlayer();
     if (!p) return;
@@ -1359,7 +2112,7 @@ window.addEventListener('mousedown', function (e) {
 }, KEY_OPTS);
 
 window.addEventListener('mouseup', function (e) {
-    if (codexOpen) return;
+    if (codexOpen || helpOpen) return;
     const p = players[0];
     if (!p) return;
     if (e.button === 0) p.keys.shoot = false;
@@ -1398,11 +2151,14 @@ function gameLoop(ts) {
 
     // Sustained audio is driven from state every frame rather than from
     // events -- it has to start AND stop, which one-shots can't express.
+    // The score (zombie-music.js) schedules its next few beats here too; it
+    // opens no timer of its own.
     updateBarricadeAudio();
     updateReviveAudio();
-    updateIntensityAudio();
+    musicUpdate(now, dt);
 }
 
 resizeCanvas();
 generateLevel();
+uiStats.style.display = hudMapOn ? "" : "none";
 zRafHandle = requestAnimationFrame(gameLoop);

@@ -19,11 +19,58 @@
 "use strict";
 
 const NET_SEND_MS = 66;          // ~15Hz
-const REMOTE_TIMEOUT_MS = 5000;  // drop a peer's player if we stop hearing about it
+
+// ---------------------------------------------------
+//   CONNECTION TROUBLE (2026-09-19)
+// ---------------------------------------------------
+// The ask: "a lack of penalty for wifi issues, but also welcoming to other
+// friends joining in mid game". What a drop USED to cost, read from
+// server.js and mp-core.js:
+//
+//  - Every reconnect is a new socket id, and the player id, the role, the
+//    scoreboard row and the host's bleed clock were all keyed on it. A wifi
+//    blip re-rolled your class, zeroed your kills and made you a stranger.
+//  - A dropped client flipped to solo HOST and ran its own fork of the
+//    world, where its own zombies could down or kill it -- and a local game
+//    over, then a click on "restart" after reconnecting, reset the ROOM.
+//  - A stalled socket (no close, packets just queued) left the host
+//    mauling the player's last known position while their screen froze.
+//
+// So: identity is a per-tab token (below); a silent teammate is AWAY, not
+// gone (untouchable, paused, ghosted, for up to AWAY_GRACE_MS); and a client
+// that loses a shared room HOLDS instead of forking (netLost).
+const AWAY_AFTER_MS = 1200;      // silent this long -> away
+const AWAY_GRACE_MS = 60000;     // away this long -> gone
+const NET_LOST_OFFER_MS = 15000; // then offer to carry on alone
 
 let netOnline = false;
 let netIsHost = true;            // solo players are their own host
-let netPrefix = "solo";
+let netPrefix = "solo";          // the SOCKET id: routing and host checks only
+let netLost = false;             // lost a shared room mid-run: holding, not forking
+let netLostAt = 0;
+let lastWorldAt = 0;             // guest: when the last snapshot landed
+
+// THE PLAYER'S IDENTITY: a token per browser tab, kept in sessionStorage so
+// it survives both a dropped socket and a page refresh. It used to be the
+// socket id, which the server re-rolls on every connection. Everything that
+// is "who is this player" -- the player id, the role, the scoreboard row,
+// the host's bleed clock, DECOY's recharge -- hangs off it now.
+//
+// sessionStorage is per tab, except that "duplicate tab" copies it; the
+// players handler spots a second socket wearing our token and re-rolls.
+const NET_TOKEN_KEY = "zombie_tab_token";
+let netToken = "";
+let netDupSince = 0;             // first sighting of our token on another socket
+
+function newNetToken() {
+    let t = "t";
+    for (let i = 0; i < 8; i++) t += Math.floor(Math.random() * 36).toString(36);
+    try { sessionStorage.setItem(NET_TOKEN_KEY, t); } catch (e) { /* private mode: per page load */ }
+    return t;
+}
+
+try { netToken = sessionStorage.getItem(NET_TOKEN_KEY) || ""; } catch (e) { netToken = ""; }
+if (!/^t[0-9a-z]{8}$/.test(netToken)) netToken = newNetToken();
 
 let remotePlayers = {};
 let remoteBullets = [];
@@ -37,18 +84,36 @@ let markers = [];                // ping markers (idea 24)
 let hostLevelSeed = null;
 
 // Stable index <-> key mapping so zombies can go over the wire as a
-// number instead of a type name on every entity, every frame.
-const Z_TYPE_KEYS = ["walker", "runner", "brute", "screamer", "splitter", "spawnling"];
+// number instead of a type name on every entity, every frame. APPEND ONLY
+// (the ULTRA HEAVY went on the end, 2026-09-18): an index is a wire value.
+const Z_TYPE_KEYS = ["walker", "runner", "brute", "screamer", "splitter", "spawnling", "ultra"];
 
-// One player per client now, so the suffix is constant. It's kept rather
-// than using the bare socket id because isMyNetId() and onPeerLeave both
-// match on the "<socketId>:" prefix.
+// One player per client now, so the suffix is constant. The prefix is the
+// tab token (was the socket id until 2026-09-19 -- see netToken).
 function netIdFor(p) {
-    return netPrefix + ":p";
+    return netToken + ":p";
 }
 
 function isMyNetId(id) {
-    return typeof id === "string" && id.indexOf(netPrefix + ":") === 0;
+    return typeof id === "string" && id.indexOf(netToken + ":") === 0;
+}
+
+// Anyone else in the room, whether or not their messages are arriving.
+function remoteCount(includeAway) {
+    let n = 0;
+    for (const id in remotePlayers) {
+        if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
+        if (includeAway || !remotePlayers[id].away) n++;
+    }
+    return n;
+}
+
+function markAway(r, now, why) {
+    if (r.away) return;
+    r.away = true;
+    r.awaySince = now;
+    r.awayStanding = !r.downed;
+    if (gameStarted && !gameOver) showToast((r.name || "A TEAMMATE") + " LOST CONNECTION", 2200);
 }
 
 function localPlayerByNetId(id) {
@@ -129,16 +194,38 @@ MP.connect({
         netIsHost = nowHost;
     },
 
+    // A server `leave` is not proof they are gone -- the same person
+    // reconnecting comes back on a NEW socket a few seconds later. Away, not
+    // deleted; pruneRemotePlayers removes them if the grace runs out.
     onPeerLeave: function (peer) {
         if (!peer) return;
+        const now = Date.now();
         Object.keys(remotePlayers).forEach(function (id) {
-            if (id.indexOf(peer.id + ":") === 0) delete remotePlayers[id];
+            const r = remotePlayers[id];
+            if (r.sk === peer.id) markAway(r, now, "left");
         });
     },
 
     onStatus: function (s) {
-        netOnline = (s === "online");
-        if (!netOnline) netIsHost = true;   // dropped to solo -- simulate locally again
+        const online = (s === "online");
+        if (online) {
+            // Back. onPeerSync (which runs after this, once mp-core has
+            // applied the host and seed) decides whether we host or follow.
+            netOnline = true;
+            if (netLost) showToast("RECONNECTED", 1800);
+            netLost = false;
+            return;
+        }
+        // Lost a SHARED room mid-run: hold the world rather than fork it.
+        // Alone in the room, carry on solo exactly as before -- there is
+        // nobody to disagree with.
+        if (netOnline && gameStarted && !gameOver && !won && remoteCount(true) > 0) {
+            netLost = true;
+            netLostAt = Date.now();
+            releaseHeldKeys();
+        }
+        netOnline = false;
+        netIsHost = !netLost;               // holding: nobody here simulates
     },
 
     onMessage: function (msg) {
@@ -147,40 +234,78 @@ MP.connect({
 
         if (msg.k === "players") {
             (msg.list || []).forEach(function (rp) {
-                if (isMyNetId(rp.id)) return;   // never mirror our own back onto ourselves
-                const prev = remotePlayers[rp.id];
-                remotePlayers[rp.id] = {
-                    id: rp.id, name: rp.name, color: rp.color,
-                    size: rp.size, facingX: rp.fx, facingY: rp.fy,
-                    downed: !!rp.dn,
-                    reviveProgress: rp.rv || 0,
-                    weapon: rp.w || "pistol",
-                    cards: rp.cd || [],
-                    // Interpolate rather than snap -- at 15Hz, snapping
-                    // reads as a stutter rather than movement.
-                    x: prev ? prev.x : rp.x,
-                    y: prev ? prev.y : rp.y,
-                    tx: rp.x, ty: rp.y,
-                    lastSeen: now
-                };
+                if (isMyNetId(rp.id)) {
+                    // Our own id on ANOTHER socket: a duplicated tab carried
+                    // our sessionStorage token over. Two guards, both found by
+                    // test: only ONE tab re-rolls (the higher socket id), or
+                    // both lose their role and row; and the clash must PERSIST,
+                    // because one stray packet from our own dead socket can be
+                    // relayed to us just after a reconnect -- and re-rolling
+                    // then would cost the player the identity this protects.
+                    if (rp.sk && MP.selfId && rp.sk !== MP.selfId && MP.selfId > rp.sk) {
+                        if (!netDupSince || now - netDupSince > 5000) netDupSince = now;
+                        else if (now - netDupSince > 1000) { netToken = newNetToken(); netDupSince = 0; }
+                    }
+                    return;   // never mirror our own back onto ourselves
+                }
+                // UPDATED IN PLACE, not rebuilt (2026-09-19). The rebuild took
+                // reviveProgress from this payload -- the guest's own copy,
+                // always a round trip old -- and so knocked the host's live
+                // value back 15 times a second: THE PULSING REVIVE BAR. Revive
+                // progress now has one source, the host (`rvs`), and this
+                // handler never writes it except to clear it on a stand-up.
+                let r = remotePlayers[rp.id];
+                const isNew = !r;
+                if (isNew) {
+                    // Interpolate rather than snap -- at 15Hz, snapping reads
+                    // as a stutter rather than movement.
+                    r = { id: rp.id, x: rp.x, y: rp.y, reviveProgress: 0 };
+                    remotePlayers[rp.id] = r;
+                }
+                r.name = rp.name;
+                r.color = rp.color;
+                r.size = rp.size;
+                r.facingX = rp.fx;
+                r.facingY = rp.fy;
+                // Just revived by this host: their own messages say "downed"
+                // until our "up" reaches them. Don't take that as a new down.
+                r.downed = !!rp.dn && !(r.revivedAt && now - r.revivedAt < 1500);
+                if (!r.downed) r.reviveProgress = 0;
+                r.weapon = rp.w || "pistol";
+                r.cards = rp.cd || [];
+                if (rp.sk) r.sk = rp.sk;
+                r.tx = rp.x;
+                r.ty = rp.y;
+                r.lastSeen = now;
+                if (r.away) {
+                    r.away = false;
+                    if (gameStarted && !gameOver) showToast((r.name || "A TEAMMATE") + " RECONNECTED", 1800);
+                } else if (isNew && gameStarted && !gameOver) {
+                    showToast((r.name || "A TEAMMATE") + " JOINED", 1800);
+                }
             });
             return;
         }
 
         if (msg.k === "world") {
             if (netIsHost) return;          // we ARE the authority
+            lastWorldAt = now;
             applyWorldSnapshot(msg, now);
             return;
         }
 
         if (msg.k === "shoot" && netIsHost) {
             // Only the host turns a client's shot into bullets that can
-            // damage anything.
+            // damage anything. `wk` names the gun (2026-09-18); what a
+            // rocket or a flame DOES is read from this host's own WEAPONS,
+            // never taken off the wire.
+            const kind = WEAPON_KEYS[msg.wk | 0] || "pistol";
+            const size = WEAPONS[kind].bsize;
             (msg.s || []).forEach(function (s) {
                 bullets.push({
-                    x: s[0], y: s[1], vx: s[2], vy: s[3], size: 8,
-                    dmg: msg.d || 1, pierce: msg.pr || 0, bounces: msg.bo || 0, hitIds: [],
-                    travelled: 0, range: msg.rg || 800,
+                    x: s[0], y: s[1], vx: s[2], vy: s[3], size: size,
+                    dmg: msg.d || 1, pierce: msg.pr || 0, bounces: msg.bo || 0, hitZ: [],
+                    travelled: 0, range: msg.rg || 800, kind: kind,
                     ownerColor: msg.c, owner: msg.id
                 });
             });
@@ -248,11 +373,21 @@ MP.connect({
                 x: msg.x, y: msg.y, color: msg.c || "#FFFFFF",
                 name: msg.n || "", until: now + 4000
             });
+            // PERK: DECOY. The ping carries its sender (2026-09-18) so the
+            // host -- the one that steers zombies -- can make it a lure.
+            if (netIsHost && msg.id) registerDecoy(msg.id, msg.x, msg.y, now);
             return;
         }
 
         if (msg.k === "won") {
             triggerWin();
+            return;
+        }
+
+        // The host called the room wiped (updateTeamWipe). Sent on its own
+        // because the snapshot's `go` flag can miss its only send.
+        if (msg.k === "over") {
+            if (!gameOver) triggerGameOver();
             return;
         }
 
@@ -308,6 +443,7 @@ function applyWorldSnapshot(msg, now) {
             // compared it against the local clock, so a host running fast
             // made every zombie render permanently white here.
             flashUntil: deadlineFrom(zi[3] || 0, now),
+            burnUntil: deadlineFrom(zi[4] || 0, now),   // same rule, same reason
             nextScream: 0,
             isolationSeeker: false
         });
@@ -319,12 +455,36 @@ function applyWorldSnapshot(msg, now) {
     });
 
     // Other players' bullets only -- ours are simulated locally so our
-    // shots appear instantly instead of after a round trip.
+    // shots appear instantly instead of after a round trip. Row 5 is the
+    // gun (so each is drawn in its own shape), row 6 how far a flame has
+    // gone (it changes colour and size as it burns out).
     remoteBullets = (msg.b || [])
         .filter(function (b) { return !isMyNetId(b[4]); })
         .map(function (b) {
-            return { x: b[0], y: b[1], size: 8, ownerColor: b[2], vx: b[3][0], vy: b[3][1] };
+            const kind = WEAPON_KEYS[b[5] | 0] || "pistol";
+            return {
+                x: b[0], y: b[1], size: WEAPONS[kind].bsize, ownerColor: b[2],
+                vx: b[3][0], vy: b[3][1], kind: kind,
+                travelled: b[6] || 0, range: WEAPONS[kind].range
+            };
         });
+
+    // The scoreboard, which guests never received before 2026-09-18 -- the
+    // round-end table only ever showed on the host. It also feeds SALVAGE,
+    // which is how a guest learns about its own kills.
+    if (msg.sb) {
+        const sb = {};
+        for (let i = 0; i < msg.sb.length; i++) {
+            const r = msg.sb[i];
+            sb[r[0]] = { kills: r[1], assists: r[2], revives: r[3], score: r[4] };
+        }
+        scoreBoard = sb;
+    }
+
+    // PERK: DECOY lures, for drawing.
+    decoys = (msg.dc || []).map(function (d) {
+        return { x: d[0], y: d[1], r: d[2], until: deadlineFrom(d[3], now) };
+    });
 
     scrapPool = msg.sc || 0;
     kills = msg.ki || kills;
@@ -349,9 +509,16 @@ function applyWorldSnapshot(msg, now) {
         rebuildSolidIndex();
     }
 
+    // GENERATOR. `gt` = tripped by a Blackout, `gr` = restart progress.
+    const wasTripped = genTripped;
+    genTripped = !!msg.gt;
+    genRestart = msg.gr || 0;
+    if (genTripped && !wasTripped) showToast("THE GENERATOR TRIPPED", 2600);
+
     if (msg.gen && !generatorOn) {
         generatorOn = true;
         if (generatorRect) playEvent(SND_GENERATOR, generatorRect.x, generatorRect.y);
+        if (wasTripped) showToast("POWER RESTORED", 2200);
     } else if (!msg.gen && generatorOn) {
         generatorOn = false;
     }
@@ -367,8 +534,15 @@ function applyWorldSnapshot(msg, now) {
         if (e[4] && isMyNetId(e[4])) continue;
         playEvent(e[0], e[1], e[2], e[3]);
         // Clients draw their own shockwave from the same event, so the
-        // ring costs nothing extra on the wire.
-        if (e[0] === SND_EXPLODE) addBlast(e[1], e[2], 190);
+        // ring costs nothing extra on the wire. `arg` carries the radius
+        // since rockets and SPITE have their own (190 was every blast).
+        if (e[0] === SND_EXPLODE) addBlast(e[1], e[2], e[3] || 190);
+        else if (e[0] === SND_POP) addBlast(e[1], e[2], e[3] || 95);
+        else if (e[0] === SND_ULTRA && e[3] === 1) addBlast(e[1], e[2], 70);
+        else if (e[0] === SND_ARC) {
+            // The bolt's far end is packed into arg; see arcFrom().
+            addBolt(e[1], e[2], e[1] + Math.floor(e[3] / 1024) - 512, e[2] + (e[3] % 1024) - 512);
+        }
     }
 
     // Round state (sent as a remaining duration, never a timestamp).
@@ -387,6 +561,26 @@ function applyWorldSnapshot(msg, now) {
     rebuildSolidIndex();
 
     if (msg.go && !gameOver) triggerGameOver();
+    // The room is still PLAYING but this client thinks it is over: it went
+    // solo after a drop and died out there (goSoloAfterLoss). Rejoin the run
+    // as a teammate who bled out -- back at the next breather -- instead of
+    // sitting on a game-over card whose "restart" would reset the room.
+    // (A real room game over never reaches this: the host stops sending
+    // world snapshots the moment its own gameOver is set. A host RESTART
+    // does send go=0 again, but its `reset` lands first and is applied on
+    // the next frame -- hence the pendingReset guard.)
+    else if (!msg.go && gameOver && !won && !pendingReset) rejoinRunningRoom();
+}
+
+function rejoinRunningRoom() {
+    gameOver = false;
+    uiGameOver.style.display = 'none';
+    if (!players.length) {
+        zAwaitRespawn = true;
+        zDiedRound = round;
+    }
+    musicStart();
+    showToast("BACK IN THE ROOM'S RUN", 2200);
 }
 
 function interpolateRemotes() {
@@ -405,10 +599,21 @@ function interpolateRemotes() {
     }
 }
 
+// Silent for AWAY_AFTER_MS -> away (untouchable, paused, ghosted). Silent
+// for AWAY_GRACE_MS -> gone. It was "silent 5s -> deleted", which dropped a
+// player whose wifi hiccuped for six seconds out of the game altogether,
+// and meanwhile let the host maul the spot they were frozen on.
 function pruneRemotePlayers() {
     const now = Date.now();
     Object.keys(remotePlayers).forEach(function (id) {
-        if (now - remotePlayers[id].lastSeen > REMOTE_TIMEOUT_MS) delete remotePlayers[id];
+        const r = remotePlayers[id];
+        const quiet = now - r.lastSeen;
+        if (quiet > AWAY_GRACE_MS) {
+            delete remotePlayers[id];
+            delete remoteDowned[id];
+        } else if (quiet > AWAY_AFTER_MS) {
+            markAway(r, now, "silent");
+        }
     });
 }
 
@@ -426,9 +631,14 @@ function broadcastPlayers() {
                 x: Math.round(p.x), y: Math.round(p.y), size: p.size,
                 fx: +p.facingX.toFixed(2), fy: +p.facingY.toFixed(2),
                 dn: p.downed ? 1 : 0,
-                rv: +p.reviveProgress.toFixed(2),
+                // No `rv` any more: revive progress belongs to the host and
+                // travels only in `rvs`. Echoing it back here is what made
+                // the bar pulse (see the players handler).
                 w: currentWeaponKey(p),
-                cd: p.cards
+                cd: p.cards,
+                // The socket this id currently rides, so a server `leave`
+                // (which names sockets) can be matched to a player.
+                sk: MP.selfId || ""
             };
         })
     });
@@ -445,14 +655,24 @@ function broadcastWorld() {
     MP.send({
         k: "world",
         z: zombies.map(function (z) {
-            return [
+            const row = [
                 Math.round(z.x), Math.round(z.y),
                 Z_TYPE_KEYS.indexOf(z.type),
                 msLeft(z.flashUntil, now)      // duration, never a timestamp
             ];
+            // Burning, as a remaining duration. Omitted when not burning, so
+            // a horde with no flamethrower in it costs nothing extra.
+            if (z.burnUntil && now < z.burnUntil) row.push(msLeft(z.burnUntil, now));
+            return row;
         }),
+        // [x, y, colour, [vx, vy], owner, gun index, flame distance]. The
+        // velocity is rounded now -- it went out at full float precision.
         b: bullets.map(function (b) {
-            return [Math.round(b.x), Math.round(b.y), b.ownerColor, [b.vx, b.vy], b.owner || ""];
+            const k = WEAPON_KEYS.indexOf(b.kind || "pistol");
+            const row = [Math.round(b.x), Math.round(b.y), b.ownerColor,
+                         [+b.vx.toFixed(2), +b.vy.toFixed(2)], b.owner || "", k];
+            if (b.kind === "flamer") row.push(Math.round(b.travelled));
+            return row;
         }),
         p: pickups.map(function (pu) {
             return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type)];
@@ -460,6 +680,19 @@ function broadcastWorld() {
         sc: Math.round(scrapPool),
         ki: kills,
         gen: generatorOn ? 1 : 0,
+        gt: genTripped ? 1 : 0,
+        gr: +genRestart.toFixed(2),
+
+        // [id, kills, assists, revives, score] per player. Guests never had
+        // the scoreboard; SALVAGE needs it to count a guest's own kills.
+        sb: Object.keys(scoreBoard).map(function (id) {
+            const s = scoreBoard[id];
+            return [id, s.kills, s.assists, s.revives, s.score];
+        }),
+        // Live DECOY lures, as remaining durations.
+        dc: decoys.map(function (d) {
+            return [Math.round(d.x), Math.round(d.y), d.r, msLeft(d.until, now)];
+        }),
 
         // Which seed this room's geometry actually came from. One integer
         // on a packet that already ships 15x/s, riding the generic relay,
@@ -511,7 +744,11 @@ function broadcastWorld() {
 function sendPing(x, y, color, name) {
     const now = Date.now();
     markers.push({ x: x, y: y, color: color, name: name, until: now + 4000 });
-    if (netOnline) MP.send({ k: "ping", x: Math.round(x), y: Math.round(y), c: color, n: name });
+    // `id` so the host can check the pinger's DECOY. The host's own ping
+    // never crosses the wire, so it registers its lure directly.
+    const id = netIdFor(players[0]);
+    if (netIsHost) registerDecoy(id, x, y, now);
+    if (netOnline) MP.send({ k: "ping", x: Math.round(x), y: Math.round(y), c: color, n: name, id: id });
 }
 
 function requestReset() {

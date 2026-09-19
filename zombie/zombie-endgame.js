@@ -10,6 +10,13 @@
 //   ON the funnel to fill a silo -> flip that silo's switch to open the
 //   next funnel -> three silos -> THE FLOOD -> clear it -> the southern
 //   escape grinds open -> reach it and you have won.
+//
+// Since 2026-09-18 each silo stands beside its own funnel with a pipe
+// between them (funnel 1 in the sluice room, funnels 2 and 3 in funnel
+// halls -- zombie-level.js). The old layout put every silo in a different
+// zone from its funnel on purpose, "a journey rather than a button next to
+// you"; the playtest found the connection between the two unreadable, and
+// asked for them side by side. The journey is now funnel to funnel.
 "use strict";
 
 // ---------------------------------------------------
@@ -19,14 +26,30 @@
 // host: no wire traffic, survives a reconnect, and it matches how colour
 // and identity already work everywhere else in this project. Two players
 // can roll the same role -- that's fine.
+// ("Survives a reconnect" was NOT true until 2026-09-19: the id was the
+// socket id, which the server re-rolls on every connection. It is the tab
+// token now -- zombie-net.js, netToken.)
 //
 // Deliberately small. Four players should feel different before anyone
 // has bought anything; a role must never decide a run.
+//
+// `detail` is what the field manual's CLASSES tab prints (2026-09-18). It has
+// to say exactly what the code does, so keep it next to the code's numbers:
+// medic in updateRevives, engineer in hostHandleBuy/endRound, scout in
+// playerSpeed/pingFrom/drawMinimap, gunner in shoot/refillAmmo.
 const ROLES = {
-    medic:    { name: "MEDIC",    blurb: "REVIVES 40% FASTER, IGNORES ESCALATION" },
-    engineer: { name: "ENGINEER", blurb: "TRAPS 40% OFF, REBOARDS 150% STRONGER" },
-    scout:    { name: "SCOUT",    blurb: "DOUBLE PING, PICKUPS ON MAP, +10% SPEED" },
-    gunner:   { name: "GUNNER",   blurb: "+15% DAMAGE, +25% CRATE AMMO" }
+    medic:    { name: "MEDIC",    blurb: "REVIVES 40% FASTER, IGNORES ESCALATION",
+                detail: "You revive a teammate in 1.8s instead of 3s, and the round's revive escalation " +
+                        "(3s, then 4.5s, then 6s) never applies to you." },
+    engineer: { name: "ENGINEER", blurb: "TRAPS 40% OFF, REBOARDS 150% STRONGER",
+                detail: "Traps cost you 40% less, on top of CONDUCTOR. While you are in the game, every " +
+                        "boarded window comes back at 150% strength at each breather between rounds." },
+    scout:    { name: "SCOUT",    blurb: "DOUBLE PING, PICKUPS ON MAP, +10% SPEED",
+                detail: "Your pings land twice as far out (520px, not 260). Only you see pickups on the " +
+                        "minimap. You move 10% faster." },
+    gunner:   { name: "GUNNER",   blurb: "+15% DAMAGE, +25% CRATE AMMO",
+                detail: "Every round you fire does 15% more damage (a ricochet keeps it; barrels and perk " +
+                        "effects do not). Crates fill your guns to 125% of their capacity." }
 };
 const ROLE_KEYS = ["medic", "engineer", "scout", "gunner"];
 
@@ -48,7 +71,9 @@ function roleForId(netId) {
 }
 
 function myRole() {
-    return roleForId(netPrefix);
+    // The tab token, not the socket id (2026-09-19): the socket id is new on
+    // every reconnect, so a wifi drop used to re-deal your class mid-run.
+    return roleForId(netToken);
 }
 
 function idHasRole(id, key) {
@@ -62,7 +87,9 @@ let sluiceRoom = null;    // {x,y,w,h}
 let sluiceGate = null;    // {x,y,w,h} -- the door itself
 let gatePlates = [];      // two {x,y,w,h}, deliberately far apart
 let funnels = [];         // three {x,y,r,zone}
-let silos = [];           // three {x,y,w,h,zone}
+let silos = [];           // three {x,y,w,h,zone} -- each BESIDE its funnel since 2026-09-18
+let funnelHalls = [];     // [1] and [2]: {x,y,w,h,vertical,zone}; funnel 1 is in the sluice instead
+let siloPipes = [];       // three {x1,y1,x2,y2}: funnel rim -> silo wall, visual only
 let escapeRect = null;    // the southern way out
 
 // ---------------------------------------------------
@@ -137,7 +164,8 @@ function playersOnPlates() {
     for (let i = 0; i < players.length; i++) if (!players[i].downed) all.push(players[i]);
     for (const id in remotePlayers) {
         if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
-        if (!remotePlayers[id].downed) all.push(remotePlayers[id]);
+        // An AWAY player's last known spot is not a player on a plate.
+        if (!remotePlayers[id].downed && !remotePlayers[id].away) all.push(remotePlayers[id]);
     }
 
     let covered = 0;

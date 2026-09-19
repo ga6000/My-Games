@@ -244,14 +244,29 @@ const SND_ROUND_CLEAR = 16;
 const SND_SCREAM = 17;
 const SND_SPLIT = 18;
 const SND_GAMEOVER = 19;
+// 2026-09-18
+const SND_ULTRA = 20;        // arg 0 = it arrives, 1 = it falls
+const SND_ARC = 21;          // arg = packed bolt offset, see arcFrom()
+const SND_POP = 22;          // BLASTCAP burst; arg = radius
+const SND_GEN_TRIP = 23;     // a Blackout takes the generator down
+const SND_DECOY = 24;        // a ping became a lure
 
 // IDEA 40: every gun already has its own screen-shake kick; this is the
-// matching voice. Indexed to match WEAPON_SND_KEYS so it can ride in an
-// event as a single number.
-const WEAPON_SND_KEYS = ["pistol", "rifle", "shotgun", "smg", "sniper"];
-
+// matching voice. Indexed by WEAPON_KEYS (zombie-core.js) so it can ride in
+// an event as a single number.
 function weaponVoice(idx, g, pan) {
-    switch (WEAPON_SND_KEYS[idx]) {
+    switch (WEAPON_KEYS[idx]) {
+        case "rocket":
+            // A launch, not a bang: a rising hiss with a low shove under it.
+            // The bang is the explosion, which is its own event.
+            noise(0.34, 0.30 * g, 900, 0.8, pan);
+            tone(90, 210, "sawtooth", 0.30, 0.20 * g, pan);
+            break;
+        case "flamer":
+            // Fires every 70ms, so it is one short low roar per shot that
+            // blurs into a continuous one -- and it must stay under the mix.
+            noise(0.10, 0.12 * g, 380, 0.5, pan);
+            break;
         case "rifle":
             tone(520, 240, "square", 0.055, 0.16 * g, pan);
             noise(0.05, 0.10 * g, 1500, 1.2, pan);
@@ -379,6 +394,40 @@ function playEvent(code, x, y, arg) {
             tone(300, 60, "sawtooth", 1.3, 0.30 * g, 0);
             break;
 
+        case SND_ULTRA:
+            if (arg === 1) {
+                // It falls: the heaviest thud in the game.
+                noise(0.7, 0.5 * g, 110, 0.5, p);
+                tone(80, 28, "square", 0.8, 0.32 * g, p);
+            } else {
+                // It arrives: a low, long growl you hear before you see it.
+                tone(55, 38, "sawtooth", 1.1, 0.30 * g, p);
+                noise(0.9, 0.20 * g, 160, 0.7, p);
+                trackTimeout(function () { tone(48, 30, "sawtooth", 0.9, 0.24 * g, p); }, 420);
+            }
+            break;
+
+        case SND_ARC:
+            noise(0.07, 0.22 * g, 3200, 3, p);
+            tone(1800, 600, "square", 0.06, 0.08 * g, p);
+            break;
+
+        case SND_POP:
+            noise(0.22, 0.30 * g, 420, 0.8, p);
+            tone(220, 70, "square", 0.18, 0.16 * g, p);
+            break;
+
+        case SND_GEN_TRIP:
+            // Power dying: the generator's start-up, run backwards.
+            tone(320, 40, "sawtooth", 1.5, 0.30 * g, p);
+            noise(0.4, 0.22 * g, 1400, 2, p);
+            break;
+
+        case SND_DECOY:
+            tone(520, 260, "triangle", 0.25, 0.20 * g, p);
+            trackTimeout(function () { tone(520, 260, "triangle", 0.25, 0.16 * g, p); }, 280);
+            break;
+
         default:
             break;
     }
@@ -413,43 +462,11 @@ function updateBarricadeAudio() {
     }
 }
 
-// IDEA 45: adaptive intensity. The tightened FOV took away the player's
-// ability to SEE how bad it is getting; a drone that tracks the nearby
-// horde gives that awareness back for the cost of one oscillator.
-//
-// Deliberately silent below a floor -- a drone that never stops stops
-// carrying information.
-const DRONE_MIN_ZOMBIES = 4;
-const DRONE_FULL_ZOMBIES = 28;
-const DRONE_RADIUS = 1000;
-
-function updateIntensityAudio() {
-    if (!audioCtx || audioMuted || !players.length) {
-        if (audioLoops.drone) stopLoop("drone");
-        return;
-    }
-    const me = players[0];
-    const cx = me.x + me.size / 2;
-    const cy = me.y + me.size / 2;
-
-    let near = 0;
-    for (let i = 0; i < zombies.length; i++) {
-        const z = zombies[i];
-        if (Math.abs(z.x - cx) > DRONE_RADIUS || Math.abs(z.y - cy) > DRONE_RADIUS) continue;
-        if (Math.hypot(z.x - cx, z.y - cy) < DRONE_RADIUS) near++;
-    }
-
-    if (near < DRONE_MIN_ZOMBIES) {
-        if (audioLoops.drone) stopLoop("drone");
-        return;
-    }
-
-    const t = Math.min(1, (near - DRONE_MIN_ZOMBIES) / (DRONE_FULL_ZOMBIES - DRONE_MIN_ZOMBIES));
-    const freq = 38 + t * 44;          // low and climbing
-    const vol = 0.018 + t * 0.055;
-    if (!audioLoops.drone) startLoop("drone", freq, vol);
-    else updateLoop("drone", freq, vol);
-}
+// IDEA 45's intensity drone lived here -- one sawtooth pitched to the
+// nearby horde. Cut on request after the 2026-09-18 playtest ("has to go").
+// Its job, telling you how bad it is getting without looking, moved to the
+// score in zombie-music.js: the organ swells and a soprano line comes in as
+// the count near you climbs.
 
 // A rising tone while a revive is in progress (idea 43). Driven from the
 // local player's own progress, so it needs no wire traffic at all.

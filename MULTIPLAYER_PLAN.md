@@ -410,7 +410,7 @@ Worth noting these did **not** all get the same treatment, because they aren't t
 
 | Game | Model | Shared state on the wire |
 |---|---|---|
-| Zombie | Host-authoritative world, client-owned players | Zombies, bullets, powerups, deaths |
+| Zombie | Host-authoritative world, client-owned players | Zombies, bullets, powerups, deaths — and, since 2026-09-18, guests' bleed-outs and the team wipe |
 | Glass City | Parallel worlds, pure race | Player positions + one "I finished" event |
 | boids | Parallel worlds, competitive | Sampled swarm + attractor, for presence only |
 
@@ -489,6 +489,8 @@ desync, and degrade to solo cleanly.
   zombies over and resumed spawning rather than emptying the arena.
 - Solo fallback: with the server unreachable the game drops to `solo`, self-hosts, generates a
   level and simulates normally — so `file://` double-click still works.
+  *(2026-09-19: still true for a client that is alone. A client that loses a room **with teammates
+  in it** now holds its world instead of self-hosting a fork of it — see "Zombie, 2026-09-19" below.)*
 - Letterbox transform is exact at a non-16:9 aspect (scale 0.625, offset 168.8 as predicted)
   and mouse coordinates round-trip to the world perfectly, so aiming is correct on any screen.
 
@@ -497,7 +499,12 @@ desync, and degrade to solo cleanly.
   locally so they feel instant, but the host is what decides whether they hit. On a bad
   connection you can see your bullet pass through a zombie that the host says you missed.
   Acceptable for this group size; the fix is real reconciliation, which is a much bigger job.
+  *(2026-09-18: a guest's predicted round now stops where it visibly hits, and a predicted rocket
+  goes off there — so the failure now looks like the opposite: your round vanishing into a
+  zombie the host says you missed. The host still decides.)*
 - **Kills/score are host-tallied.** A client's `kills` display is whatever the host last sent.
+  *(2026-09-18: the per-player scoreboard now rides the snapshot as `sb`. Until then **guests
+  never received it** — the round-end table only ever showed on the host.)*
 - ~~**Couch co-op players share one network colour**~~ — **no longer applies (2026-09-01).**
   Local/couch co-op was removed after playtesting; there is one player per screen, so there is
   no second or third local player to fall back to the local palette. Every player now gets the
@@ -514,8 +521,48 @@ desync, and degrade to solo cleanly.
   See `zombie/ENDGAME_PLAN.md`.
 - **Roles are derived, not dealt.** Medic/engineer/scout/gunner come from a hash of the client's
   own id, so they cost no wire traffic and survive a reconnect. Two players can roll the same
-  role; that is accepted. Note `roleForId` deliberately **cannot** use `hashToUnit()`, whose
+  role; that is accepted. *(Corrected 2026-09-19: they did **not** survive a reconnect — the id was
+  the socket id, which is new on every connection. It is now a per-tab token; see below.)* Note `roleForId` deliberately **cannot** use `hashToUnit()`, whose
   `% 10000` keeps only djb2's low bits and clustered 400 ids into medic 0.
+
+### Zombie, 2026-09-18 — deaths were not host-authoritative for guests
+
+The playtest report "both of us went down and I just respawned at the start" was a sync-model
+bug, not a UI one, and it is worth knowing for any host-authoritative game here. The host decided
+who went **down**, but only its **own** player ever **bled out**: nothing held a guest's deadline,
+so a downed guest stayed downed forever and "the whole room is dead" could never become true. The
+host now keeps a bleed clock per downed guest (with a fresh one for any it inherits by promotion),
+calls the room wiped itself when nobody is standing, and says so with an explicit new relay kind,
+**`over`** — because the snapshot's `go` flag rides a throttled send and `update()` stops
+broadcasting the moment `gameOver` is set, so the flag alone could be skipped entirely. A player
+who bleeds out while someone stands comes back at the next breather. Reproduced on the old code
+and verified on the new with two headless clients through a local stand-in relay (clocks set 777s
+apart, which also confirms every new field is a duration). Detail: `zombie/CLAUDE.md` → "Death,
+respawn and the team wipe"; the other wire additions of that pass are listed under "Authority".
+
+### Zombie, 2026-09-19 — identity was the socket, and a client echoed host state
+
+Two lessons from one playtest ("the revive bar pulses"; "what happens when someone's wifi drops,
+and can friends join mid-game?") that apply to any game on this server:
+
+- **The server's socket id is not a player identity.** `server.js` gives every connection a fresh
+  random id, so anything keyed on it — Zombie's player id, role, scoreboard row, the host's bleed
+  clock — is lost on every wifi blip. Zombie now keys all of it on a per-tab token in
+  `sessionStorage` (survives drops and refreshes) and sends the socket id alongside only so a
+  server `leave` can be matched. A duplicated tab copies sessionStorage: resolve that with a
+  one-sided tiebreak that must persist, never a re-roll on first sight.
+- **Never echo host-owned state back through a client's payload.** The host advanced a downed
+  guest's revive progress, the guest reported its (round-trip-old) copy in its `players` row, and
+  the host's handler rebuilt the record from that row — knocking its own value back 15×/s. One
+  owner per field; the handler updates in place.
+- **A drop in a shared room should hold, not fork.** Self-hosting on disconnect is right alone and
+  wrong with teammates: the fork can die on its own and then "restart" resets the room. Zombie
+  marks a silent teammate *away* (untargetable, bleed paused, 60s grace) and holds the dropped
+  client's world under an overlay, with an opt-in to go solo after 15s.
+- **Cannot be fixed client-side:** a host whose socket stalls without closing freezes the room until
+  the server re-elects. That is the server's election, and the server cannot change.
+
+Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)".
 
 ## 6. Verification per game
 - `node scripts/check-global-collisions.js` (mp-core.js adds a global to every page that loads it)
@@ -524,4 +571,4 @@ desync, and degrade to solo cleanly.
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: ea409e8b | 2026-09-07 -->
+<!-- doc-sync: 0a30940e | 2026-09-19 -->

@@ -11,11 +11,12 @@ scope**, so every top-level name across them must be unique. Run
 `node scripts/check-global-collisions.js` from the repo root after any change here; it reports
 `zombie\Zombie.html (10 local scripts)`.
 
-**Updated 2026-09-07.** The dev-tools pass added `../shared/devtools.js` and `zombie-dev.js`, so
-the checker now reports **14** local scripts. (2026-09-04: two shared files were added by the
-aesthetic pass, taking it to 12.) (The 2026-09-02 revision of this table fixed an earlier count of 7
-that omitted `zombie-audio.js` and `zombie-endgame.js`.) Full load order as it actually appears
-in `Zombie.html`:
+**Updated 2026-09-18.** The playtest pass (`PLAYTEST_PASS_PLAN.md`) added `zombie-music.js`,
+`zombie-icons.js` and `zombie-floors.js`, so the checker now reports **17** local scripts.
+(2026-09-07: the dev-tools pass added `../shared/devtools.js` and `zombie-dev.js`, taking it to 14.
+2026-09-04: two shared files were added by the aesthetic pass, taking it to 12.) (The 2026-09-02
+revision of this table fixed an earlier count of 7 that omitted `zombie-audio.js` and
+`zombie-endgame.js`.) Full load order as it actually appears in `Zombie.html`:
 
 | # | File | Owns |
 |---|---|---|
@@ -24,15 +25,18 @@ in `Zombie.html`:
 | 2a | `../shared/retro.js` | `window.RETRO` — `snap`/`flicker`, used by `zombie-render.js` |
 | 2b | `../shared/leaderboard.js` | `window.LB` — score submission, used by `zombie-game.js` |
 | 2c | `../shared/devtools.js` | `window.DEVTOOLS` — the L+G dev panel. **Must precede this game's files**: its error capture only sees throws after it installs, and its keydown listener has to be attached before `zombie-render.js`'s so a combo press can be stopped from also reaching the player |
-| 3 | `zombie-core.js` | World size, camera, teardown plumbing, geometry + wire-time helpers |
-| 4 | `zombie-audio.js` | Procedural Web Audio, positional mix, `M` mute, event playback |
-| 5 | `zombie-level.js` | Seeded geometry, the solid spatial index, `moveWithCollisions` |
-| 6 | `zombie-entities.js` | Players, weapons, zombie archetypes, bullets, pickups |
-| 7 | `zombie-endgame.js` | Roles, sluice gate, funnels, silos, the flood, the escape |
-| 8 | `zombie-game.js` | Round curves, simulation, economy, revive loop |
+| 3 | `zombie-core.js` | World size, camera, teardown plumbing, geometry + wire-time helpers, `WEAPON_KEYS` |
+| 4 | `zombie-audio.js` | Procedural Web Audio, positional mix, `N` mute, event playback |
+| 4a | `zombie-music.js` | **The score** (2026-09-18): organ bed, soprano, beat-quantized chime cues. Needs `audioCtx`/`audioMaster` from 4; `gameLoop` drives it |
+| 5 | `zombie-level.js` | Seeded geometry, the solid spatial index, `moveWithCollisions`, funnel halls, perk stations |
+| 6 | `zombie-entities.js` | Players, weapons + switching, zombie archetypes, perks, bullets, pickups |
+| 7 | `zombie-endgame.js` | Roles, sluice gate, funnels, silos, pipes, the flood, the escape |
+| 8 | `zombie-game.js` | Round curves, simulation, economy, revive / bleed-out / wipe / respawn, perk procs, generator trip |
 | 9 | `zombie-net.js` | MP wiring, snapshots, broadcast |
+| 9a | `zombie-icons.js` | Pixel-bitmap icons for every perk and gun (no emoji) → canvases + data URLs. Declares only |
+| 9b | `zombie-floors.js` | Per-zone floor textures + grime noise map. Declares only; builds lazily on first draw |
 | 10 | `zombie-render.js` | Draw, HUD, minimap, input, **boots the loop** |
-| 11 | `zombie-dev.js` | Dev-panel registration: the state readout and the playtest buttons. **Last** — it reads names every file above declares, and registers only |
+| 11 | `zombie-dev.js` | Dev-panel registration: the state readout and the playtest buttons. **Last** — it reads names every file above declares, registers, and (since 2026-09-18) wraps `hostHandleBuy`/`spawnZombie`/`spawnZombieAt`/`nearestPrompt` for the FREE BUYS / NO ZOMBIES toggles — see "Controls" |
 
 *(A duplicate `zombie-endgame.js` tag on line 258 was removed 2026-09-02. It threw
 `SyntaxError: Identifier 'ROLES' has already been declared` on every load without breaking play.
@@ -61,21 +65,74 @@ The map is **dim until the generator runs**. `ambientDarkness()` is the single s
 |---|---|---|
 | Generator off (default) | 0.72 | `AMBIENT_DARK` |
 | Generator on | 0.22 — lit, never full daylight | `AMBIENT_LIT` |
-| Blackout round | **+0.20 on top of whichever applies** | `AMBIENT_BLACKOUT_ADD` |
+| Blackout round | **+0.26 on top of whichever applies** (was +0.20 until 2026-09-18) | `AMBIENT_BLACKOUT_ADD` |
 
 Clamped to 0.9. **Do not add a second copy of these numbers anywhere** — that is exactly how the
 two tables came to disagree.
+
+### Blackouts trip the generator (2026-09-18, on request after a playtest)
+
+"Black-out rounds should be slightly darker than current, and should force the players to restart
+the generator prior to blackout stopping." So a Blackout round that starts with the generator
+running **trips** it (`tripGenerator()`, `genTripped`): the map drops to 0.9 (the cap), the perk
+stations die, and **the round cannot clear while it is tripped** — once the budget is spent,
+stragglers keep coming every 2.6s (capped at 6 alive). Restarting is free and physical: anyone
+alive standing within `GEN_RESTART_REACH` (40px) of the generator fills `genRestart` over
+`GEN_RESTART_MS` (5s); step off and it drains at half speed. Host-tracked from positions the host
+already has — the gate plates' pattern — so it needs no message; `gt`/`gr` ride the snapshot.
+After the restart the round reads 0.22 + 0.26 = **0.48** (it was 0.42) until it clears.
+
+A generator that was never bought has nothing to trip: that Blackout is the old kind, just darker.
+
+**The cap was deliberately not moved.** 0.94 is the number that playtested as a guaranteed loss;
+the light radius and the four-band ramp are untouched.
 
 Your light is a radial gradient: fully clear to `LIGHT_RADIUS` (340), fading to ambient over an
 extra 33% (to ~452). A canvas radial gradient paints its last stop everywhere beyond the outer
 circle, so one fill does the pocket, the falloff and the flat ambient together.
 
 v2 blacked out at **0.94 with a hard-edged 210px hole**, which playtested as a guaranteed loss.
-Blackout after the generator is now a 0.20 dip with 2.6x the fully-lit area.
+Blackout after the generator is now a 0.20 dip with 2.6x the fully-lit area. *(2026-09-18: a 0.26
+dip, and a running generator trips first — see "Blackouts trip the generator" below.)*
 
-**Powerup cards**: 3 slots, each **stackable to x3**, bought at card stations and **inert until
-the generator runs**. `OVERDRIVE` (fire rate, requested) plus `SCAVENGER`, `RICOCHET`, `BEACON`,
-`SPITE`, `CONDUCTOR` — deliberately not Perk-a-Cola equivalents. Every effect scales with stack.
+**Powerup cards — "PERKS" in the UI since 2026-09-18**: 3 slots, each **stackable to x3**, bought
+at stations and **inert until the generator runs** (and dead again while a Blackout has it
+tripped). Every effect scales with stack. The code keeps `cards`/`CARDS`/wire `cd`; only the words
+players read changed, because "perks" is what they call them.
+
+| Perk | Does | Base |
+|---|---|---|
+| `OVERDRIVE` | Fire rate (requested). **On every map** | 11,000 |
+| `SCAVENGER` | +60% scrap per kill | 9,000 |
+| `RICOCHET` | Rounds bounce off walls (not rockets / flame) | 9,500 |
+| `DECOY` | **Replaced `BEACON`.** Your ping lures zombies within 320/400/480px for 4/5/6s; recharge 12/10/8s | 10,000 |
+| `SPITE` | Going down detonates | 9,000 |
+| `CONDUCTOR` | Traps cheaper, armed longer | 9,000 |
+| `ARC` | Kills bolt to 1/2/3 more within 180px; damage scales with `zombieHpMultiplier` | 12,000 |
+| `BLASTCAP` | 18/28/38% of kills burst (95px); **bursts never chain** | 12,500 |
+| `SKEWER` | +1/+2/+3 pierce (the ULTRA still stops it) | 10,500 |
+| `LAST STAND` | Down: x1 fire the pistol, x2 any gun, x3 crawl ×1.6 and bleed out ×1.5 slower | 9,500 |
+| `SALVAGE` | 30/45/60% of kills refund a round to the gun in hand, scaled by `WEAPONS[].salvage` | 10,000 |
+
+`BEACON` (a ping lit every zombie on the minimap for 5s) was cut on request: never worth a slot.
+DECOY keeps the ping as the perk's hook, and is host-decided: the `ping` message now carries the
+pinger's `id`, the host checks that player's level in `registerDecoy()`, and live lures ride the
+snapshot as `dc` so every client draws the ring. Zombies inside a lure follow a third flow field
+(`navFieldDecoy`); **contact is still tested against the real player**, so a lured zombie walking
+through you still downs you.
+
+**Procs only fire from weapon kills.** `damageZombie(index, dmg, owner, now, src)` takes a source,
+and `PROC_SOURCES` is `shot`/`rocket`/`flame`/`burn`. A kill by an arc, a burst, a barrel, a trap
+or SPITE cannot set off ARC or BLASTCAP — otherwise one kill in a dense horde cascades through all
+of it. The same `src` keeps burn and flame from flashing a zombie white every tick.
+
+**Stations: one in each of the 8 outer zones, OVERDRIVE always among them** (`CARD_ALWAYS`),
+the other 7 drawn from the remaining 10, so 3 perks are absent from any map. The playtest's
+"OVERDRIVE didn't spawn" had two causes, both measured on the old code: the 4-of-6 draw left it off
+**61 of 200 maps**, and `placeCardStations` skipped a station outright when `findOpenSpot` came
+back empty. Stations now use `findOpenSpotSure()`, which cannot fail. The absent three are listed in
+the manual and announced on the objective line the first time power comes on (`absentCardKeys()`).
+Prices are **per perk**, not per station slot, so a perk costs the same on every map.
 
 `p.cards` is a **flat array with repeats**; the stack level is just how many times a key appears
 (`cardLevel()`). That keeps the wire format an array of strings and leaves `hasCard()` unchanged.
@@ -83,8 +140,36 @@ Slots cap *distinct* keys at 3 — stacking one you already hold never needs a f
 in the players payload (`cd`) because the **host** resolves damage and payouts and therefore needs
 the *shooter's* cards, not its own.
 
-**Four weapon wall-buys exist on the whole map** — one rifle, one shotgun, one SMG, one sniper, in
-four different zones, the sniper preferring a long-sightline zone.
+Each perk has a **pixel icon** (`zombie-icons.js`) drawn on its station, in the HUD and in the
+manual. The station prompt no longer prints the blurb — the playtest found a sentence on a world
+prompt hard to read mid-fight — so the words live in the field manual only.
+
+**Six weapon wall-buys exist on the whole map** — rifle, shotgun, SMG, sniper, flamethrower
+(5,200) and rocket launcher (7,500), each in a different zone, the sniper preferring a
+long-sightline zone. *(Four until 2026-09-18.)*
+
+### Weapons: switching, rockets, flame (2026-09-18)
+
+- **Switching exists now.** `1`–`7` select (`WEAPON_KEYS` order), the wheel cycles, and a gun that
+  runs dry hands over to the **next gun you own** rather than to the pistol. `p.owned` records what
+  was bought separately from what has rounds — a crate refills every owned gun, dry ones included.
+  This closes the old known gap, and it was necessary: without it, buying the 12-round rocket
+  launcher threw your rifle away.
+- **`WEAPON_KEYS`** (`zombie-core.js`) is the one ordered list for the wire index, the voice and
+  the number key. It replaced `WEAPON_SND_KEYS`. **Append only.**
+- **Rocket**: detonates on the first zombie, wall or barrel it touches, or at the end of its range —
+  direct hit plus a 150px splash with falloff, and it sets off barrels. A crate only half-fills it
+  (`crateFrac`). A guest's rocket goes off **locally** on the frame it visibly hits, and the host's
+  `SND_EXPLODE` event carries that guest as its owner so it is not drawn twice (verified: one blast
+  on the shooter, one on the host).
+- **Flamethrower**: three piercing flames per 70ms shot (≈ the SMG's message rate), 280px, and
+  anything touched burns (`burnUntil`/`burnBy`, damage over time credited to whoever lit it; burn
+  rides the zombie row as a remaining duration).
+- **Shapes**: `WEAPONS[].shape` is how a round is drawn (slug, tracer, pellet, needle, streak,
+  finned rocket, cooling flame). `bsize` is the collision box — the five original guns all stay 8,
+  so the shape change is not a balance change.
+- **A guest's round now stops where it visibly hits** instead of sailing through the zombie to the
+  wall behind (visual prediction only — damage is still the host's).
 
 ### Card economy — the balance that matters
 
@@ -115,11 +200,43 @@ exactly when rounds should be hardest — which also made opening the map *easie
 
 `zombie-audio.js`. Procedural Web Audio, zero sample files — see the header for why (file://,
 the DOS palette, and Gyro Space's open mobile audio-freeze bug). Gesture-gated: `initAudio()` runs
-on every input, nothing before. `M` mutes; the preference persists in `localStorage`.
+on every input, nothing before. **`N` mutes** (it was `M` until 2026-09-18, when `M` became the map
+toggle); the preference persists in `localStorage`.
 
-The **intensity drone** (idea 45) tracks the live zombie count within 1000px and pitches a low
-oscillator to it — silent below 4 zombies, full at 28. It exists because the tightened FOV took
-away the player's ability to *see* how bad it is getting.
+~~The **intensity drone** (idea 45) tracks the live zombie count within 1000px and pitches a low
+oscillator to it — silent below 4 zombies, full at 28.~~ **Removed 2026-09-18 on request** ("has to
+go"). Its job — telling you how bad it is getting when the tight FOV can't show you — moved to the
+score.
+
+### The score (`zombie-music.js`, 2026-09-18)
+
+Asked for in the playtest: an eerie low organ that opens on chimes, intensifies with the nearby
+count up to a limit, a harmonizing soprano that eases in under pressure, and chime cues **in
+tempo** for round changes and the sluice unlock (its own building tune).
+
+- **One tempo grid**, 66 BPM. Everything — every cue included — is scheduled on it, a 0.4s
+  lookahead ahead of the audio clock, **from `gameLoop`** (`musicUpdate`). No timer of its own; the
+  only long-lived node is the tremolo LFO, which `musicStop()` ends and `zDestroy()` calls.
+- **Organ bed**: 8 bars of D minor (i, VI, iv, V, i, the Neapolitan ♭II, vii°, V7), drawbar
+  PeriodicWaves with a celeste-detuned second pipe. **Intensity** = zombies within 1000px of you,
+  `(near − 2) / 28`, **capped at 30**, eased (rise 1.2s, fall 5s): it opens the drawbars and the
+  filter, adds a pedal pulse from 0.25 and an eighth-note ostinato from 0.55.
+- **Soprano**: a formant-filtered "ah", two held notes a bar, always chord tones — eases in from
+  **12** nearby zombies, fully in at **26**.
+- **Cues**, quantized to the next beat and, for most, restarting the progression so they always
+  land on D minor: `start` (opening chimes, then the organ swells in), `round`, `clear`, `trip`
+  (an unresolved tritone), `power` (D major — the one bright chord), `unlock`, `win`, `over`.
+- **The sluice build layer**: while the plates are held, chimes climb the current chord, denser
+  and louder as `gateProgress` fills and denser again on the second lock. `unlock` resolves it.
+- **Cues are driven by STATE** (round number/phase, `gateStage`, `genTripped`, `generatorOn`), not
+  the event queue: events are capped at ten a snapshot and are the first thing dropped. So the old
+  `SND_ROUND_START`/`SND_ROUND_CLEAR` stings are no longer emitted at round changes;
+  `SND_ROUND_CLEAR` is still the silo-full and flood-cleared sound.
+
+Verified headless against a recording mock `AudioContext`: the opening tolls, the organ, no
+soprano on an empty map, the soprano in (and on chord tones only) with 32 zombies near, the
+intensity cap, the ostinato, the round cue, the build layer (0 → 36 bells over 3s at 90% progress),
+the unlock flourish, the game-over cue, and the score and its LFO stopping afterwards.
 
 Sounds now cover: **per-weapon fire** (idea 40 — pistol blip, rifle crack, shotgun burst, dry SMG
 tick, long sniper crack), kills, splitter bursts, the **screamer** (idea 44, carrying 2.2x further
@@ -164,6 +281,10 @@ Three rules for adding a sound:
    invariant disagreed about which zombie they were protecting. With `NAV_CELL = 20` and
    `NAV_PAD = 15` the real threshold is **70px**. The narrowest opening in the map is the outpost
    doorway at 112, windows are 112–151, doors 124–159, so everything clears it.
+
+   *Updated 2026-09-18.* The ULTRA HEAVY is 34px, so **`NAV_PAD = 19`** (half of it plus the same
+   2px of skin) and the threshold is **78px**. The nook escape hole (`NOOK_HOLE`) was 74 — under the
+   new guarantee — and is now **90**. Every other opening already cleared 78; funnel halls are 240.
 4. **Opening a door refreshes only its own patch of the nav grid.** A full rebuild is 32,400
    cells and cost ~17ms — a dropped frame at the exact instant of a purchase, which is the worst
    possible moment for a stutter. `rebuildSolidIndex` diffs the door signature and calls
@@ -184,7 +305,99 @@ movement and predict their own shots (the host filters those copies back out of 
 
 **The WebSocket server is a separate repo and cannot be changed**, so every mechanic here rides
 mp-core's generic `relay`. Message kinds in use: `players`, `world`, `shoot`, `down`, `up`,
-`dead`, `rvs`, `pickup`, `buy`, `bought`, `ping`, `reset`.
+`dead`, `rvs`, `pickup`, `buy`, `bought`, `ping`, `reset`, `won`, and **`over`** (2026-09-18 —
+the host calling the room wiped).
+
+**Wire additions, 2026-09-18** (all appended, all durations never timestamps): zombie rows carry a
+5th element, burn ms left, only while burning; bullet rows carry the gun index (`WEAPON_KEYS`) and,
+for flame, distance travelled; `world` gains `gt`/`gr` (generator tripped / restart progress), `sb`
+(the scoreboard — **guests never received it before**, so the round-end table only ever showed on
+the host) and `dc` (live DECOY lures); `shoot` gains `wk` (the gun); `ping` gains `id`.
+`Z_TYPE_KEYS` gained `ultra` **on the end** — both index lists are append-only wire values.
+
+**Wire changes, 2026-09-19:** `players` rows **lost `rv`** (a guest's copy of its own revive
+progress — echoing it back is what made the revive bar pulse; progress now travels only in `rvs`,
+host → room) and **gained `sk`** (the socket id the row currently rides, so a server `leave`, which
+names sockets, can be matched to a player). A player's `id` is now `<tab token>:p`, not
+`<socket id>:p`.
+
+### Connection trouble (2026-09-19)
+
+Asked for after a playtest: *"a lack of penalty for wifi issues, but also welcoming to other friends
+joining in mid game."* What a drop used to cost, read from `server.js` and `mp-core.js`: every
+reconnect is a **new socket id**, and the player id, the role, the scoreboard row and the host's
+bleed clock were all keyed on it; a dropped client flipped to **solo host** and ran its own fork of
+the world, where it could die and then reset the room with "restart"; and a merely stalled socket
+left the host mauling the player's last known position while their screen froze. Now:
+
+- **Identity is a per-tab token** (`netToken`, `sessionStorage` key `zombie_tab_token`), not the
+  socket id. Survives drops and page refreshes. `netPrefix` is still the socket id — routing and
+  host checks only. A duplicated tab copies sessionStorage, so the `players` handler watches for its
+  own token on another socket: **only the higher socket id re-rolls, and only once the clash has
+  lasted 1s** — both re-rolling cost the original tab its class, and a single stray packet from our
+  own dead socket (relayed just after a reconnect) must not cost a reconnecting player theirs.
+- **Away, not gone.** A teammate silent for `AWAY_AFTER_MS` (1.2s), or `leave`d by the server, is
+  `r.away` for up to `AWAY_GRACE_MS` (60s): drawn at 35% with a blinking RECONNECTING, grey on the
+  minimap and the offscreen arrows, **out of `allTargets()`/`livingTargets()`/`teamSize()`/
+  `anyoneAlive()`/the gate plates**, and a downed one's bleed-out clock pauses (`rec.pausedAt`,
+  added back on return). The wipe grace is `WIPE_GRACE_AWAY_MS` (10s) instead of 2s while a
+  teammate who was *standing* when they dropped is away. Back inside 60s → same record, same
+  scoreboard row, RECONNECTED toast.
+- **A client that loses a shared room HOLDS instead of forking** (`netLost`): `update()` returns
+  early, input is released, and the CONNECTION LOST overlay counts up; after `NET_LOST_OFFER_MS`
+  (15s) it offers ENTER → `goSoloAfterLoss()`, which gives the held time back to a downed player's
+  bleed-out. mp-core keeps retrying every 3s regardless; a reconnect clears the hold, and the
+  host's snapshot (`ls`) folds us back in. **Alone in the room, a drop is still plain solo** —
+  there is nobody to disagree with.
+- **A local game over while the room plays on** (went solo, died out there) → the next `go=0`
+  snapshot runs `rejoinRunningRoom()`: back as a teammate who bled out, respawning at the breather,
+  rather than sitting on a card whose "restart" would reset the room. Guarded on `pendingReset`, so
+  a real restart is not mistaken for it.
+- **Late joiners** (a guest spawning with `round >= 1`) arrive **beside a standing teammate**
+  (`standingTeammate()`/`spotBeside()`) with 4s of protection instead of at the keep, and past
+  round 4 with a rifle in hand. Everyone sees JOINED / LOST CONNECTION / RECONNECTED toasts.
+- **CONNECTION UNSTABLE** (top right) on a guest that has had no snapshot for 1.5s.
+
+**The revive-bar pulse** was the same family: the `players` handler *rebuilt* each remote record
+from the guest's payload, including `rv`, the guest's copy of its own revive progress, always a
+round trip old — so 15 times a second the host's live value was knocked back to a stale one.
+Measured through the local relay: 34 / 69 / 65 reversals at 0 / 60 / 150ms and a 3s revive taking
+5.4s or never finishing; after, 0 / 1 / 1 (the one is the bar completing) and 3.0–3.1s. The record is
+now updated **in place**, progress has **one source** (`rvs`, now every 100ms), a reviver already
+reviving keeps it out to `REVIVE_KEEP` (+18px) so a range edge can't flicker it, and the drawn bar
+eases (`p.reviveShown`: rises gently, drops at once).
+
+**Not fixable from here:** a host whose socket stalls *without closing* freezes the world for the
+room (everyone sees CONNECTION UNSTABLE) until the server notices it is gone and re-elects. Host
+election belongs to the server, which cannot change. A host that drops cleanly is promoted away
+from in the ordinary way, and the new host inherits the round from the last snapshot.
+
+### Death, respawn and the team wipe (2026-09-18)
+
+Reported: *both players went down in a two-player game; one of them simply respawned at the start
+instead of the run ending.* Reproduced headless on the old code with two clients through a local
+relay: at 25s the host bled out, the guest stayed downed **forever**, nothing ended, and a keypress
+walked the host straight back in at the keep. Three faults:
+
+1. **A guest never bled out.** The bleed-out check ran only for the *host's own* player
+   (`netIsHost && p.bleedDeadline`); nothing tracked a guest's deadline. Now the host keeps
+   `remoteDowned[id] = {at, bleedAt}` for every downed guest (set in `downPlayer`, cleared on a
+   revive or a RALLY, re-created with a fresh clock for a downed guest a promoted host never saw
+   go down) and `updateRemoteBleed()` sends `dead` when it runs out. A guest's own "players"
+   message can land a frame after the down with its pre-down state; the record's first 1.5s stops
+   that reading as a second down (and a double alarm).
+2. **`spawnPlayer()` had no notion of a run in progress**, so any key respawned a dead player. It
+   now refuses while `zAwaitRespawn` is set.
+3. **"Everyone down" was not an ending** — only "everyone dead", which 1 made unreachable.
+
+The rules now: **nobody standing in the room → a 2s grace (a downed player crawling onto a RALLY
+can still save it) → game over**, decided by the host (`updateTeamWipe`) and sent explicitly as
+`over` — the snapshot's `go` flag alone can miss its only send, because `update()` stops
+broadcasting the moment `gameOver` is set. A player who **bleeds out while a teammate stands** is
+dead until the breather that ends that round (DESIGN_IDEAS #1's "dead for the round"), watching a
+teammate by their light, then respawns at the keep with a pistol and **keeps their perks**
+(`respawnLocalPlayer` path in `updateRespawn`). Solo, going down is now game over — which retires
+the old known gap "a solo player going down is a 25s crawl that ends in death regardless".
 
 **Spending must stay host-validated** (`hostHandleBuy`). Scrap is a shared pool; two clients
 pressing buy on the same frame would both pass a local affordability check and spend it twice.
@@ -238,6 +451,31 @@ Templates differ in building density, barrel and crate counts, whether they have
 outpost, and whether they have long sightline corridors. That is what makes "which door do we
 buy?" a real decision rather than a coin flip.
 
+**Each zone has its own floor (2026-09-18, `zombie-floors.js`)** — the playtest found the areas'
+identity too faint. A 64×64-texel tile per template, drawn 2 world units a texel with smoothing
+off: freezer tiles with frost (COLD STORAGE), cracked pool tiles (THE DRY POOL), oil-stained
+concrete with a bay line (MOTOR POOL), worn lino checker (THE LAUNDRY), wet concrete with water and
+a grate (SPILLWAY), dirt and straw (THE KENNELS), floorboards and stray post (DEAD LETTER),
+ember-flecked slag (SLAG HEAP), terrazzo (TICKET HALL), carpet tiles (THE ANNEX), diamond plate
+(PUMP HOUSE), grating (TURBINE HALL), concrete block (THE BLOCKHOUSE), and wet stone "drain" slabs
+for the sluice room and funnel halls. Tileable value noise only ever *picks* between each tile's few
+flat colours — no gradients — and one large **grime noise map** (three flat alpha steps, 1024px
+repeat) over everything breaks the 128px repeat. Generated from fixed seeds: never `MP.random()`
+(it would shift the level stream) and never `Math.random()` (players must be able to say "the blue
+tiles"). The minimap tints each zone to match (`ZONE_FLOOR_TINT`). If the textures cannot be built,
+`drawGround()`'s old grid is the fallback.
+
+**Generation order changed (2026-09-18) and fixed a real layout bug.** The sluice used to be built
+*after* every zone's contents, and corridors, outposts and the generator never checked
+`reservedRects` at all. Measured on the old code: **239 of 300 seeds had zone walls inside the
+funnel room, and 68 had a gate plate walled off** — maps on which the two-player gate, and so the
+whole endgame, could not be finished. Now `buildSluice()` runs before `buildZoneContents()`,
+corridors / outposts / the generator avoid reserved ground (re-roll, then drop), the generator
+never lands in the sluice zone, and every floor item (crate, barrel, wall-buy, station, generator)
+claims its footprint in `keepClearRects` so none lands on another — on the old code stations,
+wall-buys and the generator could spawn **inside walls** or on top of each other. A 500-seed sweep
+of the new code is clean on all of it (`PLAYTEST_PASS_PLAN.md` → Verify).
+
 **Boundary cover spurs must be clipped 150px clear of a boundary intersection.** Unclipped, a spur
 from one wall and a spur from the perpendicular wall formed an L that boxed in a corner pocket
 nothing could path into — a free safe spot, and a trap for any zombie that wandered in.
@@ -287,7 +525,9 @@ Other consequences worth knowing:
 - Solids live in a uniform grid (`rebuildSolidIndex`). **Call it whenever a door opens or a
   barricade breaks or reboards**, or collision goes stale.
 - Draw is culled to the view rect. The minimap and off-screen teammate arrows are not optional
-  decoration — without them you cannot find anyone.
+  decoration — without them you cannot find anyone. *(2026-09-18: the minimap now starts hidden, on
+  request, behind `M`. The off-screen teammate arrows are unchanged and always on, so teammates stay
+  findable.)*
 
 ## Pathfinding — why it's a flow field
 
@@ -382,11 +622,63 @@ cause. In the live game, 160 zombies weighted to the big three (growing to 320 a
 summoned) crossed a ~2000px average with 0 relocations, 0 despawns, 0 escapes off-map and no
 errors; brutes and splitters 100%.
 
+### Measured again (2026-09-18) — the ULTRA HEAVY, and NAV_PAD 19
+
+Same method, re-implemented as a Node harness that runs the real scripts headless (the method was
+recorded, the harness was not): 24 layouts × 24 runs per type, doors open, barricades broken, one
+zombie vs a stationary player ≥ 1000px away, 120s cap. "Before" is the pre-pass code:
+
+| | walker | runner | screamer | splitter | brute | ultra (34) |
+|---|---|---|---|---|---|---|
+| before, reached | 100% | 100% | 100% | 100% | 100% | — |
+| after, reached | 100% | 100% | 100% | 100% | 100% | **100%** |
+| after, without the escape hatch | 100% | 100% | 100% | 100% | 100% | 99.7% (2 relocations / 576) |
+
+0 despawns and 0 timeouts in either run. (A 60s cap timed out 12 screamers on the old code; they
+are simply the slowest type — at 120s every one arrives.)
+
 ## Controls — ONE player per screen
 
 WASD moves, the mouse aims, left click fires. `F` uses/buys, `Q` or middle-click pings.
 **`L`+`G` together opens the dev panel** (2026-09-07, `zombie-dev.js` + `shared/devtools.js`) —
 neither key is bound to anything else here.
+
+*2026-09-18:* **`1`–`7` / the wheel switch guns**, **`M` shows/hides the minimap together with the
+TIME ALIVE / ZOMBIES / KILLS lines**, and **`N` mutes** (it was `M`). Number keys never spawn you —
+they are not join keys. **The minimap starts hidden** (asked for mid-playtest) on every page load;
+the choice then holds across restarts in the session. It was briefly remembered in
+`localStorage`, which would have kept it on for anyone who had ever pressed `M`, so it deliberately
+is not persisted any more.
+
+**`ESC` opens the MISSION dialog** (`#help`, `openHelp()`), which is where the start prompt's
+instructions went — the start prompt is now just "join" and "ESC — how to play & goals". It shows
+the map's **goals as a checklist ticked from live state** (`mapGoals()`: generator, sluice, silos
+1–3, flood, south gate — ticked cyan, the current one amber, the rest dimmed; checkboxes are CSS,
+no glyphs), plus controls and rules. A goal is done *by state*, not by order: a Blackout un-ticks
+the generator and puts "restart" back on top while the sluice stays ticked. Everything it reads
+rides the world snapshot, so a guest ticks the same boxes as the host. Like the field manual it
+takes the keyboard and mouse while open and **does not pause**. With the dev panel up, the panel eats
+`ESC` itself. While the minimap is up, the **NEXT goal** (the first unticked one, with its zone and
+live progress) is drawn on its top edge (`drawNextGoal`).
+
+The gun and its rounds moved from the top-left stack to a **loadout HUD, bottom left**: the gun's
+pixel icon, its name, a 48px round count (magenta when low), and a strip of every gun you own with
+its number key; your perks sit beside it as icons with an `xN` stack badge. The HUD rewrites only
+what changed — the old perk chips were rebuilt with `innerHTML` 60 times a second.
+
+Dev panel additions: `TRIP GENERATOR`, `SPAWN ULTRA`, `GIVE ALL GUNS`, `NEXT PERK` (cycles all
+11, adding a stack), `CLEAR PERKS`; the readout shows owned guns, perks, which perks the map sells
+and which it does not, and ULTRAs alive/owed.
+
+Then, asked for mid-playtest: **`FREE BUYS`** (every purchase costs nothing; prompts get a
+`[DEV: FREE]` tag), **`NO ZOMBIES`** (clears the field; nothing spawns, so a round just holds) and
+**`SPAWN TARGETS`** (8 stationary dummies in an arc where you aim — it goes around the NO ZOMBIES
+block, so there is still something to shoot). Both toggles are host-gated. **They wrap, rather than
+hook:** `zombie-dev.js` reassigns `hostHandleBuy`, `spawnZombie`, `spawnZombieAt` and
+`nearestPrompt` at load (free buys lend `hostHandleBuy` an unreachable `scrapPool` and put the real
+one back), so the gameplay files carry no dev flag and deleting the dev file's script tag still
+removes all of it. That only works because every caller reaches those functions through the global
+binding — if one is ever captured into a local, the toggle silently stops covering that path.
 
 ### The dev panel does NOT pause this game
 
@@ -451,8 +743,10 @@ are both holes in a wall, and the player must be able to tell them apart instant
 ## Lighting
 
 `ambientDarkness()` is the single number. Generator off **0.72**, generator on **0.22** — the
-lights never restore full daylight — and a Blackout round adds **+0.20** on top of whichever
-applies. The player's light radius therefore matters at all times, not only on Blackout rounds.
+lights never restore full daylight — and a Blackout round adds **+0.26** (+0.20 until 2026-09-18)
+on top of whichever applies, after tripping a running generator. The player's light radius
+therefore matters at all times, not only on Blackout rounds. A player waiting out a bleed-out sees
+by the light of the teammate the camera is following.
 
 ### The ramp is quantized into four bands (2026-09-04)
 
@@ -467,8 +761,9 @@ inputs**:
 | far | → `LIGHT_RADIUS × LIGHT_FADE` | `dark × 2/3` |
 | ambient | beyond | `dark` |
 
-**No balance number moved.** 0.72 / 0.22 / +0.20, `LIGHT_RADIUS` 340, `LIGHT_FADE` 1.33 and the
-downed player's ×0.55 are all untouched — §5 lists this game's lighting as untouchable because
+**No balance number moved** *(in that pass — the Blackout dip went +0.20 → +0.26 on request on
+2026-09-18; everything else here still holds)*. 0.72 / 0.22 / +0.20, `LIGHT_RADIUS` 340,
+`LIGHT_FADE` 1.33 and the downed player's ×0.55 are all untouched — §5 lists this game's lighting as untouchable because
 v2's 0.94 blackout playtested as a guaranteed loss, and quantizing the *ramp* is explicitly the
 change that does not re-open that. Measured after the change: 255 / 194 / 133 / 71 on a white
 field at `dark = 0.72`, with the steps landing at 342 / 399 / 453 px.
@@ -514,17 +809,26 @@ Plus `<link rel="stylesheet" href="../shared/retro.css">` and
 - **Positions are snapped with `RETRO.snap(v, 4)` at the DRAW CALL ONLY.** `z.x`/`z.y` are never
   written. Same discipline as Glucose Dash keeping its curve inside `SX()`: quantizing the
   simulation would produce collision bugs that present as gameplay bugs.
-- **Flicker budget (§4.7)**: past `ZOMBIE_DRAW_CAP` (40) zombies *on screen*, the overflow renders
+- ~~**Flicker budget (§4.7)**: past `ZOMBIE_DRAW_CAP` (40) zombies *on screen*, the overflow renders
   on alternating frames. Measured with a synthetic 100-zombie horde: 40 drawn every frame, the
   other 60 split 30/30 across two frames — 70 draws per frame instead of 100. Counted against
   zombies actually **on screen**, not the array index, or the budget would depend on where the
   camera is pointing. **Screamers are exempt** — the white outline is how you find the callout
   target in a crowd, and one that renders every other frame is a gameplay regression wearing an
-  aesthetic hat.
+  aesthetic hat.~~ **Removed 2026-09-18.** The playtest found it distracting and hard to read —
+  exactly when the screen is fullest, which is when you most need to read it. Every zombie on
+  screen is now drawn every frame; it is two `fillRect`s each and was never the frame budget. The
+  screamer exemption above was already the tell that the budget cost readability.
 - **Muzzle flash**: one white frame, derived from the existing `p.lastShotTime` rather than any
   new state, so there is nothing extra to reset, sync or tear down.
-- `zFrameCount` drives the flicker budget. It is **not a timer** — it ticks once per rendered
-  frame in `gameLoop`, so it needs no `trackTimeout`/`trackInterval` registration.
+- `zFrameCount` drove the flicker budget and now only animates flame and burn pixels. It is **not
+  a timer** — it ticks once per rendered frame in `gameLoop`, so it needs no
+  `trackTimeout`/`trackInterval` registration.
+- *2026-09-18:* the generator no longer prints U+26A1 (an emoji on most systems — a colour picture
+  on a four-colour screen); it and every perk and gun are pixel bitmaps in `zombie-icons.js`, drawn
+  with smoothing off (`ctx.imageSmoothingEnabled = false` is set every frame, since a canvas resize
+  resets it). The ULTRA HEAVY is the one zombie that is not a square: an octagon with bone shoulder
+  plates, three colours plus the hit flash, over the same square collision box.
 
 **The HUD moved onto the shared tokens, mapped by meaning** rather than taste, which is the whole
 point of the Signal Three being semantic: structure is `--phos-mid`, live numbers `--phos-hot`,
@@ -548,10 +852,17 @@ scrap `--sig-amber` (value/interact), weapon `--sig-cyan` (system), role and car
 
 ## The field manual
 
-A terminal in the keep (`codexRect`), opened with F. Five tabs: weapons, cards, pickups, enemies,
-the map. **Every table is generated from the live data** — `WEAPONS`, `CARDS`, `ZOMBIE_TYPES`,
-`wallBuys`, `cardStations` — never hand-written, so it cannot drift from the balance numbers. It
-also reads the actual zone names, so it tells you where *this* map's sniper is.
+A terminal in the keep (`codexRect`), opened with F. Five tabs: weapons, perks (was "cards"),
+pickups, enemies, the map. **Every table is generated from the live data** — `WEAPONS`, `CARDS`,
+`ZOMBIE_TYPES`, `wallBuys`, `cardStations` — never hand-written, so it cannot drift from the balance
+numbers. It also reads the actual zone names, so it tells you where *this* map's sniper is.
+
+*2026-09-18:* weapons and perks carry their pixel icons; each perk shows its per-stack numbers
+(`CARDS[].detail`) because the station prompt no longer does; the perks tab ends with **NOT ON THIS
+MAP** (the three perks this map does not sell); the map tab covers the generator trip, the funnel
+halls and every key. A **CLASSES** tab (asked for mid-playtest) prints every role's exact traits
+from `ROLES[].detail` and lights your own row — "classes" in the UI, `roles` in the code, the same
+split as perks/cards.
 
 While it is open it swallows keyboard and mouse, or reading it would walk you into a wall and empty
 your magazine. The round does **not** pause — it can't, the host owns the simulation.
@@ -569,8 +880,21 @@ your magazine. The round does **not** pause — it can't, the host owns the simu
 
 Things to keep in mind if you touch it:
 
+- **Each silo stands beside its funnel, piped to it (2026-09-18).** Funnel 1 and silo 1 share the
+  sluice room (the funnel moved left of centre to make room; silo 1 is against the east wall).
+  Funnels 2 and 3 are in **funnel halls** — two long walls, open at both ends (240px, three times
+  the nav guarantee), a drain floor, the funnel near one end and its silo against a wall near the
+  other — built *first* in their zones (`planFunnelHalls` → `buildFunnelHall`), so everything else
+  routes around them. Never the centre zone, never the sluice's, corridor zones last. The pipe
+  (`siloPipes`, visual only) runs rim to tank and carries animated blood while its funnel is live.
+  This **supersedes** the old "the three silos sit elsewhere again, so filling one is a journey
+  rather than a button next to you": the playtest found the funnel–silo link unreadable and asked
+  for them side by side. The journey is now funnel to funnel. Silos are still floor, not wall,
+  like every other station. `finishFunnelsAndSilos()` has two fallbacks (another zone, then a bare
+  funnel with its silo alongside) so a map can never lack one; across 500 seeds neither ran.
 - **The sluice is at fixed world coordinates, not seeded.** It is the one landmark every run
-  shares, so "meet at the sluice" has to mean the same place every time.
+  shares, so "meet at the sluice" has to mean the same place every time. **It is built before the
+  zone contents** (2026-09-18) — see "Zones have identity" for the bug that fixed.
 - **The gate needs two players** — two plates 436px apart, and two consecutive holds (the second
   is 1.6x longer). Releasing a plate drains progress, but slower than it fills.
 - **Only kills inside an active funnel's radius fill its silo.** Every other system in the game
@@ -590,6 +914,11 @@ Things to keep in mind if you touch it:
 Randomly assigned, but **derived from the client's own id hash — never dealt by the host**. No wire
 traffic, survives a reconnect, and consistent with how colour and identity already work.
 
+> **Corrected 2026-09-19.** "Survives a reconnect" was not true until then: the id hashed was the
+> *socket* id, which the server re-rolls on every connection, so a wifi drop re-dealt your class
+> mid-run. It now hashes the per-tab token (`netToken`, see "Connection trouble" below), which
+> survives drops and page refreshes.
+
 `roleForId()` deliberately does **not** use `hashToUnit()`: that keeps only the low bits of a djb2
 hash (`% 10000`), and djb2 low bits cluster hard for similar strings. Across 400 ids it dealt
 engineer 270 times, scout 40 and **medic zero**. It now runs a proper avalanche finalizer before
@@ -598,33 +927,41 @@ the modulo, which measures 187–210 of 800 for each of the four.
 | Role | Passive |
 |---|---|
 | `MEDIC` | Revives 40% faster and ignores the per-round revive escalation |
-| `ENGINEER` | Traps 40% cheaper (stacks with CONDUCTOR); reboards come back at 150% |
+| `ENGINEER` | Traps 40% cheaper (stacks with CONDUCTOR); windows come back at 150%. **The second half never fired before 2026-09-18**: it lived only on the manual "board" purchase, which needs a damaged window during a breather — and `endRound()` repairs every window to full the moment the breather starts, so the purchase never came up. It now applies to that breather re-board whenever an ENGINEER is in the game (`engineerInGame()`), and a window above 100% draws a light reinforcing frame instead of planks past its ends. The trap prompt also showed the price *without* the ENGINEER cut it charged; now it matches |
 | `SCOUT` | Double ping reach, pickups on the minimap, +10% speed |
-| `GUNNER` | +15% damage (applied at the damage site, so it covers ricochets and barrel chains) |
+| `GUNNER` | +15% damage, applied at the muzzle (`shoot()` and the `shoot` message) — so a ricochet keeps it (same round) but barrel and perk damage do **not**, which this table used to claim they did; +25% crate ammo, which its in-game blurb promised from the start and nothing applied until 2026-09-18 (`refillAmmo`) |
 
 ## Known gaps
 
-- **A solo player cannot be revived.** Downed needs another *alive* player in the room, which is
+- ~~**A solo player cannot be revived.** Downed needs another *alive* player in the room, which is
   now necessarily a networked teammate. Playing alone, going down is a 25-second crawl that ends
   in death regardless — strictly worse than just dying. Worth either shortening the bleed-out
   when no reviver could possibly exist, or giving solo players a self-revive. Not done; it's a
-  design call, not a bug.
+  design call, not a bug.~~ **Settled 2026-09-18** by the team-wipe rule: nobody standing → a 2s
+  grace → game over. Solo, going down now ends the run in 2s instead of 25.
 - ~~**No audio at all**, so the downed-teammate alert is visual only.~~ **Wrong since v3
   (2026-09-04 correction).** `zombie-audio.js` has existed since v3 — this same file lists it at
   position 4 in the load order and documents it at length two sections above. Downs and revives
   both have sounds. The entry survived because "Known gaps" was never re-read when audio landed.
-- **Nav pad is sized for the largest zombie plus skin** (`NAV_PAD = 15`; a brute is 26px, so 13
-  is exactly half of one). It was 13 until 2026-09-07, which gave a brute *exactly zero* clearance
-  in a cell the field called passable — any float error at a corner clipped. Every opening a zombie
-  must use is wider than `2*NAV_CELL + 2*NAV_PAD` = 70px. If you add a narrower opening, large
-  enemies will quietly stop using it.
+- **Nav pad is sized for the largest zombie plus skin** (`NAV_PAD = 19` since 2026-09-18 — the
+  ULTRA HEAVY is 34px; it was 15 for the 26px brute, and 13 until 2026-09-07, which gave a brute
+  *exactly zero* clearance in a cell the field called passable — any float error at a corner
+  clipped). Every opening a zombie must use is wider than `2*NAV_CELL + 2*NAV_PAD` = **78px**. If
+  you add a narrower opening, or a bigger zombie, large enemies will quietly stop using it.
 - **A solo player cannot finish a run.** The sluice gate needs two people on two plates, so the
   whole Blood Silo chain — and the only win state — is unreachable alone. That is the deliberate
   point of idea 57, but it means solo play is still endless-survival-until-death.
-- **No manual weapon switching.** A wall-buy equips what you bought; you can't cycle back to a
-  weapon you already own.
+- ~~**No manual weapon switching.** A wall-buy equips what you bought; you can't cycle back to a
+  weapon you already own.~~ **Resolved 2026-09-18** — `1`–`7`, the wheel, and a dry gun handing
+  over to the next one you own.
+- **The score has only been verified against a recording mock.** Every cue, layer and threshold is
+  checked headless (what is scheduled, at what pitch, when), but nobody has listened to it in a
+  session yet. The balance numbers most worth tuning by ear: `MUS_LEVEL`, the soprano's 12/26
+  thresholds, and the chime volume.
+- **Only the ULTRA HEAVY's single-zombie traversal is measured**, not a crowd of them — at most
+  four can be alive (`ultraCap`), and relocation remains the backstop.
 - `window.GameInstance` is deliberately **not** implemented — see
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 896eb087 | 2026-09-07 -->
+<!-- doc-sync: 99690d40 | 2026-09-19 -->

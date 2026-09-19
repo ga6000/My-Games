@@ -487,6 +487,11 @@ it. The tighter FOV took away the player's ability to *see* how bad it is gettin
 hear the pressure build is the cheapest way to give that awareness back, and it costs one
 oscillator. *Small.*
 
+> **Superseded 2026-09-18.** Built, playtested, and cut on request ("has to go"). The same job is
+> now done by a score (`zombie-music.js`): an organ bed that swells with the nearby count up to a
+> cap, and a soprano line that eases in when it gets bad — plus chime cues in tempo for round
+> changes and the sluice. See `zombie/CLAUDE.md` → Audio.
+
 **46. Mute and master volume, gesture-gated.** A toggle in the HUD, persisted per client via
 `localStorage`. Two hard requirements: audio must not start until the first click or keypress
 (mobile browsers refuse otherwise), and a friend group playing in one room needs to be able to

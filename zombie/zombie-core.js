@@ -51,7 +51,20 @@ const COLOR_WINDOW = "#AA7733";
 const COLOR_BARREL = "#FF7700";
 const COLOR_TRAP = "#5599FF";
 const COLOR_DOWNED = "#FF5555";
+const COLOR_ULTRA = "#8B1A1A";
+const COLOR_ULTRA_PLATE = "#D8C8A0";
 const P_COLORS = ["#55FFFF", "#FFFF55", "#FF55FF"];
+
+// ---------------------------------------------------
+//   WEAPON ORDER
+// ---------------------------------------------------
+// ONE ordered list, used three ways: the index a weapon rides the wire as
+// (shots, bullets, sound events), its voice in zombie-audio.js, and the
+// number key that selects it (1 = pistol ... 7 = flamethrower). It used to
+// be WEAPON_SND_KEYS in the audio file; two lists with the same contents is
+// how they drift. APPEND ONLY -- an index is a wire value, and a client on
+// an older page would read a reordered one as a different gun.
+const WEAPON_KEYS = ["pistol", "rifle", "shotgun", "smg", "sniper", "rocket", "flamer"];
 
 // ---------------------------------------------------
 //   TEARDOWN PLUMBING
@@ -92,6 +105,11 @@ function zDestroy() {
     zAbort.abort();
     if (zRafHandle) cancelAnimationFrame(zRafHandle);
     zRafHandle = 0;
+    // The score keeps one LFO oscillator running for its whole life, and
+    // sustained sounds hold nodes open. Both are declared in later files,
+    // which is fine: this only ever runs long after they have loaded.
+    if (typeof musicStop === "function") musicStop(true);
+    if (typeof stopAllLoops === "function") stopAllLoops();
     if (window.MP && typeof MP.destroy === "function") MP.destroy();
 }
 

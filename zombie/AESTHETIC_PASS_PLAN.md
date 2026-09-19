@@ -95,6 +95,11 @@ frame simply renders in colour, which is a cosmetic no-op rather than a failure.
 - Screamers are **exempt from the flicker budget**. They are the callout target and their white
   outline is how you find them in a crowd; a screamer that renders every other frame is a
   gameplay regression dressed as an aesthetic.
+
+> **Superseded 2026-09-18 — the flicker budget is removed.** A friends playtest found it
+> distracting and hard to read when the screen was full of zombies, which is exactly when reading
+> it matters. Every on-screen zombie is drawn every frame now (`zombie/PLAYTEST_PASS_PLAN.md`,
+> item 1). The blocky ≤3-colour sprites and render-only snapping above still stand.
 - `zFrameCount` increments in `gameLoop`.
 
 ## 4. Muzzle flash — one white frame

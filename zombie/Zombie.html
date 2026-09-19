@@ -38,24 +38,78 @@
         }
         #ui b { color: var(--phos-hot); font-weight: normal; }
         #ui .scrap { color: var(--sig-amber); }
-        #ui .weapon { color: var(--sig-cyan); }
         #ui .role { color: var(--world-hue); font-size: 13px; letter-spacing: 2px; }
 
-        #cards { margin-top: 12px; display: flex; gap: 7px; }
-        #cards .card {
-            position: relative;
-            font-size: 10px; letter-spacing: 1px; color: var(--world-hue);
-            border: 1px solid var(--world-hue); padding: 2px 5px; white-space: nowrap;
+        /* The pixel icons (zombie-icons.js) are tiny bitmaps scaled up; they
+           must stay square-edged, never smoothed. */
+        img.pix { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+
+        /* LOADOUT, bottom left (2026-09-18). The gun and its rounds moved
+           here from the top-left stack, with a much larger count, and the
+           perks sit beside it as icons with their stack level. Gun in cyan
+           (system), perks in the world hue -- the mapping the HUD already
+           used for the old text lines. */
+        #loadout {
+            position: absolute; left: 18px; bottom: 16px; z-index: 10;
+            display: flex; align-items: flex-end; gap: 22px;
+            pointer-events: none; text-shadow: 2px 2px 0 #000;
         }
-        /* stack level, sat above the chip */
-        #cards .card b {
-            position: absolute; top: -9px; right: -5px;
-            min-width: 13px; text-align: center;
-            font-size: 10px; font-weight: normal;
-            color: #000; background: var(--world-hue);
-            border-radius: 2px; padding: 0 2px;
+        #gun { display: flex; flex-direction: column; }
+        #gun .row { display: flex; align-items: flex-end; gap: 14px; }
+        #gunIcon { image-rendering: pixelated; image-rendering: crisp-edges; display: block; margin-bottom: 6px; }
+        #gunName { color: var(--sig-cyan); font-size: 13px; letter-spacing: 2px; margin-bottom: 2px; }
+        #ammoBig {
+            color: var(--phos-hot); font-size: 48px; line-height: 1;
+            font-variant-numeric: tabular-nums; min-width: 2ch;
         }
-        #cards .card.empty { color: var(--phos-dim); border-color: var(--phos-dim); }
+        #ammoBig.low { color: var(--sig-magenta); }
+        #gunStrip { display: flex; gap: 5px; margin-top: 6px; }
+        #gunStrip .slot {
+            display: inline-flex; align-items: center; gap: 3px;
+            padding: 2px 4px; border: 1px solid var(--phos-dim); background: rgba(0,0,0,.55);
+        }
+        #gunStrip .slot.on { border-color: var(--sig-cyan); }
+        #gunStrip .slot.dry { opacity: .35; }
+        #gunStrip i { font-style: normal; font-size: 10px; color: var(--phos-mid); }
+        #perks { display: flex; gap: 10px; margin-bottom: 4px; }
+        #perks .perk {
+            position: relative; width: 46px; height: 46px;
+            display: flex; align-items: center; justify-content: center;
+            border: 1px solid var(--world-hue); background: rgba(0,0,0,.6);
+        }
+        /* the stack level, under the icon's corner */
+        #perks .perk b {
+            position: absolute; right: -7px; bottom: -9px;
+            font-size: 12px; font-weight: normal; letter-spacing: 1px;
+            color: #000; background: var(--world-hue); padding: 0 3px;
+            text-shadow: none;
+        }
+        #perks .perk.empty { border: 1px dashed var(--phos-dim); background: transparent; }
+
+        /* Bled out, waiting for the breather. */
+        #spectate {
+            position: absolute; left: 50%; top: 20%; transform: translateX(-50%);
+            color: var(--sig-magenta); font-size: 18px; letter-spacing: 3px; text-align: center;
+            background: rgba(0,0,0,.65); border: 1px solid var(--sig-magenta); padding: 8px 18px;
+            text-shadow: 2px 2px 0 #000; pointer-events: none; z-index: 12; display: none;
+        }
+        #spectate small { display: block; font-size: 13px; color: var(--phos-mid); letter-spacing: 1px; }
+
+        /* Connection trouble: system state, so cyan, not the danger colour --
+           nothing has gone wrong in the GAME. */
+        #netlost {
+            position: absolute; left: 50%; top: 30%; transform: translateX(-50%);
+            color: var(--sig-cyan); font-size: 22px; letter-spacing: 4px; text-align: center;
+            background: rgba(0,0,0,.82); border: 2px solid var(--sig-cyan); padding: 12px 22px;
+            max-width: min(520px, 88vw); pointer-events: none; z-index: 22; display: none;
+        }
+        #netlost small { display: block; margin-top: 6px; font-size: 13px; color: var(--phos-mid); letter-spacing: 1px; }
+        #netlost small b { color: var(--sig-amber); font-weight: normal; }
+        #netwarn {
+            position: absolute; right: 18px; top: 36px;
+            color: var(--sig-amber); font-size: 12px; letter-spacing: 2px;
+            text-shadow: 2px 2px 0 #000; pointer-events: none; z-index: 11; display: none;
+        }
 
         #zonename {
             position: absolute; left: 50%; top: 26px; transform: translateX(-50%);
@@ -139,6 +193,46 @@
         .cx-body p.lede { color: #7FBF7F; margin: 0 0 12px; max-width: 70ch; }
         .cx-foot { padding: 8px 14px; border-top: 1px solid #2A6A2A; color: #4A8A4A; font-size: 11px; }
 
+        /* THE ESC DIALOG (2026-09-18). The field manual's frame in the system
+           colour, since it is the game talking about itself. Checkboxes are
+           drawn in CSS -- no glyphs, so nothing can render as an emoji. Ticked
+           = cyan (goal reached), the current goal = amber (act on this),
+           the rest dimmed: the Signal Three meaning what they always mean. */
+        #help {
+            position: absolute; inset: 7% 10%; display: none; z-index: 21;
+            background: rgba(0, 8, 2, 0.96); border: 2px solid var(--sig-cyan);
+            color: #9BE39B; font-size: 14px; flex-direction: column;
+        }
+        #help.open { display: flex; }
+        .hp-body { display: flex; flex-wrap: wrap; gap: 26px; padding: 14px 18px; overflow-y: auto; flex: 1; }
+        .hp-col { flex: 1 1 330px; min-width: 250px; }
+        .hp-h { color: #FFFFFF; letter-spacing: 3px; font-size: 13px; margin: 2px 0 10px; }
+        .hp-keys { line-height: 1.85; }
+        .hp-keys .k { color: var(--sig-cyan); white-space: nowrap; }
+        .hp-note { margin-top: 12px; color: #7FBF7F; font-size: 12px; }
+        #goalList { list-style: none; margin: 0; padding: 0; }
+        #goalList li {
+            display: flex; align-items: flex-start; gap: 11px;
+            padding: 7px 0; border-bottom: 1px solid #10300F;
+        }
+        #goalList .gbox {
+            flex: none; position: relative; width: 14px; height: 14px; margin-top: 1px;
+            border: 2px solid var(--phos-mid);
+        }
+        #goalList li.done .gbox { border-color: var(--sig-cyan); background: var(--sig-cyan); }
+        #goalList li.done .gbox::after {
+            content: ""; position: absolute; left: 3px; top: -1px; width: 4px; height: 9px;
+            border: solid #000; border-width: 0 3px 3px 0; transform: rotate(45deg);
+        }
+        #goalList li.current .gbox { border-color: var(--sig-amber); }
+        #goalList li.later { opacity: 0.5; }
+        #goalList .gt { color: #E8FFF4; letter-spacing: 1px; }
+        #goalList li.done .gt { color: var(--sig-cyan); }
+        #goalList li.current .gt { color: var(--sig-amber); }
+        #goalList .gw { color: #8FA89C; letter-spacing: 0; }
+        #goalList .gn { display: block; margin-top: 2px; font-size: 12px; color: #6FA06F; letter-spacing: 0; }
+        #goalList .gp { margin-left: auto; padding-left: 10px; color: #FFCC55; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
         #objective {
             position: absolute; left: 50%; bottom: 112px; transform: translateX(-50%);
             color: var(--world-hue); font-size: 15px; letter-spacing: 2px;
@@ -183,16 +277,47 @@
      not. retro.css gives it pointer-events:none. -->
 <div class="retro-scanlines"></div>
 
+    <!-- #stats is what M hides along with the minimap (2026-09-18). -->
     <div id="ui">
         ROUND: <b id="roundDisplay">0</b><br>
-        TIME ALIVE: <b id="scoreDisplay">0</b><br>
-        ZOMBIES: <b id="zombieCount">0</b><br>
-        KILLS: <b id="killCount">0</b><br>
+        <span id="stats">
+            TIME ALIVE: <b id="scoreDisplay">0</b><br>
+            ZOMBIES: <b id="zombieCount">0</b><br>
+            KILLS: <b id="killCount">0</b><br>
+        </span>
         SCRAP: <b class="scrap" id="scrapDisplay">0</b><br>
-        <span class="weapon" id="weaponDisplay">PISTOL &#8734;</span><br>
         <span class="role" id="roleDisplay"></span>
-        <div id="cards"></div>
     </div>
+
+    <div id="loadout">
+        <div id="gun">
+            <img id="gunIcon" alt="" width="96" height="32">
+            <div class="row">
+                <div>
+                    <div id="gunName">PISTOL</div>
+                    <div id="ammoBig">&#8734;</div>
+                </div>
+            </div>
+            <div id="gunStrip"></div>
+        </div>
+        <div id="perks"></div>
+    </div>
+
+    <div id="spectate">
+        YOU BLED OUT
+        <small>Back in at the next breather. If everyone goes down, the run is over.</small>
+    </div>
+
+    <!-- Connection trouble (2026-09-19). A shared run HOLDS for you while you
+         reconnect instead of carrying on without you in a fork. -->
+    <div id="netlost">
+        CONNECTION LOST
+        <small>Reconnecting&hellip; <span id="netLostTime">0s</span></small>
+        <small>The game is holding for you. Your team sees you as away &mdash; zombies
+               ignore you and your bleed-out is paused.</small>
+        <small id="netLostOffer">Press <b>ENTER</b> to carry on alone instead.</small>
+    </div>
+    <div id="netwarn">CONNECTION UNSTABLE</div>
 
     <div id="zonename"></div>
     <div id="audioState"></div>
@@ -202,18 +327,45 @@
     <div id="roundcard"></div>
     <div id="scores"></div>
 
+    <!-- Trimmed 2026-09-18: the controls and rules moved into the ESC dialog
+         (#help), which also carries the map's goals. -->
     <div id="startprompt">
         PRESS <span class="k">W-A-S-D</span> OR CLICK TO JOIN<br>
-        <span class="hint">
-            <span class="k">W A S D</span> move &nbsp;&middot;&nbsp; <span class="k">MOUSE</span> aim
-            &nbsp;&middot;&nbsp; <span class="k">LEFT CLICK</span> shoot<br>
-            <span class="k">F</span> use / buy &nbsp;&middot;&nbsp;
-            <span class="k">Q</span> or <span class="k">MIDDLE CLICK</span> ping &middot;
-            <span class="k">M</span> mute<br><br>
-            The map is dark. Find the <span class="k">GENERATOR</span> and start it.<br>
-            Revive downed teammates by standing next to them.<br>
-            Scrap is shared — spend it together.
-        </span>
+        <span class="hint"><span class="k">ESC</span> how to play &amp; goals</span>
+    </div>
+
+    <!-- ESC: goals (a checklist ticked from live state) + how to play. -->
+    <div id="help">
+      <div class="cx-bar">
+        <span class="cx-title">MISSION</span>
+        <span class="cx-close" id="helpClose">[ESC]</span>
+      </div>
+      <div class="hp-body">
+        <div class="hp-col">
+          <div class="hp-h">GOALS</div>
+          <ul id="goalList"></ul>
+          <div class="hp-note" id="goalNote"></div>
+        </div>
+        <div class="hp-col hp-keys">
+          <div class="hp-h">CONTROLS</div>
+          <span class="k">W A S D</span> move &middot; <span class="k">MOUSE</span> aim &middot;
+          <span class="k">LEFT CLICK</span> shoot<br>
+          <span class="k">F</span> use / buy &middot;
+          <span class="k">Q</span> or <span class="k">MIDDLE CLICK</span> ping<br>
+          <span class="k">1&ndash;7</span> or <span class="k">WHEEL</span> switch guns<br>
+          <span class="k">M</span> minimap &amp; stats &middot; <span class="k">N</span> mute &middot;
+          <span class="k">ESC</span> this screen
+          <div class="hp-h" style="margin-top:16px">HOW IT WORKS</div>
+          The map is dark. Find the <span class="k">GENERATOR</span> and start it.<br>
+          Revive downed teammates by standing next to them.<br>
+          Scrap is shared &mdash; spend it together.<br>
+          Bleed out while a teammate is up and you are back at the next breather.
+          If everyone is down at once, the run is over.<br>
+          The <span class="k">FIELD MANUAL</span> (the terminal in the keep, <span class="k">F</span>)
+          has every gun, perk, class and enemy.
+        </div>
+      </div>
+      <div class="cx-foot">The round does not pause while this is open. ESC closes it.</div>
     </div>
 
     <div id="codex">
@@ -267,11 +419,18 @@
 <script src="../shared/devtools.js"></script>
 <script src="zombie-core.js"></script>
 <script src="zombie-audio.js"></script>
+<!-- The score: needs audioCtx / audioMaster from zombie-audio.js above.
+     Declares only; gameLoop drives it. -->
+<script src="zombie-music.js"></script>
 <script src="zombie-level.js"></script>
 <script src="zombie-entities.js"></script>
 <script src="zombie-endgame.js"></script>
 <script src="zombie-game.js"></script>
 <script src="zombie-net.js"></script>
+<!-- Pixel icons and zone floors. Render-only, so they sit just before
+     the renderer; both declare only and build lazily on first use. -->
+<script src="zombie-icons.js"></script>
+<script src="zombie-floors.js"></script>
 <script src="zombie-render.js"></script>
 <!-- LAST: it reads names every file above declares, and registers only. -->
 <script src="zombie-dev.js"></script>

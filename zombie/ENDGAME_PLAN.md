@@ -18,6 +18,13 @@ and idea 56 (roles, but randomly assigned).
 6. Survive the flood and clear it, and the **southern escape** begins opening. It takes a long
    time. Reach it once open and the run is **won** — the first win state the game has ever had.
 
+> **Layout changed 2026-09-18** (`zombie/PLAYTEST_PASS_PLAN.md`, item 3). Each silo now stands
+> **beside its funnel**, a pipe drawn between them: silo 1 in the sluice room with funnel 1, and
+> funnels 2 and 3 in *funnel halls* (two-walled hallways built into their zones) with their silos at
+> the far end. The chain is unchanged; only where things stand. The same pass fixed the sluice
+> being built after its zone's contents — walls inside the funnel room on 239 of 300 seeds, a gate
+> plate walled off on 68.
+
 ## State (host-authoritative, all of it on the wire)
 
 | Field | Meaning |

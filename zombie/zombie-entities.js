@@ -35,13 +35,44 @@ let scrapPool = 0;          // shared team currency (idea 3), host-authoritative
 // enough that sharing means something, but a team that runs completely
 // dry has no way back into the game; a weak always-there fallback keeps
 // scarcity meaningful without ever being unwinnable.
+//
+// `shape` is how the round is DRAWN (playtest 2026-09-18: every gun fired
+// the same 8px square). `bsize` is its collision box, which is why the
+// five original guns all stay at 8 -- a shape change must not quietly
+// become a balance change. `salvage` scales the SALVAGE perk's refund
+// chance, so a piercing sniper round that kills four cannot become
+// infinite ammo.
+//
+// ROCKET and FLAMER (added 2026-09-18) are the only guns with rules of
+// their own: a rocket detonates on the first thing it touches (`splash`),
+// and flame sets what it touches burning (`burn`). Both are resolved by the
+// host like every other hit.
 const WEAPONS = {
-    pistol:  { name: "PISTOL",  cooldown: 380, dmg: 2,  pellets: 1, spread: 0,    speed: 14, pierce: 0, range: 780,  infinite: true,  shake: 1.8 },
-    rifle:   { name: "RIFLE",   cooldown: 190, dmg: 3,  pellets: 1, spread: 0.03, speed: 18, pierce: 0, range: 1000, capacity: 240,   shake: 2.6 },
-    shotgun: { name: "SHOTGUN", cooldown: 680, dmg: 3,  pellets: 6, spread: 0.40, speed: 15, pierce: 0, range: 430,  capacity: 60,    shake: 8 },
-    smg:     { name: "SMG",     cooldown: 85,  dmg: 2,  pellets: 1, spread: 0.13, speed: 16, pierce: 0, range: 720,  capacity: 420,   shake: 1.3 },
-    sniper:  { name: "SNIPER",  cooldown: 900, dmg: 14, pellets: 1, spread: 0,    speed: 30, pierce: 4, range: 1200, capacity: 50,    shake: 10 }
+    pistol:  { name: "PISTOL",  cooldown: 380, dmg: 2,  pellets: 1, spread: 0,    speed: 14, pierce: 0, range: 780,  infinite: true,  shake: 1.8, shape: "round",  bsize: 8, salvage: 0 },
+    rifle:   { name: "RIFLE",   cooldown: 190, dmg: 3,  pellets: 1, spread: 0.03, speed: 18, pierce: 0, range: 1000, capacity: 240,   shake: 2.6, shape: "tracer", bsize: 8, salvage: 1 },
+    shotgun: { name: "SHOTGUN", cooldown: 680, dmg: 3,  pellets: 6, spread: 0.40, speed: 15, pierce: 0, range: 430,  capacity: 60,    shake: 8,   shape: "pellet", bsize: 8, salvage: 0.7 },
+    smg:     { name: "SMG",     cooldown: 85,  dmg: 2,  pellets: 1, spread: 0.13, speed: 16, pierce: 0, range: 720,  capacity: 420,   shake: 1.3, shape: "needle", bsize: 8, salvage: 1 },
+    sniper:  { name: "SNIPER",  cooldown: 900, dmg: 14, pellets: 1, spread: 0,    speed: 30, pierce: 4, range: 1200, capacity: 50,    shake: 10,  shape: "streak", bsize: 8, salvage: 0.25 },
+    // Slow, few, and every one of them is an event. A crate only half-fills
+    // it: a free full reload of the most expensive gun on the map would make
+    // the crates the real price of it.
+    rocket:  { name: "ROCKET LAUNCHER", short: "ROCKET", cooldown: 1100, dmg: 10, pellets: 1, spread: 0, speed: 10, pierce: 0, range: 1100,
+               capacity: 12, crateFrac: 0.5, shake: 12, shape: "rocket", bsize: 10, salvage: 0.12,
+               splash: { r: 150, dmg: 18 } },
+    // Short, wide and piercing: every flame hits everything in the cone once.
+    // Three per shot at 70ms is about the SMG's message rate, which matters
+    // because a guest's every shot is a relay message; more flames would be
+    // a denser plume but not more messages.
+    flamer:  { name: "FLAMETHROWER", short: "FLAMER", cooldown: 70, dmg: 0.5, pellets: 3, spread: 0.36, speed: 7.5, pierce: 99, range: 280,
+               capacity: 400, shake: 0.5, shape: "flame", bsize: 14, salvage: 1, salvageAmt: 5,
+               burn: { ms: 2200, dps: 1.6 } }
 };
+
+// Short labels for tight spots (the wall-buy plate, the owned-gun strip).
+function weaponShortName(key) {
+    const w = WEAPONS[key];
+    return w ? (w.short || w.name) : "";
+}
 
 // ---------------------------------------------------
 //   ZOMBIE ARCHETYPES (ideas 11, 12, 13)
@@ -56,8 +87,22 @@ const ZOMBIE_TYPES = {
     brute:     { size: 26, hp: 8, speed: 1.28, color: COLOR_POWERFUL, score: 5, scrap: 150, dmgToBarricade: 34 },
     screamer:  { size: 20, hp: 4, speed: 0.78, color: COLOR_SCREAMER, score: 4, scrap: 200, dmgToBarricade: 6 },
     splitter:  { size: 24, hp: 4, speed: 1.05, color: COLOR_SPLITTER, score: 3, scrap: 150, dmgToBarricade: 14 },
-    spawnling: { size: 9,  hp: 1, speed: 2.35, color: COLOR_SPLITTER, score: 1, scrap: 25,  dmgToBarricade: 4 }
+    spawnling: { size: 9,  hp: 1, speed: 2.35, color: COLOR_SPLITTER, score: 1, scrap: 25,  dmgToBarricade: 4 },
+    // ULTRA HEAVY (playtest 2026-09-18), from round 16. The largest body in
+    // the game, and the reason NAV_PAD is 19 rather than 15: the nav grid is
+    // padded for the biggest zombie, or the flow field routes it through
+    // gaps it cannot fit and it wedges (zombie/CLAUDE.md, "Pathfinding").
+    // `armored`: a round stops in it instead of piercing on through. Drawn
+    // as an octagon with shoulder plates, not a square -- see drawUltra().
+    ultra:     { size: 34, hp: 30, speed: 0.82, color: COLOR_ULTRA,  score: 12, scrap: 500, dmgToBarricade: 70, armored: true }
 };
+
+// Display names where the key is not the name players use.
+const ZOMBIE_NAMES = { ultra: "ULTRA HEAVY" };
+
+function zombieDisplayName(key) {
+    return ZOMBIE_NAMES[key] || key.toUpperCase();
+}
 
 // ---------------------------------------------------
 //   POWERUP CARDS
@@ -70,16 +115,57 @@ const ZOMBIE_TYPES = {
 // speed, no sprint, no extra weapon slot -- and lean on systems this
 // game has that CoD does not: the scrap economy, the ping, the trap
 // network, and going down as a thing that can COST the horde something.
+//
+// PLAYTEST 2026-09-18. Players call these PERKS, so the UI does too; the
+// code keeps `cards` (and the wire keeps `cd`) because renaming internals
+// buys nothing. BEACON is gone -- lighting zombies on the minimap for five
+// seconds was never worth a slot -- and DECOY takes its place as the ping
+// perk. ARC, BLASTCAP, SKEWER, LAST STAND and SALVAGE were added because
+// the ask was for perks that change how a FIGHT feels, not the economy.
+//
+// `cost` is per perk, not per station slot as it used to be, so a perk
+// costs the same on every map and a price is something you can learn.
+// Bases 9,000-12,500 keep the measured economy (zombie/CLAUDE.md, "Card
+// economy") where it was: first stacks around rounds 12-18.
+//
+// `blurb` is the manual's one-liner and `detail` the per-stack numbers. The
+// station prompt no longer prints either -- the playtest found a sentence
+// on a world prompt hard to read mid-fight -- so each perk carries an
+// ICON instead (zombie-icons.js), and the words live in the field manual.
 const CARD_SLOTS = 3;
 const CARDS = {
-    overdrive: { name: "OVERDRIVE", blurb: "+35% FIRE RATE" },
-    scavenger: { name: "SCAVENGER", blurb: "+60% SCRAP" },
-    ricochet:  { name: "RICOCHET",  blurb: "SHOTS BOUNCE ONCE" },
-    beacon:    { name: "BEACON",    blurb: "PINGS REVEAL ZOMBIES" },
-    spite:     { name: "SPITE",     blurb: "GOING DOWN DETONATES" },
-    conductor: { name: "CONDUCTOR", blurb: "TRAPS 2x, 40% CHEAPER" }
+    overdrive: { name: "OVERDRIVE",  cost: 11000, blurb: "FIRE RATE UP",
+                 detail: "Shot cooldown x0.65 / x0.5 / x0.4 — roughly +55% / +100% / +150% fire rate." },
+    scavenger: { name: "SCAVENGER",  cost: 9000,  blurb: "+60% SCRAP PER KILL",
+                 detail: "+60% scrap from your kills, per stack." },
+    ricochet:  { name: "RICOCHET",   cost: 9500,  blurb: "SHOTS BOUNCE OFF WALLS",
+                 detail: "Each round bounces once per stack before it dies. Not rockets or flame." },
+    decoy:     { name: "DECOY",      cost: 10000, blurb: "YOUR PING LURES ZOMBIES",
+                 detail: "Zombies within 320 / 400 / 480 px of your ping go to it for 4 / 5 / 6 s. Recharges in 12 / 10 / 8 s." },
+    spite:     { name: "SPITE",      cost: 9000,  blurb: "GOING DOWN DETONATES",
+                 detail: "A shockwave where you fall: radius 245 / 290 / 335, damage 10 / 20 / 30." },
+    conductor: { name: "CONDUCTOR",  cost: 9000,  blurb: "TRAPS LAST LONGER, COST LESS",
+                 detail: "Traps cost x0.6 / x0.45 / x0.3 and stay armed 2x / 3x / 4x as long." },
+    arc:       { name: "ARC",        cost: 12000, blurb: "KILLS CHAIN LIGHTNING",
+                 detail: "Each kill jumps a bolt to 1 / 2 / 3 zombies within 180 px. Bolt damage grows with the round." },
+    blastcap:  { name: "BLASTCAP",   cost: 12500, blurb: "KILLS MAY DETONATE",
+                 detail: "18% / 28% / 38% of your kills burst, hurting everything within 95 px. Bursts never chain." },
+    skewer:    { name: "SKEWER",     cost: 10500, blurb: "ROUNDS PIERCE",
+                 detail: "+1 / +2 / +3 zombies pierced by every round. The ULTRA HEAVY still stops them." },
+    laststand: { name: "LAST STAND", cost: 9500,  blurb: "SHOOT WHILE DOWNED",
+                 detail: "x1: fire the pistol while down. x2: fire any gun. x3: crawl 60% faster and bleed out 50% slower." },
+    salvage:   { name: "SALVAGE",    cost: 10000, blurb: "KILLS REFUND AMMO",
+                 detail: "30% / 45% / 60% of kills refund a round to the gun in your hands. Less for the sniper and rockets." }
 };
-const CARD_KEYS = ["overdrive", "scavenger", "ricochet", "beacon", "spite", "conductor"];
+const CARD_KEYS = ["overdrive", "scavenger", "ricochet", "decoy", "spite", "conductor",
+                   "arc", "blastcap", "skewer", "laststand", "salvage"];
+
+// Always on the map. It was requested by name, and with the old 4-of-6
+// station draw it was missing from a third of maps -- which is exactly what
+// the playtest hit. Every other perk rotates.
+const CARD_ALWAYS = "overdrive";
+// One station per outer zone.
+const CARD_STATION_COUNT = 8;
 
 // Cards STACK. `p.cards` stays a flat array of keys and the stack level is
 // simply how many times a key appears -- which keeps the wire format
@@ -122,12 +208,22 @@ const PLAYER_SPEED = 4;
 const CRAWL_SPEED = 1.25;
 const BLEED_OUT_MS = 25000;
 const REVIVE_RANGE = 46;
+const REVIVE_KEEP = REVIVE_RANGE + 18;   // once reviving, you keep it out to here
 
 // ---------------------------------------------------
 //   PLAYERS
 // ---------------------------------------------------
-function spawnPlayer() {
+// `keepCards` is the respawn path (zombie-game.js, respawnLocalPlayer): a
+// player who bled out comes back at the next breather with the perks the
+// team paid for, and only a pistol.
+function spawnPlayer(keepCards) {
     if (players.length) return players[0];
+    // DEAD, WAITING FOR THE BREATHER. This is the reported bug from the
+    // 2026-09-18 playtest: a player who bled out could press any key and
+    // walk straight back in at the keep -- including when the whole team
+    // was down, which is when the run should have ENDED. While a run is
+    // going, only respawnLocalPlayer() may bring you back.
+    if (gameStarted && zAwaitRespawn && !keepCards) return null;
 
     // Online, the player wears this client's server-assigned name-hash
     // colour so they match the hub roster and every other game. The local
@@ -138,7 +234,7 @@ function spawnPlayer() {
     // Start inside the keep -- it's the defensible centre, so it's also
     // the natural place to begin. The hash spreads each CLIENT around the
     // centre so a room doesn't stack everyone on one pixel.
-    const angle = hashToUnit(netPrefix) * Math.PI * 2;
+    const angle = hashToUnit(netToken) * Math.PI * 2;
 
     const p = {
         id: 0,
@@ -151,7 +247,12 @@ function spawnPlayer() {
         lastShotTime: 0,
 
         weapon: "pistol",
-        ammo: { rifle: 0, shotgun: 0, smg: 0, sniper: 0 },
+        ammo: { rifle: 0, shotgun: 0, smg: 0, sniper: 0, rocket: 0, flamer: 0 },
+        // What you have BOUGHT, separately from what has rounds left in it.
+        // Before weapon switching existed, `weapon` doubled as the one gun
+        // a crate would refill; with seven guns a dry one you own still
+        // has to be refillable, so ownership needs its own record.
+        owned: {},
 
         downed: false,
         bleedDeadline: 0,
@@ -159,7 +260,7 @@ function spawnPlayer() {
 
         overclockUntil: 0,
         invulnUntil: 0,
-        cards: [],
+        cards: keepCards ? keepCards.slice() : [],
 
         kills: 0,
         revives: 0,
@@ -168,13 +269,57 @@ function spawnPlayer() {
         keys: { up: false, down: false, left: false, right: false, shoot: false }
     };
 
+    // A FRIEND JOINING A RUN IN PROGRESS (2026-09-19: "welcoming to other
+    // friends joining in mid game"). They used to appear at the keep, alone,
+    // with a pistol, while the team fought somewhere across the map. Now:
+    // beside a teammate who is standing, with a few seconds' protection, and
+    // a rifle if the run is already past its opening rounds. Not for a
+    // bleed-out respawn (keepCards) -- that one is "back at the keep".
+    if (!keepCards && netOnline && !netIsHost && round >= 1) {
+        const buddy = standingTeammate();
+        if (buddy) {
+            const spot = spotBeside(buddy);
+            if (spot) { p.x = spot.x; p.y = spot.y; }
+            p.invulnUntil = Date.now() + 4000;
+        }
+        if (round >= 5) {
+            p.owned.rifle = true;
+            p.ammo.rifle = WEAPONS.rifle.capacity;
+            p.weapon = "rifle";
+        }
+    }
+
     players.push(p);
     if (!gameStarted) startGame();
     return p;
 }
 
+function standingTeammate() {
+    for (const id in remotePlayers) {
+        if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
+        const r = remotePlayers[id];
+        if (!r.downed && !r.away) return r;
+    }
+    return null;
+}
+
+// A clear 16px spot 36-72px from someone, or null.
+function spotBeside(r) {
+    const cx = r.x + (r.size || 16) / 2, cy = r.y + (r.size || 16) / 2;
+    for (let ring = 36; ring <= 72; ring += 18) {
+        for (let k = 0; k < 8; k++) {
+            const a = k * Math.PI / 4;
+            const x = cx + Math.cos(a) * ring - 8, y = cy + Math.sin(a) * ring - 8;
+            if (x < 0 || y < 0 || x > WORLD_W - 16 || y > WORLD_H - 16) continue;
+            if (!blockedAt(x, y, 16, false)) return { x: x, y: y };
+        }
+    }
+    return null;
+}
+
 function playerSpeed(p, now) {
-    if (p.downed) return CRAWL_SPEED;
+    // PERK: LAST STAND x3 crawls faster.
+    if (p.downed) return CRAWL_SPEED * (cardLevel(p, "laststand") >= 3 ? 1.6 : 1);
     // ROLE: SCOUT moves a little faster.
     return PLAYER_SPEED * (myRole() === "scout" ? 1.1 : 1);
 }
@@ -182,7 +327,20 @@ function playerSpeed(p, now) {
 // What the camera follows: this client's own player, downed included.
 // Returns an array because updateCamera still takes one -- with couch
 // co-op gone it will only ever hold a single point.
+//
+// Dead and waiting for the breather: follow a teammate who is still up (or
+// any teammate), so the wait is spent watching the fight rather than a
+// frozen patch of floor.
 function cameraTargets() {
+    if (!players.length && zAwaitRespawn) {
+        let pick = null;
+        for (const id in remotePlayers) {
+            if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
+            const r = remotePlayers[id];
+            if (!pick || (pick.downed && !r.downed)) pick = r;
+        }
+        if (pick) return [{ x: pick.x + (pick.size || 16) / 2, y: pick.y + (pick.size || 16) / 2 }];
+    }
     return players.map(function (p) {
         return { x: p.x + p.size / 2, y: p.y + p.size / 2 };
     });
@@ -191,27 +349,94 @@ function cameraTargets() {
 // ---------------------------------------------------
 //   SHOOTING
 // ---------------------------------------------------
+// ---------------------------------------------------
+//   OWNED GUNS AND SWITCHING (2026-09-18)
+// ---------------------------------------------------
+// There used to be no switching at all: a wall-buy equipped what you
+// bought and a dry gun fell back to the pistol. That was tolerable with
+// five guns. With a 12-round rocket launcher it is not -- buying it would
+// have thrown your rifle away. So: 1-7 pick a gun, the wheel cycles, and a
+// gun that runs dry hands over to the next one you own rather than to the
+// pistol.
+function ownsWeapon(p, key) {
+    if (key === "pistol") return true;
+    return !!(p && p.owned && p.owned[key]);
+}
+
+function weaponHasAmmo(p, key) {
+    const w = WEAPONS[key];
+    if (!w) return false;
+    return !!w.infinite || (p.ammo[key] || 0) > 0;
+}
+
+function weaponUsable(p, key) {
+    return ownsWeapon(p, key) && weaponHasAmmo(p, key);
+}
+
+function selectWeapon(p, key) {
+    if (!p || !weaponUsable(p, key)) return false;
+    p.weapon = key;
+    return true;
+}
+
+// Next usable gun after `from` in WEAPON_KEYS order, wrapping; the pistol
+// is always usable, so this always returns something.
+function nextUsableWeapon(p, from, dir) {
+    const n = WEAPON_KEYS.length;
+    let i = WEAPON_KEYS.indexOf(from);
+    if (i < 0) i = 0;
+    for (let step = 1; step <= n; step++) {
+        const k = WEAPON_KEYS[((i + dir * step) % n + n) % n];
+        if (k !== from && weaponUsable(p, k)) return k;
+    }
+    return "pistol";
+}
+
+function cycleWeapon(p, dir) {
+    if (!p) return false;
+    const k = nextUsableWeapon(p, currentWeaponKey(p), dir < 0 ? -1 : 1);
+    if (k === currentWeaponKey(p)) return false;
+    p.weapon = k;
+    return true;
+}
+
 function currentWeapon(p) {
-    const w = WEAPONS[p.weapon];
-    if (!w) return WEAPONS.pistol;
-    if (!w.infinite && p.ammo[p.weapon] <= 0) return WEAPONS.pistol;
-    return w;
+    return WEAPONS[currentWeaponKey(p)];
 }
 
 function currentWeaponKey(p) {
     const w = WEAPONS[p.weapon];
     if (!w) return "pistol";
-    if (!w.infinite && p.ammo[p.weapon] <= 0) return "pistol";
+    if (!w.infinite && !(p.ammo[p.weapon] > 0)) return "pistol";
     return p.weapon;
 }
 
-function shoot(p, now) {
-    const key = currentWeaponKey(p);
+// LAST STAND: which gun a DOWNED player may fire, or null for none.
+function downedWeaponKey(p) {
+    const lvl = cardLevel(p, "laststand");
+    if (lvl <= 0) return null;
+    return lvl >= 2 ? currentWeaponKey(p) : "pistol";
+}
+
+function shoot(p, now, forcedKey) {
+    const key = forcedKey || currentWeaponKey(p);
     const w = WEAPONS[key];
     if (!w.infinite) {
-        if (p.ammo[key] <= 0) return;
+        if (!(p.ammo[key] > 0)) return;
         p.ammo[key]--;
+        // Dry: hand over to the next gun you own, not to the pistol.
+        if (p.ammo[key] <= 0 && p.weapon === key) p.weapon = nextUsableWeapon(p, key, 1);
     }
+
+    // PERKS applied at the muzzle, so a guest's shot message carries them.
+    // Rockets detonate on the first thing they touch and flame already
+    // pierces everything, so neither takes SKEWER or RICOCHET.
+    const special = key === "rocket" || key === "flamer";
+    const pierce = w.pierce + (special ? 0 : cardLevel(p, "skewer"));     // PERK: SKEWER
+    const bounces = special ? 0 : cardLevel(p, "ricochet");                // PERK: RICOCHET
+    // ROLE: GUNNER hits harder.
+    const dmg = w.dmg * (myRole() === "gunner" ? 1.15 : 1);
+    const half = w.bsize / 2;
 
     const shots = [];
     for (let i = 0; i < w.pellets; i++) {
@@ -220,24 +445,27 @@ function shoot(p, now) {
         // on what a bullet hits, so Math.random() is correct here and
         // MP.random() would waste the shared stream.
         const jitter = w.spread ? (Math.random() - 0.5) * w.spread : 0;
+        // Flame leaves the nozzle at uneven speeds, which is most of what
+        // makes a stream of squares read as fire.
+        const pace = key === "flamer" ? w.speed * (0.8 + Math.random() * 0.4) : w.speed;
         const cos = Math.cos(jitter);
         const sin = Math.sin(jitter);
-        const vx = (p.facingX * cos - p.facingY * sin) * w.speed;
-        const vy = (p.facingX * sin + p.facingY * cos) * w.speed;
+        const vx = (p.facingX * cos - p.facingY * sin) * pace;
+        const vy = (p.facingX * sin + p.facingY * cos) * pace;
 
         const b = {
-            x: p.x + p.size / 2 - 4,
-            y: p.y + p.size / 2 - 4,
+            x: p.x + p.size / 2 - half,
+            y: p.y + p.size / 2 - half,
             vx: vx,
             vy: vy,
-            size: 8,
-            // ROLE: GUNNER hits harder.
-            dmg: w.dmg * (myRole() === "gunner" ? 1.15 : 1),
-            pierce: w.pierce,
-            bounces: cardLevel(p, "ricochet"),   // CARD: RICOCHET, one bounce per stack
+            size: w.bsize,
+            dmg: dmg,
+            pierce: pierce,
+            bounces: bounces,
             hitIds: [],
             travelled: 0,
             range: w.range,
+            kind: key,
             ownerColor: p.color,
             owner: netIdFor(p)
         };
@@ -250,7 +478,7 @@ function shoot(p, now) {
     // IDEA 40. Played locally and immediately -- your own gun must never
     // wait on a round trip. The broadcast copy (so teammates hear it)
     // carries the shooter id so this client skips its own echo.
-    const sndIdx = WEAPON_SND_KEYS.indexOf(key);
+    const sndIdx = WEAPON_KEYS.indexOf(key);
     playEvent(SND_SHOT, p.x, p.y, sndIdx);
     queueEvent(SND_SHOT, p.x, p.y, sndIdx, netIdFor(p));
 
@@ -258,15 +486,21 @@ function shoot(p, now) {
     // pressed the trigger. On a non-host this is prediction: the host
     // spawns its own authoritative copies for damage, and filters ours
     // back out of the snapshot so nothing draws twice.
+    //
+    // `wk` (2026-09-18) names the gun, so the host's copies know to explode
+    // or burn and every client draws them in the right shape. The host reads
+    // splash and burn from its own WEAPONS table rather than trusting them
+    // off the wire.
     if (netOnline && !netIsHost) {
         MP.send({
             k: "shoot",
             id: netIdFor(p),
             c: p.color,
-            d: w.dmg * (myRole() === "gunner" ? 1.15 : 1),
-            pr: w.pierce,
-            bo: cardLevel(p, "ricochet"),
+            d: dmg,
+            pr: pierce,
+            bo: bounces,
             rg: w.range,
+            wk: sndIdx,
             s: shots
         });
     }
@@ -315,7 +549,10 @@ function livingTargets() {
     }
     for (const id in remotePlayers) {
         if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
-        if (!remotePlayers[id].downed) all.push({ x: remotePlayers[id].x, y: remotePlayers[id].y });
+        // Away players are not anchors: the horde should press on whoever is
+        // actually here, not pile up on an empty spot.
+        const r = remotePlayers[id];
+        if (!r.downed && !r.away) all.push({ x: r.x, y: r.y });
     }
     return all;
 }
@@ -449,6 +686,10 @@ function makeZombie(type, spec, roundNo, x, y) {
         progX: 0,          // progress watchdog: where it was...
         progY: 0,
         progAt: 0,         // ...and when, so oscillation can be spotted
+        // FLAMETHROWER. A deadline, like flashUntil, and it crosses the
+        // wire the same way: as a remaining duration, never a timestamp.
+        burnUntil: 0,
+        burnBy: null,      // who lit it -- burn kills are credited to them
         isolationSeeker: Math.random() < 0.25   // idea 14
     };
 }

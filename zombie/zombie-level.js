@@ -18,6 +18,11 @@ let traps = [];        // {x,y,w,h,cost,armedUntil,readyAt}
 let keepRect = null;   // the defensible centre
 let levelSeed = null;  // which seed the current geometry was built from
 let reservedRects = []; // keep + doorways; scattered buildings must avoid these
+// Floor that must stay clear of PLACED ITEMS -- crates, barrels, wall-buys,
+// perk stations. reservedRects keeps buildings away; this keeps a crate from
+// landing on a funnel or a gate plate, which findOpenSpot (walls only) could
+// not see. The sluice approach and every funnel hall live here.
+let keepClearRects = [];
 let zonePassages = {};  // "a>b" -> {door, window} : how to get between two zones
 // How long a zone stays off-limits as a spawn site after anyone was in
 // or looking at it. A zone you left a minute ago and cannot see is not
@@ -137,7 +142,15 @@ function zoneRing(cx, cy) {
 // passable was exactly brute-wide and not one pixel wider -- any float
 // error at a corner clipped. The two extra pixels are skin, and cost
 // nothing: the guarantee moves 66px -> 70px against a 112px floor.
-const NAV_PAD = 15;
+//
+// 19, not 15 (2026-09-18): the ULTRA HEAVY is 34px, so half of it plus the
+// same two pixels of skin. Same rule as before -- pad for the LARGEST body
+// -- because the field is shared by every zombie and the failure mode of
+// under-padding is exactly the brute wedging fixed on 2026-09-07. The
+// guarantee moves 70px -> 78px. Checked against every opening: windows
+// 112-151, doors 124-159, outpost doorways 112, keep and sluice 120, funnel
+// halls 240 -- and the nook hole, which was 74 and is now 90 for this.
+const NAV_PAD = 19;
 
 const GRID_CELL = 300;
 let solidGridPlayer = {};
@@ -357,6 +370,8 @@ function moveWithCollisions(entity, dx, dy, clampToWorld, forZombie) {
 // doorways and narrow windows invisible to the pathfinder -- physically
 // walkable, but sealed as far as the flow field was concerned. At 20 the
 // threshold is 56px, which every opening in the map clears.
+// (The "+16" above was half a walker. The pad is sized for the largest
+// zombie now -- see NAV_PAD -- so the live threshold is 2*20 + 2*19 = 78.)
 const NAV_CELL = 20;
 let navW = 0;
 let navH = 0;
@@ -604,6 +619,10 @@ function seededShuffle(arr) {
     return a;
 }
 
+// The sluice sits at fixed coordinates in the bottom-centre zone. Named so
+// the rules that avoid it (turbine placement, funnel halls) say why.
+const SLUICE_ZONE = 7;
+
 function assignZones() {
     zoneInfo = new Array(ZONE_COLS * ZONE_ROWS);
     zoneInfo[4] = { name: CENTRE_TEMPLATE.name, tpl: CENTRE_TEMPLATE };
@@ -612,7 +631,10 @@ function assignZones() {
     for (let i = 0; i < 9; i++) if (i !== 4) outer.push(i);
 
     const pool = seededShuffle(ZONE_TEMPLATES);
-    const turbineAt = outer[Math.floor(MP.random() * outer.length)];
+    // Never the sluice zone: the sluice and its approach take most of that
+    // zone's floor, and the generator is the one objective every run needs.
+    const turbineCands = outer.filter(function (z) { return z !== SLUICE_ZONE; });
+    const turbineAt = turbineCands[Math.floor(MP.random() * turbineCands.length)];
 
     let p = 0;
     for (let k = 0; k < outer.length; k++) {
@@ -644,23 +666,38 @@ function generateLevel() {
     traps = [];
     cardStations = [];
     reservedRects = [];
+    keepClearRects = [];
+    zonePassages = {};
     generatorRect = null;
     codexRect = null;
     generatorOn = false;
+    genTripped = false;
+    genRestart = 0;
 
     zoneHotUntil = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     resetEndgame();
+    funnels = [];
+    silos = [];
+    funnelHalls = [];
+    siloPipes = [];
 
     assignZones();
     buildZoneWalls();
     buildKeep();
+    // THE SLUICE GOES BEFORE THE ZONE CONTENTS (2026-09-18). It used to be
+    // built after them, so nothing in its zone knew it was coming: across
+    // 300 seeds, 239 had zone walls INSIDE the funnel room and 68 had a
+    // gate plate walled off -- a map on which the two-player gate, and so
+    // the whole endgame, could not be finished. Building it first puts its
+    // reserve in place before anything else asks where it may stand.
+    buildSluice();
+    planFunnelHalls();
     buildZoneContents();
     placeWallBuys();
     placeCardStations();
     placeChokepointBarrels();
-    buildSluice();
-    placeFunnelsAndSilos();
+    finishFunnelsAndSilos();
 
     // The whole map is new, so the nav grid MUST be rebuilt. Leaving this
     // to rebuildSolidIndex's door-signature check is not enough: a fresh
@@ -874,12 +911,21 @@ function buildKeep() {
 }
 
 // --- per-zone contents -----------------------------------------------
+// The funnel hall goes FIRST in its zone: it is the largest thing any zone
+// has to fit (560x280 plus clearance), and every piece placed after it --
+// corridors, outpost, generator, buildings -- now checks reservedRects, so
+// they route around it rather than through it. The first three did not
+// check reservedRects at all before 2026-09-18, which is half of how the
+// sluice room came to have walls in it.
 function buildZoneContents() {
     for (let z = 0; z < 9; z++) {
         const info = zoneInfo[z];
         if (!info) continue;
         const tpl = info.tpl;
         const b = zoneBounds(z);
+
+        const hallK = hallPlan.indexOf(z);
+        if (hallK !== -1) buildFunnelHall(b, z, hallK + 1);
 
         if (tpl.corridors) buildCorridors(b);
         if (tpl.outpost) buildOutpost(b, z);
@@ -889,27 +935,48 @@ function buildZoneContents() {
 
         for (let i = 0; i < tpl.crates; i++) {
             const spot = findOpenSpot(b, 32);
-            if (spot) ammoCrates.push({ x: spot.x, y: spot.y, size: 32, uses: 3 });
+            if (!spot) continue;
+            ammoCrates.push({ x: spot.x, y: spot.y, size: 32, uses: 3 });
+            claimFloor(spot.x, spot.y, 32, 32, 30);
         }
         for (let i = 0; i < tpl.barrels; i++) {
             const spot = findOpenSpot(b, 24);
-            if (spot) barrels.push({ x: spot.x, y: spot.y, size: 24, alive: true });
+            if (!spot) continue;
+            barrels.push({ x: spot.x, y: spot.y, size: 24, alive: true });
+            claimFloor(spot.x, spot.y, 24, 24, 16);
         }
     }
+}
+
+function clashesReserved(r) {
+    for (let j = 0; j < reservedRects.length; j++) {
+        if (rectsOverlap(r, reservedRects[j])) return true;
+    }
+    return false;
 }
 
 // IDEA 36: long straight sightlines, so the sniper has somewhere its
 // range is actually visible. Paired with cutting its range to 1200 in
 // zombie-entities.js -- 1900px of reach on a 960px-wide view was an
 // advantage you could never see.
+//
+// A lane that would cross reserved ground (the sluice, a funnel hall, a
+// doorway approach) is re-rolled, then dropped. Before 2026-09-18 lanes
+// were laid blind, and a SPILLWAY or LAUNDRY in the sluice's zone ran a
+// wall straight through the funnel room.
 function buildCorridors(b) {
     const lanes = 2 + Math.floor(MP.random() * 2);
     for (let i = 0; i < lanes; i++) {
-        const y = b.y + 200 + MP.random() * (b.h - 400);
-        const len = b.w * (0.5 + MP.random() * 0.3);
-        const x = b.x + 120 + MP.random() * Math.max(1, b.w - 240 - len);
-        walls.push({ x: Math.round(x), y: Math.round(y), w: Math.round(len), h: WALL_T });
-        reservedRects.push({ x: x - 60, y: y - 90, w: len + 120, h: 180 });
+        for (let tries = 0; tries < 12; tries++) {
+            const y = b.y + 200 + MP.random() * (b.h - 400);
+            const len = b.w * (0.5 + MP.random() * 0.3);
+            const x = b.x + 120 + MP.random() * Math.max(1, b.w - 240 - len);
+            const res = { x: x - 60, y: y - 90, w: len + 120, h: 180 };
+            if (clashesReserved(res)) continue;
+            walls.push({ x: Math.round(x), y: Math.round(y), w: Math.round(len), h: WALL_T });
+            reservedRects.push(res);
+            break;
+        }
     }
 }
 
@@ -917,12 +984,19 @@ function buildCorridors(b) {
 // (the keep), so every fight collapsed into "retreat to the middle".
 // Each outer zone now has a small holdable building of its own -- two
 // entrances and a window, the keep's shape at a third the size.
+//
+// Placed where it fits, or not at all -- see buildCorridors for why.
 function buildOutpost(b, z) {
     const ow = 260;
     const oh = 190;
-    const ox = Math.round(b.x + 200 + MP.random() * (b.w - 400 - ow));
-    const oy = Math.round(b.y + 160 + MP.random() * (b.h - 320 - oh));
-    const gap = 112;              // > 2*NAV_CELL+2*NAV_PAD (70), so even brutes follow you in
+    let ox = 0, oy = 0, found = false;
+    for (let tries = 0; tries < 30 && !found; tries++) {
+        ox = Math.round(b.x + 200 + MP.random() * (b.w - 400 - ow));
+        oy = Math.round(b.y + 160 + MP.random() * (b.h - 320 - oh));
+        found = !clashesReserved({ x: ox - 90, y: oy - 90, w: ow + 180, h: oh + 180 });
+    }
+    if (!found) return;
+    const gap = 112;              // > 2*NAV_CELL+2*NAV_PAD (78), so even the ULTRA follows you in
     const gx = Math.round(ox + ow / 2 - gap / 2);
     const gy = Math.round(oy + oh / 2 - gap / 2);
 
@@ -939,20 +1013,24 @@ function buildOutpost(b, z) {
     zoneInfo[z].outpost = { x: ox, y: oy, w: ow, h: oh };
 }
 
+// Every run needs exactly one generator, so it uses the placement that
+// cannot come back empty, and it stays out of reserved ground.
 function buildGenerator(b) {
-    const spot = findOpenSpot(b, 70) || { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+    const spot = findOpenSpotSure(b, 70, 140);
     generatorRect = { x: spot.x, y: spot.y, w: 70, h: 70, cost: 2500 };
     reservedRects.push({ x: spot.x - 140, y: spot.y - 140, w: 350, h: 350 });
+    claimFloor(spot.x, spot.y, 70, 70, 60);
 }
 
 // IDEA 32: every nook gets a small opening in the middle of the wall
 // opposite its missing side. Flow-field zombies funnel relentlessly, and
 // a sealed three-walled nook had become a place to be cornered and
 // killed with no way out.
-// Must exceed the nav grid's guaranteed-navigable width (2*NAV_CELL+16
-// = 56), or zombies cannot path through the escape hole and the nook is
-// a dead end again in everything but appearance.
-const NOOK_HOLE = 74;
+// Must exceed the nav grid's guaranteed-navigable width (2*NAV_CELL +
+// 2*NAV_PAD), or zombies cannot path through the escape hole and the nook
+// is a dead end again in everything but appearance. 74 cleared the old 70;
+// NAV_PAD 19 makes the guarantee 78, so the hole is 90 (2026-09-18).
+const NOOK_HOLE = 90;
 
 function buildZoneBuildings(b, count) {
     let made = 0;
@@ -1027,14 +1105,65 @@ function nearZoneBoundary(x, y, w, h) {
     return false;
 }
 
-function findOpenSpot(b, size) {
+// Floor items (crates, barrels, wall-buys, perk stations, the generator)
+// claim their footprint plus a margin, so the next one placed does not land
+// on top of it. They used to be able to: findOpenSpot only looked at walls,
+// so a perk station could sit on a wall-buy and one F press meant two
+// different purchases depending on which list was checked first.
+function claimFloor(x, y, w, h, pad) {
+    keepClearRects.push({ x: x - pad, y: y - pad, w: w + pad * 2, h: h + pad * 2 });
+}
+
+function onClearFloor(x, y, w, h) {
+    for (let i = 0; i < keepClearRects.length; i++) {
+        const r = keepClearRects[i];
+        if (rectIntersect(x, y, w, h, r.x, r.y, r.w, r.h)) return false;
+    }
+    return true;
+}
+
+// `resPad` > 0 also keeps the spot that far out of reservedRects -- used by
+// the generator, which must not end up in a doorway or on the sluice.
+function spotOk(x, y, size, resPad) {
+    if (blockedAtStatic(x - 20, y - 20, size + 40)) return false;
+    if (!onClearFloor(x, y, size, size)) return false;
+    if (resPad > 0 && clashesReserved({ x: x - resPad, y: y - resPad, w: size + resPad * 2, h: size + resPad * 2 })) return false;
+    return true;
+}
+
+function findOpenSpot(b, size, resPad) {
     for (let tries = 0; tries < 60; tries++) {
         const x = Math.round(b.x + 120 + MP.random() * (b.w - 240 - size));
         const y = Math.round(b.y + 120 + MP.random() * (b.h - 240 - size));
-        if (blockedAtStatic(x - 20, y - 20, size + 40)) continue;
+        if (!spotOk(x, y, size, resPad || 0)) continue;
         return { x: x, y: y };
     }
     return null;
+}
+
+// For things a run cannot do without -- the generator, every wall-buy,
+// every perk station. A null from findOpenSpot used to mean a station was
+// silently skipped (placeCardStations: `if (!spot) continue`), which is one
+// of the two ways OVERDRIVE could be missing from a map. This tries the
+// random draw, then walks the zone on a grid, and only then relaxes: first
+// the reserved-ground rule, then the item-overlap rule. It always returns a
+// spot that is clear of walls unless the zone is literally solid.
+function findOpenSpotSure(b, size, resPad) {
+    const r = findOpenSpot(b, size, resPad);
+    if (r) return r;
+    const passes = [resPad || 0, 0, -1];
+    for (let pass = 0; pass < passes.length; pass++) {
+        for (let y = b.y + 130; y <= b.y + b.h - 130 - size; y += 30) {
+            for (let x = b.x + 130; x <= b.x + b.w - 130 - size; x += 30) {
+                if (passes[pass] >= 0) {
+                    if (spotOk(x, y, size, passes[pass])) return { x: x, y: y };
+                } else if (!blockedAtStatic(x - 20, y - 20, size + 40)) {
+                    return { x: x, y: y };
+                }
+            }
+        }
+    }
+    return { x: Math.round(b.x + b.w / 2 - size / 2), y: Math.round(b.y + b.h / 2 - size / 2) };
 }
 
 // --- the three weapons on the map ------------------------------------
@@ -1063,37 +1192,63 @@ function placeWallBuys() {
     // The rifle is back: cheapest of the four, the natural first upgrade
     // off the pistol.
     if (rest[2] !== undefined) { addWallBuy(rest[2], "rifle", 1500); used[rest[2]] = true; }
+    // 2026-09-18. The two heavy guns, each in a zone of its own like the
+    // rest. The rocket launcher is the most expensive thing on any wall --
+    // it was asked for as "expensive", and it is the answer to the ULTRA.
+    if (rest[3] !== undefined) { addWallBuy(rest[3], "flamer", 5200); used[rest[3]] = true; }
+    if (rest[4] !== undefined) { addWallBuy(rest[4], "rocket", 7500); used[rest[4]] = true; }
 }
 
 function addWallBuy(zone, weapon, cost) {
     const b = zoneBounds(zone);
-    const spot = findOpenSpot(b, 110) || { x: b.x + 200, y: b.y + 200 };
+    // The sure finder: the old `|| { x: b.x + 200, ... }` fallback could put
+    // a wall-buy inside a wall.
+    const spot = findOpenSpotSure(b, 110);
     wallBuys.push({ x: spot.x, y: spot.y, w: 110, h: 28, weapon: weapon, cost: cost, zone: zone });
     reservedRects.push({ x: spot.x - 70, y: spot.y - 70, w: 250, h: 170 });
+    claimFloor(spot.x, spot.y, 110, 28, 40);
 }
 
-// --- card stations ---------------------------------------------------
+// --- perk stations ---------------------------------------------------
 // Deliberately separate from weapon wall-buys: expensive, and inert until
 // the generator is running.
+//
+// PLAYTEST 2026-09-18: "OVERDRIVE didn't spawn on the play tested maps."
+// Two causes, both fixed here. The draw was 4 of 6 perks with no
+// guarantee, so any one perk was missing from a third of maps; and a
+// station whose findOpenSpot came back null was silently skipped. Now:
+// one station in every outer zone (8), OVERDRIVE always among them, the
+// other 7 drawn from the remaining 10, and placement that cannot fail. The
+// three perks a map leaves out are named in the field manual and announced
+// when the generator first comes on (absentCardKeys).
 function placeCardStations() {
     const outer = [];
     for (let i = 0; i < 9; i++) if (i !== 4 && zoneInfo[i]) outer.push(i);
     const order = seededShuffle(outer);
-    const cards = seededShuffle(CARD_KEYS);
+    const others = seededShuffle(CARD_KEYS.filter(function (k) { return k !== CARD_ALWAYS; }));
+    const cards = seededShuffle([CARD_ALWAYS].concat(others.slice(0, CARD_STATION_COUNT - 1)));
 
-    const n = Math.min(4, order.length, cards.length);
+    const n = Math.min(CARD_STATION_COUNT, order.length, cards.length);
     for (let i = 0; i < n; i++) {
         const b = zoneBounds(order[i]);
-        const spot = findOpenSpot(b, 60);
-        if (!spot) continue;
+        const spot = findOpenSpotSure(b, 60);
         cardStations.push({
             x: spot.x, y: spot.y, w: 60, h: 44,
             card: cards[i],
-            cost: 9000 + i * 1500,
+            cost: CARDS[cards[i]].cost,
             zone: order[i]
         });
         reservedRects.push({ x: spot.x - 70, y: spot.y - 70, w: 200, h: 184 });
+        claimFloor(spot.x, spot.y, 60, 44, 40);
     }
+}
+
+// The perks this map does NOT sell, in CARD_KEYS order.
+function absentCardKeys() {
+    return CARD_KEYS.filter(function (k) {
+        for (let i = 0; i < cardStations.length; i++) if (cardStations[i].card === k) return false;
+        return true;
+    });
 }
 
 // IDEA 30: a share of barrels seeded at the boundary openings and
@@ -1113,7 +1268,9 @@ function placeChokepointBarrels() {
             const x = Math.round(clamp(s.x + s.w / 2 + Math.cos(a) * r, 60, WORLD_W - 90));
             const y = Math.round(clamp(s.y + s.h / 2 + Math.sin(a) * r, 60, WORLD_H - 90));
             if (blockedAtStatic(x - 6, y - 6, 36)) continue;
+            if (!onClearFloor(x, y, 24, 24)) continue;
             barrels.push({ x: x, y: y, size: 24, alive: true });
+            claimFloor(x, y, 24, 24, 16);
             break;
         }
     }
@@ -1152,38 +1309,162 @@ function buildSluice() {
         { x: gx + gap + 126, y: py, w: 64, h: 64 }
     ];
 
-    // Funnel 1 fills most of the room's floor.
-    funnels[0] = { x: sx + SLUICE_W / 2, y: sy + SLUICE_H / 2 + 20, r: 118, zone: zoneOf(sx, sy) };
+    // Funnel 1 fills most of the room's floor, set left of centre so silo 1
+    // can stand against the east wall beside it, piped to it (2026-09-18:
+    // "funnels should be located adjacent to each silo with piping visually
+    // connecting the two"). The silo is floor, not wall, like the generator
+    // and every other station, so it cannot narrow the room for anyone.
+    funnels[0] = { x: sx + 190, y: sy + SLUICE_H / 2 + 20, r: 118, zone: zoneOf(sx, sy) };
+    silos[0] = {
+        x: sx + SLUICE_W - WALL_T - 8 - SILO_W,
+        y: Math.round(funnels[0].y - SILO_H / 2),
+        w: SILO_W, h: SILO_H, zone: zoneOf(sx, sy)
+    };
+    siloPipes[0] = pipeBetween(funnels[0], silos[0]);
 
-    reservedRects.push({ x: sx - 220, y: sy - 240, w: SLUICE_W + 440, h: SLUICE_H + 460 });
+    const res = { x: sx - 220, y: sy - 240, w: SLUICE_W + 440, h: SLUICE_H + 460 };
+    reservedRects.push(res);
+    keepClearRects.push(res);
 
     // The way out, dead south of the sluice.
     escapeRect = { x: Math.round(WORLD_W / 2 - 90), y: WORLD_H - 74, w: 180, h: 66 };
-    reservedRects.push({ x: escapeRect.x - 160, y: escapeRect.y - 160, w: escapeRect.w + 320, h: escapeRect.h + 220 });
+    const esc = { x: escapeRect.x - 160, y: escapeRect.y - 160, w: escapeRect.w + 320, h: escapeRect.h + 220 };
+    reservedRects.push(esc);
+    keepClearRects.push(esc);
 }
 
-// Funnels 2 and 3 are floor funnels out in the map; the three silos sit
-// elsewhere again, so filling one and then throwing its switch is a
-// journey rather than a button next to you.
-function placeFunnelsAndSilos() {
-    const outer = [];
-    for (let i = 0; i < 9; i++) if (i !== 4 && zoneInfo[i]) outer.push(i);
-    const order = seededShuffle(outer);
+// --- FUNNEL HALLS (2026-09-18) ---------------------------------------
+// Funnels 2 and 3 used to be bare floor rings dropped on open ground, with
+// the three silos in three OTHER zones -- "a journey rather than a button
+// next to you". The playtest asked for the opposite on both counts:
+// funnels in hallways, each silo beside its funnel, a pipe between them.
+//
+// So each gets a HALL: two long walls, open at both ends, the funnel across
+// the floor near one end and its silo against a wall near the other. A
+// hallway is also simply a good place to put a funnel -- the horde has to
+// come down it, across the ring, which is the whole point of a funnel.
+//
+// The ends are 240px of open floor, three times the nav grid's 78px
+// guarantee, so it can never become a pocket.
+const HALL_LEN = 560;          // outer length along the hall
+const HALL_WID = 280;          // outer width across it (240 inside)
+const HALL_FUNNEL_R = 105;
+const SILO_W = 64;
+const SILO_H = 78;
+let hallPlan = [];             // the zones chosen for funnel 2 and funnel 3
 
-    for (let k = 1; k <= 2; k++) {
-        const z = order[k - 1];
-        const b = zoneBounds(z);
-        const spot = findOpenSpot(b, 150) || { x: b.x + 300, y: b.y + 300 };
-        funnels[k] = { x: spot.x + 75, y: spot.y + 75, r: 105, zone: z };
-        reservedRects.push({ x: spot.x - 120, y: spot.y - 120, w: 390, h: 390 });
+// Chosen before any zone is built, so the hall goes in first and
+// everything else routes round it. Never the centre, never the sluice's
+// zone. Corridor zones go last: their long sightline walls leave the
+// least room for a 560px hall.
+function planFunnelHalls() {
+    const cands = [];
+    for (let i = 0; i < 9; i++) if (i !== 4 && i !== SLUICE_ZONE && zoneInfo[i]) cands.push(i);
+    const order = seededShuffle(cands);
+    const open = order.filter(function (z) { return !zoneInfo[z].tpl.corridors; });
+    const lanes = order.filter(function (z) { return zoneInfo[z].tpl.corridors; });
+    hallPlan = open.concat(lanes).slice(0, 2);
+}
+
+function rectBlockedStatic(r) {
+    const lists = [walls, doors, barricades];
+    for (let l = 0; l < lists.length; l++) {
+        const list = lists[l];
+        for (let i = 0; i < list.length; i++) {
+            const w = list[i];
+            if (rectIntersect(r.x, r.y, r.w, r.h, w.x, w.y, w.w, w.h)) return true;
+        }
     }
+    return false;
+}
 
-    for (let i = 0; i < 3; i++) {
-        const z = order[(i + 3) % order.length];
-        const b = zoneBounds(z);
-        const spot = findOpenSpot(b, 70) || { x: b.x + 500, y: b.y + 400 };
-        silos[i] = { x: spot.x, y: spot.y, w: 64, h: 78, zone: z };
-        reservedRects.push({ x: spot.x - 110, y: spot.y - 110, w: 284, h: 298 });
+function hallFits(x, y, w, h, margin) {
+    const box = { x: x - margin, y: y - margin, w: w + margin * 2, h: h + margin * 2 };
+    if (nearZoneBoundary(x, y, w, h)) return false;
+    if (clashesReserved(box)) return false;
+    if (rectBlockedStatic(box)) return false;
+    if (!onClearFloor(box.x, box.y, box.w, box.h)) return false;
+    return true;
+}
+
+// Straight run from the funnel's rim to the silo's wall, along the line
+// between their centres. Drawn by drawSiloPipes; purely visual.
+function pipeBetween(f, s) {
+    const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
+    const dx = cx - f.x, dy = cy - f.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const ux = dx / d, uy = dy / d;
+    const tx = ux !== 0 ? (s.w / 2) / Math.abs(ux) : Infinity;
+    const ty = uy !== 0 ? (s.h / 2) / Math.abs(uy) : Infinity;
+    const t = Math.min(tx, ty);
+    return {
+        x1: Math.round(f.x + ux * (f.r + 4)), y1: Math.round(f.y + uy * (f.r + 4)),
+        x2: Math.round(cx - ux * t), y2: Math.round(cy - uy * t)
+    };
+}
+
+function makeFunnelHall(x, y, vertical, z, k) {
+    const w = vertical ? HALL_WID : HALL_LEN;
+    const h = vertical ? HALL_LEN : HALL_WID;
+    if (vertical) {
+        walls.push({ x: x, y: y, w: WALL_T, h: h });
+        walls.push({ x: x + w - WALL_T, y: y, w: WALL_T, h: h });
+        funnels[k] = { x: x + w / 2, y: y + 190, r: HALL_FUNNEL_R, zone: z };
+        silos[k] = { x: x + WALL_T + 8, y: y + 380, w: SILO_W, h: SILO_H, zone: z };
+    } else {
+        walls.push({ x: x, y: y, w: w, h: WALL_T });
+        walls.push({ x: x, y: y + h - WALL_T, w: w, h: WALL_T });
+        funnels[k] = { x: x + 190, y: y + h / 2, r: HALL_FUNNEL_R, zone: z };
+        silos[k] = { x: x + 380, y: y + WALL_T + 8, w: SILO_W, h: SILO_H, zone: z };
+    }
+    funnelHalls[k] = { x: x, y: y, w: w, h: h, vertical: vertical, zone: z };
+    siloPipes[k] = pipeBetween(funnels[k], silos[k]);
+    reservedRects.push({ x: x - 110, y: y - 110, w: w + 220, h: h + 220 });
+    keepClearRects.push({ x: x - 20, y: y - 20, w: w + 40, h: h + 40 });
+}
+
+// Horizontal first (a zone is 1600 wide and only 900 tall), then vertical.
+function buildFunnelHall(b, z, k, margin) {
+    const m = margin || 70;
+    for (let attempt = 0; attempt < 140; attempt++) {
+        const vertical = attempt >= 90;
+        const w = vertical ? HALL_WID : HALL_LEN;
+        const h = vertical ? HALL_LEN : HALL_WID;
+        const x = Math.round(b.x + 170 + MP.random() * Math.max(1, b.w - 340 - w));
+        const y = Math.round(b.y + 160 + MP.random() * Math.max(1, b.h - 320 - h));
+        if (!hallFits(x, y, w, h, m)) continue;
+        makeFunnelHall(x, y, vertical, z, k);
+        return true;
+    }
+    return false;
+}
+
+// Normally a no-op: both halls were built first thing in their zones. If
+// one could not fit, try every other eligible zone -- late, so with a wider
+// margin, because buildings are standing by now -- and as a last resort
+// fall back to a bare funnel with its silo alongside. Never returns with a
+// funnel or silo missing: the chain cannot be finished without all three.
+function finishFunnelsAndSilos() {
+    for (let k = 1; k <= 2; k++) {
+        if (funnels[k]) continue;
+        let done = false;
+        const cands = [];
+        for (let i = 0; i < 9; i++) {
+            if (i === 4 || i === SLUICE_ZONE || !zoneInfo[i]) continue;
+            if (funnelHalls[1] && funnelHalls[1].zone === i) continue;
+            if (funnelHalls[2] && funnelHalls[2].zone === i) continue;
+            cands.push(i);
+        }
+        for (let c = 0; c < cands.length && !done; c++) {
+            done = buildFunnelHall(zoneBounds(cands[c]), cands[c], k, 100);
+        }
+        if (done) continue;
+        const z = cands.length ? cands[0] : 0;
+        const spot = findOpenSpotSure(zoneBounds(z), 300);
+        funnels[k] = { x: spot.x + 110, y: spot.y + 150, r: HALL_FUNNEL_R, zone: z };
+        silos[k] = { x: spot.x + 230, y: spot.y + 20, w: SILO_W, h: SILO_H, zone: z };
+        siloPipes[k] = pipeBetween(funnels[k], silos[k]);
+        claimFloor(spot.x, spot.y, 300, 300, 10);
     }
 }
 

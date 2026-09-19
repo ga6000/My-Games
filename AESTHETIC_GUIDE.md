@@ -374,6 +374,12 @@ This is authentic *and* it is a genuine performance win, which makes it the rare
 that pays for itself. Zombie's late-round hordes and RD Arena's 40-enemy cap are both natural
 homes.
 
+> **Withdrawn for Zombie, 2026-09-18.** Built there (2026-09-04), playtested, and removed: with the
+> screen full of zombies the flicker was distracting and hard to read, which is the moment reading
+> the screen matters most — and the draw saving was two `fillRect`s a zombie. The lesson for the
+> next game that reaches for this: it is only safe where the flickering things are not the ones the
+> player must track. Zombie already had to exempt its screamers, which was the warning.
+
 ### 4.8 Attract mode ★ the most era-defining behaviour in the document
 Every cabinet, left alone, played itself. Nothing in modern web games does this, and it costs
 almost nothing here because every game already owns a render loop.
@@ -418,7 +424,7 @@ per-game section, because it is the part most likely to be violated by an enthus
 | Game | Must survive untouched | Why |
 |---|---|---|
 | **RD Arena** | The **Gray-Scott reaction-diffusion field** — `dA/dB/feed/k`, the 400×400 grid, the `>0.3` threshold, the flow field, the mote system | It is the game. It is also, as §6.4 shows, *already* era-native. |
-| **Zombie** | `ambientDarkness()` as the single source of truth, and the light **radius** values | The lighting is a balance-tested mechanic; v2's blackout at 0.94 playtested as a guaranteed loss. Quantize the ramp, never the numbers. |
+| **Zombie** | `ambientDarkness()` as the single source of truth, and the light **radius** values | The lighting is a balance-tested mechanic; v2's blackout at 0.94 playtested as a guaranteed loss. Quantize the ramp, never the numbers. *(2026-09-18: the user asked for darker Blackouts and the dip moved 0.20 → 0.26 — the single source of truth, the 0.9 cap and the radius all held.)* |
 | **Glucose Dash** | Colour reserved exclusively for storefronts; `pathWalkable(f)` as the single source of floor geometry | Both are documented hard-won invariants. The second caused invisible holes in every upper storefront when violated. |
 | **Gyro Space** | Server-authoritative `MP.selfColor` | Retro-fitted 2026-08-28 to fix session-ID colouring. Never regress it. |
 | **Reality Rewrite** | `IDENTITY.colorFromName()` as the only name→colour path | It previously had its own scheme that agreed with the server **0 times out of 10**. |
@@ -487,6 +493,21 @@ balance decision that already failed once at 0.94.
 *Gameplay:* apply the flicker budget (§4.7) to late-round hordes — authentic and a real
 optimization. **Effort: M**, across `zombie-render.js` only. Ten scripts share one global scope;
 run `check-global-collisions.js` after.
+
+> **Status, 2026-09-18.** All of the above was built on 2026-09-04. Since then, after a friends
+> playtest (`zombie/PLAYTEST_PASS_PLAN.md`):
+> - **The flicker budget is removed** — see the note under §4.7.
+> - **Every zone has its own floor** (`zombie/zombie-floors.js`): a 64² texel tile per zone,
+>   chunky (2 world units a texel, smoothing off), dark, a few flat colours picked by tileable
+>   noise, under one quantized three-step grime map. **This knowingly departs from §2.5's "one
+>   world hue for terrain"**: each floor carries a faint tint of its own, because making the zones
+>   tell apart was the whole request. The world hue still owns the chrome (perk icons and badges).
+> - **The Blackout dip is +0.26, not +0.20**, and a Blackout trips a running generator (map at the
+>   0.9 cap until someone restarts it). Requested outright; §5's "never the numbers" was the
+>   standing rule and the user overrode it for the dip. The cap and the light radius are unchanged.
+> - Pixel-bitmap icons for perks and guns (no emoji), the ULTRA HEAVY as the one non-square
+>   zombie (an octagon, ≤3 colours + flash), per-gun round shapes, and a procedural organ score in
+>   the same Web Audio vocabulary as §4.10.
 
 ### 6.4 RD Arena — `rd-arena/RDArena.html` · **RASTER** · anchor: *Space Invaders* (1978)
 **The best discovery in this review.** The flesh field is already thresholded at `gridB > 0.3`,
@@ -889,4 +910,4 @@ this is precisely the kind of cross-cutting root-level plan the 2026-09-02 audit
 - **Whether every game should convert at all.** Desert Robot Blaster and Wasteland Train Sim are
   Unity candidates; spending a session restyling them may be wasted.
 
-<!-- doc-sync: ea409e8b | 2026-09-07 -->
+<!-- doc-sync: 0a30940e | 2026-09-19 -->

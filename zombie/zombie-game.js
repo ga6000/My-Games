@@ -31,6 +31,69 @@ let scoreBoard = {};           // netId -> {kills, revives, assists, score}
 let roundCardUntil = 0;
 
 // ---------------------------------------------------
+//   DEATH, RESPAWN AND THE TEAM WIPE (2026-09-18)
+// ---------------------------------------------------
+// Reported: "when both players got downed in a 2 player game it caused
+// myself to just respawn at the start, rather than restarting the game".
+// Three separate faults produced that:
+//
+//  1. A GUEST NEVER BLED OUT. The bleed-out check ran only for the host's
+//     own local player; nothing tracked a guest's deadline at all, so a
+//     downed guest stayed downed forever and "everyone is dead" could never
+//     become true while one was in the room.
+//  2. A dead player could press any key and walk back in at the keep --
+//     spawnPlayer() had no notion of a run in progress.
+//  3. "Everyone down" was not an ending. Only "everyone DEAD" was, and 1
+//     made that unreachable.
+//
+// Now: the host tracks every downed guest's deadline (remoteDowned);
+// nobody alive in the room -> a 2s grace (a RALLY grab can still save it)
+// -> game over, told to the room explicitly rather than on a throttled
+// snapshot flag; and a player who bleeds out while a teammate stands is
+// dead until the next breather, then back at the keep with a pistol and
+// their perks -- DESIGN_IDEAS.md #1's "dead for the round".
+let zAwaitRespawn = false;     // this client's player bled out; waiting for the breather
+let zDiedRound = 0;
+let zKeptCards = [];
+let remoteDowned = {};         // HOST: guest id -> {at, bleedAt}
+let wipeAt = 0;                // HOST: when an all-down room becomes a game over
+const WIPE_GRACE_MS = 2000;
+
+// ---------------------------------------------------
+//   GENERATOR TRIP (2026-09-18)
+// ---------------------------------------------------
+// A Blackout round now trips a running generator, and the round cannot
+// clear until someone restarts it: stand at it for GEN_RESTART_MS. Free --
+// it was already bought -- and host-tracked from positions the host already
+// has, the same way the gate plates and revives work, so it needs no new
+// message. While it is down the stations go dark again and stragglers keep
+// coming, so waiting it out is not an option.
+let genTripped = false;
+let genRestart = 0;            // 0..1
+const GEN_RESTART_MS = 5000;
+const GEN_RESTART_REACH = 40;  // px around the generator that counts
+const STRAGGLER_GAP_MS = 2600;
+const STRAGGLER_CAP = 6;
+
+// ---------------------------------------------------
+//   ULTRA HEAVY (2026-09-18)
+// ---------------------------------------------------
+// "Larger alternate shaped Ultra heavy enemy after round 15." One is owed
+// per round from 16 (spawned once 40% of the budget is out, so it arrives
+// into a fight rather than opening it), plus a small random share, capped.
+const ULTRA_FROM_ROUND = 16;
+let ultraOwed = 0;
+let ultraAtBudget = 0;
+
+// ---------------------------------------------------
+//   PERK STATE
+// ---------------------------------------------------
+let decoys = [];               // HOST: active lures {x, y, r, until}
+let decoyReadyAt = {};         // HOST: id -> when that player's DECOY recharges
+let bolts = [];                // ARC bolts, cosmetic and local {x1,y1,x2,y2,born}
+let salvageKillsSeen = 0;      // this client's own kill count, last seen
+
+// ---------------------------------------------------
 //   AUDIO EVENT QUEUE (idea 38)
 // ---------------------------------------------------
 // The user asked whether to give every zombie a random 3-digit id,
@@ -59,7 +122,11 @@ function addBlast(x, y, radius) {
 }
 
 // Something the whole room should hear. Host-authoritative.
-function hostEvent(code, x, y, arg) {
+//
+// `owner` (optional) is the player the event belongs to, so THAT client
+// skips the echo -- the rocket shooter has already drawn and heard their
+// own explosion from their predicted round.
+function hostEvent(code, x, y, arg, owner) {
     const gap = EVENT_THROTTLE[code];
     if (gap) {
         const now = Date.now();
@@ -68,7 +135,7 @@ function hostEvent(code, x, y, arg) {
     }
     playEvent(code, x, y, arg);
     if (netOnline && netIsHost && eventQueue.length < EVENT_CAP) {
-        eventQueue.push([code, Math.round(x), Math.round(y), arg || 0, 0]);
+        eventQueue.push([code, Math.round(x), Math.round(y), arg || 0, owner || 0]);
     }
 }
 
@@ -88,6 +155,11 @@ const EVENT_THROTTLE = {};
 EVENT_THROTTLE[SND_SHOT] = 90;
 EVENT_THROTTLE[SND_KILL] = 70;
 EVENT_THROTTLE[SND_ZAP] = 220;
+// ARC and BLASTCAP can fire several times in one frame in a dense horde.
+// The host draws every bolt; the queue gets the first of each burst, so
+// they can never crowd a breach or a down out of a snapshot.
+EVENT_THROTTLE[SND_ARC] = 50;
+EVENT_THROTTLE[SND_POP] = 70;
 let lastEventAt = {};
 
 function queueEvent(code, x, y, arg, owner) {
@@ -115,9 +187,15 @@ function queueEvent(code, x, y, arg, owner) {
 // found to be an unwinnable round rather than a hard one. Darkened again
 // on request 2026-09-02: the generator no longer returns the map to full
 // brightness, so the light radius matters at all times.
+//
+// 2026-09-18, on request after a playtest: blackouts "slightly darker",
+// and they now TRIP the generator (genTripped). So a blackout reads 0.9
+// (the cap) until someone restarts it, then 0.22 + 0.26 = 0.48 -- was
+// 0.42 -- for the rest of the round. The cap is deliberately untouched:
+// 0.94 is the number that failed, and the light radius is not reopened.
 const AMBIENT_DARK = 0.72;
 const AMBIENT_LIT = 0.22;
-const AMBIENT_BLACKOUT_ADD = 0.20;
+const AMBIENT_BLACKOUT_ADD = 0.26;
 
 function ambientDarkness() {
     let a = generatorOn ? AMBIENT_LIT : AMBIENT_DARK;
@@ -161,7 +239,8 @@ function teamSize() {
     let n = 0;
     for (let i = 0; i < players.length; i++) n++;
     for (const id in remotePlayers) {
-        if (Object.prototype.hasOwnProperty.call(remotePlayers, id)) n++;
+        // Away players do not make the next round bigger.
+        if (Object.prototype.hasOwnProperty.call(remotePlayers, id) && !remotePlayers[id].away) n++;
     }
     return Math.max(1, n);
 }
@@ -203,12 +282,39 @@ function pickZombieType(r) {
     if (isBruteRound(r)) return "brute";
     if (isHordeRound(r)) return "runner";
 
+    // ULTRA HEAVY: a thin random share on top of the one owed each round.
+    if (r >= ULTRA_FROM_ROUND && Math.random() < Math.min(0.04, 0.008 * (r - ULTRA_FROM_ROUND + 1))) return "ultra";
+
     const roll = Math.random();
     if (r >= 4 && roll < Math.min(0.22, 0.03 * (r - 3))) return "brute";
     if (r >= 6 && roll < 0.30) return "splitter";
     if (r >= 5 && roll < 0.38) return "screamer";
     if (r >= 3 && roll < 0.58) return "runner";
     return "walker";
+}
+
+// How many may be alive at once: one at 16, a fourth by round 31.
+function ultraCap(r) {
+    return Math.min(4, 1 + Math.floor((r - ULTRA_FROM_ROUND) / 5));
+}
+
+function countZombies(type) {
+    let n = 0;
+    for (let i = 0; i < zombies.length; i++) if (zombies[i].type === type) n++;
+    return n;
+}
+
+// The round loop's spawn call, with the ULTRA's rules folded in.
+function spawnRoundZombie(r) {
+    let type = pickZombieType(r);
+    if (ultraOwed > 0 && roundBudget <= ultraAtBudget) type = "ultra";
+    if (type === "ultra" && countZombies("ultra") >= ultraCap(r)) type = "brute";
+    const z = spawnZombie(type, r);
+    if (z && type === "ultra") {
+        ultraOwed = Math.max(0, ultraOwed - 1);
+        hostEvent(SND_ULTRA, z.x, z.y, 0);
+    }
+    return z;
 }
 
 function startRound(r) {
@@ -220,25 +326,87 @@ function startRound(r) {
     roundEndsAt = 0;
     revivesThisRound = 0;
     roundCardUntil = Date.now() + 2600;
-    const at = players[0] || { x: WORLD_W / 2, y: WORLD_H / 2 };
-    hostEvent(SND_ROUND_START, at.x, at.y);
+    // Horde rounds are pure runners; everything else from 16 owes one.
+    ultraOwed = (r >= ULTRA_FROM_ROUND && !isHordeRound(r)) ? 1 : 0;
+    ultraAtBudget = Math.floor(roundBudget * 0.6);
+    // The round-start sting became a chime in the score (zombie-music.js),
+    // which every client times off the round number in the snapshot -- so
+    // it no longer needs to ride the event queue.
+    if (isBlackoutRound(r) && generatorOn) tripGenerator();
+}
+
+// BLACKOUT: the lights go, and they stay gone until someone walks to the
+// generator and holds it. Never bought? Then there is nothing to trip, and
+// the round is the old kind of blackout -- darker, and it ends on its own.
+function tripGenerator() {
+    generatorOn = false;
+    genTripped = true;
+    genRestart = 0;
+    const g = generatorRect || { x: WORLD_W / 2, y: WORLD_H / 2, w: 0, h: 0 };
+    hostEvent(SND_GEN_TRIP, g.x + g.w / 2, g.y + g.h / 2);
+    showToast("THE GENERATOR TRIPPED", 2600);
+}
+
+function restoreGenerator() {
+    generatorOn = true;
+    genTripped = false;
+    genRestart = 0;
+    const g = generatorRect || { x: WORLD_W / 2, y: WORLD_H / 2, w: 0, h: 0 };
+    // Local only: guests already sound the generator on the snapshot's
+    // off -> on transition (applyWorldSnapshot), so queueing it too would
+    // play it twice for them.
+    localEvent(SND_GENERATOR, g.x + g.w / 2, g.y + g.h / 2);
+    showToast("POWER RESTORED", 2200);
+}
+
+// HOST. Anyone alive standing at a tripped generator winds it back up;
+// step away and it runs down, slower than it fills.
+function updateGeneratorRestart(dt) {
+    if (!genTripped || !generatorRect) return;
+    const g = generatorRect;
+    const r = GEN_RESTART_REACH;
+    let near = false;
+    const all = allTargets();
+    for (let i = 0; i < all.length && !near; i++) {
+        const t = all[i];
+        if (t.downed) continue;
+        if (rectIntersect(t.x, t.y, t.size || 16, t.size || 16, g.x - r, g.y - r, g.w + r * 2, g.h + r * 2)) near = true;
+    }
+    if (near) {
+        genRestart += dt / GEN_RESTART_MS;
+        if (genRestart >= 1) restoreGenerator();
+    } else if (genRestart > 0) {
+        genRestart = Math.max(0, genRestart - dt / (GEN_RESTART_MS * 2));
+    }
 }
 
 function endRound(now) {
     roundPhase = "intermission";
     roundEndsAt = now + ROUND_BREAK_MS;
-    const at = players[0] || { x: WORLD_W / 2, y: WORLD_H / 2 };
-    hostEvent(SND_ROUND_CLEAR, at.x, at.y);
     // One guaranteed pickup per round clear reads as a reward; v1's
     // "every 20 spawns" read as a random trickle.
     const anchor = pickSpawnAnchor();
     spawnPickup(anchor.x, anchor.y);
     // Barricades come back during the breather so the keep is
     // defensible again next round (idea 17).
+    //
+    // ROLE: ENGINEER -- at 150% while one is in the game (2026-09-18). The
+    // trait used to live only on the manual "board" purchase, which needs a
+    // DAMAGED window during a breather -- and this loop has just repaired
+    // every one of them, so that purchase never came up and the trait could
+    // never fire. Found writing the field manual's CLASSES tab.
+    const boost = engineerInGame() ? 1.5 : 1;
     for (let i = 0; i < barricades.length; i++) {
-        barricades[i].hp = barricades[i].maxHp;
+        barricades[i].hp = barricades[i].maxHp * boost;
     }
     rebuildSolidIndex();
+}
+
+// Anyone in the room -- up or down, local or remote -- dealt ENGINEER.
+function engineerInGame() {
+    const all = allTargets();
+    for (let i = 0; i < all.length; i++) if (idHasRole(all[i].id, "engineer")) return true;
+    return false;
 }
 
 function reviveMsRequired() {
@@ -255,17 +423,150 @@ function startGame() {
     startTime = Date.now();
     lastSpawnTime = startTime;
     if (netIsHost) startRound(1);
+    // The score opens on chimes, then the organ comes in under them.
+    musicStart();
 }
 
+// One toast at a time, and a later one is never cut short by an earlier
+// one's timer -- each call used to arm its own hide.
+let toastUntil = 0;
+function showToast(text, ms) {
+    uiToast.innerText = text;
+    uiToast.style.display = 'block';
+    toastUntil = Date.now() + ms;
+    trackTimeout(function () {
+        if (Date.now() >= toastUntil) uiToast.style.display = 'none';
+    }, ms + 20);
+}
+
+// Bled out. While the run goes on, this is "dead until the next breather",
+// never "press a key to come back" -- see the note at the top of this file.
 function killLocalPlayer(p) {
+    zKeptCards = (p.cards || []).slice();
     players = players.filter(function (pl) { return pl.id !== p.id; });
+    if (gameStarted && !gameOver && !won) {
+        zAwaitRespawn = true;
+        zDiedRound = round;
+    }
     checkAllDead();
 }
 
+// Offline only. Online, the HOST decides the room is wiped (updateTeamWipe)
+// because only the host can see every player at once; a guest deciding for
+// itself was how one downed player could end, or fail to end, a run.
 function checkAllDead() {
-    // Online, "everyone died" means every player in the ROOM.
-    const remoteAlive = Object.keys(remotePlayers).length > 0;
-    if (players.length === 0 && (!netOnline || !remoteAlive)) triggerGameOver();
+    if (netOnline) return;
+    if (players.length === 0) triggerGameOver();
+}
+
+// The way out of a hold, offered after NET_LOST_OFFER_MS: carry on alone
+// with the world as it stood. The time spent holding is given back to a
+// downed player's bleed-out, and if the room answers later the ordinary
+// promotion path (onPeerSync + the snapshot's `ls`) folds us back in.
+function goSoloAfterLoss() {
+    if (!netLost) return;
+    const held = Date.now() - netLostAt;
+    netLost = false;
+    netIsHost = true;
+    for (let i = 0; i < players.length; i++) {
+        if (players[i].downed && players[i].bleedDeadline) players[i].bleedDeadline += held;
+    }
+    lastSpawnTime = Date.now();
+    showToast("PLAYING ON ALONE", 1800);
+}
+
+// Every client: bring this client's player back at the breather that ends
+// the round it died in (or any later round, for a player who missed one).
+function updateRespawn(now) {
+    if (!zAwaitRespawn || !gameStarted || gameOver || won) return;
+    if (players.length) { zAwaitRespawn = false; return; }
+    const due = (roundPhase === "intermission" && round >= zDiedRound) || round > zDiedRound;
+    if (!due) return;
+    zAwaitRespawn = false;
+    const p = spawnPlayer(zKeptCards);
+    if (p) {
+        p.invulnUntil = now + 3000;
+        showToast("BACK IN", 1800);
+    }
+}
+
+// HOST: is anyone in the room still on their feet? Away players are not
+// here to be on their feet -- see updateTeamWipe for how they still count.
+function anyoneAlive() {
+    for (let i = 0; i < players.length; i++) if (!players[i].downed) return true;
+    for (const id in remotePlayers) {
+        if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
+        const r = remotePlayers[id];
+        if (!r.downed && !r.away) return true;
+    }
+    return false;
+}
+
+// A teammate who was STANDING when their connection went. The run is not
+// ended over their head for a wifi blip: the wipe grace stretches to give
+// them a chance to come back and pick the others up.
+const WIPE_GRACE_AWAY_MS = 10000;
+
+function standingTeammateAway() {
+    for (const id in remotePlayers) {
+        if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
+        const r = remotePlayers[id];
+        if (r.away && r.awayStanding) return true;
+    }
+    return false;
+}
+
+// HOST. Nobody standing -> a short grace (a downed player crawling onto a
+// RALLY can still save it) -> the run is over, for the whole room.
+function updateTeamWipe(now) {
+    if (!gameStarted || gameOver || won) { wipeAt = 0; return; }
+    if (anyoneAlive()) { wipeAt = 0; return; }
+    if (!wipeAt) {
+        wipeAt = now + (standingTeammateAway() ? WIPE_GRACE_AWAY_MS : WIPE_GRACE_MS);
+        return;
+    }
+    if (now < wipeAt) return;
+    wipeAt = 0;
+    // Told explicitly. The world snapshot's `go` flag rides a throttled
+    // send, and update() stops broadcasting the moment gameOver is set, so
+    // the flag alone could be skipped and leave guests playing on.
+    if (netOnline) MP.send({ k: "over" });
+    triggerGameOver();
+}
+
+// HOST. The bleed-out clock for every downed GUEST. This did not exist
+// before 2026-09-18: only the host's own player ever bled out.
+function updateRemoteBleed(now) {
+    for (const id in remotePlayers) {
+        if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
+        const r = remotePlayers[id];
+        const rec = remoteDowned[id];
+        // AWAY: the clock stops. Bleeding out because your wifi dropped is
+        // exactly the penalty the connection pass exists to remove. The time
+        // away is added back on to the deadline when they return.
+        if (r.away) {
+            if (rec && !rec.pausedAt) rec.pausedAt = now;
+            continue;
+        }
+        if (rec && rec.pausedAt) {
+            rec.bleedAt += now - rec.pausedAt;
+            rec.pausedAt = 0;
+        }
+        if (r.downed) {
+            // A downed guest the host never saw go down -- a promoted host,
+            // or one that joined mid-fight -- gets a fresh clock.
+            if (!rec) { remoteDowned[id] = { at: now, bleedAt: now + BLEED_OUT_MS }; continue; }
+            if (now >= rec.bleedAt) {
+                delete remoteDowned[id];
+                delete remotePlayers[id];
+                sendDeath(id);
+            }
+        } else if (rec && now - rec.at > 2000) {
+            // Reporting "up" long after the down: it got up by a path the
+            // host did not run (a RALLY, the dev panel). Trust it.
+            delete remoteDowned[id];
+        }
+    }
 }
 
 // The first win state the game has ever had.
@@ -274,6 +575,7 @@ function triggerWin() {
     won = true;
     localEvent(SND_GENERATOR, WORLD_W / 2, WORLD_H - 100);
     stopAllLoops();
+    musicEnd("win");
     uiWin.style.display = 'block';
     uiWinRound.innerText = String(round);
     // A win is a completed run and belongs on the board too -- the same
@@ -285,9 +587,11 @@ function triggerWin() {
 function triggerGameOver() {
     if (gameOver) return;
     gameOver = true;
+    zAwaitRespawn = false;
     const at = players[0] || { x: WORLD_W / 2, y: WORLD_H / 2 };
     localEvent(SND_GAMEOVER, at.x, at.y);
     stopAllLoops();
+    musicEnd("over");
     uiGameOver.style.display = 'block';
     uiFinalRound.innerText = String(round);
     submitRunToLeaderboard();
@@ -328,9 +632,23 @@ function resetGame() {
     scoreBoard = {};
     eventQueue = [];
     stopAllLoops();
+    musicStop(false);
     gameOver = false;
     gameStarted = false;
     zLbSubmitted = false;
+
+    zAwaitRespawn = false;
+    zDiedRound = 0;
+    zKeptCards = [];
+    remoteDowned = {};
+    wipeAt = 0;
+    decoys = [];
+    decoyReadyAt = {};
+    bolts = [];
+    salvageKillsSeen = 0;
+    ultraOwed = 0;
+    genTripped = false;
+    genRestart = 0;
 
     resetEndgame();
     uiWin.style.display = 'none';
@@ -346,6 +664,7 @@ function resetGame() {
     uiStart.style.display = 'block';
     uiRoundCard.style.display = 'none';
     uiScores.style.display = 'none';
+    hudReset();
 
     generateLevel();
 }
@@ -392,7 +711,9 @@ function hostHandleBuy(msg) {
         if (!c || c.uses <= 0) return;
         c.uses--;
     } else if (msg.what === "generator") {
-        if (!generatorRect || generatorOn || scrapPool < generatorRect.cost) return;
+        // A TRIPPED generator is restarted by standing at it, not bought
+        // twice (updateGeneratorRestart).
+        if (!generatorRect || generatorOn || genTripped || scrapPool < generatorRect.cost) return;
         scrapPool -= generatorRect.cost;
         generatorOn = true;
     } else if (msg.what === "card") {
@@ -457,18 +778,19 @@ function applyPurchase(msg, now) {
         const wb = wallBuys[i];
         const p = localPlayerByNetId(msg.id);
         if (wb && p) {
+            if (!p.owned) p.owned = {};
+            p.owned[wb.weapon] = true;
             p.weapon = wb.weapon;
             p.ammo[wb.weapon] = WEAPONS[wb.weapon].capacity;
         }
         if (wb) localEvent(SND_BUY, wb.x, wb.y);
     } else if (msg.what === "generator") {
         generatorOn = true;
+        genTripped = false;
         if (generatorRect) {
             // No markNavDirty(): the generator changes light, not geometry.
             localEvent(SND_GENERATOR, generatorRect.x, generatorRect.y);
-            uiToast.innerText = "LIGHTS ON";
-            uiToast.style.display = 'block';
-            trackTimeout(function () { uiToast.style.display = 'none'; }, 2200);
+            showToast("LIGHTS ON", 2200);
         }
     } else if (msg.what === "silo") {
         // Host already applied it; clients mirror the flag so their
@@ -489,12 +811,23 @@ function applyPurchase(msg, now) {
     }
 }
 
+// A crate tops up every gun you OWN -- including one that has run dry,
+// which the old "has ammo left" test could not see once switching existed.
+// The rocket launcher only comes back to half (`crateFrac`), and never
+// loses rounds to a crate.
+//
+// ROLE: GUNNER, +25% crate ammo. Its blurb has promised this since the
+// roles landed (2026-09-02) and nothing applied it until now.
 function refillAmmo(p) {
-    for (const key in p.ammo) {
-        if (!Object.prototype.hasOwnProperty.call(p.ammo, key)) continue;
-        if (p.ammo[key] > 0) p.ammo[key] = WEAPONS[key].capacity;
+    const extra = myRole() === "gunner" ? 1.25 : 1;
+    for (let i = 0; i < WEAPON_KEYS.length; i++) {
+        const key = WEAPON_KEYS[i];
+        const w = WEAPONS[key];
+        if (w.infinite) continue;
+        if (!ownsWeapon(p, key) && !(p.ammo[key] > 0) && p.weapon !== key) continue;
+        const full = Math.round(w.capacity * (w.crateFrac || 1) * extra);
+        p.ammo[key] = Math.max(p.ammo[key] || 0, full);
     }
-    if (p.weapon !== "pistol") p.ammo[p.weapon] = WEAPONS[p.weapon].capacity;
 }
 
 function creditScore(ownerId, field, amount, points) {
@@ -520,9 +853,13 @@ function applyTeamPickup(type, ms, now, isHostOrigin) {
             p.invulnUntil = now + 2500;
         }
     }
-    uiToast.innerText = PICKUP_NAME[type] || "";
-    uiToast.style.display = 'block';
-    trackTimeout(function () { uiToast.style.display = 'none'; }, 1800);
+    // RALLY stands everyone up, so every guest bleed clock the host holds
+    // is void -- and a room that was about to be called wiped is not.
+    if (type === "rally" && netIsHost) {
+        remoteDowned = {};
+        wipeAt = 0;
+    }
+    showToast(PICKUP_NAME[type] || "", 1800);
     if (isHostOrigin && netOnline) MP.send({ k: "pickup", t: type, ms: ms });
 }
 
@@ -531,24 +868,37 @@ function applyTeamPickup(type, ms, now, isHostOrigin) {
 // ---------------------------------------------------
 function update(now, dt) {
     if (!gameStarted || gameOver) return;
+    // Lost a shared room mid-run: HOLD (2026-09-19). This client used to
+    // turn itself into a solo host and run its own fork of the world, where
+    // its own zombies could down or kill it -- a wifi penalty, and a local
+    // game over whose "restart" click then reset the whole room once the
+    // connection came back. Nothing moves here until the room answers again,
+    // or the player chooses to carry on alone (goSoloAfterLoss).
+    if (netLost) return;
 
     // ---- ROUND FLOW (host only) ----
     if (netIsHost) {
         updateEndgame(now, dt);
+        updateGeneratorRestart(dt);
     }
     if (netIsHost && !floodActive) {
         if (roundPhase === "intermission" && now >= roundEndsAt) startRound(round + 1);
 
         if (roundPhase === "active") {
             if (roundBudget > 0 && now - lastSpawnTime > spawnGapForRound(round)) {
-                const z = spawnZombie(pickZombieType(round), round);
+                const z = spawnRoundZombie(round);
                 if (z) {
                     roundBudget--;
                     lastSpawnTime = now;
                 }
+            } else if (roundBudget === 0 && genTripped &&
+                       now - lastSpawnTime > STRAGGLER_GAP_MS && zombies.length < STRAGGLER_CAP) {
+                // The dark keeps sending them until the lights are back.
+                if (spawnZombie(Math.random() < 0.5 ? "runner" : "walker", round)) lastSpawnTime = now;
             }
-            // Clears only when the budget is spent AND the map is empty.
-            if (roundBudget === 0 && zombies.length === 0) endRound(now);
+            // Clears only when the budget is spent AND the map is empty --
+            // and, on a Blackout, only once the generator is running again.
+            if (roundBudget === 0 && zombies.length === 0 && !genTripped) endRound(now);
         }
     }
 
@@ -560,12 +910,17 @@ function update(now, dt) {
 
     updatePlayers(now, dt);
     updateBullets(now);
+    advanceRemoteBullets();
 
     if (netIsHost) {
         updateZombies(now, dt);
         updateRevives(now, dt);
         updateTraps(now);
+        updateRemoteBleed(now);
+        updateTeamWipe(now);
     }
+    updateSalvage();
+    updateRespawn(now);
 
     interpolateRemotes();
     pruneRemotePlayers();
@@ -577,6 +932,9 @@ function update(now, dt) {
     }
     for (let i = blasts.length - 1; i >= 0; i--) {
         if (now - blasts[i].born > blasts[i].life) blasts.splice(i, 1);
+    }
+    for (let i = bolts.length - 1; i >= 0; i--) {
+        if (now - bolts[i].born > 220) bolts.splice(i, 1);
     }
 }
 
@@ -657,41 +1015,92 @@ function updatePlayers(now, dt) {
             applyTeamPickup(pu.type, ms, now, true);
         }
 
+        // Downed players cannot interact, and cannot shoot -- unless they
+        // hold LAST STAND, which is the whole of that perk.
+        let fireKey = currentWeaponKey(p);
         if (p.downed) {
             if (netIsHost && p.bleedDeadline && now >= p.bleedDeadline) {
                 sendDeath(netIdFor(p));
                 killLocalPlayer(p);
+                continue;
             }
-            continue;   // downed players cannot shoot or interact
+            fireKey = downedWeaponKey(p);
+            if (!fireKey) continue;
         }
 
         // Shooting
-        const w = WEAPONS[currentWeaponKey(p)];
+        const w = WEAPONS[fireKey];
         let cooldown = (now < p.overclockUntil) ? Math.max(60, w.cooldown * 0.2) : w.cooldown;
         // CARD: OVERDRIVE, per stack.
         const od = cardLevel(p, "overdrive");
         if (od) cooldown *= [1, 0.65, 0.5, 0.4][od];
         if (p.keys.shoot && now - p.lastShotTime > cooldown) {
-            shoot(p, now);
+            shoot(p, now, fireKey);
             p.lastShotTime = now;
         }
+    }
+}
+
+// SALVAGE, on every client for its own player. Kills are resolved by the
+// host, so a guest learns its count from the scoreboard in the snapshot
+// (`sb`) and a host reads its own live -- either way the delta since the
+// last look is how many kills to roll for.
+function updateSalvage() {
+    const me = players[0];
+    const row = scoreBoard[netIdFor(me)];
+    const seen = row ? row.kills : 0;
+    if (seen < salvageKillsSeen) salvageKillsSeen = seen;       // a reset
+    const fresh = seen - salvageKillsSeen;
+    salvageKillsSeen = seen;
+    if (!me || fresh <= 0) return;
+    const lvl = cardLevel(me, "salvage");
+    if (!lvl) return;
+    const key = currentWeaponKey(me);
+    const w = WEAPONS[key];
+    if (w.infinite) return;
+    const chance = [0, 0.3, 0.45, 0.6][lvl] * (w.salvage || 0);
+    for (let i = 0; i < fresh; i++) {
+        if (Math.random() < chance) me.ammo[key] = (me.ammo[key] || 0) + (w.salvageAmt || 1);
+    }
+}
+
+// Remote bullets arrive at 15Hz. Carrying them along their velocity in
+// between is what stops a teammate's flame or rocket crossing the screen in
+// visible jumps; each snapshot replaces the list, so the drift never grows.
+function advanceRemoteBullets() {
+    for (let i = 0; i < remoteBullets.length; i++) {
+        const b = remoteBullets[i];
+        b.x += b.vx;
+        b.y += b.vy;
+        if (b.kind === "flamer") b.travelled = (b.travelled || 0) + Math.hypot(b.vx, b.vy);
     }
 }
 
 function updateBullets(now) {
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
+        const kind = b.kind || "pistol";
         b.x += b.vx;
         b.y += b.vy;
         b.travelled += Math.hypot(b.vx, b.vy);
 
         if (b.travelled > b.range || b.x < 0 || b.x > WORLD_W || b.y < 0 || b.y > WORLD_H) {
+            // A rocket at the end of its run goes off where it is.
+            if (kind === "rocket") rocketBurst(b, now);
             bullets.splice(i, 1);
             continue;
         }
         // Bullets use the ZOMBIE solid set: a broken window stops being
         // cover for either side, so shooting through one you've let open
         // is a real consequence of losing it.
+        if (blockedAt(b.x, b.y, b.size, true) && kind === "rocket") {
+            // Back out of the wall first, so the blast is on the near side.
+            b.x -= b.vx;
+            b.y -= b.vy;
+            rocketBurst(b, now);
+            bullets.splice(i, 1);
+            continue;
+        }
         if (blockedAt(b.x, b.y, b.size, true)) {
             // CARD: RICOCHET. Step back out of the wall, then reflect off
             // whichever axis actually blocked us.
@@ -723,6 +1132,7 @@ function updateBullets(now) {
             }
         }
         if (hitBarrel) {
+            if (kind === "rocket") rocketBurst(b, now);
             bullets.splice(i, 1);
             continue;
         }
@@ -730,19 +1140,52 @@ function updateBullets(now) {
         // Damage is HOST ONLY. A client runs bullets purely as a visual
         // prediction of its own shots; letting it also decide what died
         // would have two clients disagreeing within seconds.
-        if (!netIsHost) continue;
+        //
+        // What a client CAN do is stop its round where it visibly hit
+        // (2026-09-18): a guest's shots used to sail straight through the
+        // zombie they struck and die on the wall behind it. A rocket also
+        // goes off right there, locally, and the host's blast event carries
+        // this client as its owner so it is not drawn a second time.
+        if (!netIsHost) {
+            if (kind === "flamer") continue;           // flame pierces everything anyway
+            for (let j = 0; j < zombies.length; j++) {
+                const z = zombies[j];
+                if (!rectIntersect(b.x, b.y, b.size, b.size, z.x, z.y, z.size, z.size)) continue;
+                if (kind === "rocket") rocketBurst(b, now);
+                if (kind === "rocket" || b.pierce <= 0 || ZOMBIE_TYPES[z.type].armored) bullets.splice(i, 1);
+                break;
+            }
+            continue;
+        }
 
+        // hitZ holds zombie OBJECTS, not indices. It held indices, which
+        // shift whenever anything dies -- harmless for a sniper's four,
+        // not for a flame that pierces everything in the cone.
+        if (!b.hitZ) b.hitZ = [];
         let consumed = false;
         for (let j = zombies.length - 1; j >= 0; j--) {
             const z = zombies[j];
-            if (b.hitIds.indexOf(j) !== -1) continue;
+            if (!z || b.hitZ.indexOf(z) !== -1) continue;
             if (!rectIntersect(b.x, b.y, b.size, b.size, z.x, z.y, z.size, z.size)) continue;
+            b.hitZ.push(z);
 
-            damageZombie(j, b.dmg, b.owner, now);
+            if (kind === "flamer") {
+                // Every zombie in the cone, once per flame, and it burns.
+                const burn = WEAPONS.flamer.burn;
+                z.burnUntil = now + burn.ms;
+                z.burnBy = b.owner;
+                damageZombie(j, b.dmg, b.owner, now, "flame");
+                continue;
+            }
 
-            if (b.pierce > 0) {
+            damageZombie(j, b.dmg, b.owner, now, kind === "rocket" ? "rocket" : "shot");
+
+            if (kind === "rocket") {
+                rocketBurst(b, now);
+                consumed = true;
+            } else if (b.pierce > 0 && !ZOMBIE_TYPES[z.type].armored) {
+                // The ULTRA HEAVY is `armored`: nothing pierces THROUGH it.
                 b.pierce--;
-                b.hitIds.push(j);
             } else {
                 consumed = true;
             }
@@ -752,7 +1195,67 @@ function updateBullets(now) {
     }
 }
 
-function damageZombie(index, dmg, ownerId, now) {
+// A rocket goes off. On the host that is the real explosion; on a guest
+// it is the shooter's own prediction -- drawn and heard at once, with the
+// host's copy of the event skipped as an echo (it carries this client's id).
+function rocketBurst(b, now) {
+    const cx = b.x + b.size / 2;
+    const cy = b.y + b.size / 2;
+    const sp = WEAPONS.rocket.splash;
+    if (netIsHost) {
+        explodeAt(cx, cy, sp.r, sp.dmg, b.owner, now, "rocket");
+    } else {
+        addBlast(cx, cy, sp.r);
+        playEvent(SND_EXPLODE, cx, cy, sp.r);
+        shakeNear(cx, cy, 12);
+    }
+}
+
+// Screen shake for something that happened at (x, y): full within a
+// screen, nothing past two. A blast across the map used to shake you too.
+function shakeNear(x, y, amount) {
+    const me = players[0];
+    if (!me) { addShake(amount * 0.5); return; }
+    const d = Math.hypot(x - me.x, y - me.y);
+    if (d < 520) addShake(amount);
+    else if (d < 1040) addShake(amount * (1 - (d - 520) / 520));
+}
+
+// HOST. One explosion with falloff (full at the centre, half at the rim),
+// and anything else that can blow up inside it does. Used by rockets.
+function explodeAt(x, y, radius, dmg, ownerId, now, src) {
+    addBlast(x, y, radius);
+    shakeNear(x, y, 12);
+    hostEvent(SND_EXPLODE, x, y, radius, ownerId);
+    const hit = [];
+    for (let i = 0; i < zombies.length; i++) {
+        const z = zombies[i];
+        const d = Math.hypot(z.x + z.size / 2 - x, z.y + z.size / 2 - y);
+        if (d < radius) hit.push({ z: z, dmg: dmg * (1 - 0.5 * d / radius) });
+    }
+    for (let k = 0; k < hit.length; k++) {
+        const idx = zombies.indexOf(hit[k].z);
+        if (idx !== -1) damageZombie(idx, hit[k].dmg, ownerId, now, src);
+    }
+    for (let j = 0; j < barrels.length; j++) {
+        const br = barrels[j];
+        if (!br.alive) continue;
+        if (Math.hypot(br.x + br.size / 2 - x, br.y + br.size / 2 - y) < radius) {
+            const bj = j;
+            trackTimeout(function () { explodeBarrel(bj, ownerId, Date.now()); }, 90);
+        }
+    }
+}
+
+// `src` says what did the damage, because two things depend on it:
+//   - FLASH: burn and flame do not flash the zombie white. They tick every
+//     frame, and a burning zombie read as permanently white.
+//   - PROCS: only a kill by a WEAPON (shot, rocket, flame, burn) can set
+//     off ARC or BLASTCAP. A kill by an arc, a burst, a barrel, a trap or
+//     SPITE cannot, so one kill cannot cascade through a whole horde.
+const PROC_SOURCES = { shot: true, rocket: true, flame: true, burn: true };
+
+function damageZombie(index, dmg, ownerId, now, src) {
     const z = zombies[index];
     if (!z) return;
     z.hp -= dmg;
@@ -760,13 +1263,19 @@ function damageZombie(index, dmg, ownerId, now) {
     if (ownerId && z.damagers.indexOf(ownerId) === -1) z.damagers.push(ownerId);
 
     if (z.hp > 0) {
-        z.flashUntil = now + 50;
+        if (src !== "burn" && src !== "flame") z.flashUntil = now + 50;
         return;
     }
 
     const spec = ZOMBIE_TYPES[z.type];
     zombies.splice(index, 1);
     kills++;
+    const zcx = z.x + z.size / 2;
+    const zcy = z.y + z.size / 2;
+    if (z.type === "ultra") {
+        hostEvent(SND_ULTRA, zcx, zcy, 1);
+        addBlast(zcx, zcy, 70);
+    }
     // Only kills ON an active funnel drain into a silo. Everything else
     // in the game rewards killing zombies wherever they are; this is the
     // one system that asks you to fight in a chosen place.
@@ -806,6 +1315,66 @@ function damageZombie(index, dmg, ownerId, now) {
             }
         }
     }
+
+    if (ownerId && PROC_SOURCES[src]) {
+        // PERK: ARC -- a bolt to the nearest few.
+        const arc = idCardLevel(ownerId, "arc");
+        if (arc) arcFrom(zcx, zcy, arc, ownerId, now);
+        // PERK: BLASTCAP -- sometimes the body goes off.
+        const cap = idCardLevel(ownerId, "blastcap");
+        if (cap && Math.random() < [0, 0.18, 0.28, 0.38][cap]) {
+            burstAt(zcx, zcy, 95, 4 * zombieHpMultiplier(round), ownerId, now);
+        }
+    }
+}
+
+// PERK: ARC. Bolt damage grows with the round the same way zombie HP does,
+// so it kills a walker on round 30 as surely as on round 3. Targets are
+// gathered first and hit by identity: each hit can kill, and a kill
+// shifts every index after it.
+const ARC_RANGE = 180;
+
+function arcFrom(x, y, count, ownerId, now) {
+    const near = [];
+    for (let i = 0; i < zombies.length; i++) {
+        const z = zombies[i];
+        const d = Math.hypot(z.x + z.size / 2 - x, z.y + z.size / 2 - y);
+        if (d < ARC_RANGE) near.push({ z: z, d: d });
+    }
+    near.sort(function (a, b) { return a.d - b.d; });
+    const dmg = 2.5 * zombieHpMultiplier(round);
+    for (let k = 0; k < near.length && k < count; k++) {
+        const t = near[k].z;
+        const tx = t.x + t.size / 2, ty = t.y + t.size / 2;
+        addBolt(x, y, tx, ty);
+        // The target rides in `arg`, packed as a 10-bit offset pair, so a
+        // client can draw the same bolt from a single event.
+        const dx = clamp(Math.round(tx - x), -511, 511) + 512;
+        const dy = clamp(Math.round(ty - y), -511, 511) + 512;
+        hostEvent(SND_ARC, x, y, dx * 1024 + dy);
+        const idx = zombies.indexOf(t);
+        if (idx !== -1) damageZombie(idx, dmg, ownerId, now, "arc");
+    }
+}
+
+function addBolt(x1, y1, x2, y2) {
+    bolts.push({ x1: x1, y1: y1, x2: x2, y2: y2, born: Date.now(), seed: (x1 * 7 + y2 * 13) | 0 });
+    if (bolts.length > 40) bolts.shift();
+}
+
+// PERK: BLASTCAP. A small burst; its kills never set off another.
+function burstAt(x, y, radius, dmg, ownerId, now) {
+    addBlast(x, y, radius);
+    hostEvent(SND_POP, x, y, radius);
+    const hit = [];
+    for (let i = 0; i < zombies.length; i++) {
+        const z = zombies[i];
+        if (Math.hypot(z.x + z.size / 2 - x, z.y + z.size / 2 - y) < radius) hit.push(z);
+    }
+    for (let k = 0; k < hit.length; k++) {
+        const idx = zombies.indexOf(hit[k]);
+        if (idx !== -1) damageZombie(idx, dmg, ownerId, now, "blast");
+    }
 }
 
 function nearTeammate(x, y) {
@@ -824,14 +1393,15 @@ function explodeBarrel(index, ownerId, now) {
     const br = barrels[index];
     if (!br || !br.alive) return;
     br.alive = false;
-    addShake(14);
+    shakeNear(br.x, br.y, 14);
     addBlast(br.x + br.size / 2, br.y + br.size / 2, 190);
-    hostEvent(SND_EXPLODE, br.x, br.y);
-    hostEvent(SND_EXPLODE, br.x, br.y);
+    hostEvent(SND_EXPLODE, br.x, br.y, 190);
+    hostEvent(SND_EXPLODE, br.x, br.y, 190);
 
     for (let i = zombies.length - 1; i >= 0; i--) {
         const z = zombies[i];
-        if (dist(br.x, br.y, z.x, z.y) < 190) damageZombie(i, 12, ownerId, now);
+        if (!z) continue;
+        if (dist(br.x, br.y, z.x, z.y) < 190) damageZombie(i, 12, ownerId, now, "barrel");
     }
     // Chain reaction.
     for (let i = 0; i < barrels.length; i++) {
@@ -855,6 +1425,10 @@ function allTargets() {
     for (const id in remotePlayers) {
         if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
         const r = remotePlayers[id];
+        // AWAY (2026-09-19): a teammate whose messages have stopped is not a
+        // target. Zombies do not chase or maul the spot they froze on, they
+        // cannot revive or be revived, and nothing counts them as present.
+        if (r.away) continue;
         out.push({ x: r.x, y: r.y, size: r.size || 16, ref: r, local: false, id: id, downed: !!r.downed });
     }
     return out;
@@ -884,8 +1458,36 @@ function mostIsolated(targets) {
 // cheap to bother caching more cleverly than this.
 let navFieldAll = null;
 let navFieldIsolated = null;
+let navFieldDecoy = null;      // PERK: DECOY -- a field flowing to the live lures
 let navFieldAt = 0;
 const NAV_REFRESH_MS = 220;
+
+// PERK: DECOY (replaced BEACON 2026-09-18). A ping from a player holding it
+// becomes a lure: zombies within its radius path to the marker instead of
+// to a player, until it expires. HOST only -- the host alone steers zombies
+// -- and it rides the ping message, which now carries the pinger's id.
+// Recharge-gated, or holding Q would pin the horde in place for good.
+const DECOY_RADIUS = [0, 320, 400, 480];
+const DECOY_MS = [0, 4000, 5000, 6000];
+const DECOY_RECHARGE_MS = [0, 12000, 10000, 8000];
+
+function registerDecoy(id, x, y, now) {
+    const lvl = idCardLevel(id, "decoy");
+    if (!lvl || now < (decoyReadyAt[id] || 0)) return false;
+    decoys.push({ x: x, y: y, r: DECOY_RADIUS[lvl], until: now + DECOY_MS[lvl] });
+    decoyReadyAt[id] = now + DECOY_RECHARGE_MS[lvl];
+    hostEvent(SND_DECOY, x, y);
+    navFieldAt = 0;            // re-path now, not on the next refresh
+    return true;
+}
+
+function lureFor(zcx, zcy) {
+    for (let i = 0; i < decoys.length; i++) {
+        const d = decoys[i];
+        if (Math.hypot(zcx - d.x, zcy - d.y) < d.r) return d;
+    }
+    return null;
+}
 
 // Escape hatch for a zombie the local steering cannot free. Re-placed
 // exactly where a fresh spawn would go, so the spot is always legal,
@@ -936,6 +1538,8 @@ function updateZombies(now, dt) {
     const isolated = targets.length > 1 ? mostIsolated(targets) : null;
     const baseSpeed = zombieSpeedForRound(round);
 
+    for (let d = decoys.length - 1; d >= 0; d--) if (now >= decoys[d].until) decoys.splice(d, 1);
+
     if (!navFieldAll || now - navFieldAt > NAV_REFRESH_MS || navDirty) {
         navFieldAll = navFieldFrom(targets.map(function (t) {
             return { x: t.x + (t.size || 16) / 2, y: t.y + (t.size || 16) / 2 };
@@ -943,12 +1547,24 @@ function updateZombies(now, dt) {
         navFieldIsolated = isolated
             ? navFieldFrom([{ x: isolated.x + (isolated.size || 16) / 2, y: isolated.y + (isolated.size || 16) / 2 }])
             : null;
+        navFieldDecoy = decoys.length ? navFieldFrom(decoys) : null;
         navFieldAt = now;
     }
 
     for (let i = zombies.length - 1; i >= 0; i--) {
         const z = zombies[i];
+        // A kill can now take OTHER zombies with it (ARC, BLASTCAP, a burn
+        // death that sets one off), so the slot this loop is about to read
+        // may already be gone.
+        if (!z) continue;
         const spec = ZOMBIE_TYPES[z.type];
+
+        // FLAMETHROWER: burning is damage over time, credited to whoever lit
+        // it. Checked by identity afterwards -- it may have died of it.
+        if (z.burnUntil && now < z.burnUntil) {
+            damageZombie(i, WEAPONS.flamer.burn.dps * (dt / 1000), z.burnBy, now, "burn");
+            if (zombies[i] !== z) continue;
+        }
 
         // IDEA 12: screamers summon until killed, making them the
         // priority target the team has to name out loud.
@@ -977,9 +1593,15 @@ function updateZombies(now, dt) {
         // The field already routes around buildings and through the
         // boarded windows that link zones, so there is no stuck state to
         // recover from and no zone-waypoint special case.
-        const field = (z.isolationSeeker && navFieldIsolated) ? navFieldIsolated : navFieldAll;
         const zcx = z.x + z.size / 2;
         const zcy = z.y + z.size / 2;
+        // PERK: DECOY. A zombie inside a live lure follows the lure's field
+        // instead. `target` stays the player: contact below is still tested
+        // against a real player, so a lured zombie walking through you still
+        // downs you.
+        const lure = navFieldDecoy ? lureFor(zcx, zcy) : null;
+        const field = lure ? navFieldDecoy
+                    : (z.isolationSeeker && navFieldIsolated) ? navFieldIsolated : navFieldAll;
         const step = navStepToward(zcx, zcy, field);
 
         // CENTRE SPACE ON BOTH SIDES. navStepToward is handed a centre and
@@ -997,8 +1619,8 @@ function updateZombies(now, dt) {
         // sampled line, eating ~25px of the 43px of clearance a 112px
         // window gives it. `target` is a player, whose x is also a corner,
         // so the straight-line fallback needed the same treatment.
-        const goalX = step ? step.x : target.x + (target.size || 16) / 2;
-        const goalY = step ? step.y : target.y + (target.size || 16) / 2;
+        const goalX = step ? step.x : (lure ? lure.x : target.x + (target.size || 16) / 2);
+        const goalY = step ? step.y : (lure ? lure.y : target.y + (target.size || 16) / 2);
 
         const dx = goalX - zcx;
         const dy = goalY - zcy;
@@ -1122,11 +1744,12 @@ function updateZombies(now, dt) {
             // relocations in 38 simulated seconds, nearly all of them zombies
             // that had already arrived. Tested against the position AFTER the
             // move, not the pre-move centre used for steering.
-            const tcx = target.x + (target.size || 16) / 2;
-            const tcy = target.y + (target.size || 16) / 2;
+            // A lured zombie milling on its lure is "on target" too.
+            const tcx = lure ? lure.x : target.x + (target.size || 16) / 2;
+            const tcy = lure ? lure.y : target.y + (target.size || 16) / 2;
             const onTarget = Math.hypot(tcx - (z.x + z.size / 2),
                                         tcy - (z.y + z.size / 2))
-                             <= (z.size + (target.size || 16));
+                             <= (z.size + (lure ? 40 : (target.size || 16)));
 
             if (chewing || onTarget) {
                 z.progX = z.x; z.progY = z.y; z.progAt = now;
@@ -1171,11 +1794,14 @@ function updateZombies(now, dt) {
             if (now >= t.armedUntil) continue;
             if (rectIntersect(z.x, z.y, z.size, z.size, t.x, t.y, t.w, t.h)) {
                 hostEvent(SND_ZAP, z.x, z.y);
-                damageZombie(i, 6 * (dt / 1000) * 6, null, now);
+                damageZombie(i, 6 * (dt / 1000) * 6, null, now, "trap");
                 break;
             }
         }
-        if (!zombies[i]) continue;
+        // By identity: `!zombies[i]` was true only when the dead zombie had
+        // been LAST in the array. Otherwise its neighbour slid into slot i
+        // and the corpse went on to down a player on the line below.
+        if (zombies[i] !== z) continue;
 
         // Contact still tests the PLAYER, never the waypoint.
         if (rectIntersect(target.x, target.y, target.size, target.size, z.x, z.y, z.size, z.size)) {
@@ -1185,17 +1811,23 @@ function updateZombies(now, dt) {
 }
 
 function downPlayer(target, now) {
+    // PERK: LAST STAND x3 bleeds out half as fast again.
+    const bleedMs = BLEED_OUT_MS * (idCardLevel(target.id, "laststand") >= 3 ? 1.5 : 1);
     if (target.local) {
         const p = target.ref;
         if (p.downed || now < p.invulnUntil) return;
         p.downed = true;
-        p.bleedDeadline = now + BLEED_OUT_MS;
+        p.bleedDeadline = now + bleedMs;
         p.reviveProgress = 0;
     } else {
-        if (target.ref.downed) return;
+        // A guest's own "players" message can arrive a frame after this with
+        // its pre-down state; the record stops that reading as a second down.
+        const rec = remoteDowned[target.id];
+        if (target.ref.downed || (rec && now - rec.at < 1500)) return;
         target.ref.downed = true;
+        remoteDowned[target.id] = { at: now, bleedAt: now + bleedMs };
     }
-    addShake(9);
+    shakeNear(target.x, target.y, 9);
     hostEvent(SND_DOWN, target.x, target.y);
 
     // CARD: SPITE. Going down costs the horde something.
@@ -1204,15 +1836,17 @@ function downPlayer(target, now) {
         const radius = 200 + spite * 45;
         addBlast(target.x, target.y, radius);
         for (let i = zombies.length - 1; i >= 0; i--) {
-            if (dist(target.x, target.y, zombies[i].x, zombies[i].y) < radius) {
-                damageZombie(i, 10 * spite, target.id, now);
+            const z = zombies[i];
+            if (!z) continue;
+            if (dist(target.x, target.y, z.x, z.y) < radius) {
+                damageZombie(i, 10 * spite, target.id, now, "spite");
             }
         }
-        addShake(11);
-        hostEvent(SND_EXPLODE, target.x, target.y);
+        shakeNear(target.x, target.y, 11);
+        hostEvent(SND_EXPLODE, target.x, target.y, radius);
     }
 
-    if (netOnline) MP.send({ k: "down", id: target.id, ms: BLEED_OUT_MS });
+    if (netOnline) MP.send({ k: "down", id: target.id, ms: Math.round(bleedMs) });
 }
 
 function sendDeath(id) {
@@ -1231,13 +1865,21 @@ function updateRevives(now, dt) {
         const t = targets[i];
         if (!t.downed) continue;
 
+        const ref = t.ref;
+
+        // HYSTERESIS (2026-09-19). A teammate already reviving keeps it going
+        // out to REVIVE_KEEP, and only a newcomer needs REVIVE_RANGE. At one
+        // hard edge, a reviver shuffling on the boundary -- or a remote
+        // position arriving at 15Hz and interpolated -- flipped progress
+        // between filling and draining every few frames: the other half of
+        // the pulsing bar.
         let reviver = null;
         for (let j = 0; j < targets.length; j++) {
             if (i === j || targets[j].downed) continue;
-            if (dist(t.x, t.y, targets[j].x, targets[j].y) < REVIVE_RANGE) { reviver = targets[j]; break; }
+            const reach = (ref.reviveBy === targets[j].id) ? REVIVE_KEEP : REVIVE_RANGE;
+            if (dist(t.x, t.y, targets[j].x, targets[j].y) < reach) { reviver = targets[j]; break; }
         }
-
-        const ref = t.ref;
+        ref.reviveBy = reviver ? reviver.id : null;
         if (reviver) {
             // ROLE: MEDIC revives faster and ignores the escalation the
             // rest of the team pays.
@@ -1254,7 +1896,13 @@ function updateRevives(now, dt) {
                     ref.invulnUntil = now + 1500;
                 } else {
                     ref.downed = false;
+                    // Their "players" messages still say downed until "up"
+                    // reaches them; the players handler ignores that for a
+                    // moment rather than starting the revive over.
+                    ref.revivedAt = now;
+                    delete remoteDowned[t.id];
                 }
+                ref.reviveBy = null;
                 hostEvent(SND_REVIVED, t.x, t.y);
                 if (netOnline) MP.send({ k: "up", id: t.id }, true);
                 continue;
@@ -1265,7 +1913,8 @@ function updateRevives(now, dt) {
         downedProgress.push([t.id, +(ref.reviveProgress || 0).toFixed(2)]);
     }
 
-    if (netOnline && downedProgress.length && MP.canSend("rvs", 150)) {
+    // 100ms, was 150: the only feed for every other screen's bar now.
+    if (netOnline && downedProgress.length && MP.canSend("rvs", 100)) {
         MP.send({ k: "rvs", list: downedProgress });
     }
 }
@@ -1309,7 +1958,7 @@ function interactWith(p) {
         const t = traps[i];
         if (now >= t.readyAt && rectsOverlap(box, t)) { requestBuy("trap", i, p); return; }
     }
-    if (generatorRect && !generatorOn && rectsOverlap(box, generatorRect)) {
+    if (generatorRect && !generatorOn && !genTripped && rectsOverlap(box, generatorRect)) {
         requestBuy("generator", 0, p);
         return;
     }
@@ -1350,26 +1999,39 @@ function nearestPrompt(p) {
     }
     for (let i = 0; i < traps.length; i++) {
         if (now >= traps[i].readyAt && rectsOverlap(box, traps[i])) {
-            const disc = Math.round(traps[i].cost * [1, 0.6, 0.45, 0.3][cardLevel(p, "conductor")]);
+            // Same formula hostHandleBuy charges. The ENGINEER cut used to be
+            // charged but not shown, so the prompt quoted the wrong price.
+            const roleCut = myRole() === "engineer" ? 0.6 : 1;
+            const disc = Math.round(traps[i].cost * [1, 0.6, 0.45, 0.3][cardLevel(p, "conductor")] * roleCut);
             return "ARM TRAP — " + disc;
         }
     }
-    if (generatorRect && !generatorOn && rectsOverlap(box, generatorRect)) {
+    if (generatorRect && genTripped) {
+        const r = GEN_RESTART_REACH;
+        const g = generatorRect;
+        if (rectsOverlap(box, { x: g.x - r, y: g.y - r, w: g.w + r * 2, h: g.h + r * 2 })) {
+            return "RESTARTING GENERATOR — STAY CLOSE  " + Math.floor(clamp(genRestart, 0, 1) * 100) + "%";
+        }
+    }
+    if (generatorRect && !generatorOn && !genTripped && rectsOverlap(box, generatorRect)) {
         return "START GENERATOR — " + generatorRect.cost;
     }
+    // PERKS: name and price only. The playtest found a sentence on a world
+    // prompt too much to read mid-fight; the icon on the station says what
+    // it is, and the field manual says exactly what it does.
     for (let i = 0; i < cardStations.length; i++) {
         const st = cardStations[i];
         if (!rectsOverlap(box, st)) continue;
         const c = CARDS[st.card];
-        if (!generatorOn) return c.name + " — NEEDS THE GENERATOR";
+        if (!generatorOn) return c.name + " — NO POWER";
         const lvl = cardLevel(p, st.card);
         if (lvl >= CARD_MAX_STACK) return c.name + " — MAXED (x" + CARD_MAX_STACK + ")";
         if (lvl === 0 && distinctCardCount(p.cards) >= CARD_SLOTS) {
-            return "ALL " + CARD_SLOTS + " CARD SLOTS FULL";
+            return "ALL " + CARD_SLOTS + " PERK SLOTS FULL";
         }
         const price = Math.round(st.cost * CARD_STACK_COST[lvl]);
         const label = lvl === 0 ? c.name : c.name + " x" + (lvl + 1);
-        return label + " — " + price + "  (" + c.blurb + ")";
+        return label + " — " + price;
     }
     if (roundPhase === "intermission") {
         for (let i = 0; i < barricades.length; i++) {

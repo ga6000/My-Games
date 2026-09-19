@@ -102,6 +102,11 @@ no reload speed, no revive speed, no sprint, no extra weapon slot).
 | `SPITE` | going down detonates a shockwave that damages nearby zombies |
 | `CONDUCTOR` | traps last 2x and cost 40% less |
 
+> **Superseded 2026-09-18** (`zombie/PLAYTEST_PASS_PLAN.md`). The UI calls these PERKS now.
+> `BEACON` was cut (never worth a slot) and `DECOY` replaced it; `ARC`, `BLASTCAP`, `SKEWER`,
+> `LAST STAND` and `SALVAGE` were added — 11 in all, 8 stations a map, OVERDRIVE always present.
+> The Blackout dip in the lighting table above is +0.26 now, and a Blackout trips the generator.
+
 ## Level
 
 - **27 + 35** — seeded zone templates with real layout differences and names with character.

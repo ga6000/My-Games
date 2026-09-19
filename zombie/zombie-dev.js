@@ -7,7 +7,10 @@
  *
  * Loads LAST, after zombie-render.js. Only registration runs at load — the
  * callbacks below all execute later, so the names they read (round, zombies,
- * netIsHost, ...) are long since declared by the time any of them fires.
+ * netIsHost, ...) are long since declared by the time any of them fires. One
+ * exception (2026-09-18): three gameplay functions are WRAPPED at load for the
+ * FREE BUYS / NO ZOMBIES toggles -- another reason this file must load last.
+ * With both toggles off, the wrappers call straight through.
  *
  * ---------------------------------------------------------------------------
  * THIS GAME DOES NOT PAUSE WHILE THE PANEL IS OPEN
@@ -29,6 +32,63 @@
 // Toggled by the panel. Read nowhere else: god mode here is just a very long
 // invulnerability window, which the game already understands natively.
 var zDevGodOn = false;
+var zDevPerkIdx = -1;
+
+// ---------------------------------------------------------------------------
+// FREE BUYS and NO ZOMBIES (2026-09-18, asked for mid-playtest: "without
+// having to spam click the +500 scrap button").
+//
+// WRAPS, NOT HOOKS. This file has to stay deletable by removing its script
+// tag, with no diff in any gameplay file -- so rather than add a dev flag to
+// the gameplay code, the toggles wrap the functions every caller already
+// reaches through the global binding:
+//
+//   hostHandleBuy        every purchase in the game, host-validated
+//   spawnZombie          rounds, stragglers, screamer summons, spawnlings
+//   spawnZombieAt        the flood
+//   nearestPrompt        only to add "[DEV: FREE]" after a price
+//
+// Both are HOST-side functions, so both toggles are host-gated like the other
+// world buttons: on the host they cover the whole room (a guest's buys are
+// validated by the host's wrapped copy, and so are free too).
+//
+// With NO ZOMBIES on, a round cannot spend its budget, so it simply stays
+// active: nothing spawns, nothing clears, no Blackout comes round. SPAWN
+// TARGETS goes around the wrapper on purpose, so there is still something to
+// shoot at.
+// ---------------------------------------------------------------------------
+var zDevFreeBuys = false;
+var zDevNoZombies = false;
+var zDevOrigHostHandleBuy = hostHandleBuy;
+var zDevOrigSpawnZombie = spawnZombie;
+var zDevOrigSpawnZombieAt = spawnZombieAt;
+
+hostHandleBuy = function (msg) {
+    if (!zDevFreeBuys) return zDevOrigHostHandleBuy(msg);
+    // Every price check and every deduction in hostHandleBuy reads
+    // scrapPool, so lend it an amount no price reaches, then put the real
+    // pool back exactly as it was.
+    const real = scrapPool;
+    scrapPool = 1e12;
+    try { return zDevOrigHostHandleBuy(msg); }
+    finally { scrapPool = real; }
+};
+
+// Prompts still quote the real price with FREE BUYS on; say it is free, or
+// a playtester reasonably wonders whether they were just charged.
+var zDevOrigNearestPrompt = nearestPrompt;
+nearestPrompt = function (p) {
+    const s = zDevOrigNearestPrompt(p);
+    return (zDevFreeBuys && s && / — \d/.test(s)) ? s + "  [DEV: FREE]" : s;
+};
+
+spawnZombie = function (type, roundNo) {
+    return zDevNoZombies ? null : zDevOrigSpawnZombie(type, roundNo);
+};
+
+spawnZombieAt = function (type, roundNo, x, y) {
+    return zDevNoZombies ? null : zDevOrigSpawnZombieAt(type, roundNo, x, y);
+};
 
 function zDevPlayer() {
     return players[0] || null;
@@ -42,6 +102,8 @@ function zDevReport() {
     const p = zDevPlayer();
     const now = Date.now();
     const rows = [
+        ["dev toggles", "free buys " + (zDevFreeBuys ? "ON" : "off") +
+                        "   no zombies " + (zDevNoZombies ? "ON" : "off")],
         ["round", round + "  (" + roundPhase + ", " + roundLabel(round) + ")"],
         ["budget left", roundBudget + (roundPhase === "intermission"
             ? "   next in " + Math.max(0, Math.ceil((roundEndsAt - now) / 1000)) + "s" : "")],
@@ -54,15 +116,20 @@ function zDevReport() {
 
     if (p) {
         rows.push(["you", (p.downed ? "DOWNED" : "up") +
-                          "   " + p.weapon +
-                          "   cards " + (p.cards.length ? p.cards.join(",") : "none")]);
+                          "   " + currentWeaponKey(p) +
+                          "   owns " + (Object.keys(p.owned || {}).join(",") || "pistol only")]);
+        rows.push(["perks", p.cards.length ? p.cards.join(",") : "none"]);
         rows.push(["ammo", JSON.stringify(p.ammo)]);
         rows.push(["god mode", zDevGodOn ? "ON" : "off"]);
     } else {
-        rows.push(["you", "not spawned — move or click to join"]);
+        rows.push(["you", zAwaitRespawn ? "BLED OUT — back at round " + zDiedRound + "'s breather"
+                                        : "not spawned — move or click to join"]);
     }
 
-    rows.push(["lights", generatorOn ? "GENERATOR ON" : "dark"]);
+    rows.push(["lights", generatorOn ? "GENERATOR ON" : (genTripped ? "TRIPPED " + Math.round(genRestart * 100) + "%" : "dark")]);
+    rows.push(["perks on map", cardStations.map(function (s) { return s.card; }).join(",") +
+                               "   absent " + absentCardKeys().join(",")]);
+    rows.push(["ultras", countZombies("ultra") + " alive, " + ultraOwed + " owed this round"]);
     rows.push(["endgame", "gate " + gateStage + "/" + GATE_STAGES +
                           "   silos " + siloFill.join("/") +
                           "   flood " + (floodActive ? floodRemaining : "no") +
@@ -77,6 +144,57 @@ function zDevReport() {
 }
 
 var zDevActions = [
+    {
+        label: "FREE BUYS",
+        hint: "toggle — host only",
+        fn: function () {
+            const no = zDevHostOnly("free buys");
+            if (no) return no;
+            zDevFreeBuys = !zDevFreeBuys;
+            return zDevFreeBuys ? "ON — doors, guns, perks, generator, traps cost nothing"
+                                : "off";
+        }
+    },
+    {
+        label: "NO ZOMBIES",
+        hint: "toggle — host only",
+        fn: function () {
+            const no = zDevHostOnly("no zombies");
+            if (no) return no;
+            zDevNoZombies = !zDevNoZombies;
+            if (zDevNoZombies) zombies.length = 0;
+            return zDevNoZombies ? "ON — field cleared, nothing spawns (rounds hold)" : "off — spawning resumes";
+        }
+    },
+    {
+        label: "SPAWN TARGETS",
+        hint: "host only — 8 that stand still",
+        fn: function () {
+            const no = zDevHostOnly("targets");
+            if (no) return no;
+            const p = zDevPlayer();
+            if (!p) return "no local player";
+            // An arc in front of wherever you are aiming, clear of walls.
+            // Stationary (speedMult 0) and silent, so they are dummies: the
+            // progress watchdog expects no travel from a zombie that cannot
+            // move, and never relocates them.
+            const kinds = ["walker", "walker", "brute", "walker", "splitter", "walker", "brute", "walker"];
+            const base = Math.atan2(p.facingY, p.facingX);
+            let made = 0;
+            for (let i = 0; i < kinds.length; i++) {
+                const a = base + (i - 3.5) * 0.18;
+                const size = ZOMBIE_TYPES[kinds[i]].size;
+                const x = p.x + p.size / 2 + Math.cos(a) * 230 - size / 2;
+                const y = p.y + p.size / 2 + Math.sin(a) * 230 - size / 2;
+                if (blockedAt(x, y, size, true)) continue;
+                const z = zDevOrigSpawnZombieAt(kinds[i], Math.max(1, round), x, y);
+                z.speedMult = 0;
+                z.nextScream = Infinity;
+                made++;
+            }
+            return made + " targets placed" + (made < kinds.length ? " (" + (kinds.length - made) + " blocked by walls)" : "");
+        }
+    },
     {
         label: "ROUND +1",
         hint: "host only",
@@ -174,7 +292,68 @@ var zDevActions = [
         hint: "toggle generator",
         fn: function () {
             generatorOn = !generatorOn;
+            if (generatorOn) { genTripped = false; genRestart = 0; }
             return generatorOn ? "lit" : "dark";
+        }
+    },
+    {
+        label: "TRIP GENERATOR",
+        hint: "host only — what a Blackout does",
+        fn: function () {
+            const no = zDevHostOnly("trip");
+            if (no) return no;
+            if (!generatorOn) return "start the generator first (LIGHTS)";
+            tripGenerator();
+            return "tripped — stand at it " + (GEN_RESTART_MS / 1000) + "s to restart";
+        }
+    },
+    {
+        label: "SPAWN ULTRA",
+        hint: "host only",
+        fn: function () {
+            const no = zDevHostOnly("ultra");
+            if (no) return no;
+            const z = spawnZombie("ultra", Math.max(round, ULTRA_FROM_ROUND));
+            if (!z) return "no legal spawn point";
+            hostEvent(SND_ULTRA, z.x, z.y, 0);
+            return "one ULTRA HEAVY in " + zoneName(zoneOf(z.x, z.y));
+        }
+    },
+    {
+        label: "GIVE ALL GUNS",
+        fn: function () {
+            const p = zDevPlayer();
+            if (!p) return "no local player";
+            for (let i = 1; i < WEAPON_KEYS.length; i++) {
+                const k = WEAPON_KEYS[i];
+                p.owned[k] = true;
+                p.ammo[k] = WEAPONS[k].capacity;
+            }
+            p.weapon = "rocket";
+            return "all seven — 1-7 or the wheel";
+        }
+    },
+    {
+        label: "NEXT PERK",
+        hint: "adds a stack, cycles all 11",
+        fn: function () {
+            const p = zDevPlayer();
+            if (!p) return "no local player";
+            // Straight into p.cards, like applyPurchase does, ignoring price,
+            // power and slots -- this is for looking at perks, not buying them.
+            zDevPerkIdx = (zDevPerkIdx + 1) % CARD_KEYS.length;
+            const k = CARD_KEYS[zDevPerkIdx];
+            if (cardLevel(p, k) < CARD_MAX_STACK) p.cards.push(k);
+            return k + " x" + cardLevel(p, k);
+        }
+    },
+    {
+        label: "CLEAR PERKS",
+        fn: function () {
+            const p = zDevPlayer();
+            if (!p) return "no local player";
+            p.cards = [];
+            return "none";
         }
     },
     {
