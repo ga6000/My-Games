@@ -294,6 +294,10 @@ function weaponVoice(idx, g, pan) {
 
 function playEvent(code, x, y, arg) {
     if (!audioCtx || audioMuted) return;
+    // "sound & player input should stop at this time" (2026-09-19). The walk
+    // out is silent apart from the score's own win cue, which musicEnd()
+    // schedules directly and which does not come through here.
+    if (winSequenceRunning()) return;
     // The screamer carries much further than anything else -- that is
     // what makes it the target the team calls out (idea 44).
     const place = audioPlacement(x, y, code === SND_SCREAM ? 2.2 : 1);

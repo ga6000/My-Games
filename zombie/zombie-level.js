@@ -286,6 +286,61 @@ function blockedAt(x, y, size, forZombie) {
     return false;
 }
 
+// ---------------------------------------------------
+//   SHOOTING THROUGH PLANKS THAT ARE ALREADY GONE
+// ---------------------------------------------------
+// 2026-09-19, on request: you should be able to shoot a zombie THROUGH the
+// gap it is chewing, while the window is still standing. Before this a
+// barricade was total cover until hp hit 0 and it left the zombie solid set
+// entirely -- so the only way to shoot through a window was to lose it.
+//
+// The renderer already tells this exact story: four plank slots, filled from
+// the low end of the span upward, `shown` of them left. So the missing
+// planks are ALWAYS slots `shown..3` -- the far end -- and the hole a player
+// can see is the hole a bullet can use. These two helpers are the single
+// source of that geometry; drawBarricades() calls the first one so the
+// picture and the collision can never drift apart.
+const BARRICADE_PLANKS = 4;
+
+function barricadePlanksShown(b) {
+    if (!b || b.hp <= 0) return 0;
+    const frac = Math.min(1, b.hp / b.maxHp);
+    return Math.max(1, Math.ceil(BARRICADE_PLANKS * frac));
+}
+
+// True when the box lies WHOLLY past the last remaining plank. Wholly, not
+// merely overlapping: a round clipping the last board is stopped by it. At a
+// 112px window a slot is 28px against a bullet of 8-14, which is the
+// difference between a clean shot through the gap and a lucky one.
+function inBarricadeGap(b, x, y, size) {
+    const shown = barricadePlanksShown(b);
+    if (shown >= BARRICADE_PLANKS) return false;       // still fully boarded
+    const vertical = b.w < b.h;
+    const span = vertical ? b.h : b.w;
+    const gapStart = (vertical ? b.y : b.x) + shown * (span / BARRICADE_PLANKS);
+    return (vertical ? y : x) >= gapStart;
+}
+
+// What a BULLET collides with. The zombie solid set, minus the part of a
+// damaged barricade whose boards have already been torn off.
+//
+// Deliberately separate from blockedAt(): player collision, zombie
+// collision and both nav grids are untouched by this: a gap you can shoot
+// through is not a gap anyone can walk through, and the two solid grids that
+// make segmentation safe keep meaning exactly what they meant before.
+function bulletBlockedAt(x, y, size) {
+    const near = solidsNear(x, y, size, size, true);
+    for (let i = 0; i < near.length; i++) {
+        const r = near[i];
+        if (!rectIntersect(x, y, size, size, r.x, r.y, r.w, r.h)) continue;
+        // `maxHp` is what marks a rect as a barricade -- walls and doors
+        // have no such field.
+        if (r.maxHp && inBarricadeGap(r, x, y, size)) continue;
+        return true;
+    }
+    return false;
+}
+
 // Axis-separated so sliding along a wall works instead of sticking.
 // `clampToWorld` is false for a zombie until it has been fully inside the
 // map once -- they spawn off the edge and walk in, but must not be able
@@ -1166,37 +1221,74 @@ function findOpenSpotSure(b, size, resPad) {
     return { x: Math.round(b.x + b.w / 2 - size / 2), y: Math.round(b.y + b.h / 2 - size / 2) };
 }
 
-// --- the three weapons on the map ------------------------------------
-// Exactly one shotgun, one sniper and one SMG for the WHOLE map, each in
-// a different zone. v2 had nine wall-buys, which made every zone
-// interchangeable and every weapon a formality. The sniper is placed in
-// a long-sightline zone when the seed produced one.
+// --- WHERE THINGS LIVE (2026-09-19) ----------------------------------
+// "Make perk / spawn locations consistent for guns / perks / silos in
+// areas that make sense (even if sometimes perks don't spawn)."
+//
+// There used to be TWO layers of randomness stacked on each other:
+// templates were shuffled into zone slots (assignZones), and then guns and
+// perks were shuffled across zone INDICES. So the sniper was in a corridor
+// zone by design and everything else was a coin flip -- the same map twice
+// running put the shotgun in two unrelated places, and no zone was ever
+// worth remembering.
+//
+// Now a gun and a perk belong to a TEMPLATE, not to a zone index. The zone
+// still moves around the map, but THE KENNELS always sells the shotgun,
+// wherever the kennels turn out to be. That is what makes a place worth
+// naming, and it is the same reasoning that gave the sniper its corridor in
+// the first place.
+//
+// Only 8 of the 11 outer templates are on any given map, so each entry is
+// an ORDERED PREFERENCE, first one present wins.
+const GUN_HOMES = [
+    // key,      cost, preferred templates (in order)
+    ["sniper",   4200, ["spill", "laundry"]],           // the long sightlines; also the corridors fallback below
+    ["shotgun",  2600, ["kennel", "cold", "annex"]],    // 17 buildings: the tightest ground on the map
+    ["flamer",   5800, ["pump", "laundry", "spill"]],   // fuel and pumps
+    ["rocket",   7500, ["slag", "pool", "motor"]],      // 12 barrels; the most explosive zone there is
+    ["smg",      3400, ["motor", "ticket", "letter"]],
+    ["rifle",    1500, ["cold", "letter", "ticket"]]
+];
+
+// Pick the first zone whose template key is in `prefs` and is still free.
+// Returns -1 if none of them is on this map.
+function zoneForTemplates(free, prefs) {
+    for (let p = 0; p < prefs.length; p++) {
+        for (let i = 0; i < free.length; i++) {
+            if (zoneInfo[free[i]] && zoneInfo[free[i]].tpl.key === prefs[p]) return free[i];
+        }
+    }
+    return -1;
+}
+
 function placeWallBuys() {
     const outer = [];
     for (let i = 0; i < 9; i++) if (i !== 4 && zoneInfo[i]) outer.push(i);
 
-    const sightZones = outer.filter(function (z) { return zoneInfo[z].tpl.corridors; });
-    const order = seededShuffle(outer);
-    const used = {};
+    // The fallback order is seeded, not index order, so a gun that misses
+    // every home it named does not always land in the north-west.
+    let free = seededShuffle(outer);
+    const take = function (z) { free = free.filter(function (v) { return v !== z; }); };
 
-    const sniperZone = sightZones.length ? sightZones[Math.floor(MP.random() * sightZones.length)] : order[0];
-    used[sniperZone] = true;
-    addWallBuy(sniperZone, "sniper", 4200);
-
-    // !== undefined, NOT truthiness: zone 0 is a perfectly good zone and
-    // a falsy check silently dropped a weapon from the map whenever it
-    // came up first (7 seeds in 40).
-    const rest = order.filter(function (z) { return !used[z]; });
-    if (rest[0] !== undefined) { addWallBuy(rest[0], "shotgun", 2600); used[rest[0]] = true; }
-    if (rest[1] !== undefined) { addWallBuy(rest[1], "smg", 3400); used[rest[1]] = true; }
-    // The rifle is back: cheapest of the four, the natural first upgrade
-    // off the pistol.
-    if (rest[2] !== undefined) { addWallBuy(rest[2], "rifle", 1500); used[rest[2]] = true; }
-    // 2026-09-18. The two heavy guns, each in a zone of its own like the
-    // rest. The rocket launcher is the most expensive thing on any wall --
-    // it was asked for as "expensive", and it is the answer to the ULTRA.
-    if (rest[3] !== undefined) { addWallBuy(rest[3], "flamer", 5200); used[rest[3]] = true; }
-    if (rest[4] !== undefined) { addWallBuy(rest[4], "rocket", 7500); used[rest[4]] = true; }
+    for (let g = 0; g < GUN_HOMES.length; g++) {
+        const key = GUN_HOMES[g][0], cost = GUN_HOMES[g][1], prefs = GUN_HOMES[g][2];
+        let z = zoneForTemplates(free, prefs);
+        // The sniper keeps its old rule as a second chance: ANY long-sightline
+        // zone will do, not only the two named ones.
+        if (z < 0 && key === "sniper") {
+            for (let i = 0; i < free.length && z < 0; i++) {
+                if (zoneInfo[free[i]].tpl.corridors) z = free[i];
+            }
+        }
+        // EVERY GUN ALWAYS PLACES. Losing the rifle -- the cheap first
+        // upgrade off the pistol -- to a map roll would be a real balance
+        // regression, so a gun whose homes are all absent takes any free
+        // zone. Perks are the ones allowed to be missing (see below).
+        if (z < 0) z = free.length ? free[0] : -1;
+        if (z < 0) break;                       // fewer than 6 outer zones: cannot happen today
+        take(z);
+        addWallBuy(z, key, cost);
+    }
 }
 
 function addWallBuy(zone, weapon, cost) {
@@ -1221,22 +1313,70 @@ function addWallBuy(zone, weapon, cost) {
 // other 7 drawn from the remaining 10, and placement that cannot fail. The
 // three perks a map leaves out are named in the field manual and announced
 // when the generator first comes on (absentCardKeys).
+// Same treatment as the guns (2026-09-19): a perk belongs to a TEMPLATE, so
+// SALVAGE is at the slag heap on every map that has a slag heap.
+//
+// The difference from guns: A PERK IS ALLOWED TO BE ABSENT. There are 11
+// perks and 8 stations, so three are missing from any map whatever we do --
+// and the brief said so outright ("even if sometimes perks don't spawn").
+// absentCardKeys() already names them in the field manual and announces them
+// when power first comes on, so a missing perk is information rather than a
+// mystery. OVERDRIVE is still the one exception (CARD_ALWAYS), and it goes
+// to TURBINE HALL, which is the one template that is always placed.
+const PERK_HOMES = {
+    overdrive: ["turbine"],                 // the power: always on the map
+    salvage:   ["slag", "motor", "cold"],   // scrap out of scrap
+    conductor: ["pump", "turbine", "spill"],// electrical
+    laststand: ["letter", "annex", "pool"], // the outposts -- ground you hold
+    arc:       ["turbine", "pump"],
+    blastcap:  ["slag", "pool"],
+    skewer:    ["kennel", "laundry"],
+    ricochet:  ["cold", "ticket"],
+    scavenger: ["letter", "ticket", "motor"],
+    decoy:     ["ticket", "annex"],
+    spite:     ["pool", "kennel", "annex"]
+};
+
 function placeCardStations() {
     const outer = [];
     for (let i = 0; i < 9; i++) if (i !== 4 && zoneInfo[i]) outer.push(i);
-    const order = seededShuffle(outer);
-    const others = seededShuffle(CARD_KEYS.filter(function (k) { return k !== CARD_ALWAYS; }));
-    const cards = seededShuffle([CARD_ALWAYS].concat(others.slice(0, CARD_STATION_COUNT - 1)));
 
-    const n = Math.min(CARD_STATION_COUNT, order.length, cards.length);
-    for (let i = 0; i < n; i++) {
-        const b = zoneBounds(order[i]);
+    let free = seededShuffle(outer);
+    const take = function (z) { free = free.filter(function (v) { return v !== z; }); };
+    const placed = [];
+
+    // CARD_ALWAYS first, so its home is claimed before anything can take it.
+    const order = [CARD_ALWAYS].concat(
+        seededShuffle(CARD_KEYS.filter(function (k) { return k !== CARD_ALWAYS; })));
+
+    for (let i = 0; i < order.length && placed.length < CARD_STATION_COUNT; i++) {
+        const key = order[i];
+        let z = zoneForTemplates(free, PERK_HOMES[key] || []);
+        // Only CARD_ALWAYS is guaranteed a slot when its home is absent.
+        // Every other perk simply is not on this map, which is the point.
+        if (z < 0 && key === CARD_ALWAYS) z = free.length ? free[0] : -1;
+        if (z < 0) continue;
+        take(z);
+        placed.push({ card: key, zone: z });
+    }
+
+    // Any station left over (a map short of perk homes) goes to a perk that
+    // did not get one, so the map still sells CARD_STATION_COUNT of them.
+    for (let i = 0; i < order.length && placed.length < CARD_STATION_COUNT && free.length; i++) {
+        const key = order[i];
+        if (placed.some(function (p) { return p.card === key; })) continue;
+        placed.push({ card: key, zone: free[0] });
+        take(free[0]);
+    }
+
+    for (let i = 0; i < placed.length; i++) {
+        const b = zoneBounds(placed[i].zone);
         const spot = findOpenSpotSure(b, 60);
         cardStations.push({
             x: spot.x, y: spot.y, w: 60, h: 44,
-            card: cards[i],
-            cost: CARDS[cards[i]].cost,
-            zone: order[i]
+            card: placed[i].card,
+            cost: CARDS[placed[i].card].cost,
+            zone: placed[i].zone
         });
         reservedRects.push({ x: spot.x - 70, y: spot.y - 70, w: 200, h: 184 });
         claimFloor(spot.x, spot.y, 60, 44, 40);
@@ -1357,13 +1497,33 @@ let hallPlan = [];             // the zones chosen for funnel 2 and funnel 3
 // everything else routes round it. Never the centre, never the sluice's
 // zone. Corridor zones go last: their long sightline walls leave the
 // least room for a 560px hall.
+// 2026-09-19: the halls prefer named templates too, for the same reason the
+// guns do -- a run is easier to talk about when "funnel 2 is in the pump
+// house" is true more often than not. SPILLWAY and PUMP HOUSE are the
+// water-handling zones, so a drain hall belongs in them; the slag heap and
+// the dry pool are the next best industrial ground.
+//
+// The ordering rules that were already here still apply and still come
+// FIRST, because they are about whether a 560px hall physically fits:
+// never the centre, never the sluice's zone, and corridor zones last (their
+// long sightline walls leave the least room).
+const HALL_HOMES = ["spill", "pump", "slag", "pool", "motor", "turbine"];
+
 function planFunnelHalls() {
     const cands = [];
     for (let i = 0; i < 9; i++) if (i !== 4 && i !== SLUICE_ZONE && zoneInfo[i]) cands.push(i);
     const order = seededShuffle(cands);
     const open = order.filter(function (z) { return !zoneInfo[z].tpl.corridors; });
     const lanes = order.filter(function (z) { return zoneInfo[z].tpl.corridors; });
-    hallPlan = open.concat(lanes).slice(0, 2);
+
+    // Stable sort of the open zones by how early their template appears in
+    // HALL_HOMES; anything unlisted keeps its seeded position behind them.
+    const rank = function (z) {
+        const i = HALL_HOMES.indexOf(zoneInfo[z].tpl.key);
+        return i < 0 ? HALL_HOMES.length : i;
+    };
+    const preferred = open.slice().sort(function (a, b) { return rank(a) - rank(b); });
+    hallPlan = preferred.concat(lanes).slice(0, 2);
 }
 
 function rectBlockedStatic(r) {
@@ -1403,6 +1563,46 @@ function pipeBetween(f, s) {
     };
 }
 
+// A door-like pinch at each end of a funnel hall (2026-09-19, on request:
+// "cause pinch point slightly in silo hallways so there is more of a
+// door-like entrance & exit").
+//
+// A hall is HALL_WID 280 outer / 240 inner and used to stand open the full
+// width at both ends. Four jambs -- one at each corner of each open end --
+// take that to HALL_DOOR (140).
+//
+// HALL_DOOR IS THE NUMBER THAT NEEDS CARE. Rule 3 in zombie/CLAUDE.md: the
+// flow field can only GUARANTEE an opening at 2*NAV_CELL + 2*NAV_PAD = 78px.
+// 140 clears that by 62px and clears the widest body (the ULTRA HEAVY, 34px)
+// four times over. It does make this the narrowest opening on the map --
+// outpost doorways are 112, windows 112-151, doors 124-159, the nook hole
+// 90 -- so if NAV_CELL or NAV_PAD ever move again, check HERE first.
+const HALL_DOOR = 140;
+const HALL_JAMB_D = 26;                              // depth along the hall axis
+
+function addHallPinches(x, y, w, h, vertical) {
+    // Inner clear span, and how much of it each jamb eats.
+    const span = (vertical ? w : h) - WALL_T * 2;    // 240
+    const jamb = Math.max(0, Math.round((span - HALL_DOOR) / 2));
+    if (jamb <= 0) return;
+
+    if (vertical) {
+        // Open ends are NORTH and SOUTH; the jambs run across in x.
+        const ends = [y, y + h - HALL_JAMB_D];
+        for (let e = 0; e < ends.length; e++) {
+            walls.push({ x: x + WALL_T, y: ends[e], w: jamb, h: HALL_JAMB_D });
+            walls.push({ x: x + w - WALL_T - jamb, y: ends[e], w: jamb, h: HALL_JAMB_D });
+        }
+    } else {
+        // Open ends are WEST and EAST; the jambs run down in y.
+        const ends = [x, x + w - HALL_JAMB_D];
+        for (let e = 0; e < ends.length; e++) {
+            walls.push({ x: ends[e], y: y + WALL_T, w: HALL_JAMB_D, h: jamb });
+            walls.push({ x: ends[e], y: y + h - WALL_T - jamb, w: HALL_JAMB_D, h: jamb });
+        }
+    }
+}
+
 function makeFunnelHall(x, y, vertical, z, k) {
     const w = vertical ? HALL_WID : HALL_LEN;
     const h = vertical ? HALL_LEN : HALL_WID;
@@ -1410,13 +1610,21 @@ function makeFunnelHall(x, y, vertical, z, k) {
         walls.push({ x: x, y: y, w: WALL_T, h: h });
         walls.push({ x: x + w - WALL_T, y: y, w: WALL_T, h: h });
         funnels[k] = { x: x + w / 2, y: y + 190, r: HALL_FUNNEL_R, zone: z };
+        // Against the WEST wall, mid-hall: open floor above it, so the label
+        // goes above as usual.
         silos[k] = { x: x + WALL_T + 8, y: y + 380, w: SILO_W, h: SILO_H, zone: z };
     } else {
         walls.push({ x: x, y: y, w: w, h: WALL_T });
         walls.push({ x: x, y: y + h - WALL_T, w: w, h: WALL_T });
         funnels[k] = { x: x + 190, y: y + h / 2, r: HALL_FUNNEL_R, zone: z };
-        silos[k] = { x: x + 380, y: y + WALL_T + 8, w: SILO_W, h: SILO_H, zone: z };
+        // Against the NORTH wall -- so `labelBelow` (2026-09-19). drawEndgame
+        // draws both silo lines ABOVE the tank, which here put them inside
+        // the hall wall: the reported "text showing amount full is currently
+        // inside of wall above". Decided here, where we know which wall we
+        // just parked it against, rather than guessed at draw time.
+        silos[k] = { x: x + 380, y: y + WALL_T + 8, w: SILO_W, h: SILO_H, zone: z, labelBelow: true };
     }
+    addHallPinches(x, y, w, h, vertical);
     funnelHalls[k] = { x: x, y: y, w: w, h: h, vertical: vertical, zone: z };
     siloPipes[k] = pipeBetween(funnels[k], silos[k]);
     reservedRects.push({ x: x - 110, y: y - 110, w: w + 220, h: h + 220 });

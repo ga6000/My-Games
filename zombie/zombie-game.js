@@ -570,19 +570,78 @@ function updateRemoteBleed(now) {
 }
 
 // The first win state the game has ever had.
+// ---------------------------------------------------
+//   GETTING OUT  (the win sequence, 2026-09-19)
+// ---------------------------------------------------
+// Asked for: "exiting the game should pull the player off screen as if
+// they've left the area and gameplay in background should fade to black
+// allowing the escape message + high score message to appear. sound &
+// player input should stop at this time."
+//
+// So winning is no longer one frame. triggerWin() starts a sequence and the
+// CARD comes at the end of it:
+//
+//   0            -> ESCAPE_PULL_MS   the player walks south out of frame
+//   ESCAPE_PULL  -> + ESCAPE_FADE_MS the world fades to black behind them
+//   then                             showWinCard(): YOU GOT OUT + the score
+//
+// `won` is still set on the FIRST frame, not the last, because it is
+// host-authoritative state on the wire (`wn`) and it is what stops the
+// endgame and the flood. Only the card is delayed.
+//
+// The sequence is LOCAL and every client in the room plays its own: the run
+// is won by the team, so everyone gets the walk-out. The pull is a DRAW
+// offset (`winPullPx`), never a write to p.x -- the same discipline as
+// RETRO.snap. Moving the simulation would walk the player through the world
+// clamp and into collision code on the way out.
+const ESCAPE_PULL_MS = 1400;
+const ESCAPE_FADE_MS = 1200;
+
+let winSeqAt = 0;        // when the sequence started; 0 = not running
+let winPullPx = 0;       // how far the local player is drawn past the gate
+let winFade = 0;         // 0..1 black over the world
+
+// True while input and gameplay sound are suppressed.
+function winSequenceRunning() {
+    return winSeqAt > 0 && !uiWinShown;
+}
+let uiWinShown = false;
+
 function triggerWin() {
     if (won || gameOver) return;
     won = true;
+    winSeqAt = Date.now();
+    winPullPx = 0;
+    winFade = 0;
+    // The gate, and then nothing: stopAllLoops kills the sustained voices
+    // and winSequenceRunning() gates every one-shot from here on, so the
+    // walk out is silent except for the score's own win cue.
     localEvent(SND_GENERATOR, WORLD_W / 2, WORLD_H - 100);
     stopAllLoops();
     musicEnd("win");
+    releaseHeldKeys();
+    if (netOnline && netIsHost) MP.send({ k: "won" }, true);
+}
+
+function updateWinSequence(now) {
+    if (!winSeqAt || uiWinShown) return;
+    const t = now - winSeqAt;
+    // Constant rate, far enough to clear any screen height.
+    winPullPx = Math.min(1, t / ESCAPE_PULL_MS) * 620;
+    winFade = clamp((t - ESCAPE_PULL_MS) / ESCAPE_FADE_MS, 0, 1);
+    if (t >= ESCAPE_PULL_MS + ESCAPE_FADE_MS) showWinCard();
+}
+
+function showWinCard() {
+    if (uiWinShown) return;
+    uiWinShown = true;
+    winFade = 1;
     uiWin.style.display = 'block';
     uiWinRound.innerText = String(round);
     renderRunScore(uiWinScore);
     // A win is a completed run and belongs on the board too -- the same
     // guard stops the later game-over path posting it a second time.
     submitRunToLeaderboard();
-    if (netOnline && netIsHost) MP.send({ k: "won" }, true);
 }
 
 function triggerGameOver() {
@@ -634,7 +693,7 @@ const SCORE_WIN = 50000;
 
 function silosFilled() {
     let n = 0;
-    for (let i = 0; i < siloFill.length; i++) if (siloFill[i] >= SILO_CAPACITY) n++;
+    for (let i = 0; i < siloFill.length; i++) if (siloFill[i] >= siloCapacity(i)) n++;
     return n;
 }
 
@@ -698,6 +757,13 @@ function resetGame() {
     gameOver = false;
     gameStarted = false;
     zLbSubmitted = false;
+
+    // The win sequence, or a restart clicked during one leaves the world
+    // half-faded and the local player drawn 600px south of themselves.
+    winSeqAt = 0;
+    winPullPx = 0;
+    winFade = 0;
+    uiWinShown = false;
 
     zAwaitRespawn = false;
     zDiedRound = 0;
@@ -1156,7 +1222,14 @@ function updateBullets(now) {
         // Bullets use the ZOMBIE solid set: a broken window stops being
         // cover for either side, so shooting through one you've let open
         // is a real consequence of losing it.
-        if (blockedAt(b.x, b.y, b.size, true) && kind === "rocket") {
+        //
+        // bulletBlockedAt, not blockedAt (2026-09-19): that set minus the
+        // planks a barricade has already lost, so you can shoot into the
+        // gap a zombie is chewing without having to lose the whole window
+        // first. See zombie-level.js. ALL FOUR tests below use it -- the
+        // two ricochet probes included, or a round would bounce off a hole
+        // it should have flown straight through.
+        if (bulletBlockedAt(b.x, b.y, b.size) && kind === "rocket") {
             // Back out of the wall first, so the blast is on the near side.
             b.x -= b.vx;
             b.y -= b.vy;
@@ -1164,14 +1237,14 @@ function updateBullets(now) {
             bullets.splice(i, 1);
             continue;
         }
-        if (blockedAt(b.x, b.y, b.size, true)) {
+        if (bulletBlockedAt(b.x, b.y, b.size)) {
             // CARD: RICOCHET. Step back out of the wall, then reflect off
             // whichever axis actually blocked us.
             if (b.bounces > 0) {
                 b.x -= b.vx;
                 b.y -= b.vy;
-                const hitX = blockedAt(b.x + b.vx, b.y, b.size, true);
-                const hitY = blockedAt(b.x, b.y + b.vy, b.size, true);
+                const hitX = bulletBlockedAt(b.x + b.vx, b.y, b.size);
+                const hitY = bulletBlockedAt(b.x, b.y + b.vy, b.size);
                 if (hitX) b.vx = -b.vx;
                 if (hitY) b.vy = -b.vy;
                 if (!hitX && !hitY) { b.vx = -b.vx; b.vy = -b.vy; }
@@ -2048,7 +2121,7 @@ function nearestPrompt(p) {
         if (!silos[i] || !rectsOverlap(box, silos[i])) continue;
         if (siloFlipped[i]) return "SILO " + (i + 1) + " — SPENT";
         if (siloReady(i)) return "THROW SILO " + (i + 1) + " SWITCH";
-        return "SILO " + (i + 1) + " — " + siloFill[i] + "/" + SILO_CAPACITY;
+        return "SILO " + (i + 1) + " — " + siloFill[i] + "/" + siloCapacity(i);
     }
     for (let i = 0; i < doors.length; i++) {
         if (!doors[i].open && rectsOverlap(box, doors[i])) return "OPEN DOOR — " + doors[i].cost;

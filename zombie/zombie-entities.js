@@ -63,8 +63,23 @@ const WEAPONS = {
     // Three per shot at 70ms is about the SMG's message rate, which matters
     // because a guest's every shot is a relay message; more flames would be
     // a denser plume but not more messages.
+    //
+    // NERFED 2026-09-19, on a playtest call of "a bit OP". ONE ammo is spent
+    // per trigger pull, not per pellet (see shoot()), so `capacity` is
+    // seconds of held trigger: 400 was 28.0s, 340 is 23.8s. Cost 5200 ->
+    // 5800. Damage, cooldown, pierce, range and burn are all UNTOUCHED --
+    // the brief said "very slightly", and the reason it feels strong is
+    // pierce against a crowd (~21 dps on one zombie, ~170 on eight), which
+    // is the thing that makes it worth its price at all.
+    //
+    // `salvage` / `salvageAmt` DELIBERATELY UNCHANGED. The brief asked that
+    // it "pair well with the salvage perk", and cutting the magazine is what
+    // CREATES that pairing: SALVAGE refunds 5 rounds on 30/45/60% of kills,
+    // so at x3 into a crowd the flamer nearly sustains itself and without it
+    // you now feel the 340. Nerfing the refund too would delete the answer
+    // at the same moment as the problem.
     flamer:  { name: "FLAMETHROWER", short: "FLAMER", cooldown: 70, dmg: 0.5, pellets: 3, spread: 0.36, speed: 7.5, pierce: 99, range: 280,
-               capacity: 400, shake: 0.5, shape: "flame", bsize: 14, salvage: 1, salvageAmt: 5,
+               capacity: 340, shake: 0.5, shape: "flame", bsize: 14, salvage: 1, salvageAmt: 5,
                burn: { ms: 2200, dps: 1.6 } }
 };
 

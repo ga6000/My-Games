@@ -38,6 +38,9 @@ const uiPerks = document.getElementById('perks');
 const uiStats = document.getElementById('stats');
 const uiSpectate = document.getElementById('spectate');
 const uiLoadout = document.getElementById('loadout');
+// The HUD panel itself, so the win sequence can fade the readout with the
+// world instead of leaving live numbers floating over black.
+const uiHudRoot = document.getElementById('ui');
 const uiNetLost = document.getElementById('netlost');
 const uiNetLostTime = document.getElementById('netLostTime');
 const uiNetLostOffer = document.getElementById('netLostOffer');
@@ -67,6 +70,9 @@ const uiCodexClose = document.getElementById('codexClose');
 // Every table below is built FROM the live data (WEAPONS, CARDS,
 // ZOMBIE_TYPES, the map arrays), never hand-written. A manual that can
 // drift out of step with the balance numbers is worse than no manual.
+// True while the HUD carries a win-sequence opacity, so the one frame that
+// puts it back to 1 still runs after the fade is cleared by a restart.
+let hudFaded = false;
 let codexOpen = false;
 let codexTab = "weapons";
 
@@ -79,8 +85,20 @@ const CODEX_TABS = [
     ["map", "THE MAP"]
 ];
 
+// BOTH ends release the held keys, and the open side is the one that was
+// missing (fixed 2026-09-19, reported as "holding a direction while opening
+// the field manual makes the player keep moving").
+//
+// Why it happened: the keydown that opens the manual leaves p.keys.<dir>
+// true, the `keyup` listener returns early while `codexOpen`, so the release
+// is never seen -- and NOTHING gates updatePlayers on codexOpen. So you
+// walked for as long as you read. closeCodex() already cleared the keys,
+// which is exactly why it stopped the instant you shut the manual and read
+// as "it moves while the manual is up" rather than "it moves afterwards".
+// openHelp()/closeHelp() had this right on both sides all along.
 function openCodex() {
     codexOpen = true;
+    releaseHeldKeys();
     uiCodex.classList.add('open');
     renderCodex();
 }
@@ -88,10 +106,7 @@ function openCodex() {
 function closeCodex() {
     codexOpen = false;
     uiCodex.classList.remove('open');
-    // Drop any keys held when it opened, or the player walks off on their
-    // own the moment it closes.
-    const p = players[0];
-    if (p) { p.keys.up = p.keys.down = p.keys.left = p.keys.right = p.keys.shoot = false; }
+    releaseHeldKeys();
 }
 
 function swatch(color) {
@@ -352,13 +367,13 @@ function mapGoals() {
     for (let k = 0; k < 3; k++) {
         const where = k === 0 ? zoneAt(sluiceRoom) + " (the sluice room)"
                     : (funnelHalls[k] ? zoneName(funnelHalls[k].zone) : (funnels[k] ? zoneName(funnels[k].zone) : ""));
-        const full = siloFill[k] >= SILO_CAPACITY;
+        const full = siloFill[k] >= siloCapacity(k);
         goals.push({
             text: "Fill silo " + (k + 1) + " and throw its switch",
             short: full ? "THROW SILO " + (k + 1) + "'S SWITCH" : "FILL SILO " + (k + 1),
             where: where,
             note: full ? "full — throw the switch on the silo" : "kill zombies standing ON funnel " + (k + 1),
-            progress: (!siloFlipped[k] && siloFill[k] > 0) ? siloFill[k] + "/" + SILO_CAPACITY : "",
+            progress: (!siloFlipped[k] && siloFill[k] > 0) ? siloFill[k] + "/" + siloCapacity(k) : "",
             done: !!siloFlipped[k]
         });
     }
@@ -498,6 +513,15 @@ function draw() {
     drawLighting();
     drawOffscreenMarkers(now);
     if (hudMapOn) drawMinimap();
+    // THE FADE (2026-09-19): after the walk out, everything goes. Last, and
+    // over the lighting and the minimap, because it is the screen going
+    // dark, not the world going dark -- the DOM HUD is faded with it in
+    // updateHud so the numbers do not float over black.
+    if (winFade > 0) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = "rgba(0,0,0," + winFade.toFixed(3) + ")";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     updateHud(now);
 }
 
@@ -597,20 +621,27 @@ function drawDoors(inView) {
         const cxm = d.x + d.w / 2, cym = d.y + d.h / 2;
         ctx.fillRect(cxm - 3, cym - 3, 6, 6);          // keyhole
 
-        ctx.save();
-        ctx.translate(cxm, cym);
-        if (vertical) ctx.rotate(-Math.PI / 2);
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(-30, -22, 60, 15);
-        ctx.strokeStyle = COLOR_DOOR;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(-30, -22, 60, 15);
-        ctx.fillStyle = COLOR_DOOR;
-        ctx.font = "bold 11px Courier";
-        ctx.textAlign = "center";
-        ctx.fillText(String(d.cost), 0, -11);
-        ctx.textAlign = "left";
-        ctx.restore();
+        // The price plate, but ONLY for a door that has a price. The sluice
+        // gate is a door with no `cost` -- it is opened by two players on
+        // two plates, never bought -- so this printed a plate reading
+        // "undefined" over the game's one fixed landmark. Pre-existing;
+        // spotted in the browser 2026-09-19 while rebuilding the escape.
+        if (typeof d.cost === "number") {
+            ctx.save();
+            ctx.translate(cxm, cym);
+            if (vertical) ctx.rotate(-Math.PI / 2);
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(-30, -22, 60, 15);
+            ctx.strokeStyle = COLOR_DOOR;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(-30, -22, 60, 15);
+            ctx.fillStyle = COLOR_DOOR;
+            ctx.font = "bold 11px Courier";
+            ctx.textAlign = "center";
+            ctx.fillText(String(d.cost), 0, -11);
+            ctx.textAlign = "left";
+            ctx.restore();
+        }
     }
 }
 
@@ -659,10 +690,15 @@ function drawBarricades(inView) {
         // Above 1 when an ENGINEER's breather re-board left it at 150%: the
         // planks cap at four (more would be drawn past the window's ends) and
         // a reinforcing frame shows the extra instead.
+        //
+        // `planks`/`shown` come from zombie-level.js since 2026-09-19,
+        // because BULLETS now read the same geometry (bulletBlockedAt): the
+        // gap you can see is the gap you can shoot through, and keeping one
+        // copy of the arithmetic is what guarantees that stays true.
         const reinforced = b.hp > b.maxHp;
         const frac = Math.min(1, b.hp / b.maxHp);
-        const planks = 4;
-        const shown = Math.max(1, Math.ceil(planks * frac));
+        const planks = BARRICADE_PLANKS;
+        const shown = barricadePlanksShown(b);
         if (reinforced) {
             ctx.strokeStyle = "#C89B5A";
             ctx.lineWidth = 2;
@@ -747,7 +783,7 @@ function drawEndgame(now, inView) {
         const f = funnels[i];
         if (!f || !inView(f.x - f.r, f.y - f.r, f.r * 2, f.r * 2)) continue;
         const live = funnelActive[i];
-        const spent = siloFill[i] >= SILO_CAPACITY;
+        const spent = siloFill[i] >= siloCapacity(i);
 
         ctx.strokeStyle = live ? "#FF3355" : (spent ? "#334433" : "#442233");
         ctx.lineWidth = live ? 4 : 2;
@@ -771,7 +807,7 @@ function drawEndgame(now, inView) {
             ctx.fillStyle = "#FF3355";
             ctx.font = "bold 11px Courier";
             ctx.textAlign = "center";
-            ctx.fillText("FUNNEL " + (i + 1) + " — " + siloFill[i] + "/" + SILO_CAPACITY, f.x, f.y - f.r - 10);
+            ctx.fillText("FUNNEL " + (i + 1) + " — " + siloFill[i] + "/" + siloCapacity(i), f.x, f.y - f.r - 10);
             ctx.textAlign = "left";
         }
     }
@@ -780,7 +816,7 @@ function drawEndgame(now, inView) {
     for (let i = 0; i < silos.length; i++) {
         const si = silos[i];
         if (!si || !inView(si.x, si.y, si.w, si.h)) continue;
-        const frac = siloFill[i] / SILO_CAPACITY;
+        const frac = Math.min(1, siloFill[i] / siloCapacity(i));
 
         ctx.fillStyle = "#160608";
         ctx.fillRect(si.x, si.y, si.w, si.h);
@@ -796,37 +832,130 @@ function drawEndgame(now, inView) {
         ctx.lineWidth = 3;
         ctx.strokeRect(si.x, si.y, si.w, si.h);
 
-        ctx.fillStyle = siloFlipped[i] ? "#557755" : (siloReady(i) ? COLOR_BUY : "#CC6677");
+        // The two labels. They sat unconditionally ABOVE the tank, which in a
+        // HORIZONTAL funnel hall is inside the hall's north wall -- the silo
+        // is parked against it. zombie-level.js marks that case `labelBelow`
+        // at build time, because that is where it is known which wall the
+        // tank went against (2026-09-19).
+        //
+        // The backing plate is not decoration either: 9px Courier over a
+        // drain floor with animated blood in the pipe beside it was marginal
+        // even where it did fit.
+        const l1 = "SILO " + (i + 1);
+        const l2 = siloFlipped[i] ? "SPENT"
+                 : (siloReady(i) ? "[F] SWITCH" : siloFill[i] + "/" + siloCapacity(i));
         ctx.font = "9px Courier";
         ctx.textAlign = "center";
-        ctx.fillText("SILO " + (i + 1), si.x + si.w / 2, si.y - 16);
-        ctx.fillText(siloFlipped[i] ? "SPENT" : (siloReady(i) ? "[F] SWITCH" : siloFill[i] + "/" + SILO_CAPACITY),
-                     si.x + si.w / 2, si.y - 5);
+        const cx = si.x + si.w / 2;
+        const plateW = Math.max(ctx.measureText(l1).width, ctx.measureText(l2).width) + 10;
+        // Top of the two-line block, on whichever side has floor.
+        const top = si.labelBelow ? si.y + si.h + 5 : si.y - 24;
+        ctx.fillStyle = "rgba(8,4,5,0.72)";
+        ctx.fillRect(Math.round(cx - plateW / 2), top, Math.round(plateW), 22);
+        ctx.fillStyle = siloFlipped[i] ? "#557755" : (siloReady(i) ? COLOR_BUY : "#CC6677");
+        ctx.fillText(l1, cx, top + 9);
+        ctx.fillText(l2, cx, top + 20);
         ctx.textAlign = "left";
     }
 
     // --- the way out ---
-    if (escapeRect && inView(escapeRect.x, escapeRect.y, escapeRect.w, escapeRect.h)) {
-        const open = escapeOpen();
-        const started = escapeAt > 0;
-        ctx.fillStyle = open ? "#0A2A0A" : "#1A1A1A";
-        ctx.fillRect(escapeRect.x, escapeRect.y, escapeRect.w, escapeRect.h);
-        ctx.strokeStyle = open ? COLOR_BUY : (started ? "#AAAA55" : "#555555");
-        ctx.lineWidth = 4;
-        ctx.strokeRect(escapeRect.x, escapeRect.y, escapeRect.w, escapeRect.h);
-
-        if (started && !open) {
-            const total = ESCAPE_OPEN_MS;
-            const frac = clamp(1 - (escapeAt - now) / total, 0, 1);
-            ctx.fillStyle = "#AAAA55";
-            ctx.fillRect(escapeRect.x, escapeRect.y - 14, escapeRect.w * frac, 8);
-        }
-        ctx.fillStyle = open ? COLOR_BUY : "#888888";
-        ctx.font = "bold 12px Courier";
-        ctx.textAlign = "center";
-        ctx.fillText(open ? "ESCAPE" : "SEALED", escapeRect.x + escapeRect.w / 2, escapeRect.y + 42);
-        ctx.textAlign = "left";
+    if (escapeRect && inView(escapeRect.x - 20, escapeRect.y - 20, escapeRect.w + 40, escapeRect.h + 40)) {
+        drawEscapeGate(now);
     }
+}
+
+// THE SOUTH GATE (2026-09-19). Replaces a yellow loading bar and the word
+// SEALED with the thing the bar was describing: a heavy slab grinding up
+// behind a chainlink gate, and the fence flying open when the slab is clear.
+//
+// Both fractions come from escapeGateFrac()/escapeChainFrac() in
+// zombie-endgame.js, which derive from `escapeAt` alone -- so nothing new
+// crosses the wire and a guest's gate is at the host's height.
+function drawEscapeGate(now) {
+    const r = escapeRect;
+    const started = escapeAt > 0;
+    const gf = escapeGateFrac();
+    const cf = escapeChainFrac();
+
+    // The opening itself: black, because what is past it is outside.
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+
+    // --- the heavy inner gate, rising ---
+    // It sits IN the opening and retracts upward, so the black revealed
+    // beneath it is the way out.
+    const slabH = Math.round(r.h * (1 - gf));
+    if (slabH > 0) {
+        ctx.fillStyle = "#2B2B2E";
+        ctx.fillRect(r.x, r.y + r.h - slabH, r.w, slabH);
+        // Ribs across it -- flat bands, no gradient (AESTHETIC_GUIDE 6.3).
+        ctx.fillStyle = "#3A3A3F";
+        for (let yy = r.y + r.h - slabH + 6; yy < r.y + r.h - 4; yy += 12) {
+            ctx.fillRect(r.x + 3, Math.round(yy), r.w - 6, 4);
+        }
+        // The lifting edge, bright, so you can see it move at all.
+        ctx.fillStyle = started ? "#6E6E52" : "#4A4A4E";
+        ctx.fillRect(r.x, r.y + r.h - slabH, r.w, 4);
+    }
+    // The rails it runs in.
+    ctx.fillStyle = "#1C1C20";
+    ctx.fillRect(r.x - 7, r.y - 4, 7, r.h + 8);
+    ctx.fillRect(r.x + r.w, r.y - 4, 7, r.h + 8);
+
+    // --- the chainlink gate in front ---
+    // Hinged on the left. Shut for the whole 90s, then it flies.
+    const swing = cf;                       // 0 shut .. 1 flat against the wall
+    const gw = Math.round(r.w * (1 - swing * 0.94));
+    if (gw > 6) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(r.x, r.y - 2, gw, r.h + 4);
+        ctx.clip();
+        // Diamond mesh: two sets of diagonals, one colour, on the open gap.
+        ctx.strokeStyle = swing > 0 ? "#8A9A88" : "#6E7A6E";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let d = -r.h; d < gw + r.h; d += 9) {
+            ctx.moveTo(r.x + d, r.y);
+            ctx.lineTo(r.x + d + r.h, r.y + r.h);
+            ctx.moveTo(r.x + d, r.y + r.h);
+            ctx.lineTo(r.x + d + r.h, r.y);
+        }
+        ctx.stroke();
+        ctx.restore();
+        // Frame: top and bottom rails plus the leading post.
+        ctx.fillStyle = "#9AA69A";
+        ctx.fillRect(r.x, r.y - 2, gw, 3);
+        ctx.fillRect(r.x, r.y + r.h - 1, gw, 3);
+        ctx.fillRect(r.x + gw - 3, r.y - 2, 3, r.h + 4);
+        // The hinge post, always where the wall is.
+        ctx.fillStyle = "#C8D0C8";
+        ctx.fillRect(r.x - 2, r.y - 5, 4, r.h + 10);
+    }
+
+    // --- the label ---
+    // ABOVE the gate, not below it. The escape sits 8px off the bottom of
+    // the world and the camera clamps there, so anything drawn below the
+    // rect is outside the view and is never seen -- checked in the browser,
+    // where a label at r.y + r.h + 20 landed at world y 2712 against a
+    // WORLD_H of 2700 and simply did not render.
+    const open = escapeOpen() && cf >= 0.5;
+    ctx.fillStyle = open ? COLOR_BUY : (started ? "#AAAA55" : "#888888");
+    ctx.font = "bold 12px Courier";
+    ctx.textAlign = "center";
+    const cx = r.x + r.w / 2;
+    const ly = r.y - 10;
+    const label = open ? "ESCAPE"
+                : started ? Math.ceil((escapeAt - now) / 1000) + "s"   // the gate IS the bar now
+                : "SEALED";
+    const lw = ctx.measureText(label).width + 12;
+    ctx.save();
+    ctx.fillStyle = "rgba(6,6,6,0.75)";
+    ctx.fillRect(Math.round(cx - lw / 2), ly - 11, Math.round(lw), 15);
+    ctx.restore();
+    ctx.fillStyle = open ? COLOR_BUY : (started ? "#AAAA55" : "#888888");
+    ctx.fillText(label, cx, ly);
+    ctx.textAlign = "left";
 }
 
 // Funnel -> silo pipes (2026-09-18). Drawn under everything else in the
@@ -868,7 +997,7 @@ function drawSiloPipes(now, inView) {
             ctx.restore();
         }
 
-        if (funnelActive[i] && siloFill[i] < SILO_CAPACITY) {
+        if (funnelActive[i] && siloFill[i] < siloCapacity(i)) {
             ctx.strokeStyle = "#CC1A2A";
             ctx.lineWidth = 4;
             ctx.setLineDash([6, 10]);
@@ -1410,6 +1539,18 @@ function drawPlayerBody(p, now, name) {
 }
 
 function drawLocalPlayers(now) {
+    // THE WALK OUT (2026-09-19). During the win sequence the local player is
+    // DRAWN progressively further south, off the bottom of the screen, as if
+    // they had walked out of the area. Their simulated position never moves:
+    // writing p.y would run them into the world clamp and the collision code
+    // on the way, and it would cross the wire to everyone else as well.
+    if (winPullPx > 0) {
+        ctx.save();
+        ctx.translate(0, winPullPx);
+        for (let i = 0; i < players.length; i++) drawPlayerBody(players[i], now, null);
+        ctx.restore();
+        return;
+    }
     for (let i = 0; i < players.length; i++) drawPlayerBody(players[i], now, null);
 }
 
@@ -1798,6 +1939,16 @@ function playerName(id) {
 }
 
 function updateHud(now) {
+    // The readout goes out with the world (2026-09-19). Written only while
+    // the sequence is running or has just ended, so this is not a style
+    // write on every ordinary frame.
+    if (winFade > 0 || hudFaded) {
+        const o = (1 - winFade).toFixed(3);
+        if (uiHudRoot) uiHudRoot.style.opacity = o;
+        if (uiLoadout) uiLoadout.style.opacity = o;
+        hudFaded = winFade > 0;
+    }
+
     uiTime.innerText = Math.floor((now - startTime) / 1000) + "s";
     uiZombies.innerText = String(zombies.length);
     uiKills.innerText = String(kills);
@@ -2188,6 +2339,11 @@ window.addEventListener('keydown', function (e) {
         return;
     }
 
+    // WALKING OUT (2026-09-19): input is dead for the length of the win
+    // sequence, as asked. Below the manual/MISSION/mute gates, so those all
+    // still work, and above everything that acts on the world.
+    if (winSequenceRunning()) return;
+
     const move = MOVE_KEYS[key];
     if (!move && key !== 'f' && key !== 'e' && key !== 'q') return;
 
@@ -2203,7 +2359,7 @@ window.addEventListener('keydown', function (e) {
 // of a free-spinning wheel is a dozen events.
 let wheelAt = 0;
 window.addEventListener('wheel', function (e) {
-    if (codexOpen || helpOpen) return;
+    if (codexOpen || helpOpen || winSequenceRunning()) return;
     const p = players[0];
     if (!p || !e.deltaY) return;
     const now = Date.now();
@@ -2213,7 +2369,7 @@ window.addEventListener('wheel', function (e) {
 }, { signal: zSignal(), passive: true });
 
 window.addEventListener('keyup', function (e) {
-    if (codexOpen || helpOpen) return;
+    if (codexOpen || helpOpen || winSequenceRunning()) return;
     const p = players[0];
     if (!p) return;
     const move = MOVE_KEYS[e.key.toLowerCase()];
@@ -2230,8 +2386,12 @@ window.addEventListener('mousedown', function (e) {
     initAudio();
     // Clicks belong to the manual's tabs while it is open -- otherwise
     // every tab press also fires the gun. The ESC dialog likewise.
-    if (codexOpen || helpOpen) return;
-    if (gameOver) { requestReset(); return; }
+    if (codexOpen || helpOpen || winSequenceRunning()) return;
+    // `|| uiWinShown` fixes a real bug found 2026-09-19: the WIN card says
+    // "Click anywhere to run it again" and could not be clicked. A win sets
+    // `won`, never `gameOver`, so this only ever tested the LOSING card --
+    // the winning one was a dead end you had to reload the page to leave.
+    if (gameOver || uiWinShown) { requestReset(); return; }
     const p = players[0] || spawnPlayer();
     if (!p) return;
     if (e.button === 0) p.keys.shoot = true;
@@ -2239,7 +2399,7 @@ window.addEventListener('mousedown', function (e) {
 }, KEY_OPTS);
 
 window.addEventListener('mouseup', function (e) {
-    if (codexOpen || helpOpen) return;
+    if (codexOpen || helpOpen || winSequenceRunning()) return;
     const p = players[0];
     if (!p) return;
     if (e.button === 0) p.keys.shoot = false;
@@ -2273,6 +2433,10 @@ function gameLoop(ts) {
     }
 
     update(now, dt);
+    // Driven from the LOOP, not from update(): update() returns early while
+    // netLost, and a connection that drops during the walk-out must not
+    // leave the world frozen half-faded with no card ever arriving.
+    updateWinSequence(now);
     updateCamera(cameraTargets());
     draw();
 

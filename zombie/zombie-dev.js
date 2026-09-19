@@ -383,7 +383,7 @@ var zDevActions = [
         fn: function () {
             const no = zDevHostOnly("silos");
             if (no) return no;
-            for (let i = 0; i < siloFill.length; i++) siloFill[i] = SILO_CAPACITY;
+            for (let i = 0; i < siloFill.length; i++) siloFill[i] = siloCapacity(i);
             return "all three full — throw the switches";
         }
     },

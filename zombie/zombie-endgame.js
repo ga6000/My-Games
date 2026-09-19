@@ -97,9 +97,53 @@ let escapeRect = null;    // the southern way out
 // ---------------------------------------------------
 const GATE_STAGES = 2;
 const GATE_HOLD_MS = 4000;        // per stage; the second one is longer
-const SILO_CAPACITY = 12;         // kills on the funnel per silo
+// Kills on the funnel per silo. ONE PER SILO, RISING (2026-09-19, on
+// request: "silo fill-ups should increase with each successive one, so maybe
+// #1 is 12, #2 is 24, #3 is 36"). It was a flat 12.
+//
+// Always go through siloCapacity(i) -- there were nine bare reads of the old
+// scalar across four files, and a missed one silently reads `undefined` and
+// makes a silo that can never fill.
+//
+// Total kills on funnels goes 36 -> 72. The escalation lands on silos 2 and
+// 3, which since 2026-09-18 live in funnel HALLS -- and, since this same
+// pass, halls with a door-like pinch at each end. So the longer fight is the
+// one that happens in the set piece built for it, rather than in the open.
+const SILO_CAPACITY = [12, 24, 36];
+
+function siloCapacity(i) {
+    return SILO_CAPACITY[i] !== undefined ? SILO_CAPACITY[i] : SILO_CAPACITY[SILO_CAPACITY.length - 1];
+}
 const FLOOD_SIZE = 90;            // zombies in the final wave, scaled by team
 const ESCAPE_OPEN_MS = 90000;     // "takes a long time to open"
+
+// THE WAY OUT, 2026-09-19. There used to be a yellow loading bar over the
+// rect and the word SEALED. Now there are two gates, and the whole point is
+// that you can SEE the slow one moving behind the fast one:
+//
+//   a heavy inner gate grinds up over the full ESCAPE_OPEN_MS, and a
+//   smaller chainlink gate stands shut in front of it the entire time.
+//   When the heavy gate finishes, the chainlink FLIES open, and that is
+//   the frame you may leave.
+//
+// Neither needs a wire field: both are derived from `escapeAt`, which
+// already crosses as a remaining duration (`esc`).
+const CHAIN_SWING_MS = 700;       // the chainlink gate flying open
+
+// 0 while sealed, 1 when the heavy gate is fully up.
+function escapeGateFrac() {
+    if (!escapeAt) return 0;
+    return clamp(1 - (escapeAt - Date.now()) / ESCAPE_OPEN_MS, 0, 1);
+}
+
+// 0 until the heavy gate is up, then eases to 1 as the fence swings.
+// Eased out hard, because a chainlink gate let go under tension does not
+// travel at a constant rate.
+function escapeChainFrac() {
+    if (!escapeAt || !escapeOpen()) return 0;
+    const t = clamp((Date.now() - escapeAt) / CHAIN_SWING_MS, 0, 1);
+    return 1 - (1 - t) * (1 - t) * (1 - t);
+}
 
 let gateStage = 0;
 let gateProgress = 0;
@@ -142,10 +186,10 @@ function endgameObjective() {
     if (floodActive) return "SURVIVE THE FLOOD — " + zombies.length + " LEFT";
     if (gateStage < GATE_STAGES) return "";
     for (let i = 0; i < 3; i++) {
-        if (funnelActive[i] && siloFill[i] < SILO_CAPACITY) {
-            return "KILL ON FUNNEL " + (i + 1) + " — SILO " + (i + 1) + " " + siloFill[i] + "/" + SILO_CAPACITY;
+        if (funnelActive[i] && siloFill[i] < siloCapacity(i)) {
+            return "KILL ON FUNNEL " + (i + 1) + " — SILO " + (i + 1) + " " + siloFill[i] + "/" + siloCapacity(i);
         }
-        if (siloFill[i] >= SILO_CAPACITY && !siloFlipped[i]) {
+        if (siloFill[i] >= siloCapacity(i) && !siloFlipped[i]) {
             return "SILO " + (i + 1) + " FULL — THROW ITS SWITCH";
         }
     }
@@ -228,9 +272,9 @@ function funnelIndexAt(x, y) {
 
 function creditFunnelKill(x, y) {
     const i = funnelIndexAt(x, y);
-    if (i < 0 || siloFill[i] >= SILO_CAPACITY) return;
+    if (i < 0 || siloFill[i] >= siloCapacity(i)) return;
     siloFill[i]++;
-    if (siloFill[i] >= SILO_CAPACITY) {
+    if (siloFill[i] >= siloCapacity(i)) {
         // Silo full: its switch unlocks. The funnel itself goes quiet so
         // there is no ambiguity about where to fight next.
         funnelActive[i] = false;
@@ -241,7 +285,7 @@ function creditFunnelKill(x, y) {
 }
 
 function siloReady(i) {
-    return siloFill[i] >= SILO_CAPACITY && !siloFlipped[i];
+    return siloFill[i] >= siloCapacity(i) && !siloFlipped[i];
 }
 
 // Throwing a full silo's switch opens the NEXT funnel -- or, on the
@@ -304,12 +348,25 @@ function updateFlood(now) {
 // ---------------------------------------------------
 //   ESCAPE
 // ---------------------------------------------------
+// ANY player reaching the gate wins the run for the room.
+//
+// It used to loop `players` -- the LOCAL array -- while updateEndgame is
+// called host-only, so in a networked game only the HOST could ever end the
+// run: a guest could stand in the open gate indefinitely and nothing
+// happened. Found 2026-09-19 while rebuilding the gate. `allTargets()` is
+// the same list the gate plates, the flood and zombie targeting already use,
+// and it excludes AWAY players for the same reason they do.
+//
+// The chainlink gate also has to be actually open, not merely swinging:
+// you cannot walk out through a fence that is still on its way.
 function updateEscape() {
     if (won || !escapeRect || !escapeOpen()) return;
-    for (let i = 0; i < players.length; i++) {
-        const p = players[i];
-        if (p.downed) continue;
-        if (rectIntersect(p.x, p.y, p.size, p.size, escapeRect.x, escapeRect.y, escapeRect.w, escapeRect.h)) {
+    if (escapeChainFrac() < 0.5) return;
+    const all = allTargets();
+    for (let i = 0; i < all.length; i++) {
+        const t = all[i];
+        if (t.downed) continue;
+        if (rectIntersect(t.x, t.y, t.size, t.size, escapeRect.x, escapeRect.y, escapeRect.w, escapeRect.h)) {
             triggerWin();
             return;
         }
