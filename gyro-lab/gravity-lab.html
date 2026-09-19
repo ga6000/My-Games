@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Gravity Lab — Gyro Space</title>
+
+<!--
+  LOCAL PLAYTEST BUILD. Not on the hub, not multiplayer, no Firebase, no score
+  submission. Double-click this file; it runs over file:// with no server, same
+  as everything else in this repo.
+
+  It is a breakaway from gyro-space/, not a fork of it: nothing here is loaded
+  by space-tracer.html and nothing in space-tracer.html is loaded by this. The
+  two share no globals (gl*/GL* here, st-era names there), so the collision
+  checker stays quiet and neither can break the other.
+
+  Purpose: pick a gravity model and a lensing method by feel, with every number
+  on a slider. See CLAUDE.md in this folder.
+-->
+
+<link rel="stylesheet" href="../shared/retro.css">
+<style>
+html,body{margin:0;padding:0;overflow:hidden;background:#000;font-family:var(--font-ui,monospace);}
+canvas{display:block;width:100vw;height:100vh;cursor:crosshair;}
+
+/* ---- Parameter panel -------------------------------------------------- */
+#glPanel{
+    position:fixed; top:0; right:0; width:310px; height:100vh;
+    overflow-y:auto; box-sizing:border-box; padding:12px 14px 40px;
+    background:rgba(0,0,0,.82); border-left:1px solid rgba(125,249,255,.3);
+    color:#cfe9e6; font-size:12px; line-height:1.35;
+    backdrop-filter:blur(3px); z-index:10;
+}
+#glPanel.hidden{display:none;}
+#glPanel::-webkit-scrollbar{width:8px;}
+#glPanel::-webkit-scrollbar-thumb{background:rgba(125,249,255,.25);border-radius:4px;}
+
+.gl-sec{margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid rgba(125,249,255,.12);}
+.gl-sec h3{
+    margin:0 0 8px; font-size:11px; letter-spacing:2px; text-transform:uppercase;
+    color:#7DF9FF; font-weight:700;
+}
+.gl-row{display:block;margin-bottom:7px;}
+.gl-row>span{display:flex;justify-content:space-between;gap:8px;margin-bottom:3px;color:#9fb8b4;}
+.gl-row>span>b{color:#E8FFF4;font-weight:600;font-variant-numeric:tabular-nums;}
+/* Number box beside each slider (2026-09-10). Not bound by the slider's
+   range; outlined amber when the value is past it. */
+.gl-num{
+    width:78px;flex:0 0 auto;background:rgba(125,249,255,.07);color:#E8FFF4;
+    border:1px solid rgba(125,249,255,.25);border-radius:3px;padding:1px 4px;
+    font-family:inherit;font-size:11px;text-align:right;font-variant-numeric:tabular-nums;
+}
+.gl-num:focus{outline:none;border-color:#7DF9FF;}
+.gl-over .gl-num{border-color:#FFB000;color:#FFB000;}
+.gl-btns button.gl-on{background:rgba(125,249,255,.35);border-color:#7DF9FF;}
+.gl-slider input[type=range]{width:100%;accent-color:#7DF9FF;height:16px;}
+.gl-check{display:flex;align-items:center;gap:7px;margin-bottom:5px;cursor:pointer;}
+.gl-check input{accent-color:#7DF9FF;margin:0;}
+.gl-check span{color:#9fb8b4;}
+select{
+    width:100%;background:rgba(125,249,255,.08);color:#E8FFF4;
+    border:1px solid rgba(125,249,255,.35);border-radius:4px;padding:5px;font-family:inherit;font-size:12px;
+}
+.gl-desc{margin:4px 0 10px;font-size:11px;line-height:1.45;color:#7f9995;}
+.gl-btns{display:flex;flex-wrap:wrap;gap:6px;}
+.gl-btns button{
+    flex:1 1 auto;background:rgba(125,249,255,.12);color:#E8FFF4;
+    border:1px solid rgba(125,249,255,.4);border-radius:4px;padding:7px 8px;
+    font-family:inherit;font-size:11px;cursor:pointer;text-transform:uppercase;letter-spacing:1px;
+}
+.gl-btns button:hover{background:rgba(125,249,255,.25);}
+.gl-btns button:disabled{opacity:.35;cursor:default;}
+/* Per-hole sliders get a magenta rule on the left: they move with the hole
+   selector, everything unmarked is global. */
+.gl-perhole{border-left:2px solid rgba(255,46,136,.55);padding-left:7px;margin-left:-9px;}
+.gl-desc kbd{color:#cfe9e6;}
+/* Locks (2026-09-12): mark a field ready to bake in. A locked row keeps its
+   value visible but loses its controls; "Hide locked" removes it entirely. */
+.gl-lbl{font-style:normal;display:flex;align-items:center;gap:3px;}
+.gl-lock{background:none;border:none;padding:0 3px 0 0;margin:0;cursor:pointer;font-size:11px;
+    line-height:1;opacity:.3;filter:grayscale(1);}
+.gl-lock:hover{opacity:.8;}
+.gl-lock.on{opacity:1;filter:none;}
+.gl-locked{background:rgba(255,176,0,.07);border-radius:3px;}
+.gl-locked input[type=range]{display:none;}
+.gl-locked .gl-num{border-color:transparent;background:none;color:#FFB000;}
+.gl-locked select,.gl-locked input[type=checkbox]{opacity:.45;pointer-events:none;}
+.gl-hide-locked .gl-locked{display:none;}
+
+/* ---- HUD --------------------------------------------------------------- */
+#glHud{
+    position:fixed; top:10px; left:12px; z-index:10;
+    color:#cfe9e6; font-family:monospace; font-size:12px; line-height:1.5;
+    background:rgba(0,0,0,.55); padding:8px 12px; border-radius:6px;
+    border:1px solid rgba(125,249,255,.2); pointer-events:none;
+    font-variant-numeric:tabular-nums;
+}
+#glHud b{color:#7DF9FF;}
+#glKeys{
+    position:fixed; bottom:10px; left:12px; z-index:10;
+    color:#6d8582; font-family:monospace; font-size:11px; line-height:1.6;
+    background:rgba(0,0,0,.5); padding:7px 11px; border-radius:6px; pointer-events:none;
+}
+#glKeys kbd{color:#9fb8b4;}
+</style>
+</head>
+<body data-game="space-tracer" data-cabinet="vector">
+
+<canvas id="glGame"></canvas>
+
+<div id="glHud"></div>
+
+<div id="glKeys">
+    <kbd>scroll over the mini-map</kbd>: planet · system · local · galaxy &nbsp; <kbd>Q</kbd> direct control &nbsp; <kbd>E</kbd> fleet: <kbd>F</kbd> spawn, <kbd>drag</kbd> select, <kbd>right-click</kbd> go here (on a planet: orbit it on arrival), <kbd>O</kbd> ring orbit, <kbd>shift+wheel</kbd> formation gear, <kbd>arrows</kbd> pan, <kbd>Esc</kbd> deselect<br>
+    <kbd>U</kbd> ultradrive (Q, solo): tap to charge 15 s, tap again to abort / drop out &nbsp; <kbd>right-click</kbd> (Q) lock / release trajectory<br>
+    <kbd>mouse</kbd> steer &nbsp; <kbd>click</kbd> fire &nbsp; <kbd>shift+click</kbd> drop probe &nbsp; <kbd>wheel</kbd> zoom<br>
+    <kbd>shift+wheel</kbd> or <kbd>shift+↑ ↓</kbd> drive gear (×10 each, 0–9) &nbsp; <kbd>space</kbd> gear 0 &nbsp; <kbd>P</kbd> pause &nbsp; <kbd>.</kbd> step<br>
+    <kbd>O</kbd> auto-orbit (locks nearest body + current altitude) &nbsp; <kbd>C</kbd> free cam &nbsp; <kbd>H</kbd> hide panel
+</div>
+
+<!-- Panel markup is GENERATED from GL_PARAM_DEFS in gl-params.js -->
+<div id="glPanel"></div>
+
+<!-- Classic scripts, one shared global scope, no modules (file:// constraint).
+     Load order matters: params before anything that reads GLP, core before
+     anything that touches the canvas, gravity before sim, lens before draw,
+     boot last because it is the only file that actually starts things. -->
+<script src="gl-params.js"></script>
+<script src="gl-core.js"></script>
+<script src="gl-gravity.js"></script>
+<script src="gl-bodies.js"></script>
+<script src="gl-galaxy.js"></script>
+<script src="gl-chunks.js"></script>
+<script src="gl-sim.js"></script>
+<script src="gl-ultra.js"></script>
+<script src="gl-audio.js"></script>
+<script src="gl-lens.js"></script>
+<script src="gl-draw.js"></script>
+<script src="gl-minimap.js"></script>
+<script src="gl-ui.js"></script>
+<script src="gl-boot.js"></script>
+
+</body>
+</html>
