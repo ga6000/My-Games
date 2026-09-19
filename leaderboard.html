@@ -141,8 +141,11 @@
     // still submits as "space-tracer", its old name, so that is what matches.
     // Add a game here once it calls LB.submit (or writes to "scores" itself).
     const GAMES = [
-        { id: "zombie", title: "Zombie", subtitle: "Highest round reached, one row per player",
-          scoreHead: "Round", fmt: s => String(s) },
+        // Zombie's score is a run score since 2026-09-19 (kills, revives,
+        // round reached, silos filled; a win adds a bonus and doubles it) --
+        // see runScoreFor() in zombie/zombie-game.js.
+        { id: "zombie", title: "Zombie", subtitle: "Best run score: kills, revives, rounds and silos. Escaping doubles it",
+          scoreHead: "Score", fmt: s => s.toLocaleString("en-US") },
         { id: "space-tracer", title: "Gyro Space", subtitle: "Best single-life survival time, one row per player",
           scoreHead: "Time", fmt: s => s + "s" },
     ];

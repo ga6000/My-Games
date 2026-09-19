@@ -840,15 +840,41 @@ scrap `--sig-amber` (value/interact), weapon `--sig-cyan` (system), role and car
 `submitRunToLeaderboard()` in `zombie-game.js` fires from **both** `triggerGameOver()` and
 `triggerWin()`.
 
-- **The score is the round reached.** `scoreBoard[id].score` exists but is per-player kill credit
-  inside one run and is host-owned; the number a survival game's board wants is how far you got,
-  which is also the number the game already puts on the game-over card.
+- ~~**The score is the round reached.**~~ **Superseded 2026-09-19 — see "The run score" below.**
+  (Was: `scoreBoard[id].score` is per-player kill credit and host-owned, so the board used how
+  far you got instead.)
 - `zLbSubmitted` guards it. `triggerGameOver()` is reachable **both** locally (everyone died) and
   from the host's `go` flag in `zombie-net.js`, so without the guard a client posts its run
   twice. `resetGame()` clears it so a replay can post again. Verified: one post per run, a
   second `triggerGameOver()` posts nothing, and a reset-then-replay posts once more.
 - Name and room come from `MP.selfName`/`MP.room`, the same source as every other identity value
   here. **Under `file://` `LB` is a silent no-op**, so a double-clicked game is unaffected.
+
+## The run score (2026-09-19)
+
+What posts to the leaderboard, what the end cards itemise, and what the round-end scoreboard's
+SCORE column shows: `runScoreFor(id)` in `zombie-game.js`. All the constants sit above it.
+
+    total = combat + 50 * round^2 + 8,000 per silo filled + (won ? 50,000 : 0),  then x2 if won
+
+- **Combat** is still the host-credited `scoreBoard[id].score`, per player, but **rescaled**:
+  a kill is the type's `score` × **10** (was × 100) × the 1.5 near-a-teammate bonus, an assist is
+  **3** (was 25), and a revive is **100 × the current round** (was a flat 300). The 10× cut is
+  what stops kills drowning out the other terms. Kills per round already grow ~1.16^r.
+- **Round, silos and the win are team terms**, so everyone in a run shares them and only combat
+  separates teammates. "Silo filled" means `siloFill[i] >= SILO_CAPACITY`, flipped or not.
+- **The calibration is the user's brief:** a win is a massive chunk, but a deep loss (~round 35)
+  should beat an ordinary early win, and a win that also gets deep doubles again. Modelled per
+  player from the real spawn tables, for teams of 2–4: lose on 15 ≈ 21k, 25 ≈ 77k, 35 ≈ 250k;
+  win on 15 ≈ 190k, 25 ≈ 300k, 35 ≈ 650k. A loss overtakes a round-10-to-20 win around rounds
+  33–35. The model assumes an even kill share, so real rows will spread more than that.
+- The end cards render it once, on open, via `renderRunScore()` in `zombie-render.js`. A guest
+  reads its snapshot copy of `scoreBoard`, which can trail the host by one snapshot at the end.
+- Verified in the browser with `LB.submit` stubbed: a walker kill credits 10; a round-15 win with
+  3 silos and 9,000 combat posts 188,500 = (9,000 + 11,250 + 24,000 + 50,000) × 2, once; a round-35
+  loss with 1 silo posts 237,250, once, across two `triggerGameOver()` calls.
+- Rows posted before this change (score = round reached, e.g. `2`) are still in Firestore.
+  They are far below any new score, so they only matter as clutter.
 
 ## The field manual
 
@@ -964,4 +990,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 99690d40 | 2026-09-19 -->
+<!-- doc-sync: 7d371477 | 2026-09-19 -->

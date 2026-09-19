@@ -52,6 +52,8 @@ const uiZone = document.getElementById('zonename');
 const uiAudio = document.getElementById('audioState');
 const uiWin = document.getElementById('win');
 const uiWinRound = document.getElementById('winRound');
+const uiWinScore = document.getElementById('winScore');
+const uiOverScore = document.getElementById('overScore');
 const uiObjective = document.getElementById('objective');
 const uiRole = document.getElementById('roleDisplay');
 const uiCodex = document.getElementById('codex');
@@ -1965,17 +1967,41 @@ function updateLoadoutHud(me) {
 function renderScores() {
     const ids = Object.keys(scoreBoard);
     if (!ids.length) { uiScores.style.display = 'none'; return; }
-    ids.sort(function (a, b) { return scoreBoard[b].score - scoreBoard[a].score; });
+    // SCORE is the full run score (runScoreFor) -- what would post to the
+    // leaderboard if the run ended now -- not just the combat credit.
+    const totals = {};
+    for (let i = 0; i < ids.length; i++) totals[ids[i]] = runScoreFor(ids[i]).total;
+    ids.sort(function (a, b) { return totals[b] - totals[a]; });
 
     let html = "<table><tr><th>PLAYER</th><th>KILLS</th><th>ASSIST</th><th>REVIVES</th><th>SCORE</th></tr>";
     for (let i = 0; i < ids.length; i++) {
         const s = scoreBoard[ids[i]];
         html += "<tr><td>" + playerName(ids[i]) + "</td><td>" + s.kills + "</td><td>" +
-            s.assists + "</td><td>" + s.revives + "</td><td>" + s.score + "</td></tr>";
+            s.assists + "</td><td>" + s.revives + "</td><td>" + fmtScore(totals[ids[i]]) + "</td></tr>";
     }
     html += "</table>";
     uiScores.innerHTML = html;
     uiScores.style.display = 'block';
+}
+
+function fmtScore(n) {
+    return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+// This player's run score, itemised, on whichever end card is showing.
+// Written once when the card opens -- nothing changes after the run ends.
+function renderRunScore(el) {
+    if (!el) return;
+    const b = runScoreFor(netIdFor(players[0]));
+    let rows =
+        "<tr><td>KILLS " + b.kills + " / REVIVES " + b.revives + "</td><td class='pts'>" + fmtScore(b.combat) + "</td></tr>" +
+        "<tr><td>ROUND " + b.round + "</td><td class='pts'>" + fmtScore(b.roundPts) + "</td></tr>" +
+        "<tr><td>SILOS " + b.silos + "/" + siloFill.length + "</td><td class='pts'>" + fmtScore(b.siloPts) + "</td></tr>";
+    if (b.won) {
+        rows += "<tr class='win'><td>ESCAPED</td><td>+" + fmtScore(b.winPts) + "</td></tr>" +
+                "<tr class='win'><td>WIN DOUBLES IT</td><td>x2</td></tr>";
+    }
+    el.innerHTML = "SCORE<br><span class='total'>" + fmtScore(b.total) + "</span><table>" + rows + "</table>";
 }
 
 // ---------------------------------------------------

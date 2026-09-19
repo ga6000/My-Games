@@ -578,6 +578,7 @@ function triggerWin() {
     musicEnd("win");
     uiWin.style.display = 'block';
     uiWinRound.innerText = String(round);
+    renderRunScore(uiWinScore);
     // A win is a completed run and belongs on the board too -- the same
     // guard stops the later game-over path posting it a second time.
     submitRunToLeaderboard();
@@ -594,14 +595,72 @@ function triggerGameOver() {
     musicEnd("over");
     uiGameOver.style.display = 'block';
     uiFinalRound.innerText = String(round);
+    renderRunScore(uiOverScore);
     submitRunToLeaderboard();
 }
 
-// THE SCORE IS THE ROUND REACHED. scoreBoard[id].score exists, but it is
-// per-player kill credit inside one run and it is host-owned -- the number a
-// survival game's leaderboard wants is how far you got, which is also the
-// number the game already shows you on the game-over card.
+// ---------------------------------------------------
+//   RUN SCORE (2026-09-19)
+// ---------------------------------------------------
+// Until 2026-09-19 the leaderboard score was just the round reached. Now it
+// is one number built from five things:
 //
+//     combat   your own kills (by type), assists and revives -- the live
+//              scoreBoard[id].score, credited on the host as they happen
+//     rounds   SCORE_ROUND_K * round^2, shared by the whole team
+//     silos    SCORE_SILO per silo filled, shared
+//     win      SCORE_WIN flat, and then the WHOLE total doubles
+//
+// The calibration target was the user's: a win is a massive chunk, but a
+// team that goes down on round ~35 without winning should out-score an
+// ordinary early win, and a win that ALSO gets deep doubles again. Modelled
+// from the real spawn tables (budgetForRound, pickZombieType), per player,
+// for teams of 2-4 and every kill on the board:
+//
+//     lose on round 15   ~21k      win on round 15   ~190k
+//     lose on round 25   ~77k      win on round 25   ~300k
+//     lose on round 35  ~250k      win on round 35   ~650k
+//
+// so a loss overtakes a round-10-to-20 win somewhere around rounds 33-35.
+// Kills grow roughly exponentially with round (the budget is 1.16^r), which
+// is what lets deep runs catch the win bonus at all; the round^2 term keeps
+// "how far you got" legible even for a player who got few kills.
+const SCORE_KILL_MULT = 10;          // x the type's `score`: walker 10 ... ultra 120
+const SCORE_ASSIST = 3;
+const SCORE_REVIVE_PER_ROUND = 100;  // a revive on round r is worth 100 * r
+const SCORE_ROUND_K = 50;
+const SCORE_SILO = 8000;
+const SCORE_WIN = 50000;
+
+function silosFilled() {
+    let n = 0;
+    for (let i = 0; i < siloFill.length; i++) if (siloFill[i] >= SILO_CAPACITY) n++;
+    return n;
+}
+
+// Score for one player's netId right now. Also what the intermission
+// scoreboard shows, so the number on the board mid-run is the number that
+// would post if the run ended there. A guest reads the snapshot copy of
+// scoreBoard, which can trail the host by one snapshot at the very end.
+function runScoreFor(id) {
+    const row = scoreBoard[id] || { kills: 0, revives: 0, score: 0 };
+    const silos = silosFilled();
+    const b = {
+        kills: row.kills || 0,
+        revives: row.revives || 0,
+        combat: row.score || 0,
+        round: round,
+        roundPts: SCORE_ROUND_K * round * round,
+        silos: silos,
+        siloPts: SCORE_SILO * silos,
+        won: won,
+        winPts: won ? SCORE_WIN : 0
+    };
+    const sub = b.combat + b.roundPts + b.siloPts + b.winPts;
+    b.total = won ? sub * 2 : sub;
+    return b;
+}
+
 // Name and room come from MP, the same place every other identity value in
 // this game comes from. Under file:// LB is a silent no-op, so a
 // double-clicked game is completely unaffected -- that is the whole point of
@@ -612,7 +671,7 @@ function submitRunToLeaderboard() {
     if (typeof LB === "undefined") return;
     LB.submit({
         player: (typeof MP !== "undefined" && MP.selfName) || "Anonymous",
-        score: round,
+        score: runScoreFor(netIdFor(players[0])).total,
         room: (typeof MP !== "undefined" && MP.room) || ""
     });
 }
@@ -1296,11 +1355,11 @@ function damageZombie(index, dmg, ownerId, now, src) {
     // on the bullet, so it also covers ricochets and barrel chains.
     const greed = 1 + 0.6 * idCardLevel(ownerId, "scavenger");
     scrapPool += Math.round(spec.scrap * bonus * greed);
-    creditScore(ownerId, "kills", 1, Math.round(spec.score * 100 * bonus));
+    creditScore(ownerId, "kills", 1, Math.round(spec.score * SCORE_KILL_MULT * bonus));
 
     // Assists to anyone who damaged it but didn't land the kill.
     for (let i = 0; i < z.damagers.length; i++) {
-        if (z.damagers[i] !== ownerId) creditScore(z.damagers[i], "assists", 1, 25);
+        if (z.damagers[i] !== ownerId) creditScore(z.damagers[i], "assists", 1, SCORE_ASSIST);
     }
 
     // IDEA 13: splitters burst into fast spawnlings, punishing anyone
@@ -1889,7 +1948,9 @@ function updateRevives(now, dt) {
             if (ref.reviveProgress >= 1) {
                 ref.reviveProgress = 0;
                 revivesThisRound++;
-                creditScore(reviver.id, "revives", 1, 300);
+                // Worth more the deeper the run: a revive on round 30 is
+                // a bigger save than one on round 3.
+                creditScore(reviver.id, "revives", 1, SCORE_REVIVE_PER_ROUND * Math.max(1, round));
                 if (t.local) {
                     ref.downed = false;
                     ref.bleedDeadline = 0;
