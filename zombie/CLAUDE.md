@@ -144,9 +144,13 @@ Each perk has a **pixel icon** (`zombie-icons.js`) drawn on its station, in the 
 manual. The station prompt no longer prints the blurb — the playtest found a sentence on a world
 prompt hard to read mid-fight — so the words live in the field manual only.
 
-**Six weapon wall-buys exist on the whole map** — rifle, shotgun, SMG, sniper, flamethrower
-(5,200) and rocket launcher (7,500), each in a different zone, the sniper preferring a
-long-sightline zone. *(Four until 2026-09-18.)*
+**Six weapon wall-buys exist on the whole map** — rifle (1,500), shotgun (2,600), SMG (3,400),
+sniper (4,200), flamethrower (**5,800**) and rocket launcher (7,500), each in a different zone.
+*(Four until 2026-09-18. The flamethrower was 5,200 until the 2026-09-19 nerf.)*
+
+> **Which zone is no longer a coin flip (2026-09-19).** The sniper "preferring a long-sightline
+> zone" is now the rule for every gun: each belongs to a **template**, not to a shuffled zone
+> index. See "Zones have identity".
 
 ### Weapons: switching, rockets, flame (2026-09-18)
 
@@ -165,6 +169,16 @@ long-sightline zone. *(Four until 2026-09-18.)*
 - **Flamethrower**: three piercing flames per 70ms shot (≈ the SMG's message rate), 280px, and
   anything touched burns (`burnUntil`/`burnBy`, damage over time credited to whoever lit it; burn
   rides the zombie row as a remaining duration).
+  **Nerfed 2026-09-19** on a playtest call of "a bit OP", and only slightly: cost 5,200 → 5,800,
+  `capacity` 400 → **340**. One ammo is spent per *trigger pull*, not per pellet (`shoot()`
+  decrements once before the pellet loop), so `capacity` is seconds of held trigger: 28.0s → 23.8s.
+  Damage, cooldown, pierce, range and burn are untouched — what makes it strong is pierce against
+  a crowd (~21 dps on one zombie, ~170 on eight), and that is also what it is priced for.
+  **`salvage` / `salvageAmt` (1 / 5) are deliberately untouched.** The brief asked that the nerf
+  "pair well with the salvage perk", and cutting the magazine is what *creates* that pairing:
+  SALVAGE refunds 5 rounds on 30/45/60% of kills, so at x3 into a crowd it nearly sustains itself
+  and without it you now feel the 340. Nerfing the refund as well would delete the answer at the
+  same moment as the problem.
 - **Shapes**: `WEAPONS[].shape` is how a round is drawn (slug, tracer, pellet, needle, streak,
   finned rocket, cooling flame). `bsize` is the collision box — the five original guns all stay 8,
   so the shape change is not a balance change.
@@ -228,6 +242,22 @@ tempo** for round changes and the sluice unlock (its own building tune).
   (an unresolved tritone), `power` (D major — the one bright chord), `unlock`, `win`, `over`.
 - **The sluice build layer**: while the plates are held, chimes climb the current chord, denser
   and louder as `gateProgress` fills and denser again on the second lock. `unlock` resolves it.
+- **Intensified, the score turns cold (2026-09-19).** The organ bed is **replaced**, not layered
+  over — the brief said the music *changes*, and an organ under a drum kit is a thicker score, not
+  a colder one. What plays instead: a dry kick on 1 and 3 (`musKick`), rim clicks on the offbeats
+  (`musRim`), **one** high chord tone a bar on the bell voice, and a near-silent pedal an octave
+  under the bass so the key is still there. No chord, no ostinato, no soprano. "Cold" is a mix
+  decision rather than a note choice: short envelopes, no tail, no room — a kick that rings is
+  warm, one that stops is not. Same `MUS_PROG`, so the key never moves and the end cues still land
+  in D. **The sluice build layer is deliberately left running**: it is the gate's own tune and it
+  still has a job after the switch is thrown.
+- **`roundHard`** replaces the `round` cue while intensified — three struck hits low-to-high
+  instead of a four-note melody — and it is the one cue with `transpose: true`, so `musPlayCue`
+  lifts the whole thing a semitone for every round since the switch was thrown
+  (`musIntensifyRound`), capped at an octave (`MUS_TRANSPOSE_CAP`; past that the bell partials
+  thin out and it stops reading as the same instrument). That is what makes "a harsher more
+  percussive raising note each time" raise across a whole run rather than only inside one cue.
+  Measured: 0 / 1 / 4 / 12 / 12 semitones at rounds 1 / 2 / 5 / 13 / 30.
 - **Cues are driven by STATE** (round number/phase, `gateStage`, `genTripped`, `generatorOn`), not
   the event queue: events are capped at ten a snapshot and are the first thing dropped. So the old
   `SND_ROUND_START`/`SND_ROUND_CLEAR` stings are no longer emitted at round changes;
@@ -237,6 +267,12 @@ Verified headless against a recording mock `AudioContext`: the opening tolls, th
 soprano on an empty map, the soprano in (and on chord tones only) with 32 zombies near, the
 intensity cap, the ostinato, the round cue, the build layer (0 → 36 bells over 3s at 90% progress),
 the unlock flourish, the game-over cue, and the score and its LFO stopping afterwards.
+
+**The siren (`SND_SIREN`, 2026-09-19) is the one exception to the positional rule.** Everything
+else pans and falls off with distance; the horde call is meant to be everywhere at once, so
+`playEvent` returns it straight to the master bus before `audioPlacement` is ever consulted. If
+you add another sound like that, do it the same way rather than by giving it a huge radius — a
+radius that large silently changes the mix for every other sound sharing the falloff curve.
 
 Sounds now cover: **per-weapon fire** (idea 40 — pistol blip, rifle crack, shotgun burst, dry SMG
 tick, long sniper crack), kills, splitter bursts, the **screamer** (idea 44, carrying 2.2x further
@@ -284,7 +320,17 @@ Three rules for adding a sound:
 
    *Updated 2026-09-18.* The ULTRA HEAVY is 34px, so **`NAV_PAD = 19`** (half of it plus the same
    2px of skin) and the threshold is **78px**. The nook escape hole (`NOOK_HOLE`) was 74 — under the
-   new guarantee — and is now **90**. Every other opening already cleared 78; funnel halls are 240.
+   new guarantee — and is now **90**. Every other opening already cleared 78; funnel halls were 240.
+
+   *Updated 2026-09-19.* Funnel halls are **no longer 240**: each end is pinched to `HALL_DOOR`
+   (**140**) by four jambs, so the halls read as rooms with doors rather than open-ended tubes.
+   **140 is now the narrowest opening in the game** — outpost doorways 112 are wider only because
+   the hall figure is the *clear span between jambs*. Current list, narrowest first: funnel-hall
+   ends **140**, outpost doorways 112, windows 112–151, keep and sluice 120, doors 124–159, the
+   nook hole 90. So the nook hole is still the true minimum and the guarantee holds with 12px to
+   spare there and 62px at a hall. **If `NAV_CELL` or `NAV_PAD` move again, check `HALL_DOOR`
+   first** — it is the number most likely to be forgotten, because it is computed rather than
+   written as a literal opening.
 4. **Opening a door refreshes only its own patch of the nav grid.** A full rebuild is 32,400
    cells and cost ~17ms — a dropped frame at the exact instant of a purchase, which is the worst
    possible moment for a stutter. `rebuildSolidIndex` diffs the door signature and calls
@@ -451,6 +497,48 @@ Templates differ in building density, barrel and crate counts, whether they have
 outpost, and whether they have long sightline corridors. That is what makes "which door do we
 buy?" a real decision rather than a coin flip.
 
+### A gun and a perk belong to a TEMPLATE, not to a zone index (2026-09-19)
+
+Asked for as "make perk / spawn locations consistent for guns / perks / silos in areas that make
+sense (even if sometimes perks don't spawn)".
+
+There used to be **two** layers of randomness stacked on each other: templates were shuffled into
+zone slots (`assignZones`), and then guns and perks were shuffled across zone *indices*
+(`placeWallBuys`, `placeCardStations`). So the sniper was in a corridor zone by design and
+everything else was a coin flip — the same map twice running put the shotgun in two unrelated
+places, and no zone was ever worth remembering.
+
+Now `GUN_HOMES` and `PERK_HOMES` name templates. The zone still moves around the map, but
+**THE KENNELS always sells the shotgun, wherever the kennels turn out to be** — which is the same
+reasoning that gave the sniper its corridor in the first place, applied to everything.
+
+| | Home, in order |
+|---|---|
+| SNIPER | SPILLWAY, THE LAUNDRY, then any `corridors` zone |
+| SHOTGUN | THE KENNELS, COLD STORAGE, THE ANNEX |
+| FLAMETHROWER | PUMP HOUSE, THE LAUNDRY, SPILLWAY |
+| ROCKET | SLAG HEAP, THE DRY POOL, MOTOR POOL |
+| SMG | MOTOR POOL, TICKET HALL, DEAD LETTER |
+| RIFLE | COLD STORAGE, DEAD LETTER, TICKET HALL |
+
+Only 8 of the 11 outer templates are on any given map, so each entry is an **ordered preference**.
+
+- **Guns always place.** A gun whose homes are all absent falls to any free zone. Losing the
+  rifle — the cheap first upgrade off the pistol — to a map roll would be a real balance
+  regression, so no gun is ever dropped.
+- **Perks may genuinely be absent**, which the brief allowed outright and which the game already
+  handles: 11 perks against 8 stations means three are missing every run whatever we do, and
+  `absentCardKeys()` already names them in the manual and announces them when power first comes
+  on. `CARD_ALWAYS` (OVERDRIVE) is the one exception and goes to **TURBINE HALL**, the one
+  template that is always placed.
+- **Funnel halls** prefer the water-handling zones (`HALL_HOMES`), *after* the existing rules that
+  are about whether a 560px hall physically fits — never the centre, never the sluice's zone,
+  corridor zones last.
+
+Measured over 300 seeds: 6 guns on every map, 8 stations on every map, no zone holding two things,
+OVERDRIVE in TURBINE HALL 100% of the time, and each gun in its first-choice template 52–66% of
+the time — which is essentially "always, when that template is on the map".
+
 **Each zone has its own floor (2026-09-18, `zombie-floors.js`)** — the playtest found the areas'
 identity too faint. A 64×64-texel tile per template, drawn 2 world units a texel with smoothing
 off: freezer tiles with frost (COLD STORAGE), cracked pool tiles (THE DRY POOL), oil-stained
@@ -496,8 +584,31 @@ and a boarded window**, and that pairing is the whole design:
 
 That asymmetry is why segmentation is safe: there is no zone the horde cannot follow you into, so
 "start small" can never become "hide in a box". It is enforced by **two separate collision
-grids** — `solidGridPlayer` counts every barricade, `solidGridZombie` only intact ones. Bullets
-use the zombie set, so a window you've lost stops being cover.
+grids** — `solidGridPlayer` counts every barricade, `solidGridZombie` only intact ones.
+
+**Bullets get a third view (2026-09-19): `bulletBlockedAt()`.** The zombie set minus the plank
+slots a barricade has *already lost* — so you can shoot into the gap a zombie is chewing while the
+window is still standing, which is what was asked for ("shoot them as they're breaking through and
+keep barricade in tact"). Before this a window was total cover until `hp <= 0`, so the only way to
+shoot through one was to lose it entirely.
+
+The renderer already told exactly this story, so there is now **one copy of the arithmetic** and
+both read it:
+
+    BARRICADE_PLANKS = 4
+    barricadePlanksShown(b)     // 0 at hp<=0, else max(1, ceil(4 * hp/maxHp))
+    inBarricadeGap(b, x, y, sz) // the box lies WHOLLY past shown * (span/4)
+
+Planks fill from the low end of the span upward, so the missing ones are always the far end. The
+box must be *wholly* past the last board, not merely overlapping it: a round clipping the last
+plank is stopped, which at a 112px window (28px a slot) against a bullet of 8–14 is the difference
+between a clean shot through the gap and a lucky one. A gap needs `frac <= 0.75`, so a quarter of
+the window has to be chewed before anything gets through, and it widens 28 → 56 → 84 → 112px.
+
+**Player collision, zombie collision and both nav grids are untouched** — a gap you can shoot
+through is not a gap anyone can walk through. All four bullet tests use it, **the two RICOCHET
+axis probes included**, or a round bounces off a hole it should have flown through. No new wire
+field: host and guest compute the gap from the same `hp`, which already ships as `bc`.
 
 Other consequences worth knowing:
 
@@ -640,6 +751,15 @@ are simply the slowest type — at 120s every one arrives.)
 ## Controls — ONE player per screen
 
 WASD moves, the mouse aims, left click fires. `F` uses/buys, `Q` or middle-click pings.
+
+> **Holding a direction into the field manual no longer keeps you walking** (fixed 2026-09-19).
+> `openCodex()` never released held keys — `openHelp()` always did — and `keyup` returns early
+> while the manual is up, so the release of the key you were holding when you pressed `F` was
+> never seen; nothing gates `updatePlayers` on `codexOpen`, so you walked for as long as you read.
+> `closeCodex()` already cleared the keys, which is exactly why it stopped the instant you shut
+> the manual and read as "it moves *while* the manual is up".
+>
+> `F` at the keep's south wall also throws the **horde switch** — see "The horde switch" below.
 **`L`+`G` together opens the dev panel** (2026-09-07, `zombie-dev.js` + `shared/devtools.js`) —
 neither key is bound to anything else here.
 
@@ -855,7 +975,9 @@ scrap `--sig-amber` (value/interact), weapon `--sig-cyan` (system), role and car
 What posts to the leaderboard, what the end cards itemise, and what the round-end scoreboard's
 SCORE column shows: `runScoreFor(id)` in `zombie-game.js`. All the constants sit above it.
 
-    total = combat + 50 * round^2 + 8,000 per silo filled + (won ? 50,000 : 0),  then x2 if won
+    total = combat + 50 * round^2 + 8,000 per silo filled
+          + 40 per second alive while INTENSIFIED
+          + (won ? 50,000 : 0),  then x2 if won
 
 - **Combat** is still the host-credited `scoreBoard[id].score`, per player, but **rescaled**:
   a kill is the type's `score` × **10** (was × 100) × the 1.5 near-a-teammate bonus, an assist is
@@ -930,19 +1052,24 @@ your magazine. The round does **not** pause — it can't, the host owns the simu
 `zombie-endgame.js`. Until this, a run could only end in failure.
 
     sluice gate (two players, two locks)
-      -> funnel room, kill zombies ON the funnel to fill silo 1
-      -> throw silo 1's switch to open funnel 2  ->  silo 2  ->  funnel 3
+      -> funnel room, kill zombies ON the funnel to fill silo 1  (12)
+      -> throw silo 1's switch to open funnel 2  ->  silo 2 (24)  ->  funnel 3 (36)
       -> third silo full: THE FLOOD, off every map edge at once
-      -> clear it: the southern escape grinds open over 90s
-      -> reach it: WON
+      -> clear it: the southern heavy gate grinds open over 90s behind a chainlink gate
+      -> the fence flies open: walk out and you have WON
+
+**Silo capacity rises: `SILO_CAPACITY = [12, 24, 36]`** (2026-09-19, on request — it was a flat
+12). Always read it through **`siloCapacity(i)`**: there were nine bare reads of the old scalar
+across four files, and a missed one silently yields `undefined` and makes a silo that can never
+fill. Total kills on funnels goes 36 → 72, and the escalation lands on funnels 2 and 3, which live
+in halls built for a long fight.
 
 Things to keep in mind if you touch it:
 
 - **Each silo stands beside its funnel, piped to it (2026-09-18).** Funnel 1 and silo 1 share the
   sluice room (the funnel moved left of centre to make room; silo 1 is against the east wall).
-  Funnels 2 and 3 are in **funnel halls** — two long walls, open at both ends (240px, three times
-  the nav guarantee), a drain floor, the funnel near one end and its silo against a wall near the
-  other — built *first* in their zones (`planFunnelHalls` → `buildFunnelHall`), so everything else
+  Funnels 2 and 3 are in **funnel halls** — two long walls, a drain floor, the funnel near one
+  end and its silo against a wall near the other — built *first* in their zones (`planFunnelHalls` → `buildFunnelHall`), so everything else
   routes around them. Never the centre zone, never the sluice's, corridor zones last. The pipe
   (`siloPipes`, visual only) runs rim to tank and carries animated blood while its funnel is live.
   This **supersedes** the old "the three silos sit elsewhere again, so filling one is a journey
@@ -950,6 +1077,25 @@ Things to keep in mind if you touch it:
   for them side by side. The journey is now funnel to funnel. Silos are still floor, not wall,
   like every other station. `finishFunnelsAndSilos()` has two fallbacks (another zone, then a bare
   funnel with its silo alongside) so a map can never lack one; across 500 seeds neither ran.
+
+  **A hall's ends are pinched to a door (2026-09-19).** They used to stand open the full 240px
+  inner width. Four jambs (`addHallPinches`, `HALL_DOOR` 140, `HALL_JAMB_D` 26) narrow each end,
+  so a hall reads as a room you enter and leave rather than a tube — asked for as "cause pinch
+  point slightly in silo hallways so there is more of a door-like entrance & exit". See rule 3
+  above for why 140 and not less.
+
+  **The silo label knows which wall its tank is against.** `drawEndgame` wrote both lines *above*
+  the silo unconditionally, which in a **horizontal** hall is inside the hall's north wall — the
+  reported "text showing amount full is currently inside of wall above". It did not happen
+  everywhere, and that is the tell: a vertical hall parks the silo against the *west* wall and the
+  sluice's silo against the *east* wall, and both have open floor above them. `makeFunnelHall` now
+  sets **`labelBelow`** on the horizontal case, where it knows which wall it just used, rather
+  than having the renderer guess. Both lines also get a dark backing plate either way — 9px
+  Courier over a drain floor with animated blood in the pipe beside it was marginal even where it
+  fitted.
+
+  Swept 200 seeds: 400 halls, all 800 ends measure exactly 140px, every label side correct, no
+  jamb clipping a funnel ring or a silo.
 - **The sluice is at fixed world coordinates, not seeded.** It is the one landmark every run
   shares, so "meet at the sluice" has to mean the same place every time. **It is built before the
   zone contents** (2026-09-18) — see "Zones have identity" for the bug that fixed.
@@ -966,6 +1112,125 @@ Things to keep in mind if you touch it:
   remove that check on the assumption it can't happen — it currently doesn't only because the
   sluice sits at the far south of its zone and spawn placement favours points near the player.
 - `escapeAt` crosses the wire as a **remaining duration**, like every other timer here.
+
+### The south gate, and the walk out (2026-09-19)
+
+~~A yellow loading bar over `escapeRect` and the word SEALED.~~ Replaced with the thing the bar
+was describing, on request:
+
+- **A heavy inner gate** grinds upward over the full `ESCAPE_OPEN_MS` (90s) — a ribbed slab in
+  rails, revealing black beneath it as it lifts.
+- **A chainlink gate stands shut in front of it the whole time.** When the slab is clear the fence
+  **flies open** (`CHAIN_SWING_MS` 700, eased hard — a gate let go under tension does not travel
+  at a constant rate), and only at `escapeChainFrac() >= 0.5` may anyone leave.
+- Both are derived from `escapeAt` alone (`escapeGateFrac()` / `escapeChainFrac()`), so **nothing
+  new crosses the wire** and a guest's gate is at the host's height.
+- **The label is drawn ABOVE the rect.** `escapeRect` sits 8px off the bottom of the world and the
+  camera clamps there, so anything below it is outside the view and is never seen — a label at
+  `r.y + r.h + 20` lands at world y 2712 against a `WORLD_H` of 2700. Checked in the browser.
+
+**Winning is a sequence, not a frame.** `triggerWin()` starts it and the card comes at the end:
+
+| phase | ms | what |
+|---|---|---|
+| walk out | 0 – 1,400 | the local player is drawn progressively south, off screen |
+| fade | 1,400 – 2,600 | the world, the lighting and the DOM HUD fade to black |
+| card | 2,600 | `showWinCard()` — YOU GOT OUT, and the typed run score |
+
+- **`won` is still set on the FIRST frame**, not the last: it is host-authoritative state on the
+  wire (`wn`) and it is what stops the endgame and the flood. Only the *card* is delayed.
+- **The pull is a draw offset (`winPullPx`), never a write to `p.x`/`p.y`** — the same discipline
+  as `RETRO.snap`. Moving the simulation would run the player into the world clamp and the
+  collision code on the way out, and broadcast it to everyone else as well.
+- **Input and gameplay sound are dead for the whole sequence** (`winSequenceRunning()`, checked in
+  the key/mouse/wheel handlers and at the top of `playEvent`), as asked. The score's own win cue
+  is scheduled by `musicEnd()` and does not come through `playEvent`, so it rings under the fade.
+- The sequence is **local and every client plays its own** — the run is won by the team.
+- Driven from `gameLoop`, not `update()`: `update()` returns early while `netLost`, and a
+  connection dropping mid-walk-out must not freeze the world half-faded with no card ever coming.
+
+**Three pre-existing bugs were found on this path and fixed:**
+
+1. **Only the HOST could ever win.** `updateEscape` looped `players` — the *local* array — while
+   `updateEndgame` is called host-only, so a guest could stand in the open gate indefinitely and
+   nothing happened. It uses `allTargets()` now, the same list the gate plates and the flood use,
+   which also excludes AWAY players for the same reason they do.
+2. **The WIN card could not be clicked.** It says "Click anywhere to run it again", but the
+   mousedown handler only tested `gameOver` — and a win sets `won`, never `gameOver`. The losing
+   card worked; the winning one was a dead end you had to reload the page to leave.
+3. **The sluice gate's price plate read "undefined".** It is a door with no `cost` (it is opened
+   by two players on two plates, never bought), and `drawDoors` printed `String(d.cost)`
+   unconditionally. Costless doors no longer draw a plate.
+
+## THE HORDE SWITCH — intensified play (2026-09-19)
+
+A heavy knife switch in the keep (`intensifyRect`, against the south wall, ~300px from the field
+manual with the ammo crate between them so the two `F` targets can never be confused). Asked for
+as a switch that "flips down and is heavy", which intensifies and speeds up the game for blitz
+runs.
+
+**It is ONE WAY.** There is no un-intensifying, and the prompt says so — `CALL THE HORDE — NO
+GOING BACK`. That is the only thing that makes it worth a set piece: a decision the team makes
+together and then lives with.
+
+### The moment
+
+Host-validated through the existing buy seam (`requestBuy("intensify")` → `hostHandleBuy` →
+`hostFlipIntensify`), because two players hitting it on the same frame must produce **one** call.
+It is free and is checked *before* the scrap tests, so an empty pool can never block it. Then
+three beats, which every client runs itself from one broadcast flag:
+
+1. **A normal toast** — `"<NAME> CALLED THE HORDE"`, via `showToast`, the existing device.
+2. **A siren** — `SND_SIREN` / `sirenCall()`. Two rise-and-fall sweeps over 3.4s on a detuned
+   sawtooth pair through a lowpass; the detune is what gives a mechanical siren its beat rather
+   than a clean glide. **It is the only sound in this game that is not positional** — it skips
+   `audioPlacement` entirely rather than being handed a very large radius, because it is coming
+   from everywhere.
+3. **`INTENSIFY_SIREN_MS` (1.2s) later, THEY HEAR YOUR CALL** fills the screen in crude red
+   (`#hordecall` in `Zombie.html`). It **vibrates on a whole-pixel jitter written from the render
+   loop**, never a CSS animation: sub-pixel wobble reads as 2016 indie, not 1980 arcade
+   (`AESTHETIC_GUIDE.md` §4), and driving it from `updateHordeCall` means it needs no timer of its
+   own and cannot outlive a teardown. It holds 2.2s and **cuts**, it does not fade.
+
+The lever itself falls over `INTENSIFY_LEVER_MS` (450ms) with a slight overshoot and settle, which
+is the whole read of "heavy" — a lever that snaps to its new angle in one frame is a toggle, not a
+piece of gear. Afterwards it is dead metal and the keep stops advertising it.
+
+### What it changes — four places, all reading `intensified`
+
+| | normal | intensified |
+|---|---|---|
+| a round clears when | budget spent **and** map empty | **budget spent** alone |
+| zombie speed | `spec.speed` | **× 1.28** (`INTENSIFY_SPEED`) |
+| score | — | **40/s** on your feet (`SCORE_ALIVE_PER_SEC`) |
+| the score (music) | the organ bed | cold drumming, sparse notes |
+| round change cue | `round` | `roundHard`, rising a semitone per round |
+
+- **The Blackout condition is deliberately kept.** A round still cannot clear while `genTripped`.
+  That is the 2026-09-18 mechanic and it is the one thing that should still be able to stop the
+  clock; intensify drops the *empty-map* condition only. Verified both ways in the browser.
+- **The speed multiplier is applied where speed is READ** (`updateZombies`), not written into the
+  zombie at spawn — so throwing the switch speeds up everything already on the map at that
+  instant. A runner goes 2.05 → 2.62, which is "a fair amount but not overkill".
+- **`SCORE_ALIVE_PER_SEC` is the only run-score term the host does not own**: each client counts
+  its own seconds (`aliveMs`, only while up — a downed player is not surviving, they are being
+  rescued) and posts them with its own run. 40/s makes five intensified minutes worth 12,000,
+  between one silo (8,000) and the round term at round 16 — a real reason to throw the switch
+  early without ever competing with kills, which grow ~1.16^r. It shows on the end card as
+  **HELD OUT**, and only when it is non-zero, so an ordinary run carries no row reading 0.
+
+### Wire
+
+`iz` (0/1) and `hc` (the caller's name) on the world snapshot. **State, not an event**: the event
+queue is capped at ten a snapshot and is the first thing dropped, and the one packet that says the
+horde has been called must not be droppable. A guest runs all three announce beats off the
+`0 → 1` transition rather than needing three events to survive the trip. `hc` rides only while the
+announce window is live, not on every frame of the rest of the run.
+
+Everything is cleared in `resetGame()`, including `hideHordeCall()`.
+
+A host-gated **CALL THE HORDE** dev button does exactly what the switch does, so a playtester can
+reach the blitz — and re-check the announce beats — without walking back to the keep.
 
 ## Roles
 
@@ -1022,4 +1287,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: d5fe79fc | 2026-09-19 -->
+<!-- doc-sync: c71f48e7 | 2026-09-19 -->

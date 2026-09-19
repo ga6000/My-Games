@@ -515,6 +515,17 @@ run `check-global-collisions.js` after.
 > - Pixel-bitmap icons for perks and guns (no emoji), the ULTRA HEAVY as the one non-square
 >   zombie (an octagon, ≤3 colours + flash), per-gun round shapes, and a procedural organ score in
 >   the same Web Audio vocabulary as §4.10.
+>
+> **2026-09-19** added three pieces that are worth naming here because each one made an era
+> decision rather than a convenience one:
+> - **THEY HEAR YOUR CALL**, the full-screen red card when the horde switch is thrown, vibrates on
+>   a **whole-pixel** jitter written per frame from the render loop — not a CSS animation. A
+>   smooth sub-pixel wobble is exactly the §4 "reads as modern" failure.
+> - **The south gate** is a heavy ribbed slab behind a chainlink gate, drawn in flat bands with no
+>   gradient (§6.3), and it replaced a loading bar — the progress read is now the machine itself.
+> - **The win is a sequence**: the player is *drawn* walking off screen and the world fades to
+>   black before the card. The simulation is never moved, the same render/sim split §6.4 relies
+>   on and the same discipline as `RETRO.snap`.
 
 ### 6.4 RD Arena — `rd-arena/RDArena.html` · **RASTER** · anchor: *Space Invaders* (1978)
 **The best discovery in this review.** The flesh field is already thresholded at `gridB > 0.3`,
@@ -917,4 +928,4 @@ this is precisely the kind of cross-cutting root-level plan the 2026-09-02 audit
 - **Whether every game should convert at all.** Desert Robot Blaster and Wasteland Train Sim are
   Unity candidates; spending a session restyling them may be wasted.
 
-<!-- doc-sync: 772d604c | 2026-09-19 -->
+<!-- doc-sync: ff9a6b63 | 2026-09-19 -->

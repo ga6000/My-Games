@@ -152,7 +152,10 @@ Ordered easiest → hardest. This ordering is also the recommended build order.
 > **v4** (the Blood Silo endgame — the game can now be *won*). The current networked surface is
 > far larger than this section describes: generator state, card purchases, a host event queue
 > for one-shot audio, zone-visited cooldowns as nine remaining durations, and the whole
-> endgame chain (`gateStage`, `funnelActive[3]`, `siloFill[3]`, `floodActive`, `escapeAt`, `won`).
+> endgame chain (`gateStage`, `funnelActive[3]`, `siloFill[3]`, `floodActive`, `escapeAt`, `won`),
+> and since 2026-09-19 the intensify flag (`iz`/`hc` — deliberately snapshot **state** rather than
+> an event, because the event queue is capped at ten a snapshot and is the first thing dropped,
+> and "the horde has been called" must not be droppable).
 > **For the current design read `zombie/CLAUDE.md`, then `zombie/REBUILD_PLAN.md`,
 > `zombie/V3_PLAN.md` and `zombie/ENDGAME_PLAN.md` in that order.**
 >
@@ -609,4 +612,4 @@ Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: 772d604c | 2026-09-19 -->
+<!-- doc-sync: ff9a6b63 | 2026-09-19 -->
