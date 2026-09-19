@@ -169,6 +169,11 @@
      * room is uppercase. That makes new scores match the filter that already
      * exists. Scores already written as "PUBLIC" stay invisible to it — fixing
      * those is a data migration, not a code change.
+     *
+     * Superseded 2026-09-18: leaderboard.html no longer filters by room at all
+     * (every room counts toward one board per game), so the mismatch above is
+     * moot for display. The normalisation is kept so `room` stays consistent
+     * in the log in case a room view ever comes back.
      */
     function normalizeRoom(room) {
         var r = String(room == null ? "" : room).trim();

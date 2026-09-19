@@ -6,222 +6,257 @@
 <title>Leaderboards</title>
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+        --accent: #64c8ff;
+        --panel: #0d1418;
+        --tab-idle: #06090b;
+        --edge: rgba(100, 200, 255, 0.25);
+    }
     body {
         background: #000;
         color: #e0e0e0;
         font-family: 'Courier New', Courier, monospace;
         min-height: 100vh;
-        padding: 30px 20px;
+        padding: 30px 16px;
     }
     .container { max-width: 700px; margin: 0 auto; }
     h1 {
-        color: #64c8ff;
+        color: var(--accent);
         font-size: 28px;
         text-align: center;
-        margin-bottom: 6px;
+        margin-bottom: 24px;
         letter-spacing: 2px;
     }
+
+    /* Browser-style tabs: the active tab shares the panel's background and
+       sits one pixel over the panel's top border, so the two read as a
+       single surface. Inactive tabs are darker and sit behind it. */
+    .tabs {
+        display: flex;
+        gap: 2px;
+        padding: 0 10px;
+        position: relative;
+        z-index: 1;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+    .tab {
+        flex: 0 1 200px;
+        min-width: 0;
+        background: var(--tab-idle);
+        color: #888;
+        border: 1px solid var(--edge);
+        border-bottom: none;
+        border-radius: 10px 10px 0 0;
+        padding: 10px 18px;
+        font-family: inherit;
+        font-size: 14px;
+        letter-spacing: 1px;
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: pointer;
+        margin-bottom: -1px;
+    }
+    .tab:hover { color: #ccc; background: #0a1014; }
+    .tab[aria-selected="true"] {
+        background: var(--panel);
+        color: var(--accent);
+        border-color: var(--accent);
+        border-bottom: 1px solid var(--panel);
+    }
+    .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
+
+    .panel {
+        background: var(--panel);
+        border: 1px solid var(--accent);
+        border-radius: 0 10px 10px 10px;
+        padding: 18px 16px 16px;
+    }
     .subtitle {
-        text-align: center;
         color: #888;
         font-size: 12px;
-        margin-bottom: 30px;
+        margin-bottom: 14px;
     }
-    .filters {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 20px;
-        flex-wrap: wrap;
-        justify-content: center;
-    }
-    .filters select, .filters input {
-        background: rgba(100, 200, 255, 0.1);
-        border: 1px solid #64c8ff;
-        color: #e0e0e0;
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-family: inherit;
-        font-size: 13px;
-    }
-    .filters input {
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(100, 200, 255, 0.15);
-        border-radius: 8px;
-        overflow: hidden;
-    }
+    table { width: 100%; border-collapse: collapse; }
     th {
-        background: rgba(100, 200, 255, 0.1);
-        color: #64c8ff;
+        color: var(--accent);
         text-align: left;
-        padding: 10px 14px;
+        padding: 8px 10px;
         font-size: 12px;
         letter-spacing: 1px;
         text-transform: uppercase;
+        border-bottom: 1px solid var(--edge);
     }
     td {
-        padding: 10px 14px;
+        padding: 10px;
         border-top: 1px solid rgba(100, 200, 255, 0.08);
         font-size: 14px;
     }
     tr:hover td { background: rgba(100, 200, 255, 0.04); }
-    .rank { color: #64c8ff; font-weight: bold; width: 40px; }
+    .rank { color: var(--accent); font-weight: bold; width: 40px; }
     .rank.gold { color: #ffd700; }
     .rank.silver { color: #c0c0c0; }
     .rank.bronze { color: #cd7f32; }
-    .score { text-align: right; font-weight: bold; }
-    .empty, .loading {
-        text-align: center;
-        color: #666;
-        padding: 40px;
-    }
-    .room-tag {
-        display: inline-block;
-        background: rgba(100, 200, 255, 0.15);
-        color: #64c8ff;
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 11px;
-        margin-left: 6px;
-    }
+    .num { text-align: right; }
+    .score { font-weight: bold; }
+    .muted { color: #777; }
+    .empty, .loading { text-align: center; color: #666; padding: 40px; }
 </style>
 </head>
 <body>
 <div class="container">
     <h1>LEADERBOARDS</h1>
-    <div class="subtitle">Best single-life survival time, in seconds</div>
 
-    <div class="filters">
-        <select id="game-filter">
-            <option value="space-tracer">Space Tracer</option>
-            <!-- Zombie and other games get added here once they submit
-                 to the same "scores" collection with their own game id -->
-        </select>
-        <select id="room-filter">
-            <option value="all">All rooms (global)</option>
-            <option value="public">Public room only</option>
-            <option value="custom">Specific room code…</option>
-        </select>
-        <input id="room-code-filter" type="text" placeholder="ROOM CODE" maxlength="8" style="display:none;">
+    <div class="tabs" id="tabs" role="tablist"></div>
+    <div class="panel" id="panel" role="tabpanel">
+        <div class="subtitle" id="subtitle"></div>
+        <table>
+            <thead>
+                <tr>
+                    <th class="rank">#</th>
+                    <th>Player</th>
+                    <th class="num" id="score-head">Best</th>
+                    <th class="num">Runs</th>
+                    <th class="num">Set</th>
+                </tr>
+            </thead>
+            <tbody id="rows">
+                <tr><td colspan="5" class="loading">Loading…</td></tr>
+            </tbody>
+        </table>
     </div>
-
-    <table>
-        <thead>
-            <tr>
-                <th class="rank">#</th>
-                <th>Player</th>
-                <th>Room</th>
-                <th class="score">Score</th>
-            </tr>
-        </thead>
-        <tbody id="rows">
-            <tr><td colspan="4" class="loading">Loading…</td></tr>
-        </tbody>
-    </table>
 </div>
 
+<!-- A module script, unlike every game page: this page exists only to read
+     Firestore, so it has no file:// mode to preserve. -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-    import { getFirestore, collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+    import { getFirestore, collection, query, where, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
     import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-    // Same shared config as space-tracer.html -- see firebase-config.js.
-    // One file, filled in once, both pages (and future ones) import it.
     import { firebaseConfig } from "./firebase-config.js";
+
+    // One tab per game. `id` is the `game` field the game writes — Gyro Space
+    // still submits as "space-tracer", its old name, so that is what matches.
+    // Add a game here once it calls LB.submit (or writes to "scores" itself).
+    const GAMES = [
+        { id: "zombie", title: "Zombie", subtitle: "Highest round reached, one row per player",
+          scoreHead: "Round", fmt: s => String(s) },
+        { id: "space-tracer", title: "Gyro Space", subtitle: "Best single-life survival time, one row per player",
+          scoreHead: "Time", fmt: s => s + "s" },
+    ];
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
-    const auth = getAuth(app);
+    // Awaited before the first read, in case the rules require auth for
+    // reads. A failed sign-in still lets the read try.
+    const authReady = signInAnonymously(getAuth(app)).catch(err => console.error("Auth failed:", err));
 
-    signInAnonymously(auth).catch(err => console.error("Auth failed:", err));
-
-    const gameFilter = document.getElementById("game-filter");
-    const roomFilter = document.getElementById("room-filter");
-    const roomCodeFilter = document.getElementById("room-code-filter");
+    const tabsEl = document.getElementById("tabs");
+    const subtitleEl = document.getElementById("subtitle");
+    const scoreHeadEl = document.getElementById("score-head");
     const rowsEl = document.getElementById("rows");
 
-    roomFilter.addEventListener("change", () => {
-        roomCodeFilter.style.display = roomFilter.value === "custom" ? "inline-block" : "none";
-        if (roomFilter.value !== "custom") loadLeaderboard();
-    });
-    roomCodeFilter.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") loadLeaderboard();
-    });
-    gameFilter.addEventListener("change", loadLeaderboard);
+    const cache = new Map();   // game id -> Promise<rows>
+    let active = null;
 
-    // Firestore doesn't do "best score per player" server-side without a
-    // more involved data model (a separate "best_scores" doc per player,
-    // updated transactionally on write, instead of an append-only log).
-    // For a 3-10 person friend group, querying the raw log and folding
-    // to best-per-player client-side is simpler and fast enough — this
-    // is the kind of thing worth revisiting only if the scores
-    // collection grows into the thousands.
-    async function loadLeaderboard() {
-        rowsEl.innerHTML = '<tr><td colspan="4" class="loading">Loading…</td></tr>';
+    for (const g of GAMES) {
+        const b = document.createElement("button");
+        b.className = "tab";
+        b.id = "tab-" + g.id;
+        b.setAttribute("role", "tab");
+        b.textContent = g.title;
+        b.title = g.title;
+        b.addEventListener("click", () => select(g.id));
+        tabsEl.appendChild(b);
+    }
+    tabsEl.addEventListener("keydown", e => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        const i = GAMES.findIndex(g => g.id === active);
+        const next = GAMES[(i + (e.key === "ArrowRight" ? 1 : GAMES.length - 1)) % GAMES.length];
+        select(next.id);
+        document.getElementById("tab-" + next.id).focus();
+    });
 
+    // The selected tab lives in the URL hash, so leaderboard.html#space-tracer
+    // opens straight onto that game and a reload keeps your place.
+    function select(id) {
+        const game = GAMES.find(g => g.id === id) || GAMES[0];
+        active = game.id;
+        for (const g of GAMES) {
+            const b = document.getElementById("tab-" + g.id);
+            const on = g.id === game.id;
+            b.setAttribute("aria-selected", String(on));
+            b.tabIndex = on ? 0 : -1;
+        }
+        document.getElementById("panel").setAttribute("aria-labelledby", "tab-" + game.id);
+        if (location.hash.slice(1) !== game.id) history.replaceState(null, "", "#" + game.id);
+        subtitleEl.textContent = game.subtitle;
+        scoreHeadEl.textContent = game.scoreHead;
+        load(game);
+    }
+
+    async function load(game) {
+        rowsEl.innerHTML = '<tr><td colspan="5" class="loading">Loading…</td></tr>';
+        if (!cache.has(game.id)) cache.set(game.id, fetchBest(game.id));
         try {
-            const game = gameFilter.value;
-            let constraints = [where("game", "==", game)];
-
-            if (roomFilter.value === "public") {
-                constraints.push(where("room", "==", "public"));
-            } else if (roomFilter.value === "custom" && roomCodeFilter.value.trim()) {
-                constraints.push(where("room", "==", roomCodeFilter.value.trim().toUpperCase()));
-            }
-            // "all" adds no room constraint — every score, any room.
-
-            const q = query(
-                collection(db, "scores"),
-                ...constraints,
-                orderBy("score", "desc"),
-                limit(200) // Generous cap for the raw log; final table is folded down to one row per player below
-            );
-
-            const snap = await getDocs(q);
-            const best = new Map(); // player name -> {score, room}
-
-            snap.forEach(doc => {
-                const d = doc.data();
-                const existing = best.get(d.player);
-                if (!existing || d.score > existing.score) {
-                    best.set(d.player, { score: d.score, room: d.room });
-                }
-            });
-
-            const rows = Array.from(best.entries())
-                .map(([player, v]) => ({ player, score: v.score, room: v.room }))
-                .sort((a, b) => b.score - a.score)
-                .slice(0, 50);
-
-            renderRows(rows);
+            const rows = await cache.get(game.id);
+            if (active === game.id) renderRows(game, rows);
         } catch (err) {
+            cache.delete(game.id);   // let the next click retry
             console.error("Leaderboard load failed:", err);
-            rowsEl.innerHTML = '<tr><td colspan="4" class="empty">Couldn\'t load scores. Check the console for details.</td></tr>';
+            if (active === game.id) {
+                rowsEl.innerHTML = '<tr><td colspan="5" class="empty">Couldn\'t load scores. Check the console for details.</td></tr>';
+            }
         }
     }
 
-    function renderRows(rows) {
+    // Every run is its own document (an append-only log). This reads the
+    // game's whole log and folds it to one row per player client-side, which
+    // is also what makes the run count possible. Rooms are deliberately
+    // ignored: public, private and hub rooms all count toward one board.
+    //
+    // Only an equality filter, no orderBy, so this needs no composite index.
+    // The cap is a runaway guard — a friend group will not get near it.
+    async function fetchBest(gameId) {
+        await authReady;
+        const snap = await getDocs(query(collection(db, "scores"), where("game", "==", gameId), limit(5000)));
+        const best = new Map();   // player -> { score, runs, at }
+        snap.forEach(doc => {
+            const d = doc.data();
+            const score = Number(d.score);
+            if (!isFinite(score)) return;
+            const player = String(d.player || "Anonymous");
+            const at = d.timestamp && d.timestamp.toDate ? d.timestamp.toDate() : null;
+            const cur = best.get(player);
+            if (!cur) {
+                best.set(player, { score, runs: 1, at });
+            } else {
+                cur.runs++;
+                if (score > cur.score) { cur.score = score; cur.at = at; }
+            }
+        });
+        return Array.from(best, ([player, v]) => ({ player, ...v }))
+            // Ties go to whoever got there first.
+            .sort((a, b) => (b.score - a.score) || ((a.at ? a.at.getTime() : Infinity) - (b.at ? b.at.getTime() : Infinity)))
+            .slice(0, 50);
+    }
+
+    function renderRows(game, rows) {
         if (!rows.length) {
-            rowsEl.innerHTML = '<tr><td colspan="4" class="empty">No scores yet — be the first.</td></tr>';
+            rowsEl.innerHTML = '<tr><td colspan="5" class="empty">No scores yet — be the first.</td></tr>';
             return;
         }
-
         rowsEl.innerHTML = rows.map((r, i) => {
-            let rankClass = "rank";
-            if (i === 0) rankClass += " gold";
-            else if (i === 1) rankClass += " silver";
-            else if (i === 2) rankClass += " bronze";
-
+            const medal = ["gold", "silver", "bronze"][i] || "";
             return `
                 <tr>
-                    <td class="${rankClass}">${i + 1}</td>
+                    <td class="rank ${medal}">${i + 1}</td>
                     <td>${escapeHtml(r.player)}</td>
-                    <td><span class="room-tag">${escapeHtml(r.room)}</span></td>
-                    <td class="score">${r.score}</td>
+                    <td class="num score">${escapeHtml(game.fmt(r.score))}</td>
+                    <td class="num muted">${r.runs}</td>
+                    <td class="num muted">${r.at ? r.at.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}</td>
                 </tr>
             `;
         }).join("");
@@ -233,7 +268,11 @@
         return div.innerHTML;
     }
 
-    loadLeaderboard();
+    window.addEventListener("hashchange", () => {
+        const id = location.hash.slice(1);
+        if (id && id !== active) select(id);
+    });
+    select(location.hash.slice(1));
 </script>
 </body>
 </html>
