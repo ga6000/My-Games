@@ -910,4 +910,4 @@ this is precisely the kind of cross-cutting root-level plan the 2026-09-02 audit
 - **Whether every game should convert at all.** Desert Robot Blaster and Wasteland Train Sim are
   Unity candidates; spending a session restyling them may be wasted.
 
-<!-- doc-sync: 8dfe06cb | 2026-09-19 -->
+<!-- doc-sync: 690f97fa | 2026-09-19 -->

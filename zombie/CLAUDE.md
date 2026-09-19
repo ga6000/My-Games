@@ -873,8 +873,15 @@ SCORE column shows: `runScoreFor(id)` in `zombie-game.js`. All the constants sit
 - Verified in the browser with `LB.submit` stubbed: a walker kill credits 10; a round-15 win with
   3 silos and 9,000 combat posts 188,500 = (9,000 + 11,250 + 24,000 + 50,000) × 2, once; a round-35
   loss with 1 silo posts 237,250, once, across two `triggerGameOver()` calls.
-- Rows posted before this change (score = round reached, e.g. `2`) are still in Firestore.
-  They are far below any new score, so they only matter as clutter.
+- ~~Rows posted before this change (score = round reached, e.g. `2`) are still in Firestore.
+  They are far below any new score, so they only matter as clutter.~~ **Superseded 2026-09-19
+  (later):** the scores page lists every run, so those rows were visible — as a "score" of `2`.
+  The run also posts **`round`** as its own field now (`LB.submit` takes an optional `round`),
+  and `readZombieRun()` in `leaderboard.html` sorts the three doc shapes out: `{score, round}` is
+  current; `{score}` under 50 is an old round-as-score row (shown as round, no score); `{score}`
+  of 50+ is a run score from before `round` had a field (shown with no round). 50 is the floor
+  because `runScoreFor()` adds `50 × round²` once round 1 starts. **If `SCORE_ROUND_K` or the
+  round term changes, check `ZOMBIE_MIN_RUN_SCORE` in `leaderboard.html`.**
 
 ### The typed readout (2026-09-19)
 
@@ -1015,4 +1022,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: d10e12ce | 2026-09-19 -->
+<!-- doc-sync: d5fe79fc | 2026-09-19 -->

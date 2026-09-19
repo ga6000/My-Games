@@ -103,6 +103,27 @@
     .score { font-weight: bold; }
     .muted { color: #777; }
     .empty, .loading { text-align: center; color: #666; padding: 40px; }
+    .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+        font-size: 12px;
+        color: #888;
+    }
+    .toolbar select {
+        background: var(--tab-idle);
+        color: #e0e0e0;
+        border: 1px solid var(--edge);
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-family: inherit;
+        font-size: 13px;
+        max-width: 60vw;
+    }
+    .toolbar select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .toolbar .count { margin-left: auto; }
 </style>
 </head>
 <body>
@@ -112,18 +133,15 @@
     <div class="tabs" id="tabs" role="tablist"></div>
     <div class="panel" id="panel" role="tabpanel">
         <div class="subtitle" id="subtitle"></div>
+        <div class="toolbar">
+            <label for="player-filter">Player</label>
+            <select id="player-filter"><option value="">All players</option></select>
+            <span class="count" id="count"></span>
+        </div>
         <table>
-            <thead>
-                <tr>
-                    <th class="rank">#</th>
-                    <th>Player</th>
-                    <th class="num" id="score-head">Best</th>
-                    <th class="num">Runs</th>
-                    <th class="num">Set</th>
-                </tr>
-            </thead>
+            <thead id="head"></thead>
             <tbody id="rows">
-                <tr><td colspan="5" class="loading">Loading…</td></tr>
+                <tr><td colspan="6" class="loading">Loading…</td></tr>
             </tbody>
         </table>
     </div>
@@ -140,15 +158,52 @@
     // One tab per game. `id` is the `game` field the game writes — Gyro Space
     // still submits as "space-tracer", its old name, so that is what matches.
     // Add a game here once it calls LB.submit (or writes to "scores" itself).
+    //
+    // `read(doc)` turns one stored run into { score, round } (either may be
+    // null, shown as "—"), or null to skip the doc. `roundHead: null` drops the
+    // round column for a game that has no rounds.
     const GAMES = [
         // Zombie's score is a run score since 2026-09-19 (kills, revives,
         // round reached, silos filled; a win adds a bonus and doubles it) --
-        // see runScoreFor() in zombie/zombie-game.js.
-        { id: "zombie", title: "Zombie", subtitle: "Best run score: kills, revives, rounds and silos. Escaping doubles it",
-          scoreHead: "Score", fmt: s => s.toLocaleString("en-US") },
-        { id: "space-tracer", title: "Gyro Space", subtitle: "Best single-life survival time, one row per player",
-          scoreHead: "Time", fmt: s => s + "s" },
+        // see runScoreFor() in zombie/zombie-game.js. The round reached has
+        // its own `round` field since the same day.
+        { id: "zombie", title: "Zombie",
+          subtitle: "Every run. Score: kills, revives, rounds and silos. Escaping doubles it",
+          scoreHead: "Score", roundHead: "Round", fmt: s => s.toLocaleString("en-US"),
+          read: readZombieRun },
+        { id: "space-tracer", title: "Gyro Space",
+          subtitle: "Every run. Score is single-life survival time",
+          scoreHead: "Time", roundHead: null, fmt: s => s + "s",
+          read: d => isFinite(Number(d.score)) ? { score: Number(d.score), round: null } : null },
     ];
+
+    /*
+     * Zombie's log holds three shapes of doc, and only the newest says which
+     * number is which:
+     *
+     *   { score, round }   2026-09-19 on: the run score, and the round reached
+     *   { score }          earlier on 2026-09-19: the run score, round unknown
+     *   { score }          before that: `score` WAS the round reached
+     *
+     * The last two are told apart by size, not date, so a page that deployed
+     * late or a cached old client cannot put a round in the score column. A
+     * run score is never under 50 once round 1 has started, because
+     * runScoreFor() adds 50 x round^2 (SCORE_ROUND_K) before anything else;
+     * no one has reached round 50. The one ambiguous value is 0, which means
+     * "nothing happened" under either reading.
+     */
+    const ZOMBIE_MIN_RUN_SCORE = 50;
+    function readZombieRun(d) {
+        const score = Number(d.score);
+        if (!isFinite(score)) return null;
+        if (d.round != null && isFinite(Number(d.round))) return { score, round: Number(d.round) };
+        if (score < ZOMBIE_MIN_RUN_SCORE) return { score: null, round: score };
+        return { score, round: null };
+    }
+
+    // A friend group's whole history fits on one page; the cap only stops a
+    // runaway log from building a 5,000-row table.
+    const MAX_ROWS = 300;
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
@@ -158,11 +213,14 @@
 
     const tabsEl = document.getElementById("tabs");
     const subtitleEl = document.getElementById("subtitle");
-    const scoreHeadEl = document.getElementById("score-head");
+    const headEl = document.getElementById("head");
     const rowsEl = document.getElementById("rows");
+    const filterEl = document.getElementById("player-filter");
+    const countEl = document.getElementById("count");
 
-    const cache = new Map();   // game id -> Promise<rows>
+    const cache = new Map();   // game id -> Promise<runs>
     let active = null;
+    let playerFilter = "";     // "" = everyone; survives a tab switch if that player exists there
 
     for (const g of GAMES) {
         const b = document.createElement("button");
@@ -181,6 +239,17 @@
         select(next.id);
         document.getElementById("tab-" + next.id).focus();
     });
+    filterEl.addEventListener("change", () => {
+        playerFilter = filterEl.value;
+        const game = GAMES.find(g => g.id === active);
+        if (game) load(game);
+    });
+
+    function columnCount(game) { return game.roundHead ? 6 : 5; }
+
+    function message(game, cls, text) {
+        rowsEl.innerHTML = `<tr><td colspan="${columnCount(game)}" class="${cls}">${text}</td></tr>`;
+    }
 
     // The selected tab lives in the URL hash, so leaderboard.html#space-tracer
     // opens straight onto that game and a reload keeps your place.
@@ -196,70 +265,104 @@
         document.getElementById("panel").setAttribute("aria-labelledby", "tab-" + game.id);
         if (location.hash.slice(1) !== game.id) history.replaceState(null, "", "#" + game.id);
         subtitleEl.textContent = game.subtitle;
-        scoreHeadEl.textContent = game.scoreHead;
+        headEl.innerHTML = `
+            <tr>
+                <th class="rank">#</th>
+                <th>Player</th>
+                <th class="num">${escapeHtml(game.scoreHead)}</th>
+                ${game.roundHead ? `<th class="num">${escapeHtml(game.roundHead)}</th>` : ""}
+                <th class="num">Run</th>
+                <th class="num">Date</th>
+            </tr>`;
         load(game);
     }
 
     async function load(game) {
-        rowsEl.innerHTML = '<tr><td colspan="5" class="loading">Loading…</td></tr>';
-        if (!cache.has(game.id)) cache.set(game.id, fetchBest(game.id));
+        message(game, "loading", "Loading…");
+        countEl.textContent = "";
+        if (!cache.has(game.id)) cache.set(game.id, fetchRuns(game));
         try {
-            const rows = await cache.get(game.id);
-            if (active === game.id) renderRows(game, rows);
+            const runs = await cache.get(game.id);
+            if (active === game.id) render(game, runs);
         } catch (err) {
             cache.delete(game.id);   // let the next click retry
             console.error("Leaderboard load failed:", err);
-            if (active === game.id) {
-                rowsEl.innerHTML = '<tr><td colspan="5" class="empty">Couldn\'t load scores. Check the console for details.</td></tr>';
-            }
+            if (active === game.id) message(game, "empty", "Couldn't load scores. Check the console for details.");
         }
     }
 
-    // Every run is its own document (an append-only log). This reads the
-    // game's whole log and folds it to one row per player client-side, which
-    // is also what makes the run count possible. Rooms are deliberately
-    // ignored: public, private and hub rooms all count toward one board.
+    // Every run is its own document (an append-only log), and every run gets
+    // its own row — a player's earlier runs stay on the board so their
+    // progress shows. Run # is that player's Nth run of this game, counted
+    // oldest first. Rooms are deliberately ignored: public, private and hub
+    // rooms all count toward one board.
     //
     // Only an equality filter, no orderBy, so this needs no composite index.
     // The cap is a runaway guard — a friend group will not get near it.
-    async function fetchBest(gameId) {
+    async function fetchRuns(game) {
         await authReady;
-        const snap = await getDocs(query(collection(db, "scores"), where("game", "==", gameId), limit(5000)));
-        const best = new Map();   // player -> { score, runs, at }
+        const snap = await getDocs(query(collection(db, "scores"), where("game", "==", game.id), limit(5000)));
+        const runs = [];
         snap.forEach(doc => {
             const d = doc.data();
-            const score = Number(d.score);
-            if (!isFinite(score)) return;
-            const player = String(d.player || "Anonymous");
-            const at = d.timestamp && d.timestamp.toDate ? d.timestamp.toDate() : null;
-            const cur = best.get(player);
-            if (!cur) {
-                best.set(player, { score, runs: 1, at });
-            } else {
-                cur.runs++;
-                if (score > cur.score) { cur.score = score; cur.at = at; }
-            }
+            const v = game.read(d);
+            if (!v) return;
+            runs.push({
+                player: String(d.player || "Anonymous"),
+                score: v.score,
+                round: v.round,
+                at: d.timestamp && d.timestamp.toDate ? d.timestamp.toDate() : null,
+            });
         });
-        return Array.from(best, ([player, v]) => ({ player, ...v }))
-            // Ties go to whoever got there first.
-            .sort((a, b) => (b.score - a.score) || ((a.at ? a.at.getTime() : Infinity) - (b.at ? b.at.getTime() : Infinity)))
-            .slice(0, 50);
+
+        // Number each player's runs in the order they happened. A doc with no
+        // timestamp yet (a write still resolving) counts as the newest.
+        const time = r => (r.at ? r.at.getTime() : Infinity);
+        runs.sort((a, b) => time(a) - time(b));
+        const seen = new Map();
+        for (const r of runs) {
+            r.run = (seen.get(r.player) || 0) + 1;
+            seen.set(r.player, r.run);
+        }
+
+        // Best first. A run with no score (Zombie's round-only runs) sorts
+        // below every scored one, deepest round first. Ties go to whoever got
+        // there first.
+        const key = r => (r.score != null ? r.score : -Infinity);
+        return runs.sort((a, b) =>
+            (key(b) - key(a)) || ((b.round || 0) - (a.round || 0)) || (time(a) - time(b)));
     }
 
-    function renderRows(game, rows) {
-        if (!rows.length) {
-            rowsEl.innerHTML = '<tr><td colspan="5" class="empty">No scores yet — be the first.</td></tr>';
+    function render(game, runs) {
+        // Rebuild the player list each render: it is per game.
+        const players = Array.from(new Set(runs.map(r => r.player))).sort((a, b) => a.localeCompare(b));
+        if (playerFilter && !players.includes(playerFilter)) playerFilter = "";
+        // Built as nodes, not markup: a name is free text, quotes included.
+        filterEl.replaceChildren(new Option("All players", ""), ...players.map(p => new Option(p, p)));
+        filterEl.value = playerFilter;
+
+        const shown = playerFilter ? runs.filter(r => r.player === playerFilter) : runs;
+        const runsWord = n => n + (n === 1 ? " run" : " runs");
+        countEl.textContent = playerFilter
+            ? runsWord(shown.length)
+            : runsWord(runs.length) + " · " + players.length + (players.length === 1 ? " player" : " players");
+
+        if (!shown.length) {
+            message(game, "empty", "No scores yet — be the first.");
             return;
         }
-        rowsEl.innerHTML = rows.map((r, i) => {
-            const medal = ["gold", "silver", "bronze"][i] || "";
+        const dash = '<span class="muted">—</span>';
+        rowsEl.innerHTML = shown.slice(0, MAX_ROWS).map((r, i) => {
+            // Medals are for the whole board, not one player's own top three.
+            const medal = playerFilter ? "" : (["gold", "silver", "bronze"][i] || "");
             return `
                 <tr>
                     <td class="rank ${medal}">${i + 1}</td>
                     <td>${escapeHtml(r.player)}</td>
-                    <td class="num score">${escapeHtml(game.fmt(r.score))}</td>
-                    <td class="num muted">${r.runs}</td>
-                    <td class="num muted">${r.at ? r.at.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}</td>
+                    <td class="num score">${r.score != null ? escapeHtml(game.fmt(r.score)) : dash}</td>
+                    ${game.roundHead ? `<td class="num">${r.round != null ? r.round : dash}</td>` : ""}
+                    <td class="num muted">${r.run}</td>
+                    <td class="num muted" title="${r.at ? escapeHtml(r.at.toLocaleString()) : ""}">${r.at ? r.at.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}</td>
                 </tr>
             `;
         }).join("");

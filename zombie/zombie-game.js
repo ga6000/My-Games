@@ -672,6 +672,9 @@ function submitRunToLeaderboard() {
     LB.submit({
         player: (typeof MP !== "undefined" && MP.selfName) || "Anonymous",
         score: runScoreFor(netIdFor(players[0])).total,
+        // Its own field since 2026-09-19, so the scores page can show how far
+        // the run got next to the score rather than instead of it.
+        round: round,
         room: (typeof MP !== "undefined" && MP.room) || ""
     });
 }

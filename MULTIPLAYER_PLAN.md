@@ -571,4 +571,4 @@ Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: 8dfe06cb | 2026-09-19 -->
+<!-- doc-sync: 690f97fa | 2026-09-19 -->

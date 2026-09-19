@@ -6,6 +6,7 @@
  *     <script src="../shared/leaderboard.js"></script>
  *     LB.configure({ game: "glass-city-escape" });
  *     LB.submit({ player: name, score: 1250, room: roomCode });
+ *     LB.submit({ player: name, score: 1250, round: 7, room: roomCode });   // round is optional
  *
  * WHAT THIS REPLACES
  * Today exactly one game submits scores, and it does it with ~40 lines of
@@ -124,13 +125,17 @@
             } catch (e) { /* auth module shape changed; not fatal */ }
 
             writer = function (doc) {
-                return fsMod.addDoc(fsMod.collection(db, collectionName), {
+                var data = {
                     game: doc.game,
                     player: doc.player,
                     score: doc.score,
                     room: doc.room,
                     timestamp: fsMod.serverTimestamp()
-                });
+                };
+                // Only games with rounds send one; the rest keep the original
+                // five-field shape rather than writing round: null.
+                if (doc.round != null) data.round = doc.round;
+                return fsMod.addDoc(fsMod.collection(db, collectionName), data);
             };
             state = "ready";
             flush();
@@ -208,6 +213,12 @@
             score: Math.round(score),
             room: normalizeRoom(e.room)
         };
+        // Optional: the round/wave the run reached, for a game whose score is
+        // something else. Zombie since 2026-09-19 — before that its score WAS
+        // the round, so the board could not show both. leaderboard.html gives
+        // it its own column.
+        var round = Number(e.round);
+        if (e.round != null && isFinite(round)) doc.round = Math.round(round);
 
         if (state === "unavailable") return;
         if (state === "idle") preload();
