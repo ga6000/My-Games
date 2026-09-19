@@ -45,68 +45,6 @@ function destroy() {
 }
 
 // ============================================================
-// NETWORK HOOK POINTS -- the seam rd-net.js installs into
-// ============================================================
-// MP_ROLLOUT.md 2 step 2: "rd-net.js installs itself by ASSIGNING INTO hook
-// points the game exposes -- it is never called from inside the game loop
-// except through the NET.active guards. Delete the one script tag and the game
-// is single-player again."
-//
-// That only works if the defaults live somewhere that is ALWAYS loaded. If the
-// game called netFoo() directly, removing rd-net.js would throw a
-// ReferenceError out of the update loop -- which is precisely the failure
-// scripts/check-undefined-globals.js was written for after `SPAWN_RING_MIN`.
-//
-// So: one object, single-player defaults, declared here. Every default is the
-// behaviour the game had on 2026-09-07, so with the tag deleted these are all
-// no-ops or identities and the game is byte-for-byte what it was.
-const RDHOOKS = {
-    // A discrete carve happened. rd-net.js relays it; alone, nobody listens.
-    carve: function (cx, cy, radius, kind) { },
-
-    // Does THIS client simulate the shared world (enemies, bullets, rounds)?
-    // Solo players are their own host, so: yes.
-    simsWorld: function () { return true; },
-
-    // Every player the shared world should react to -- enemy targeting and the
-    // flow field's Dijkstra sources. Alone, that is just you.
-    targets: function () { return [player]; },
-
-    // Once per frame, after the sim and before the draw.
-    tick: function () { },
-
-    // An enemy took a hit on a client that is not the authority. Alone this is
-    // never reached -- simsWorld() is true, so Entity.hit() applies it directly.
-    //
-    // ONE hook covers every weapon. Bullets, crawlers, the machete arc and the
-    // splatter shockwave all funnel through Entity.hit(), so relaying at that
-    // point means client weapons keep running their own unmodified collision
-    // code and merely report the result. The alternative -- an intent message
-    // per ability, with the host re-deriving each one -- is four protocols and
-    // four chances to disagree with the local sim about what was in range.
-    damage: function (netId, dmg, angle) { },
-
-    // Anything the netcode draws in world space (other players, their names).
-    // Called inside the camera transform, before the local player.
-    draw: function () { }
-};
-
-// The nearest thing enemies should care about. Alone that is always you; with
-// peers it is whoever is closest, which is what stops every grunt on the map
-// walking past two players to reach the host.
-function nearestTarget(x, y) {
-    const list = RDHOOKS.targets();
-    let best = list[0], bestD = Infinity;
-    for (let i = 0; i < list.length; i++) {
-        const t = list[i];
-        if (!t || t.dead) continue;
-        const d = (t.x - x) * (t.x - x) + (t.y - y) * (t.y - y);
-        if (d < bestD) { bestD = d; best = t; }
-    }
-    return best || list[0];
-}
-
-// ============================================================
 // World & camera
 // v2: four times the area at the same simulation cost --
 // cellSize goes 6 -> 12, the RD grid stays 400x400.

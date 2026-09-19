@@ -51,19 +51,7 @@ function registerKill(enemy) {
         player.hp++;
         floatText(player.x, player.y - 20, '+1', '#7ee787');
     }
-    checkBioThreshold();
-}
-
-// Split out of registerKill 2026-09-08. `kills` is host-owned and shared, so a
-// client never runs registerKill -- it receives a kill count that has already
-// moved, sometimes by more than one, and has to award its OWN biohacks from it.
-// Progression stays private (MP_BUILD_NOTES.md step 3): everyone crosses a
-// threshold together, what they spend it on is theirs.
-//
-// A `while`, not the `if` this replaced: a client can see kills jump across a
-// threshold, and one snapshot must not silently eat an earned biohack.
-function checkBioThreshold() {
-    while (kills >= nextBioThreshold()) {
+    if (kills >= nextBioThreshold()) {
         bioIdx++;
         pendingBiohacks++;
         banner('BIOHACK EARNED - REACH AN ORGAN');
@@ -86,16 +74,11 @@ function heavyEvery() { return Math.max(7, 20 - round * 2); }
 // hit this exact wall at 4800x2700 and solved it the same way: spawn on a
 // ring around the player rather than anywhere on the map.
 function findSpawnPoint(minD, maxD, requireReachable) {
-    // Rings a RANDOMLY CHOSEN player, not always the host (2026-09-08). Picking
-    // per attempt rather than per call also means a ring that is blocked around
-    // one player can still succeed around another instead of failing the spawn.
-    const ring = RDHOOKS.targets();
     for (let t = 0; t < 50; t++) {
-        const who = ring[(Math.random() * ring.length) | 0] || player;
         const a = Math.random() * Math.PI * 2;
         const d = minD + Math.random() * (maxD - minD);
-        const x = who.x + Math.cos(a) * d;
-        const y = who.y + Math.sin(a) * d;
+        const x = player.x + Math.cos(a) * d;
+        const y = player.y + Math.sin(a) * d;
         if (x < 60 || y < 60 || x > worldWidth - 60 || y > worldHeight - 60) continue;
         if (isSolid(x, y) || inSanctuary(x, y)) continue;
         if (requireReachable && !flowReachable(x, y)) continue;

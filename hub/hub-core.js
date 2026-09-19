@@ -47,15 +47,20 @@ const PAGE_SIZE = 6;
 // that is exactly the state a game returning from under-development/ will
 // be in.
 //
-// Order: the three you can actually play together come first, then the
+// Order: the ones you can actually play together come first, then the
 // rest. Boids used to be the fourth and went to the shelf with the others.
+//
+// 2026-09-08: RD Arena took `mp: true` (rd-arena/MP_BUILD_NOTES.md), so ALL
+// FIVE board games now play together and nothing on the board carries the
+// MULTIPLAYER SOON stamp any more. The stamp machinery below stays wired up --
+// it is what the shelf will come back through.
 // All 5 fit on one page at PAGE_SIZE = 6, so paging is currently a no-op
 // that stays wired up for when the list grows back.
 const GAMES = [
     { id: "zombie",               icon: "🧟",  title: "Zombie",               desc: "Co-op Survival",                 href: "zombie/Zombie.html", isNew: true, mp: true },
     { id: "space-tracer",         icon: "🚀",  title: "Space Tracer",         desc: "Multiplayer Ship Combat",        href: "gyro-space/space-tracer.html", isNew: true, mp: true },
     { id: "glass-city-escape",    icon: "🏙️",  title: "Glass City Escape",    desc: "Building-Hopping Race",          href: "glass-city-escape/glass_city_escape.html", isNew: true, mp: true },
-    { id: "rd-arena",             icon: "🧫",  title: "RD Arena",             desc: "Reaction-Diffusion Arena",       href: "rd-arena/RDArena.html", isNew: true },
+    { id: "rd-arena",             icon: "🧫",  title: "RD Arena",             desc: "Reaction-Diffusion Arena",       href: "rd-arena/RDArena.html", isNew: true, mp: true },
     { id: "four-d-pong",          icon: "🏓",  title: "4D Pong",              desc: "Four-Way Tug-Of-War Pong",       href: "four-d-pong/four-d-pong.html", isNew: true, mp: true }
 ];
 

@@ -205,6 +205,11 @@ Every game that can't be played together carries a diagonal red rubber stamp. Th
 splits, because one word for both would have been misleading:
 
 - **MULTIPLAYER SOON** (10 games) - runs fine, just no shared play yet.
+
+> **2026-09-08: nothing on the board carries this stamp any longer.** RD Arena was the last of
+> the 5 without `mp: true` and got it when its netcode landed. The derivation below is unchanged
+> and stays wired up — it is what a game promoted back off `under-development/` will come
+> through, and it is still one fact per entry rather than two that can drift.
 - **COMING SOON** (3 games: `ps1-racer`, `voice-runner`, `hex-grid`) - doesn't actually run,
   per PROJECT_MEMORY. Rendered a shade heavier (`.tile-stamp.blocked`).
 

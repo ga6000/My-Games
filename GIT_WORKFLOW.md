@@ -5,23 +5,15 @@ Replaces an earlier version of this file written against a different, non-existe
 
 ## Current reality
 
-**This folder (`Active Github Repos/My Games-main/`) is not currently a git repository** — there
-is no `.git/` here. The name "Active Github Repos" suggests this is a working copy pulled down
-for local editing (e.g. downloaded from `github.com/ga6000/My-Games`) rather than a live `git
-clone`. Before any `git` command below will work, this folder needs to actually be a repo
-connected to that remote:
+> **Corrected 2026-09-08.** The section this replaces said this folder was **not** a git
+> repository and gave `git init` instructions. That was wrong, and it had been wrong long enough
+> to get quoted as fact elsewhere — `rd-arena/MP_ROLLOUT.md` §0 built its whole "how do I revert
+> this" argument on it, and a session repeated the claim without checking. **Check with
+> `git rev-parse --show-toplevel`, not with this file.**
 
-```bash
-cd "Active Github Repos/My Games-main"
-git init
-git remote add origin https://github.com/ga6000/My-Games.git
-git fetch origin
-git checkout main   # or whatever the default branch is called
-```
-
-If you already have a real clone of `ga6000/My-Games` elsewhere on this machine, it's probably
-simpler to do this restructure's edits there directly (or copy this folder's contents over it)
-rather than turning this working copy into a second clone of the same repo.
+`Active Github Repos/My Games-main/` **is a real clone**, on `main`, with
+`origin = https://github.com/ga6000/My-Games.git` and history behind it. `git checkout .` works.
+The pre-commit hook is already active (`core.hooksPath = .githooks`).
 
 ## Once it's a real repo
 

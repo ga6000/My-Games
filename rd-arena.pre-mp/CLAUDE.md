@@ -1,3 +1,13 @@
+# FROZEN SNAPSHOT — rd-arena as of 2026-09-08, before multiplayer
+
+**Do not edit, do not sync changes into this folder.** It is MP_ROLLOUT.md §0's dated
+fallback: if multiplayer goes badly you double-click `rd-arena.pre-mp/RDArena.html` and you
+are playing the 2026-09-07 build. It sits at this depth so its `../shared/` paths still
+resolve. `check-doc-sync.js` tracks this file too (it finds docs by name, not by stamp) but it
+will never go stale: the code it is scoped to is frozen, so its hash cannot move.
+
+---
+
 # RD Arena — file map
 
 New 2026-09-05. This folder had no `CLAUDE.md` while every other active game did, which is
@@ -14,7 +24,6 @@ Was one 2,487-line `RDArena.html` — the tracker had it flagged "best split can
 | `rd-core.js` | ~56 + skin | canvas/ctx, teardown plumbing (`abortCtl`, `timeoutIds`, `intervalIds`), world & camera — **plus `RDSKIN`, `audibleRD()` and the `SFX` bootstrap**, all new 2026-09-05 |
 | `rd-field.js` | 203 | **the Gray-Scott reaction-diffusion field** — `dA`/`dB`/`feed`/`k`, the 400×400 grid, the `>0.3` threshold |
 | `rd-netfield.js` | ~130 | **added 2026-09-07** — the 133² 2-bit network field the flesh is DRAWN from. Render-only; see below and `NET_FIELD_NOTES.md` |
-| `rd-net.js` | ~520 | **added 2026-09-08** — all of multiplayer. Installs into `RDHOOKS`; delete its one tag and the game is single-player |
 | `rd-sanctuary.js` | 289 | human sanctuaries, antibacterial defence, organs |
 | `rd-flow.js` | 193 | the flow field |
 | `rd-input.js` | 168 | input and build state |
@@ -24,73 +33,6 @@ Was one 2,487-line `RDArena.html` — the tracker had it flagged "best split can
 | `rd-boot.js` | 361 | the main `loop()` **and the boot sequence** |
 | `rd-dev.js` | ~190 | **added 2026-09-07** — dev-panel registration, and `rdDevGod` |
 
-## Multiplayer — `rd-net.js` (2026-09-08)
-
-Built to `MP_ROLLOUT.md`; **`MP_BUILD_NOTES.md` is the record of what it actually turned into**
-and is the file to read before touching any of this.
-
-**Host-authoritative world, client-owned players.** One client spawns enemies, runs their AI,
-runs the round clock and owns `kills`. Every client owns its own player outright — position, HP,
-death, respawn, cards, gun upgrades — and is never corrected on any of it.
-
-### The seam: `RDHOOKS`
-
-`rd-net.js` never gets called by name from the game loop. It **assigns into `RDHOOKS`**, an
-object declared in `rd-core.js` whose defaults *are* the single-player behaviour. Deleting the
-one `<script>` tag therefore really does give the old game back. Doing it the obvious way —
-calling `netFoo()` from `rd-boot.js` — would leave a `ReferenceError` firing out of the update
-loop the moment the tag went, which is precisely the failure `check-undefined-globals.js` exists
-to catch.
-
-Six hooks: `carve`, `simsWorld`, `targets`, `damage`, `tick`, `draw`.
-
-### Two things here are worth more than the rest
-
-**`RDHOOKS.damage` is called from `Entity.hit()`, not from each weapon.** Bullets, crawlers, the
-machete arc and the splatter shockwave all already funnel through `hit()`, so relaying at that
-one point means every client weapon keeps running its own unmodified collision code and merely
-reports the result. The alternative — an intent message per ability with the host re-deriving
-each one — is four protocols and four chances to disagree with the local sim about what was in
-range.
-
-**Enemies are reconciled by `netId`, never by array index.** The host splices dead enemies out
-mid-frame, so index 7 is a different creature either side of a kill and interpolation targets
-would jump between bodies.
-
-### Three deliberate departures from Zombie's protocol
-
-1. **No `down`/`up`/`dead`.** Death here is a 2 s respawn, not a shared objective, so each client
-   resolves damage to its own player from the enemy bullets it already has on screen.
-2. **Organs, bakes and cards never cross the wire.** `kills` is shared, so everyone crosses a
-   BIOhack threshold together; what they spend it on is private. Glass City's parallel-worlds
-   answer rather than a claim protocol — there is no contention to arbitrate if the resource is
-   not shared. This is why `registerKill` was split: clients receive a kill count that has
-   already moved, sometimes past a threshold, and award their own biohacks in `checkBioThreshold`
-   (a `while`, not an `if` — a jump must not eat an earned biohack).
-3. **The flow field is multi-source.** It seeded Dijkstra from `player` alone, which is correct
-   with one player and quietly wrong with three: every grunt on the map would path toward the
-   *host* specifically. N sources at cost 0 gives each cell the distance to the nearest player
-   for free. Note the `continue` where a `return` used to be — one player sealed in a pocket must
-   not throw away everyone else's seeds and leave the whole field at `INF`.
-
-### The carve choke point (`rd-field.js`)
-
-Every discrete write to `gridB` goes through `applyCarve`. There were three writers and the third
-— the blood-particle loop — lived inline in `rd-boot.js` and is now `bloodCarve()` with the
-others. `updateRD` is deliberately *not* routed through it: continuous evolution is never sent,
-it is what the resync corrects for. Only `'clear'` carves reach the wire; `'spray'` and `'blood'`
-are dropped in `rd-net.js` (a mote flood and 250 particles a frame respectively).
-
-Relayed carves are applied with `applyCarve`, **not** `clearRadius` — re-entering the choke point
-would relay each carve straight back out and every client would echo every other for ever.
-
-### Keys
-
-`F9` all-off/all-on, `F10` resync, `F11` host-sim — the three independently togglable parts, so a
-feel complaint can be pinned on one of them inside a single session. `?net=0`, `?net=nosync`,
-`?net=nohost`, `?net=nocarve`, `?net=debug` pin the same from a shortcut. The dev panel carries
-the four numbers `MP_ROLLOUT.md` §4 asks for.
-
 ## The network field — `rd-netfield.js` (2026-09-07)
 
 The flesh you see is no longer `gridB`. It is a **133² 2-bit downsample of `gridB`, repacked once
@@ -98,20 +40,9 @@ a second and lerped between the last two packets** — the parameters picked in
 `rd-arena-bench/rd-curves.html`. 4,423 bytes per packet, 4.52× cheaper than `MP_ROLLOUT.md` §2's
 planned 400² 1-bit mask and arriving twice as often. `NET_FIELD_NOTES.md` has the full table.
 
-**Superseded in part 2026-09-08:** there is netcode now (`rd-net.js`), and the host sends this
-exact reduction — `RDNET.encode()` base64s `pack()` onto the relay once a second. What has *not*
-changed is that the renderer still draws the **locally** packed field: on a client that field is
-being pulled toward the host's by the resync, so the picture converges without the renderer
-knowing anything about the network. One format, two uses.
-
-The paragraph below is how it shipped on 2026-09-07 and still explains why it shipped that way:
-
-> **There is still no netcode.** `RDNET.pack()` reads the local sim; nothing is sent. The point is
+**There is still no netcode.** `RDNET.pack()` reads the local sim; nothing is sent. The point is
 to answer the visual question — *does a coarse, one-second-stale surface still read as this
 game?* — before MP_ROLLOUT's steps 1–4 put a socket underneath it.
-
-Note also that **`F9` moved to `F8`** on 2026-09-08: `MP_ROLLOUT.md` §1 had claimed F9/F10/F11
-for the net flags, and this toggle got there a day early and had to give the key back.
 
 Two things that are easy to get wrong here:
 
@@ -133,7 +64,7 @@ driven from `loop()` rather than a timer, so it cannot outlive `destroy()`.
 
 `../shared/devtools.js` loads before `rd-core.js` (its keydown listener has to beat
 `rd-input.js`'s so a combo press can be stopped from also reaching the player) and `rd-dev.js`
-loads last, after the game is already running. Seventeen local scripts now, not eleven — `identity.js` and `mp-core.js` joined the shared three, and `rd-net.js` loads dead last.
+loads last, after the game is already running. Fourteen local scripts now, not eleven.
 
 **Cut in strict source order; nothing reordered.** The one textual change is that the four-space
 indent the whole script carried inside `<script>` was removed — verified whitespace-only first,
@@ -255,4 +186,5 @@ camera.
   Out of scope for the columns this session closed, but it is the only active game missing it.
 - `Firebase / Leaderboard Integrated?` remains `No` — round reached would be the obvious score.
 
-<!-- doc-sync: 7e141097 | 2026-09-19 -->
+
+<!-- doc-sync: 7fd3fd4a | 2026-09-08 -->

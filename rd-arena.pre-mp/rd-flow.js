@@ -126,19 +126,8 @@ function rebuildFlowField() {
     for (let i = 0; i < fSize; i++) fCost[i] = FLOW_INF;
     heapLen = 0;
 
-    // MULTI-SOURCE since 2026-09-08. This seeded from `player` alone, which is
-    // correct with one player and quietly wrong with three: on a host, every
-    // grunt on the map would path toward the host specifically, walking past
-    // whoever it was standing next to. Dijkstra from N sources at cost 0 gives
-    // each cell the distance to the NEAREST player for free -- no extra passes,
-    // no per-player field. Alone, RDHOOKS.targets() is [player] and this is
-    // exactly the old code.
-    const flowTargets = RDHOOKS.targets();
-    for (let ti = 0; ti < flowTargets.length; ti++) {
-    const tgt = flowTargets[ti];
-    if (!tgt) continue;
-    let px = Math.min(fCols - 1, Math.max(0, Math.floor(tgt.x / fCell)));
-    let py = Math.min(fRows - 1, Math.max(0, Math.floor(tgt.y / fCell)));
+    let px = Math.min(fCols - 1, Math.max(0, Math.floor(player.x / fCell)));
+    let py = Math.min(fRows - 1, Math.max(0, Math.floor(player.y / fCell)));
     let start = px + py * fCols;
     if (fBlocked[start]) {
         // The player is inside a sanctuary. The central base is 13 flow cells
@@ -159,11 +148,7 @@ function rebuildFlowField() {
                 }
             }
         }
-        // `continue`, not `return`: with several sources, one player sealed in
-        // a pocket must not throw away everyone else's seeds and leave the
-        // whole field at INF -- which is the bug the radial search was added
-        // to fix in the first place.
-        if (seeds.length === 0) continue;
+        if (seeds.length === 0) return;
         for (let i = 0; i < seeds.length; i++) {
             fCost[seeds[i]] = 0;
             heapPush(seeds[i], 0);
@@ -171,7 +156,6 @@ function rebuildFlowField() {
     } else {
         fCost[start] = 0;
         heapPush(start, 0);
-    }
     }
 
     while (heapLen > 0) {

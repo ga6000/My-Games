@@ -431,6 +431,13 @@ per-game section, because it is the part most likely to be violated by an enthus
 | **All** | `trackTimeout`/`trackInterval`, one `AbortController` | Hard constraint. A shared `RETRO` layer must not open a second teardown path. |
 | **All** | `file://` playability | Hard constraint. This is what forces §3.2's data-URI fonts. |
 
+> **Note 2026-09-07.** Still true, and worth restating precisely because something that looks
+> like a violation landed: `rd-arena/rd-netfield.js` draws the flesh from a 133² 2-bit
+> downsample instead of from `gridB`. **The simulation is untouched** — `dA/dB/feed/k`, the
+> 400×400 grid, the `>0.3` threshold, the flow field and the motes all still run and are still
+> what collision reads. Only the *pixels* come from the coarse field. This is the same
+> render/sim separation §6.4 relied on when discs became cells.
+
 ---
 
 ## 6. Per-game treatment

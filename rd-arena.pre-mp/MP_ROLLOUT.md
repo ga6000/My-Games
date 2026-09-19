@@ -3,38 +3,11 @@
 Written 2026-09-03. Implements `MULTIPLAYER_PLAN.md` §4d (host authority + periodic coarse
 bitmask resync), structured so gameplay feel can be A/B'd and abandoned without unpicking code.
 
-> **BUILT 2026-09-08.** Steps 1-4 are done and verified against two live clients. This document
-> stays as written — it is the *method*, and the method held — but four things in it are now
-> historical rather than instructional, and each is marked below where it appears:
->
-> - §0's `RDArena.html` snapshot: the game is **14 files** since the 2026-09-05 split, so the
->   snapshot is the whole folder, at `rd-arena.pre-mp/`. `git init` is still not done.
-> - §1's key bindings: **F9 was already taken** by the render-field toggle (2026-09-07). That
->   toggle moved to F8; F9/F10/F11 are the net flags exactly as specified here.
-> - §2 step 1's `carve()`: shipped as `applyCarve()` behind the existing public names, so the
->   14 call sites were not touched and step 1 stayed a provable no-op.
-> - §2 step 2's `rd-arena.js`: unnecessary. The split already happened, and better.
-> - §2 step 4's 400² 1-bit mask: **superseded 2026-09-07** by 133² 2-bit at 1 s.
->
-> What actually got built, and the departures from §3's protocol, are in **`MP_BUILD_NOTES.md`**.
-
-This was the method, written before the code.
+**Nothing here is built yet.** This is the method, not a status report.
 
 ---
 
 ## 0. First: this working copy is not a git repo
-
-> **WRONG, corrected 2026-09-08.** It is a git repo, and appears to have been one all along:
-> `git rev-parse --show-toplevel` resolves here, `origin` is `ga6000/My-Games`, and there is
-> history. Whatever produced the original `git rev-parse` failure on 2026-09-03, the conclusion
-> drawn from it was false, and it propagated — `GIT_WORKFLOW.md` carried the same claim, and a
-> session on 2026-09-08 repeated it a third time without checking.
->
-> So `git checkout .` **was** available as a revert the whole time. Everything below about why a
-> runtime flag beats a code revert still stands on its own merits (§1's argument is about A/B
-> within one session, not about tooling), but it no longer rests on the repo being unrevertable.
-> The `rd-arena.pre-mp/` snapshot is kept as a double-click fallback rather than as the only way
-> back.
 
 `git rev-parse` fails at both `My Games-main/` and its parent. This is a downloaded GitHub ZIP
 (`-main` suffix), not a clone — so `git checkout .` is **not available as a revert**, which is
