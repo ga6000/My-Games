@@ -51,8 +51,13 @@ const COLOR_WINDOW = "#AA7733";
 const COLOR_BARREL = "#FF7700";
 const COLOR_TRAP = "#5599FF";
 const COLOR_DOWNED = "#FF5555";
-const COLOR_ULTRA = "#8B1A1A";
-const COLOR_ULTRA_PLATE = "#D8C8A0";
+// The SUPER SPLITTER and the fan it throws (2026-09-20). Kept in the
+// splitter's blue family rather than the old ULTRA's red, because what it
+// does is splitter behaviour taken to its end -- the colour should say
+// which mechanic you are about to deal with.
+const COLOR_SUPER = "#2E6FA8";
+const COLOR_SUPER_PLATE = "#BFD8E8";
+const COLOR_SUPER_SPAWN = "#7FC2EE";
 const P_COLORS = ["#55FFFF", "#FFFF55", "#FF55FF"];
 
 // ---------------------------------------------------

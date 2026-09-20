@@ -86,6 +86,32 @@ let ultraOwed = 0;
 let ultraAtBudget = 0;
 
 // ---------------------------------------------------
+//   THE SUPER SPLITTER ROUND  (2026-09-20)
+// ---------------------------------------------------
+// Asked for: "super splitter now gets its own special round where one
+// spawns at first, then on higher rounds multiples can spawn & on normal
+// rounds too."
+//
+// So it works like the Horde and Brute rounds: every SUPER_ROUND_EVERY
+// rounds from SUPER_FROM_ROUND is a SUPER SPLITTER round, and the number
+// that shows up climbs with the round. Outside those, the ordinary spawn
+// table can still roll one -- that is the "on normal rounds too" half, and
+// it is what stops the special round becoming the only time you meet it.
+const SUPER_FROM_ROUND = 16;
+const SUPER_ROUND_EVERY = 5;
+
+function isSuperRound(r) {
+    return r >= SUPER_FROM_ROUND && ((r - SUPER_FROM_ROUND) % SUPER_ROUND_EVERY) === 0;
+}
+
+// One on its first, then another every two special rounds after, capped --
+// four of them shedding splitters is already most of a round's budget.
+function superRoundCount(r) {
+    if (!isSuperRound(r)) return 0;
+    return Math.min(4, 1 + Math.floor((r - SUPER_FROM_ROUND) / (SUPER_ROUND_EVERY * 2)));
+}
+
+// ---------------------------------------------------
 //   PERK STATE
 // ---------------------------------------------------
 let decoys = [];               // HOST: active lures {x, y, r, until}
@@ -283,7 +309,7 @@ function pickZombieType(r) {
     if (isHordeRound(r)) return "runner";
 
     // ULTRA HEAVY: a thin random share on top of the one owed each round.
-    if (r >= ULTRA_FROM_ROUND && Math.random() < Math.min(0.04, 0.008 * (r - ULTRA_FROM_ROUND + 1))) return "ultra";
+    if (r >= ULTRA_FROM_ROUND && Math.random() < Math.min(0.04, 0.008 * (r - ULTRA_FROM_ROUND + 1))) return "supersplit";
 
     const roll = Math.random();
     if (r >= 4 && roll < Math.min(0.22, 0.03 * (r - 3))) return "brute";
@@ -295,7 +321,9 @@ function pickZombieType(r) {
 
 // How many may be alive at once: one at 16, a fourth by round 31.
 function ultraCap(r) {
-    return Math.min(4, 1 + Math.floor((r - ULTRA_FROM_ROUND) / 5));
+    // A SUPER SPLITTER round deliberately lifts the cap to what that round
+    // is supposed to deliver; otherwise it is the ordinary trickle limit.
+    return Math.max(superRoundCount(r), Math.min(4, 1 + Math.floor((r - ULTRA_FROM_ROUND) / 5)));
 }
 
 function countZombies(type) {
@@ -307,10 +335,10 @@ function countZombies(type) {
 // The round loop's spawn call, with the ULTRA's rules folded in.
 function spawnRoundZombie(r) {
     let type = pickZombieType(r);
-    if (ultraOwed > 0 && roundBudget <= ultraAtBudget) type = "ultra";
-    if (type === "ultra" && countZombies("ultra") >= ultraCap(r)) type = "brute";
+    if (ultraOwed > 0 && roundBudget <= ultraAtBudget) type = "supersplit";
+    if (type === "supersplit" && countZombies("supersplit") >= ultraCap(r)) type = "brute";
     const z = spawnZombie(type, r);
-    if (z && type === "ultra") {
+    if (z && type === "supersplit") {
         ultraOwed = Math.max(0, ultraOwed - 1);
         hostEvent(SND_ULTRA, z.x, z.y, 0);
     }
@@ -327,7 +355,11 @@ function startRound(r) {
     revivesThisRound = 0;
     roundCardUntil = Date.now() + 2600;
     // Horde rounds are pure runners; everything else from 16 owes one.
-    ultraOwed = (r >= ULTRA_FROM_ROUND && !isHordeRound(r)) ? 1 : 0;
+    // A SUPER SPLITTER round owes its whole complement; an ordinary round
+    // from 16 owes the usual one.
+    ultraOwed = isHordeRound(r) ? 0
+              : isSuperRound(r) ? superRoundCount(r)
+              : (r >= ULTRA_FROM_ROUND ? 1 : 0);
     ultraAtBudget = Math.floor(roundBudget * 0.6);
     // The round-start sting became a chime in the score (zombie-music.js),
     // which every client times off the round number in the snapshot -- so
@@ -1428,11 +1460,11 @@ function updateBullets(now) {
                 const burn = WEAPONS.flamer.burn;
                 z.burnUntil = now + burn.ms;
                 z.burnBy = b.owner;
-                damageZombie(j, b.dmg, b.owner, now, "flame");
+                damageZombie(j, b.dmg, b.owner, now, "flame", b.vx, b.vy);
                 continue;
             }
 
-            damageZombie(j, b.dmg, b.owner, now, kind === "rocket" ? "rocket" : "shot");
+            damageZombie(j, b.dmg, b.owner, now, kind === "rocket" ? "rocket" : "shot", b.vx, b.vy);
 
             if (kind === "rocket") {
                 rocketBurst(b, now);
@@ -1509,15 +1541,179 @@ function explodeAt(x, y, radius, dmg, ownerId, now, src) {
 //     SPITE cannot, so one kill cannot cascade through a whole horde.
 const PROC_SOURCES = { shot: true, rocket: true, flame: true, burn: true };
 
-function damageZombie(index, dmg, ownerId, now, src) {
+// ---------------------------------------------------
+//   THE SUPER SPLITTER  (2026-09-20)
+// ---------------------------------------------------
+// It replaced the ULTRA HEAVY, and where that was a wall of HP this is a
+// thing that comes apart in your hands. Three behaviours, all host-side
+// because the host owns every zombie:
+//
+//   shedFromSuper   every damaging shot -> a spawnling; every
+//                   SUPER_SPLIT_STEP of cumulative damage -> a splitter
+//   superBurst      death -> SUPER_BURST ultra spawnlings in a FAN, aimed
+//                   along the killing shot
+//   updateZombieLaunch  those spawnlings FLY, land, and only then chase
+//
+// The fan is the only thing on this map that is not pathing the moment it
+// exists, which is why it needs its own update and its own wire field.
+
+// A shot landed and it survived. Shed.
+//
+// BOTH RATES ARE SCALED, and measured rather than guessed. The first
+// version shed one spawnling per shot and one splitter per 8 raw damage,
+// which at round 16 -- where zombieHpMultiplier puts this thing at 90 HP --
+// produced 29 spawnlings and 11 splitters from a single kill. That is not
+// a fight, it is a screen wipe.
+//
+//   - THE SPLITTER STEP SCALES WITH THE HP MULTIPLIER, so it is always
+//     about three splitters on the way down whatever the round is. The
+//     round already makes it take longer to kill; it should not also
+//     multiply what killing it costs you.
+//   - THE SPAWNLING IS THROTTLED. "A spawnling on each shot of damage" is
+//     the brief, and it holds for every gun a player aims -- but an SMG at
+//     an 85ms cooldown would shed twelve a second, and flame ticks faster
+//     still. SUPER_SHED_MS is slower than every gun except the SMG and the
+//     flamethrower, which are exactly the two that would fountain.
+const SUPER_SHED_MS = 150;
+
+function shedFromSuper(z, now) {
+    // The throttle widens with the HP multiplier, at half its rate. Without
+    // that, a thing that takes 50 shots at round 26 sheds 49 spawnlings
+    // where the same fight at round 16 shed 29 -- the swarm would grow with
+    // the round on top of everything else that already does. Measured
+    // across rifle / SMG / sniper at rounds 16 and 26, this holds it at
+    // 15-16 whatever you are shooting it with.
+    //
+    // 15-16 IS THE NUMBER TO TUNE BY FEEL. It is high enough that emptying
+    // a magazine into this thing is visibly a bad idea, which is the point
+    // of it, and low enough not to be a screen wipe.
+    const hpMult = zombieHpMultiplier(round);
+    const throttle = SUPER_SHED_MS * (1 + (hpMult - 1) * 0.5);
+    if (!z.lastShed || now - z.lastShed >= throttle) {
+        z.lastShed = now;
+        const sl = spawnZombie("spawnling", round);
+        if (sl) placeShed(sl, z, 46);
+    }
+
+    // Cumulative damage, not per-shot: a sniper doing 14 in one hit should
+    // drop as much as two rifle rounds doing 7 each.
+    z.shedAt = (z.shedAt || 0);
+    const spec = ZOMBIE_TYPES.supersplit;
+    const mult = zombieHpMultiplier(round);
+    const step = SUPER_SPLIT_STEP * mult;
+    const taken = (spec.hp * mult) - z.hp;
+    while (taken - z.shedAt >= step) {
+        z.shedAt += step;
+        const sp = spawnZombie("splitter", round);
+        if (sp) placeShed(sp, z, 70);
+        hostEvent(SND_SPLIT, z.x, z.y);
+    }
+}
+
+// Put a shed piece beside the parent, on ground it can actually stand on.
+function placeShed(child, parent, spread) {
+    for (let tries = 0; tries < 10; tries++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = parent.size * 0.6 + Math.random() * spread;
+        const x = clamp(parent.x + Math.cos(a) * r, 0, WORLD_W - child.size);
+        const y = clamp(parent.y + Math.sin(a) * r, 0, WORLD_H - child.size);
+        if (blockedAt(x, y, child.size, true)) continue;
+        child.x = x;
+        child.y = y;
+        return;
+    }
+    child.x = parent.x;
+    child.y = parent.y;
+}
+
+// THE DEATH FAN. SUPER_BURST ultra spawnlings thrown along the direction
+// the killing shot was travelling, spread over SUPER_FAN radians, each
+// flying for SUPER_FLIGHT_MS before it lands and starts chasing.
+//
+// `z.lastHitVx/Vy` is set by damageZombie from the round that hit it -- a
+// fan that always pointed the same way would be a firework, and the whole
+// idea is that where you stand when you kill it decides where the pieces
+// go.
+function superBurst(z, cx, cy, now) {
+    let ax = z.lastHitVx || 0;
+    let ay = z.lastHitVy || 0;
+    if (!ax && !ay) { ax = 0; ay = 1; }                 // killed by burn or a trap
+    const base = Math.atan2(ay, ax);
+
+    for (let i = 0; i < SUPER_BURST; i++) {
+        const sl = spawnZombieAt("uspawn", round, cx, cy);
+        if (!sl) continue;
+        // Spread across the fan, with a little jitter so it is not a
+        // perfect arc of evenly spaced dots.
+        const t = SUPER_BURST > 1 ? (i / (SUPER_BURST - 1)) - 0.5 : 0;
+        const a = base + t * SUPER_FAN + (Math.random() - 0.5) * 0.12;
+        const speed = 5.4 + Math.random() * 3.2;
+        sl.x = clamp(cx - sl.size / 2, 0, WORLD_W - sl.size);
+        sl.y = clamp(cy - sl.size / 2, 0, WORLD_H - sl.size);
+        sl.lvx = Math.cos(a) * speed;
+        sl.lvy = Math.sin(a) * speed;
+        // Staggered landings, so they do not all switch to chasing on the
+        // same frame and arrive as one wall.
+        sl.launchUntil = now + SUPER_FLIGHT_MS * (0.7 + Math.random() * 0.6);
+    }
+}
+
+// IN FLIGHT. Returns true if this zombie is still flying, in which case
+// updateZombies must not path it.
+//
+// It moves with collision but does NOT clamp to the world, the same as a
+// zombie walking in from off-map -- and it stops dead on a wall rather
+// than sliding along one, because a thing thrown at a container should hit
+// the container.
+function updateZombieLaunch(z, now, dt) {
+    if (!z.launchUntil) return false;
+    if (now >= z.launchUntil) {
+        z.launchUntil = 0;
+        z.lvx = 0;
+        z.lvy = 0;
+        return false;
+    }
+    const step = dt / 16.67;
+    const nx = z.x + z.lvx * step;
+    const ny = z.y + z.lvy * step;
+    if (blockedAt(nx, z.y, z.size, true)) { z.lvx = 0; }
+    else z.x = nx;
+    if (blockedAt(z.x, ny, z.size, true)) { z.lvy = 0; }
+    else z.y = ny;
+    // Drag, so it settles rather than stopping like a switch.
+    z.lvx *= 0.965;
+    z.lvy *= 0.965;
+    if (Math.abs(z.lvx) < 0.25 && Math.abs(z.lvy) < 0.25) {
+        z.launchUntil = 0;
+        z.lvx = 0;
+        z.lvy = 0;
+        return false;
+    }
+    return true;
+}
+
+function damageZombie(index, dmg, ownerId, now, src, hitVx, hitVy) {
     const z = zombies[index];
     if (!z) return;
     z.hp -= dmg;
+    // Which way the shot that hit it was travelling, so superBurst can aim
+    // the death fan along it. Set on every hit rather than only the last,
+    // because the last hit is the one that kills and that is exactly the
+    // one whose direction matters.
+    if (hitVx !== undefined) { z.lastHitVx = hitVx; z.lastHitVy = hitVy; }
     if (!z.damagers) z.damagers = [];
     if (ownerId && z.damagers.indexOf(ownerId) === -1) z.damagers.push(ownerId);
 
     if (z.hp > 0) {
         if (src !== "burn" && src !== "flame") z.flashUntil = now + 50;
+        // THE SUPER SPLITTER COMES APART AS YOU SHOOT IT (2026-09-20).
+        // Every shot sheds a spawnling, and every SUPER_SPLIT_STEP of
+        // damage drops a full splitter. Burn ticks do NOT count as shots --
+        // flame does damage many times a second and would turn one
+        // flamethrower into an endless spawnling fountain.
+        if (z.type === "supersplit" && src !== "burn") {
+            shedFromSuper(z, now);
+        }
         return;
     }
 
@@ -1526,9 +1722,10 @@ function damageZombie(index, dmg, ownerId, now, src) {
     kills++;
     const zcx = z.x + z.size / 2;
     const zcy = z.y + z.size / 2;
-    if (z.type === "ultra") {
+    if (z.type === "supersplit") {
         hostEvent(SND_ULTRA, zcx, zcy, 1);
         addBlast(zcx, zcy, 70);
+        superBurst(z, zcx, zcy, now);
     }
     // Only kills ON an active funnel drain into a silo. Everything else
     // in the game rewards killing zombies wherever they are; this is the
@@ -1815,6 +2012,17 @@ function updateZombies(now, dt) {
         // may already be gone.
         if (!z) continue;
         const spec = ZOMBIE_TYPES[z.type];
+
+        // IN FLIGHT: an ultra spawnling thrown by a SUPER SPLITTER flies a
+        // fan before it chases anything. Checked FIRST and `continue`s --
+        // it must not path, chew, scream or be steered while it is in the
+        // air, and it is also exempt from the stuck watchdog for the same
+        // reason chewing is: travelling nowhere is the point.
+        if (updateZombieLaunch(z, now, dt)) {
+            z.stuck = 0;
+            z.noProgress = 0;
+            continue;
+        }
 
         // FLAMETHROWER: burning is damage over time, credited to whoever lit
         // it. Checked by identity afterwards -- it may have died of it.

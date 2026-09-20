@@ -129,7 +129,8 @@ function zDevReport() {
     rows.push(["lights", generatorOn ? "GENERATOR ON" : (genTripped ? "TRIPPED " + Math.round(genRestart * 100) + "%" : "dark")]);
     rows.push(["perks on map", cardStations.map(function (s) { return s.card; }).join(",") +
                                "   absent " + absentCardKeys().join(",")]);
-    rows.push(["ultras", countZombies("ultra") + " alive, " + ultraOwed + " owed this round"]);
+    rows.push(["super splitters", countZombies("supersplit") + " alive, " + ultraOwed +
+               " owed this round" + (isSuperRound(round) ? " (SUPER ROUND)" : "")]);
     rows.push(["endgame", "gate " + gateStage + "/" + GATE_STAGES +
                           "   silos " + siloFill.join("/") +
                           "   flood " + (floodActive ? floodRemaining : "no") +
@@ -308,15 +309,15 @@ var zDevActions = [
         }
     },
     {
-        label: "SPAWN ULTRA",
+        label: "SPAWN SUPER SPLITTER",
         hint: "host only",
         fn: function () {
-            const no = zDevHostOnly("ultra");
+            const no = zDevHostOnly("super splitter");
             if (no) return no;
-            const z = spawnZombie("ultra", Math.max(round, ULTRA_FROM_ROUND));
+            const z = spawnZombie("supersplit", Math.max(round, ULTRA_FROM_ROUND));
             if (!z) return "no legal spawn point";
             hostEvent(SND_ULTRA, z.x, z.y, 0);
-            return "one ULTRA HEAVY in " + zoneName(zoneOf(z.x, z.y));
+            return "one SUPER SPLITTER in " + zoneName(zoneOf(z.x, z.y));
         }
     },
     {

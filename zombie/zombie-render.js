@@ -1702,8 +1702,8 @@ function drawZombies(now, inView) {
         const s = z.size;
         const flash = now < z.flashUntil;
 
-        if (z.type === "ultra") {
-            drawUltra(x, y, s, flash, now);
+        if (z.type === "supersplit") {
+            drawSuperSplitter(x, y, s, flash, now, i);
         } else {
             ctx.fillStyle = flash ? "#FFFFFF" : z.color;
             ctx.fillRect(x, y, s, s);
@@ -1737,33 +1737,59 @@ function drawZombies(now, inView) {
     }
 }
 
-// ULTRA HEAVY: not a square. An octagon with shoulder plates wider than
-// its body and two eyes, in three colours plus the hit flash. Collision is
-// still the 34px square underneath -- the plates are paint.
-function drawUltra(x, y, s, flash, now) {
-    const c = s / 4;                     // corner cut
-    ctx.fillStyle = flash ? "#FFFFFF" : COLOR_ULTRA;
-    ctx.beginPath();
-    ctx.moveTo(x + c, y);
-    ctx.lineTo(x + s - c, y);
-    ctx.lineTo(x + s, y + c);
-    ctx.lineTo(x + s, y + s - c);
-    ctx.lineTo(x + s - c, y + s);
-    ctx.lineTo(x + c, y + s);
-    ctx.lineTo(x, y + s - c);
-    ctx.lineTo(x, y + c);
-    ctx.closePath();
-    ctx.fill();
+// THE SUPER SPLITTER (2026-09-20). Replaces the ULTRA HEAVY's octagon.
+//
+// Asked for: "square based form but with visible other squares attached to
+// it that squelch as if spawnlings are crawling around on it".
+//
+// So: a square body -- it IS a splitter, and the square says so -- with
+// smaller squares riding on it that move. Each rider has its own phase and
+// orbit and crawls around the body's edge, pulsing in size as it goes,
+// which is the squelch. Nothing is stored on the zombie: every rider is
+// derived from its index and the clock, so this costs no state, needs no
+// reset, and never has to cross the wire.
+//
+// Collision is still the plain 34px square underneath. The riders are paint.
+const SUPER_RIDERS = 7;
+
+function drawSuperSplitter(x, y, s, flash, now, seed) {
+    // The body.
+    ctx.fillStyle = flash ? "#FFFFFF" : COLOR_SUPER;
+    ctx.fillRect(x, y, s, s);
+    if (!flash) {
+        // Shadow band, as every zombie has.
+        ctx.fillStyle = "rgba(0,0,0,0.38)";
+        ctx.fillRect(x, y + s - 8, s, 8);
+        // A seam across it: this thing is a bag of other things.
+        ctx.fillStyle = COLOR_SUPER_PLATE;
+        ctx.fillRect(x + 3, y + s / 2 - 2, s - 6, 3);
+    }
+
+    // The riders. They crawl the PERIMETER rather than orbiting in a
+    // circle, because a square body with things going round it in a circle
+    // reads as a halo; on the edge they read as crawling on it.
+    const per = 2 * (s + s);
+    for (let i = 0; i < SUPER_RIDERS; i++) {
+        // Each rider has its own speed and offset, from its index -- so a
+        // row of these does not pulse in unison.
+        const sp = 0.00042 + (i % 3) * 0.00017;
+        const t = ((now * sp) + i / SUPER_RIDERS + seed * 0.013) % 1;
+        let d = t * per;
+        let rx, ry;
+        if (d < s) { rx = x + d; ry = y; }
+        else if (d < s + s) { rx = x + s; ry = y + (d - s); }
+        else if (d < s + s + s) { rx = x + s - (d - s - s); ry = y + s; }
+        else { rx = x; ry = y + s - (d - s - s - s); }
+
+        // THE SQUELCH: the rider swells and shrinks as it goes.
+        const pulse = 0.5 + 0.5 * Math.sin(now * 0.006 + i * 1.7);
+        const rs = Math.round(5 + pulse * 4);
+        ctx.fillStyle = flash ? "#FFFFFF" : COLOR_SUPER_SPAWN;
+        ctx.fillRect(Math.round(rx - rs / 2), Math.round(ry - rs / 2), rs, rs);
+    }
+
     if (flash) return;
-    // Shoulder plates and a spine plate, in bone.
-    ctx.fillStyle = COLOR_ULTRA_PLATE;
-    ctx.fillRect(x - 6, y + 4, 10, 12);
-    ctx.fillRect(x + s - 4, y + 4, 10, 12);
-    ctx.fillRect(x + s / 2 - 3, y + s - 12, 6, 10);
-    // Shadow band, as every zombie has.
-    ctx.fillStyle = "rgba(0,0,0,0.38)";
-    ctx.fillRect(x + c, y + s - 8, s - c * 2, 8);
-    // Eyes, which blink slowly -- the one living thing about it.
+    // Two eyes on the body, blinking slowly -- the one living thing about it.
     if (now % 2400 > 180) {
         ctx.fillStyle = "#FFFF55";
         ctx.fillRect(x + s / 2 - 8, y + 9, 5, 4);
@@ -2316,8 +2342,8 @@ function drawMinimap() {
     ctx.fillStyle = COLOR_ZOMBIE;
     for (let i = 0; i < zombies.length; i++) {
         const z = zombies[i];
-        const big = z.type === "ultra";
-        if (big) ctx.fillStyle = COLOR_ULTRA_PLATE;
+        const big = z.type === "supersplit";
+        if (big) ctx.fillStyle = COLOR_SUPER_PLATE;
         ctx.fillRect(ox + z.x * sx, oy + z.y * sy, big ? 4 : 2, big ? 4 : 2);
         if (big) ctx.fillStyle = COLOR_ZOMBIE;
     }

@@ -84,9 +84,17 @@ let markers = [];                // ping markers (idea 24)
 let hostLevelSeed = null;
 
 // Stable index <-> key mapping so zombies can go over the wire as a
-// number instead of a type name on every entity, every frame. APPEND ONLY
-// (the ULTRA HEAVY went on the end, 2026-09-18): an index is a wire value.
-const Z_TYPE_KEYS = ["walker", "runner", "brute", "screamer", "splitter", "spawnling", "ultra"];
+// number instead of a type name on every entity, every frame. APPEND ONLY:
+// an index is a wire value.
+//
+// Index 6 was "ultra" from 2026-09-18 and is "supersplit" from 2026-09-20.
+// That is a REPLACEMENT IN PLACE, not an append, and it is safe here for
+// one specific reason: the two are the same slot -- same body, same HP,
+// same role -- so a client on the old build would draw the new one as an
+// ULTRA HEAVY rather than as something nonsensical, and this group updates
+// together. `uspawn` is a genuine append on the end.
+const Z_TYPE_KEYS = ["walker", "runner", "brute", "screamer", "splitter", "spawnling",
+                     "supersplit", "uspawn"];
 
 // One player per client now, so the suffix is constant. The prefix is the
 // tab token (was the socket id until 2026-09-19 -- see netToken).
@@ -444,6 +452,10 @@ function applyWorldSnapshot(msg, now) {
             // made every zombie render permanently white here.
             flashUntil: deadlineFrom(zi[3] || 0, now),
             burnUntil: deadlineFrom(zi[4] || 0, now),   // same rule, same reason
+            // In flight, if the row carried it. Same rule again.
+            launchUntil: zi.length > 5 ? deadlineFrom(zi[5] || 0, now) : 0,
+            lvx: zi.length > 6 ? zi[6] : 0,
+            lvy: zi.length > 7 ? zi[7] : 0,
             nextScream: 0,
             isolationSeeker: false
         });
@@ -676,6 +688,17 @@ function broadcastWorld() {
             // Burning, as a remaining duration. Omitted when not burning, so
             // a horde with no flamethrower in it costs nothing extra.
             if (z.burnUntil && now < z.burnUntil) row.push(msLeft(z.burnUntil, now));
+            // IN FLIGHT (2026-09-20): an ultra spawnling thrown by a SUPER
+            // SPLITTER flies before it chases, and a guest has to draw that
+            // -- one flying zombie that a client thinks is walking reads as
+            // a teleport. Appended after the burn slot, and only while it is
+            // actually in the air, so nothing else on the map pays for it.
+            //
+            // A REMAINING DURATION, never a timestamp (rule 1).
+            if (z.launchUntil && now < z.launchUntil) {
+                if (row.length < 5) row.push(0);          // keep the burn slot
+                row.push(msLeft(z.launchUntil, now), +z.lvx.toFixed(2), +z.lvy.toFixed(2));
+            }
             return row;
         }),
         // [x, y, colour, [vx, vy], owner, gun index, flame distance]. The

@@ -245,7 +245,7 @@ const SND_SCREAM = 17;
 const SND_SPLIT = 18;
 const SND_GAMEOVER = 19;
 // 2026-09-18
-const SND_ULTRA = 20;        // arg 0 = it arrives, 1 = it falls
+const SND_ULTRA = 20;        // arg 0 = it arrives, 1 = it comes apart
 const SND_ARC = 21;          // arg = packed bolt offset, see arcFrom()
 const SND_POP = 22;          // BLASTCAP burst; arg = radius
 const SND_GEN_TRIP = 23;     // a Blackout takes the generator down

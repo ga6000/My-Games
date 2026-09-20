@@ -103,17 +103,39 @@ const ZOMBIE_TYPES = {
     screamer:  { size: 20, hp: 4, speed: 0.78, color: COLOR_SCREAMER, score: 4, scrap: 200, dmgToBarricade: 6 },
     splitter:  { size: 24, hp: 4, speed: 1.05, color: COLOR_SPLITTER, score: 3, scrap: 150, dmgToBarricade: 14 },
     spawnling: { size: 9,  hp: 1, speed: 2.35, color: COLOR_SPLITTER, score: 1, scrap: 25,  dmgToBarricade: 4 },
-    // ULTRA HEAVY (playtest 2026-09-18), from round 16. The largest body in
-    // the game, and the reason NAV_PAD is 19 rather than 15: the nav grid is
-    // padded for the biggest zombie, or the flow field routes it through
-    // gaps it cannot fit and it wedges (zombie/CLAUDE.md, "Pathfinding").
-    // `armored`: a round stops in it instead of piercing on through. Drawn
-    // as an octagon with shoulder plates, not a square -- see drawUltra().
-    ultra:     { size: 34, hp: 30, speed: 0.82, color: COLOR_ULTRA,  score: 12, scrap: 500, dmgToBarricade: 70, armored: true }
+    // THE SUPER SPLITTER (2026-09-20) replaces the ULTRA HEAVY in the same
+    // slot: same 34px body, same 30 HP, same wire index, same reason
+    // NAV_PAD is 19 (the nav grid is padded for the biggest zombie, or the
+    // flow field routes it through gaps it cannot fit and it wedges --
+    // zombie/CLAUDE.md, "Pathfinding").
+    //
+    // Everything else is new, and all of it is about it COMING APART:
+    //   - every shot that damages it sheds a spawnling
+    //   - every SUPER_SPLIT_STEP of damage drops a full splitter
+    //   - killing it throws SUPER_BURST ultra spawnlings out in a FAN, in
+    //     the direction the killing shot was travelling
+    // So shooting it is not a damage race, it is a decision about when and
+    // where you want the pieces.
+    //
+    // `armored` stays: a round stops in it rather than piercing through,
+    // which is what stops a sniper deleting the whole chain in one line.
+    supersplit: { size: 34, hp: 30, speed: 0.86, color: COLOR_SUPER, score: 12, scrap: 500,
+                  dmgToBarricade: 70, armored: true },
+    // The fan. Faster than a standard spawnling and it FLIES before it
+    // chases -- see updateZombieLaunch.
+    uspawn:    { size: 10, hp: 1, speed: 3.15, color: COLOR_SUPER_SPAWN, score: 1, scrap: 18, dmgToBarricade: 4 }
 };
 
+// How much damage between dropped splitters, and how many ultra spawnlings
+// the death throws. 30 HP at a step of 8 is three splitters on the way
+// down; 20 is the number asked for.
+const SUPER_SPLIT_STEP = 8;
+const SUPER_BURST = 20;
+const SUPER_FAN = Math.PI * 0.75;      // how wide the fan opens
+const SUPER_FLIGHT_MS = 620;           // how long they are in the air
+
 // Display names where the key is not the name players use.
-const ZOMBIE_NAMES = { ultra: "ULTRA HEAVY" };
+const ZOMBIE_NAMES = { supersplit: "SUPER SPLITTER", uspawn: "SPAWNLING" };
 
 function zombieDisplayName(key) {
     return ZOMBIE_NAMES[key] || key.toUpperCase();
@@ -166,7 +188,7 @@ const CARDS = {
     blastcap:  { name: "BLASTCAP",   cost: 12500, blurb: "KILLS MAY DETONATE",
                  detail: "18% / 28% / 38% of your kills burst, hurting everything within 95 px. Bursts never chain." },
     skewer:    { name: "SKEWER",     cost: 10500, blurb: "ROUNDS PIERCE",
-                 detail: "+1 / +2 / +3 zombies pierced by every round. The ULTRA HEAVY still stops them." },
+                 detail: "+1 / +2 / +3 zombies pierced by every round. The SUPER SPLITTER still stops them." },
     laststand: { name: "LAST STAND", cost: 9500,  blurb: "SHOOT WHILE DOWNED",
                  detail: "x1: fire the pistol while down. x2: fire any gun. x3: crawl 60% faster and bleed out 50% slower." },
     salvage:   { name: "SALVAGE",    cost: 10000, blurb: "KILLS REFUND AMMO",
