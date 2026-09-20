@@ -491,6 +491,8 @@ function draw() {
     ctx.lineWidth = 3;
     ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
 
+    // Furniture first: it is floor dressing, under every entity.
+    drawBuildingInteriors(inView);
     drawSiloPipes(now, inView);
     drawEndgame(now, inView);
     drawCodex(now, inView);
@@ -508,6 +510,7 @@ function draw() {
     // the sector next door or it cannot be a landmark. The containers go
     // first so a crane leg standing among them draws over them.
     drawContainers(inView);
+    drawRailcars(inView);
     drawLandmarks(now, inView);
     drawDoors(inView);
     drawBarricades(inView);
@@ -1124,6 +1127,131 @@ function drawMinimapLandmarks(ox, oy, sx, sy) {
         ctx.stroke();
     }
     ctx.restore();
+}
+
+// ---------------------------------------------------
+//   RAIL CARS  (2026-09-20)
+// ---------------------------------------------------
+// The Motor Pool's flatcars read well enough that THE KENNELS is now built
+// out of them too, in both orientations, mixed with containers -- which is
+// what turns that sector into hallways rather than pens. One piece of art,
+// two sectors, and the rail spur visibly runs between them.
+//
+// Same height trick as everything else: a cast shadow down-right and a top
+// face offset up-left. A flatcar is low, so the lift is small.
+const RAILCAR_LIFT = 5;
+
+function drawRailcars(inView) {
+    if (typeof railcars === "undefined") return;
+    for (let i = 0; i < railcars.length; i++) {
+        const c = railcars[i];
+        if (!inView(c.x - 14, c.y - 14, c.w + 28, c.h + 28)) continue;
+        const L = RAILCAR_LIFT;
+
+        ctx.fillStyle = LM_SHADOW;
+        ctx.fillRect(c.x + L, c.y + L, c.w, c.h);
+        ctx.fillStyle = "#3A2C22";                       // the frame
+        ctx.fillRect(c.x, c.y, c.w, c.h);
+        ctx.fillStyle = "#57432F";                       // the deck
+        ctx.fillRect(c.x - L, c.y - L, c.w, c.h);
+
+        const tx = c.x - L, ty = c.y - L;
+        // Deck planking, along the car.
+        ctx.fillStyle = "#43341F";
+        if (!c.vertical) {
+            for (let yy = ty + 7; yy < ty + c.h - 5; yy += 9) ctx.fillRect(tx + 4, yy, c.w - 8, 2);
+        } else {
+            for (let xx = tx + 7; xx < tx + c.w - 5; xx += 9) ctx.fillRect(xx, ty + 4, 2, c.h - 8);
+        }
+        // End sills: the heavy beams at each end of the frame.
+        ctx.fillStyle = "#6E5842";
+        if (!c.vertical) {
+            ctx.fillRect(tx, ty, 8, c.h);
+            ctx.fillRect(tx + c.w - 8, ty, 8, c.h);
+        } else {
+            ctx.fillRect(tx, ty, c.w, 8);
+            ctx.fillRect(tx, ty + c.h - 8, c.w, 8);
+        }
+        // Wheel trucks, poking out from under the deck at the ground level
+        // -- drawn on the BASE rect, not the lifted one, so they read as
+        // being underneath.
+        ctx.fillStyle = "#23201C";
+        if (!c.vertical) {
+            const q = Math.round(c.w * 0.22);
+            ctx.fillRect(c.x + q - 10, c.y + c.h - 4, 22, 8);
+            ctx.fillRect(c.x + c.w - q - 12, c.y + c.h - 4, 22, 8);
+        } else {
+            const q = Math.round(c.h * 0.22);
+            ctx.fillRect(c.x + c.w - 4, c.y + q - 10, 8, 22);
+            ctx.fillRect(c.x + c.w - 4, c.y + c.h - q - 12, 8, 22);
+        }
+    }
+}
+
+// ---------------------------------------------------
+//   BUILDING INTERIORS  (2026-09-20)
+// ---------------------------------------------------
+// Stairs, desks, benches, racking and chairs. All DRAWN ONLY -- the level
+// deliberately gives none of it collision, because furniture inside a room
+// reached through a 92px door is exactly the geometry that makes nav
+// pockets, and this map has already lost cells to that twice.
+//
+// Drawn under the entities and over the floor, so a zombie walks across a
+// desk rather than behind it -- which is the right trade at this scale.
+function drawBuildingInteriors(inView) {
+    if (typeof buildingRooms === "undefined") return;
+    for (let i = 0; i < buildingRooms.length; i++) {
+        const room = buildingRooms[i];
+        if (!inView(room.x, room.y, room.w, room.h)) continue;
+        for (let d = 0; d < room.decor.length; d++) {
+            const o = room.decor[d];
+            if (o.type === "stairs") {
+                // Top-down stairs: a run of treads with a dark nosing on
+                // each, going lighter the way they rise, which is how a
+                // flight reads from above without any perspective at all.
+                ctx.fillStyle = "#1A1A1C";
+                ctx.fillRect(o.x, o.y, o.w, o.h);
+                const steps = 7;
+                const sh = o.h / steps;
+                for (let k = 0; k < steps; k++) {
+                    const t = o.down ? (steps - 1 - k) / (steps - 1) : k / (steps - 1);
+                    const v = Math.round(52 + t * 58);
+                    ctx.fillStyle = "rgb(" + v + "," + v + "," + (v + 6) + ")";
+                    ctx.fillRect(o.x + 2, Math.round(o.y + k * sh) + 1, o.w - 4, Math.max(1, sh - 2));
+                }
+                // A handrail down one side.
+                ctx.fillStyle = "#6E6E78";
+                ctx.fillRect(o.x + o.w - 3, o.y, 2, o.h);
+                continue;
+            }
+            if (o.type === "rack") {
+                ctx.fillStyle = "#2A2620";
+                ctx.fillRect(o.x, o.y, o.w, o.h);
+                ctx.fillStyle = "#4A4034";              // the shelves
+                for (let yy = o.y + 4; yy < o.y + o.h - 3; yy += 12) {
+                    ctx.fillRect(o.x + 1, yy, o.w - 2, 4);
+                }
+                continue;
+            }
+            if (o.type === "chair") {
+                ctx.fillStyle = "#332B22";
+                ctx.fillRect(o.x, o.y, o.w, o.h);
+                ctx.fillStyle = "#4E4133";              // the back
+                ctx.fillRect(o.x, o.y, o.w, 4);
+                continue;
+            }
+            // desk / bench
+            ctx.fillStyle = "#241F19";
+            ctx.fillRect(o.x + 2, o.y + 2, o.w, o.h);   // its own small shadow
+            ctx.fillStyle = o.type === "bench" ? "#4A4438" : "#463A2C";
+            ctx.fillRect(o.x, o.y, o.w, o.h);
+            ctx.fillStyle = o.type === "bench" ? "#635D4C" : "#5E4F3C";
+            ctx.fillRect(o.x, o.y, o.w, 3);
+            // A bench gets clutter on it; a desk gets a paper.
+            ctx.fillStyle = o.type === "bench" ? "#7A7A6A" : "#9A9A8E";
+            ctx.fillRect(o.x + Math.round(o.w * 0.55), o.y + 8, 10, 7);
+        }
+    }
 }
 
 // ---------------------------------------------------
@@ -2303,9 +2431,38 @@ function playerName(id) {
 // means it needs no timer of its own and cannot outlive a teardown.
 let hordeCallUntil = 0;
 
+// Build the card as INDIVIDUAL LETTERS and tilt each one, re-rolled every
+// time it is shown (2026-09-20). The per-frame jitter in updateHordeCall
+// stays on the block as a whole; this is the scrawl underneath it, and it
+// must NOT change per frame -- handwriting that re-writes itself sixty
+// times a second is noise, not handwriting.
+const HORDE_CALL_LINES = ["THEY HEAR", "YOUR CALL"];
+
 function showHordeCall(ms) {
     if (!uiHordeCall) return;
     hordeCallUntil = Date.now() + ms;
+
+    const wrap = uiHordeCall.querySelector('.wrap');
+    if (wrap) {
+        let html = "";
+        for (let l = 0; l < HORDE_CALL_LINES.length; l++) {
+            html += "<span class='line'>";
+            const text = HORDE_CALL_LINES[l];
+            for (let i = 0; i < text.length; i++) {
+                const ch = text.charAt(i);
+                if (ch === " ") { html += "<i>&nbsp;</i>"; continue; }
+                // Math.random, not MP.random: this is a per-client cosmetic
+                // and must not touch the shared world stream.
+                const rot = (Math.random() - 0.5) * 17;
+                const dy = Math.round((Math.random() - 0.5) * 16);
+                const sy = (0.88 + Math.random() * 0.3).toFixed(2);
+                html += "<i style=\"transform:rotate(" + rot.toFixed(1) +
+                        "deg) translateY(" + dy + "px) scaleY(" + sy + ")\">" + ch + "</i>";
+            }
+            html += "</span>";
+        }
+        wrap.innerHTML = html;
+    }
     uiHordeCall.style.display = 'flex';
 }
 
@@ -2320,10 +2477,11 @@ function updateHordeCall(now) {
     if (!hordeCallUntil) return;
     if (now >= hordeCallUntil) { hideHordeCall(); return; }
     if (!uiHordeCallText) return;
-    // Whole pixels, and a different offset every frame -- 6px is enough to
-    // read as violent at 8vw type without making the words unreadable.
-    const jx = Math.round((Math.random() - 0.5) * 12);
-    const jy = Math.round((Math.random() - 0.5) * 12);
+    // Whole pixels, and a different offset every frame. 14 rather than 12
+    // now that the type is heavier and larger -- the shake has to be felt
+    // against a much bigger word.
+    const jx = Math.round((Math.random() - 0.5) * 14);
+    const jy = Math.round((Math.random() - 0.5) * 14);
     uiHordeCallText.style.transform = 'translate(' + jx + 'px,' + jy + 'px)';
 }
 
@@ -2398,13 +2556,26 @@ function updateHud(now) {
     uiObjective.innerText = obj;
     uiObjective.style.display = obj ? 'block' : 'none';
 
-    // Round card + scoreboard
-    if (roundPhase === "intermission") {
+    // Round card + scoreboard.
+    //
+    // INTENSIFIED SKIPS THE REPORT ENTIRELY (2026-09-20). Rounds stop waiting
+    // for the last zombie once the horde is called, so the breather comes
+    // round fast enough that the scoreboard was up for most of the early
+    // game -- the readout ended up being the thing you spent the blitz
+    // looking at. The card stays (you still want to know the round rolled);
+    // the table goes, and the same numbers are on the end card anyway.
+    if (roundPhase === "intermission" && !intensified) {
         const left = Math.max(0, Math.ceil((roundEndsAt - now) / 1000));
         uiRoundCard.innerHTML = "ROUND " + round + " CLEARED" +
             "<div style='font-size:20px;color:#55FF55'>NEXT IN " + left + "</div>";
         uiRoundCard.style.display = 'block';
         renderScores();
+    } else if (roundPhase === "intermission") {
+        const left = Math.max(0, Math.ceil((roundEndsAt - now) / 1000));
+        uiRoundCard.innerHTML = "ROUND " + round + " CLEARED" +
+            "<div style='font-size:20px;color:#55FF55'>NEXT IN " + left + "</div>";
+        uiRoundCard.style.display = 'block';
+        uiScores.style.display = 'none';
     } else if (now < roundCardUntil) {
         uiRoundCard.innerHTML = roundLabel(round);
         uiRoundCard.style.display = 'block';
@@ -2568,9 +2739,14 @@ function renderRunScore(el) {
     if (b.alivePts > 0) {
         lines.push(["HELD OUT " + Math.round(aliveMs / 1000) + "s", fmtScore(b.alivePts), ""]);
     }
+    // ONE row for winning, not two (2026-09-20). "ESCAPED +50,000" and
+    // "WIN DOUBLES IT x2" read as two unrelated bonuses when they are one
+    // thing: what escaping was worth. The value here is the whole
+    // difference the win made -- (sub + SCORE_WIN) * 2 - sub -- so the
+    // column still adds up to FINAL SCORE.
     if (b.won) {
-        lines.push(["ESCAPED", "+" + fmtScore(b.winPts), "win"]);
-        lines.push(["WIN DOUBLES IT", "x2", "win"]);
+        const sub = b.combat + b.roundPts + b.siloPts + b.alivePts;
+        lines.push(["ESCAPED", "+" + fmtScore(b.total - sub), "win"]);
     }
 
     let html = "<table>";

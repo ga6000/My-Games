@@ -154,11 +154,33 @@
             pointer-events: none; z-index: 40;
             background: rgba(40, 0, 0, 0.30);
         }
-        #hordecall span {
-            color: #FF2A18; font-size: 8vw; line-height: 1.05; letter-spacing: 6px;
-            text-align: center; font-weight: bold;
-            text-shadow: 5px 5px 0 #000, -2px -2px 0 #6B0000;
+        /* SHARP AND SCRAWLED (2026-09-20). Courier at +6px tracking was
+           far too neat and evenly spaced for this -- it read as a system
+           message, not a scream.
+
+           NO WEB FONT: the file:// constraint means no @font-face fetch and
+           AESTHETIC_GUIDE 3.2 rules out anything that has to be downloaded.
+           So the scrawl is built from what is already on the machine --
+           a heavy condensed stack -- plus per-letter randomisation done in
+           zombie-render.js: each glyph gets its own rotation, vertical
+           offset and vertical stretch, re-rolled every time the card is
+           shown so no two runs scrawl the same.
+
+           NEGATIVE tracking, not positive: letters crowding into each other
+           is most of why it reads as written in a hurry. */
+        #hordecall span.line {
+            display: block;
+            color: #FF2A18;
+            font-family: Impact, "Arial Black", Haettenschweiler, "Franklin Gothic Bold", sans-serif;
+            font-size: 11vw; line-height: 0.92; letter-spacing: -0.04em;
+            text-align: center; font-weight: 900;
+            white-space: nowrap;
             will-change: transform;
+        }
+        /* Each letter is its own element so it can be tilted on its own. */
+        #hordecall i {
+            display: inline-block; font-style: normal;
+            text-shadow: 4px 4px 0 #000, -3px 0 0 #7A0A00, 0 -3px 0 #7A0A00;
         }
 
         #roundcard {
@@ -421,7 +443,8 @@
 
     <div id="objective"></div>
 
-    <div id="hordecall"><span>THEY HEAR<br>YOUR CALL</span></div>
+    <!-- Filled per-letter by showHordeCall() in zombie-render.js. -->
+    <div id="hordecall"><span class="wrap"></span></div>
 
     <div id="win">
         YOU GOT OUT.<br>

@@ -382,19 +382,35 @@ function musScheduleBeat(t) {
     // below is deliberately left running: it is the gate's own tune and it
     // still has a job after the switch is thrown.
     if (intensified) {
-        // Kick on 1 and 3, rim on the offbeats. It leans harder as the
-        // count near you climbs, same intensity the organ used.
-        if (inBar === 0) musKick(t, 0.26 + 0.10 * I);
-        if (inBar === 2) musKick(t, 0.20 + 0.10 * I);
-        musRim(t + MUS_BEAT / 2, 0.055 + 0.05 * I);
-        if (I >= 0.5) musRim(t + MUS_BEAT * 0.75, 0.035 + 0.03 * I);
-        // SPARSE MUSICAL NOTES: one chord tone a bar, high, ringing out
-        // over the drums and nothing else.
-        if (inBar === 0) musBellNote(P.chord[0] + 24, t, MUS_CHIME_VOL * 0.5, 1.6, 3);
-        if (inBar === 2 && I >= 0.4) musBellNote(P.chord[2] + 24, t, MUS_CHIME_VOL * 0.32, 1.2, 3);
-        // The pedal stays, very low and very quiet, so the key is still
-        // there under it. No chord, no ostinato, no soprano.
-        musOrgan(P.bass - 12, t, bar, 0.035 + 0.02 * I, 2, true);
+        // HIGH-PACED DRUMMING (2026-09-20). The first version was a slow
+        // kick on 1 and 3 with a chord tone ringing over it, which read as
+        // brooding rather than urgent -- and the brief for intensified play
+        // is a blitz. Asked for: "closer to a high paced drumming sound.
+        // the intermittent tones may be best to be lost."
+        //
+        // So the pattern is DOUBLE TIME against the 66 BPM grid: a kick on
+        // every beat, a second kick on the and-of-every-beat once the count
+        // climbs, and rims on the sixteenths. The grid itself does not
+        // change, because every cue and the whole rest of the score is
+        // scheduled on it -- only how densely this layer fills it.
+        musKick(t, 0.26 + 0.10 * I);
+        if (I >= 0.3) musKick(t + MUS_BEAT * 0.5, 0.15 + 0.08 * I);
+        musRim(t + MUS_BEAT * 0.25, 0.05 + 0.04 * I);
+        musRim(t + MUS_BEAT * 0.75, 0.05 + 0.04 * I);
+        if (I >= 0.45) {
+            musRim(t + MUS_BEAT * 0.125, 0.03 + 0.03 * I);
+            musRim(t + MUS_BEAT * 0.625, 0.03 + 0.03 * I);
+        }
+        // An accent at the top of each bar, so the bar is still findable
+        // inside a wall of sixteenths.
+        if (inBar === 0) musKick(t, 0.30 + 0.10 * I);
+
+        // THE INTERMITTENT TONES ARE GONE. There was one high chord tone a
+        // bar on the bell voice; it is what made this sound like a score
+        // with drums under it rather than drumming. The pedal stays --
+        // quieter still -- because without any pitch at all the end cues
+        // (which are all in D) have nothing to land against.
+        musOrgan(P.bass - 12, t, bar, 0.026 + 0.014 * I, 2, true);
         if (inBar === 0) {
             musHeld = musHeld.filter(function (h) { return h.until > t; });
         }

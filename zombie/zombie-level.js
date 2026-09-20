@@ -870,7 +870,7 @@ const SECTORS = [
     { id: Z_COLD,       key: "cold",    name: "COLD STORAGE",   guns: ["rifle"],            perks: 1,
       buildings: 11, barrels: 3,  crates: 2, outpost: false, corridors: false },
     { id: Z_KENNELS,    key: "kennel",  name: "THE KENNELS",    guns: ["shotgun"],          perks: 1,
-      buildings: 9,  barrels: 2,  crates: 2, outpost: false, corridors: false },
+      buildings: 2,  barrels: 2,  crates: 2, outpost: false, corridors: false },
     // 3 generic buildings, not 8: the CONTAINER STACKS are this sector's
     // buildings (buildYardSpur), and at 8 there was no room left for them --
     // measured at 1.5 containers placed of 14 attempted, which is not a
@@ -963,9 +963,12 @@ function generateLevel() {
     zoneHotUntil = [0, 0, 0, 0, 0, 0, 0, 0, 0];
     forestRects = [];
     culverts = [];
+    escapeOpening = null;
     landmarks = [];
     spillwayRuns = null;
     kennelRun = null;
+    railcars = [];
+    buildingRooms = [];
     yardSpur = null;
     yardContainers = [];
 
@@ -997,7 +1000,13 @@ function generateLevel() {
     // The maze is what THE YARD IS, so it places with the hero structures
     // rather than after the generic buildings -- at the back of the queue
     // only 0.5 containers of ~20 ever went down, which is not a maze.
+    //
+    // THE KENNELS goes here for exactly the same reason (2026-09-20): its
+    // rail cars and containers ARE the sector, and behind the buildings
+    // only 0.2 cars a map were getting down. buildKennels appends to
+    // yardContainers, so it must follow the maze, which clears that list.
     buildContainerMaze();
+    buildKennels();
     buildZoneContents();
     // AFTER the sluice (the south wall has to know where the escape gate is,
     // so it does not put a culvert beside it) and AFTER the zone contents.
@@ -1144,8 +1153,64 @@ function buildZoneWalls() {
                      run.span >= BOUNDARY_BOTH_MIN);
     }
 
+    buildBoundaryPosts();
     computeZoneDepth();
     priceDoors();
+}
+
+// A POST AT EVERY BOUNDARY JUNCTION (2026-09-20).
+//
+// Asked as "do the standard sector-dividing walls need to be aligned along
+// their centreline? this leads to a double-overlapping wall condition at the
+// corners and the corners are not aligned". They do not, and both halves of
+// that are real:
+//
+//   - A run is centred on its boundary line (`fixed` is the line minus
+//     WALL_T/2), so a vertical run and a horizontal run that meet share a
+//     10x10 square. Fills are opaque, so that alone would be invisible --
+//     except drawWalls paints a 2px highlight along each wall's top and left
+//     edge, and the second wall's highlight strikes across the first wall's
+//     BODY. That is the "double-overlapping" the eye actually catches.
+//   - The opposite 10x10 square is covered by neither run, so the corner has
+//     a notch out of it and the two walls visibly fail to meet.
+//
+// MOVING THE WALLS IS NOT THE FIX: `fixed` is what every door, window and
+// reserve on that boundary is positioned against, so shifting it by 10px
+// moves the whole opening layout. A post does the job instead -- a full
+// WALL_T square centred on the junction, emitted LAST so its own highlight
+// is the one that survives. The notch fills, the overlap is hidden inside a
+// square that is meant to be there, and the corner reads as a pillar, which
+// is what a corner between two walls looks like anyway.
+function buildBoundaryPosts() {
+    for (let r = 1; r < ZONE_ROWS_FINE; r++) {
+        for (let c = 1; c < ZONE_COLS_FINE; c++) {
+            // The four cells meeting at this vertex. All the same id means
+            // there is no boundary here at all.
+            const a = ZONE_PAINT[(r - 1) * ZONE_COLS_FINE + (c - 1)];
+            const b = ZONE_PAINT[(r - 1) * ZONE_COLS_FINE + c];
+            const d = ZONE_PAINT[r * ZONE_COLS_FINE + (c - 1)];
+            const e = ZONE_PAINT[r * ZONE_COLS_FINE + c];
+            if (a === b && b === d && d === e) continue;
+
+            const x = c * ZONE_CELL_W - WALL_T / 2;
+            const y = r * ZONE_CELL_H - WALL_T / 2;
+            // Never across an opening: a post is cosmetic and a door or
+            // window it narrows is not.
+            if (rectBlockedByOpening({ x: x, y: y, w: WALL_T, h: WALL_T })) continue;
+            walls.push({ x: x, y: y, w: WALL_T, h: WALL_T, post: true });
+        }
+    }
+}
+
+// Does this rect touch a door or a barricade? Posts must not.
+function rectBlockedByOpening(r) {
+    for (let i = 0; i < doors.length; i++) {
+        if (rectsOverlap(r, doors[i])) return true;
+    }
+    for (let i = 0; i < barricades.length; i++) {
+        if (rectsOverlap(r, barricades[i])) return true;
+    }
+    return false;
 }
 
 // Breadth-first from the Blockhouse over DOOR edges, so "how deep is this
@@ -1361,9 +1426,10 @@ function addDoorTrap(vertical, d) {
 // when it is built (MAP_REVAMP_PLAN.md 8).
 const INTERIOR_LANE = 160;
 
+// The interiors that route AROUND the buildings. THE KENNELS is not one of
+// them -- see buildKennels, which is hoisted with the container maze.
 function buildSectorInteriors() {
     buildSpillwayPipes();
-    buildKennels();
     buildMotorBays();
     buildYardSpur();
 }
@@ -1431,38 +1497,103 @@ function buildSpillwayPipes() {
 }
 let spillwayRuns = null;
 
-// --- THE KENNELS: pens either side of the run ------------------------
-// You fight in the pens and you leave by the run, and that is the whole
-// tactical shape of the sector. The run is the only straight retreat.
+// --- THE KENNELS: rail cars and containers ---------------------------
+// 2026-09-20, on request: "the rail car shown in motor pool is great
+// visually. I'd like to reuse that (along with a vertical version) in the
+// kennels space. a mixture of railcars and shipping containers should fill
+// this space to create a series of claustrophobic hallways."
+//
+// So the pens are gone. THE KENNELS is now the tightest ground on the map
+// by being FULL rather than by being subdivided: long rolling stock and
+// containers laid on a grid, half of them turned across the other half, so
+// the lanes between them bend instead of running straight.
+//
+// THE RUN SURVIVES. It is the sector's one straight retreat and the whole
+// reason the place is fightable -- you fight in the gaps and you leave by
+// the run -- so it is carved first and nothing is allowed to stand in it.
+//
+// KENNEL_LANE is 150: over the 78px nav guarantee, and deliberately tighter
+// than the container maze's 140-plus-stagger feels, because this sector is
+// meant to be the claustrophobic one.
+// 136, not 150: still 1.7x the 78px nav guarantee and four times the
+// widest body, and THE KENNELS is only ~1200x660 of usable ground once the
+// forest band and the boundary reserves are taken off. This is meant to be
+// the tight sector.
+const KENNEL_LANE = 136;
+const RAILCAR_LONG = 186;        // along its length
+const RAILCAR_SHORT = 56;        // across it
+
+let kennelRun = null;     // the sector's one straight retreat
+let railcars = [];        // rolling stock, here and on the Yard's spur
+
 function buildKennels() {
     const b = zoneBounds(Z_KENNELS);
-    const runY = Math.round(b.y + b.h * 0.52);
-    kennelRun = { x: b.x + 60, y: runY, w: b.w - 120, h: INTERIOR_LANE };
+    railcars = [];
 
-    // Pen rows above and below, each a three-walled box opening on the run.
-    for (let side = -1; side <= 1; side += 2) {
-        const penY = side < 0 ? runY - 190 : runY + INTERIOR_LANE + 30;
-        for (let px = b.x + 120; px < b.x + b.w - 260; px += 200) {
-            const pw = 170, ph = 160;
-            if (!inZone(px, penY, Z_KENNELS) || !inZone(px + pw, penY + ph, Z_KENNELS)) continue;
-            if (clashesReserved({ x: px - 30, y: penY - 30, w: pw + 60, h: ph + 60 })) continue;
-            // Three walls: the side facing the run is left open.
-            walls.push({ x: px, y: penY, w: WALL_T, h: ph });
-            walls.push({ x: px + pw - WALL_T, y: penY, w: WALL_T, h: ph });
-            walls.push(side < 0
-                ? { x: px, y: penY, w: pw, h: WALL_T }
-                : { x: px, y: penY + ph - WALL_T, w: pw, h: WALL_T });
-            if (typeof zfPatch === "function") zfPatch(px, penY, pw, ph, "kennel");
-            // Reserve the pen AND the strip in front of its open side, so
-            // nothing later parks across the only way in and turns a pen
-            // into a sealed box.
-            reservedRects.push(side < 0
-                ? { x: px, y: penY, w: pw, h: ph + 70 }
-                : { x: px, y: penY - 70, w: pw, h: ph + 70 });
+    // The run: a full-width lane, kept clear of everything.
+    const runY = Math.round(b.y + b.h * 0.56);
+    kennelRun = { x: b.x, y: runY, w: b.w, h: KENNEL_LANE };
+    reservedRects.push({ x: kennelRun.x, y: kennelRun.y, w: kennelRun.w, h: kennelRun.h });
+    if (typeof zfPatch === "function") zfPatch(kennelRun.x, kennelRun.y, kennelRun.w, kennelRun.h, "ballast");
+
+    // ADAPTIVE, NOT A GRID (2026-09-20). A fixed pitch was the obvious way
+    // to lay rolling stock and it does not survive this sector: THE KENNELS
+    // is eight cells, its western column stops at row 2, and every boundary
+    // around it reserves 150px inward for a door. A grid then spends whole
+    // rows landing on reserved ground -- measured at 7 pieces placed out of
+    // 137 attempts across 20 maps.
+    //
+    // Scattering with a MINIMUM SEPARATION gets the same result -- pieces
+    // with lanes between them -- while fitting itself to whatever ground is
+    // actually free. The separation IS the hallway: every piece keeps
+    // KENNEL_LANE clear of every other, so the gaps cannot close up.
+    const placed = [];
+    const want = 9;
+    for (let i = 0; i < want; i++) {
+        for (let tries = 0; tries < 60; tries++) {
+            const vertical = MP.random() < 0.42;
+            const isCar = MP.random() < 0.55;
+            const w = vertical ? RAILCAR_SHORT : RAILCAR_LONG;
+            const h = vertical ? RAILCAR_LONG : RAILCAR_SHORT;
+            const x = Math.round(b.x + 40 + MP.random() * Math.max(1, b.w - 80 - w));
+            const y = Math.round(Math.max(b.y + 40, FOREST_BAND + 30) +
+                                 MP.random() * Math.max(1, b.h - 80 - h));
+
+            // A lane clear of every piece already down.
+            let tooClose = false;
+            for (let k = 0; k < placed.length && !tooClose; k++) {
+                if (rectsOverlap({ x: x - KENNEL_LANE, y: y - KENNEL_LANE,
+                                   w: w + KENNEL_LANE * 2, h: h + KENNEL_LANE * 2 }, placed[k])) {
+                    tooClose = true;
+                }
+            }
+            if (tooClose) continue;
+
+            if (!placeKennelPiece(x, y, w, h, vertical, isCar)) continue;
+            placed.push({ x: x, y: y, w: w, h: h });
+            break;
         }
     }
 }
-let kennelRun = null;
+// Returns whether the piece actually went down, so the caller can retry.
+function placeKennelPiece(x, y, w, h, vertical, isCar) {
+    if (!inZone(x, y, Z_KENNELS) || !inZone(x + w, y, Z_KENNELS) ||
+        !inZone(x, y + h, Z_KENNELS) || !inZone(x + w, y + h, Z_KENNELS)) return false;
+    if (clashesReserved({ x: x - 10, y: y - 10, w: w + 20, h: h + 20 })) return false;
+    if (rectBlockedStatic({ x: x - 10, y: y - 10, w: w + 20, h: h + 20 })) return false;
+
+    walls.push({ x: x, y: y, w: w, h: h });
+    if (isCar) {
+        railcars.push({ x: x, y: y, w: w, h: h, vertical: vertical });
+        // Rolling stock stands on track.
+        if (typeof zfPatch === "function") zfPatch(x - 8, y - 8, w + 16, h + 16, "ballast");
+    } else {
+        yardContainers.push({ x: x, y: y, w: w, h: h, hue: Math.floor(MP.random() * 5) });
+        if (typeof zfPatch === "function") zfPatch(x - 8, y - 8, w + 16, h + 16, "hardstand");
+    }
+    reservedRects.push({ x: x, y: y, w: w, h: h });
+    return true;
+}
 
 // --- THE MOTOR POOL: service bays ------------------------------------
 // Three-walled pockets off the main run: cover you duck INTO, with one way
@@ -1500,11 +1631,16 @@ function buildYardSpur() {
     if (typeof zfPatch === "function") zfPatch(x0, y, x1 - x0, 110, "ballast");
     yardSpur = { x: x0, y: y, w: x1 - x0, h: 110 };
 
-    // Flatcars standing on it.
+    // Flatcars standing on it. Recorded in `railcars` since 2026-09-20 so
+    // they draw as rolling stock rather than as plain wall -- the same art
+    // THE KENNELS now uses, which is what makes the spur read as one line
+    // running between the two sectors.
     for (let fx = x0 + 120; fx < x1 - 220; fx += 300) {
         const fw = 190, fh = 54;
         if (clashesReserved({ x: fx - 30, y: y - 30, w: fw + 60, h: fh + 60 })) continue;
-        walls.push({ x: fx, y: Math.round(y + 28), w: fw, h: fh });
+        const fy = Math.round(y + 28);
+        walls.push({ x: fx, y: fy, w: fw, h: fh });
+        railcars.push({ x: fx, y: fy, w: fw, h: fh, vertical: false });
     }
 
 }
@@ -1720,13 +1856,16 @@ function addLandmark(zone, kind, w, h, lift) {
     const lm = { x: spot.x, y: spot.y, w: w, h: h, kind: kind, zone: zone, lift: lift };
     landmarks.push(lm);
 
-    // Collision. The crane is its two LEGS only -- the beam is overhead and
-    // you walk under it, which is most of what makes it read as a gantry
-    // rather than a wall.
-    if (kind === "crane") {
-        walls.push({ x: lm.x, y: lm.y, w: 30, h: h });
-        walls.push({ x: lm.x + w - 30, y: lm.y, w: 30, h: h });
-    } else {
+    // Collision. THE CRANE HAS NONE AT ALL (2026-09-20, on request: "make it
+    // so you can walk under the gantry crane, it would look more correct
+    // visually this way"). It was its two legs; the whole thing is overhead
+    // now, which is what it looks like and what a gantry is -- you walk
+    // under a gantry, including past its legs, and a 30px block you cannot
+    // see the front of was the one part that read as a wall.
+    //
+    // Nothing else changes: it still reserves ground so other things route
+    // around it, and it still draws over the boundary wall.
+    if (kind !== "crane") {
         walls.push({ x: lm.x, y: lm.y, w: w, h: h });
     }
 
@@ -1746,7 +1885,12 @@ function addLandmark(zone, kind, w, h, lift) {
         reservedRects.push({ x: lm.x - 70, y: lm.y - 70, w: 30 + 140, h: h + 140 });
         reservedRects.push({ x: lm.x + w - 30 - 70, y: lm.y - 70, w: 30 + 140, h: h + 140 });
     } else {
-        reservedRects.push({ x: lm.x - 130, y: lm.y - 130, w: w + 260, h: h + 260 });
+        // 80, not 130. It was widened to 130 on 2026-09-19 to chase nav
+        // pockets and the measurement afterwards was IDENTICAL (129 cells
+        // before and after), so it bought nothing -- and 130 around a
+        // 110x110 silo reserves 370x370, which is most of why THE KENNELS
+        // could not fit its rail cars. Re-measured after reverting.
+        reservedRects.push({ x: lm.x - 80, y: lm.y - 80, w: w + 160, h: h + 160 });
     }
     claimFloor(lm.x, lm.y, w, h, 40);
     // UNIQUE floor: every landmark stands on hardstanding, which is what
@@ -1785,7 +1929,21 @@ function addLandmark(zone, kind, w, h, lift) {
 const FOREST_BAND = 240;          // how deep the forest reaches in
 const FOREST_TRUNK = 26;
 const PERIM_CULVERT = 120;        // clear width of a culvert mouth
-const PERIM_CULVERT_GAP = 900;    // roughly one every this far along
+// 1200, not 900 (2026-09-20). Reported as zombies wedging while pathing
+// round the south-east hard corner, and the openings there making the area
+// undefendable -- both of which are the same thing: too many mouths, too
+// close together, in the one corner where two walls meet and a zombie
+// coming through one can be pushed into the other.
+//
+// A wider spacing is one fewer mouth a side. Culverts are not free to
+// remove -- they exist because walling two sides halves the spawn frontier
+// (see buildPerimeter) -- so the frontier was re-measured afterwards rather
+// than assumed.
+const PERIM_CULVERT_GAP = 1200;
+// No mouth within this of the south-east corner itself, where the two hard
+// walls meet. That corner is the one place a zombie emerging from a culvert
+// has a second wall immediately beside it.
+const PERIM_CORNER_CLEAR = 700;
 let forestRects = [];             // trunks, for the draw
 let culverts = [];                // {x,y,w,h,side} mouths in the hard wall
 
@@ -1798,6 +1956,7 @@ function buildPerimeter() {
     // in a wall rather than a wall drawn over holes.
     buildPerimeterWall(false, WORLD_H - WALL_T, 0, WORLD_W, "south");
     buildPerimeterWall(true, WORLD_W - WALL_T, 0, WORLD_H, "east");
+    buildEscapeOpening();
 
     // --- NORTH and WEST: forest ---
     // Trunks are solid, so they break sightlines by being solid -- no third
@@ -1819,6 +1978,10 @@ function buildPerimeterWall(vertical, fixed, start, span, side) {
         // beside it would read as a second one.
         if (side === "south" && escapeRect &&
             at < escapeRect.x + escapeRect.w + 120 && at + PERIM_CULVERT > escapeRect.x - 120) continue;
+        // Never near the south-east corner (2026-09-20) -- see
+        // PERIM_CORNER_CLEAR.
+        if (side === "south" && at + PERIM_CULVERT > WORLD_W - PERIM_CORNER_CLEAR) continue;
+        if (side === "east" && at + PERIM_CULVERT > WORLD_H - PERIM_CORNER_CLEAR) continue;
         mouths.push(at);
     }
 
@@ -1833,6 +1996,52 @@ function buildPerimeterWall(vertical, fixed, start, span, side) {
     }
     if (at < start + span) pushPerimSeg(vertical, fixed, at, start + span - at);
 }
+
+// THE WAY OUT IS A HOLE IN THE WALL (2026-09-20).
+//
+// Reported as: on the win sequence the player appears to fly OVER the
+// perimeter wall. They did -- the south wall ran straight across behind the
+// escape gate, and the walk-out is a DRAW offset, so the sprite passed over
+// solid masonry on its way off screen.
+//
+// So the wall genuinely opens below the gate, a little wider than the gate
+// itself, with a COLUMN either side of the opening. The columns are what
+// stop it reading as a missing chunk of wall: a gap with jambs is a
+// gateway, a gap without them is damage.
+//
+// Gameplay note: this opening is BEHIND the gate, which stays shut for the
+// whole run, so it is not a way in for anything. It is scenery that the
+// win sequence happens to travel through.
+const ESCAPE_JAMB = 26;
+
+function buildEscapeOpening() {
+    if (!escapeRect) return;
+    const y = WORLD_H - WALL_T;
+    const pad = 16;
+    const x0 = escapeRect.x - pad;
+    const x1 = escapeRect.x + escapeRect.w + pad;
+
+    // Drop any south wall segment overlapping the opening, and re-lay the
+    // parts of it that fall outside.
+    for (let i = walls.length - 1; i >= 0; i--) {
+        const w = walls[i];
+        if (w.y !== y || w.h !== WALL_T) continue;
+        if (w.x + w.w <= x0 || w.x >= x1) continue;
+        const leftLen = x0 - w.x;
+        const rightStart = x1;
+        const rightLen = (w.x + w.w) - x1;
+        walls.splice(i, 1);
+        if (leftLen > 4) walls.push({ x: w.x, y: y, w: Math.round(leftLen), h: WALL_T });
+        if (rightLen > 4) walls.push({ x: Math.round(rightStart), y: y, w: Math.round(rightLen), h: WALL_T });
+    }
+
+    // A column each side, standing proud of the wall line so they read as
+    // jambs rather than as more wall.
+    walls.push({ x: Math.round(x0 - ESCAPE_JAMB), y: y - 14, w: ESCAPE_JAMB, h: WALL_T + 28, column: true });
+    walls.push({ x: Math.round(x1), y: y - 14, w: ESCAPE_JAMB, h: WALL_T + 28, column: true });
+    escapeOpening = { x: Math.round(x0), y: y - 14, w: Math.round(x1 - x0), h: WALL_T + 28 };
+}
+let escapeOpening = null;
 
 function pushPerimSeg(vertical, fixed, at, len) {
     if (len < 4) return;
@@ -1906,12 +2115,13 @@ function buildKeep() {
     // because that is where a new player already is.
     codexRect = { x: kx + Math.round(KEEP_W / 2) - 30, y: ky + 54, w: 60, h: 40 };
 
-    // THE INTENSIFY SWITCH (2026-09-19). A heavy knife switch on the far
-    // side of the keep from the manual, against the SOUTH wall, so the two
-    // F targets can never be mistaken for one another: interactWith tests
-    // rects in order and the manual is first, and these two are now 300px
-    // apart with the ammo crate between them.
-    intensifyRect = { x: kx + Math.round(KEEP_W / 2) - 26, y: ky + KEEP_H - 78, w: 52, h: 44 };
+    // THE INTENSIFY SWITCH. Moved to the keep's EAST CORNER on request
+    // (2026-09-20); it was centred on the south wall. Still the far side of
+    // the room from the manual, which is what keeps the two F targets
+    // unmistakable -- interactWith tests rects in order and the manual is
+    // first -- and a lever in a corner reads more like plant than one
+    // centred on a wall like a light switch.
+    intensifyRect = { x: kx + KEEP_W - 96, y: ky + KEEP_H - 88, w: 52, h: 44 };
 
     traps.push({ x: gx, y: ky - 8, w: gap, h: 52, cost: 500, armedUntil: 0, readyAt: 0 });
     traps.push({ x: gx, y: ky + KEEP_H - 44, w: gap, h: 52, cost: 500, armedUntil: 0, readyAt: 0 });
@@ -2061,13 +2271,62 @@ function buildGenerator(b, z) {
 // NAV_PAD 19 makes the guarantee 78, so the hole is 90 (2026-09-18).
 const NOOK_HOLE = 90;
 
+// ---------------------------------------------------
+//   BUILDINGS THAT READ AS BUILDINGS  (2026-09-20)
+// ---------------------------------------------------
+// Asked for: "id like buildings to feel more like BUILDINGS instead of just
+// blocks with alternate flooring material inside. buildings should
+// correspond with use of sector in some instances. they should have stairs
+// (graphical top down) and internal geometry that implies this is clearly a
+// building. tables, chairs, windows (maybe 1 wide - breakable by zombies),
+// entrance & exit are doorway, and geometry is slightly more complex than
+// box with symmetrical exit/entrance."
+//
+// What a building is now:
+//
+//   - an ASYMMETRIC footprint: a rectangle with a bite out of one corner,
+//     so no two walls are the same length and the outline is not a box
+//   - a DOORWAY in (BUILD_DOOR wide), and a separate doorway OUT on a
+//     different wall -- never the opposite one, so you cannot see through
+//   - 1-wide WINDOWS, which are BARRICADES, so zombies break in through
+//     them exactly as they do at a sector boundary. This is the part with
+//     real gameplay in it: a building is now enterable by the horde.
+//   - an INTERNAL WALL splitting it into two rooms, with its own doorway
+//   - FURNITURE and STAIRS, drawn only
+//
+// FURNITURE IS DRAWN, NEVER SOLID, and that is deliberate. A 30px table in
+// a room reachable through a 90px door is precisely the geometry that makes
+// nav pockets, and this map has already lost 579 cells to unbroken pipe
+// walls and 488 to clumped trunks. Chairs you can walk through cost nothing
+// and read the same from above.
+//
+// Every opening clears the 78px nav guarantee (CLAUDE.md rule 3).
+const BUILD_DOOR = 92;
+const BUILD_WINDOW = 44;         // "1 wide"
+let buildingRooms = [];          // {x,y,w,h,kind,decor:[...]} for the draw
+
+// Which kind of building a sector puts up. `corresponds with use of sector`.
+const SECTOR_BUILDING = {
+    cold:    "store",     // racking and a counter
+    kennel:  "office",    // desks
+    yard:    "office",
+    motor:   "workshop",  // benches
+    pump:    "workshop",
+    turbine: "workshop",
+    spill:   "store",
+    sluice:  "store",
+    centre:  "office"
+};
+
 function buildZoneBuildings(b, count, z) {
+    const key = (zoneInfo[z] && zoneInfo[z].tpl) ? zoneInfo[z].tpl.key : "centre";
+    const kind = SECTOR_BUILDING[key] || "office";
     let made = 0;
     let attempts = 0;
     while (made < count && attempts < count * 40) {
         attempts++;
-        const bw = 120 + MP.random() * 170;
-        const bh = 120 + MP.random() * 170;
+        const bw = 190 + MP.random() * 150;
+        const bh = 170 + MP.random() * 140;
         const bx = b.x + 110 + MP.random() * Math.max(1, b.w - 220 - bw);
         const by = b.y + 110 + MP.random() * Math.max(1, b.h - 220 - bh);
 
@@ -2078,44 +2337,167 @@ function buildZoneBuildings(b, count, z) {
                                 !inZone(bx, by + bh, z) || !inZone(bx + bw, by + bh, z))) continue;
         if (nearZoneBoundary(bx, by, bw, bh)) continue;
         const box = { x: bx - 95, y: by - 95, w: bw + 190, h: bh + 190 };
-        let clash = false;
-        for (let j = 0; j < reservedRects.length; j++) {
-            if (rectsOverlap(box, reservedRects[j])) { clash = true; break; }
-        }
-        if (clash) continue;
+        if (clashesReserved(box)) continue;
 
-        const top = { x: bx, y: by, w: bw, h: WALL_T };
-        const bottom = { x: bx, y: by + bh - WALL_T, w: bw, h: WALL_T };
-        const left = { x: bx, y: by, w: WALL_T, h: bh };
-        const right = { x: bx + bw - WALL_T, y: by, w: WALL_T, h: bh };
-        const sides = [top, bottom, left, right];
-
-        if (MP.random() < 0.62) {
-            const missing = Math.floor(MP.random() * 4);
-            sides.splice(missing, 1);
-            // The wall facing the missing one gets the escape hole.
-            const opposite = missing === 0 ? 0 : missing === 1 ? 0 : missing === 2 ? 1 : 1;
-            pierceWall(sides, opposite);
-        } else if (MP.random() < 0.5) {
-            sides.splice(0, 2);
-        } else {
-            sides.splice(2, 2);
-        }
-
-        for (let k = 0; k < sides.length; k++) if (sides[k]) walls.push(sides[k]);
-        // INTERIOR floor: this is the inside of a building, so it gets the
-        // sector's own tile. Everything outside it keeps the exterior
-        // ground (zombie-floors.js, the three layers).
-        if (typeof zfPatch === "function") {
-            zfPatch(bx, by, bw, bh, zfInteriorAt(bx + bw / 2, by + bh / 2));
-        }
-        reservedRects.push({ x: bx, y: by, w: bw, h: bh });
+        makeBuilding(Math.round(bx), Math.round(by), Math.round(bw), Math.round(bh), kind);
         made++;
     }
 }
 
-// Splits one wall in a list into two segments with a gap in the middle,
-// replacing it in place.
+function makeBuilding(bx, by, bw, bh, kind) {
+    // THE BITE. One corner is cut back, which is what stops the outline
+    // being a box -- and it is cut from the OUTSIDE, so the inside stays a
+    // simple shape the flow field is happy with.
+    const biteW = Math.round(bw * (0.26 + MP.random() * 0.16));
+    const biteH = Math.round(bh * (0.24 + MP.random() * 0.16));
+    const biteCorner = Math.floor(MP.random() * 4);   // 0 NW, 1 NE, 2 SE, 3 SW
+
+    // Entrance and exit on DIFFERENT, non-opposite walls.
+    const entry = Math.floor(MP.random() * 4);        // 0 N, 1 E, 2 S, 3 W
+    const exitWall = (entry + (MP.random() < 0.5 ? 1 : 3)) % 4;
+
+    const room = { x: bx, y: by, w: bw, h: bh, kind: kind, decor: [],
+                   bite: { corner: biteCorner, w: biteW, h: biteH } };
+
+    // --- the shell, wall by wall, with its openings punched out ---
+    for (let side = 0; side < 4; side++) {
+        const isDoor = (side === entry || side === exitWall);
+        // The bite removes part of two of the four walls.
+        buildBuildingWall(room, side, isDoor);
+    }
+
+    // --- the internal wall: two rooms, one doorway between them ---
+    const splitVertical = bw > bh;
+    const t = 0.38 + MP.random() * 0.24;
+    if (splitVertical) {
+        const sx = Math.round(bx + bw * t);
+        const gapY = Math.round(by + WALL_T + MP.random() * Math.max(1, bh - 2 * WALL_T - BUILD_DOOR));
+        pushIfClear({ x: sx, y: by + WALL_T, w: WALL_T, h: gapY - (by + WALL_T) });
+        pushIfClear({ x: sx, y: gapY + BUILD_DOOR, w: WALL_T, h: (by + bh - WALL_T) - (gapY + BUILD_DOOR) });
+    } else {
+        const sy = Math.round(by + bh * t);
+        const gapX = Math.round(bx + WALL_T + MP.random() * Math.max(1, bw - 2 * WALL_T - BUILD_DOOR));
+        pushIfClear({ x: bx + WALL_T, y: sy, w: gapX - (bx + WALL_T), h: WALL_T });
+        pushIfClear({ x: gapX + BUILD_DOOR, y: sy, w: (bx + bw - WALL_T) - (gapX + BUILD_DOOR), h: WALL_T });
+    }
+
+    // --- what is inside ---
+    addBuildingDecor(room, splitVertical);
+
+    if (typeof zfPatch === "function") zfPatch(bx, by, bw, bh, zfInteriorAt(bx + bw / 2, by + bh / 2));
+    reservedRects.push({ x: bx, y: by, w: bw, h: bh });
+    buildingRooms.push(room);
+}
+
+// One side of the shell: solid, minus a doorway if this side has one, minus
+// a 1-wide window or two, minus whatever the bite has taken.
+function buildBuildingWall(room, side, isDoor) {
+    const bx = room.x, by = room.y, bw = room.w, bh = room.h;
+    const horiz = (side === 0 || side === 2);
+    const len = horiz ? bw : bh;
+
+    // Openings along this wall, as [offset, size] pairs.
+    const cuts = [];
+    if (isDoor) {
+        const at = Math.round(WALL_T + MP.random() * Math.max(1, len - 2 * WALL_T - BUILD_DOOR));
+        cuts.push([at, BUILD_DOOR, "door"]);
+    }
+    // One or two windows, never overlapping the doorway.
+    const wantWindows = 1 + (MP.random() < 0.5 ? 1 : 0);
+    for (let i = 0; i < wantWindows; i++) {
+        const at = Math.round(26 + MP.random() * Math.max(1, len - 52 - BUILD_WINDOW));
+        let clash = false;
+        for (let c = 0; c < cuts.length; c++) {
+            if (at < cuts[c][0] + cuts[c][1] + 20 && at + BUILD_WINDOW + 20 > cuts[c][0]) clash = true;
+        }
+        if (!clash) cuts.push([at, BUILD_WINDOW, "window"]);
+    }
+    cuts.sort(function (a, b) { return a[0] - b[0]; });
+
+    let at = 0;
+    for (let i = 0; i < cuts.length; i++) {
+        const c = cuts[i];
+        if (c[0] > at) pushWallSpan(room, side, at, c[0] - at);
+        if (c[2] === "window") pushWindowSpan(room, side, c[0], c[1]);
+        at = c[0] + c[1];
+    }
+    if (at < len) pushWallSpan(room, side, at, len - at);
+}
+
+function sideRect(room, side, at, len) {
+    const bx = room.x, by = room.y, bw = room.w, bh = room.h;
+    if (side === 0) return { x: bx + at, y: by, w: len, h: WALL_T };
+    if (side === 2) return { x: bx + at, y: by + bh - WALL_T, w: len, h: WALL_T };
+    if (side === 3) return { x: bx, y: by + at, w: WALL_T, h: len };
+    return { x: bx + bw - WALL_T, y: by + at, w: WALL_T, h: len };
+}
+
+// A span of shell wall, unless the bite has removed it.
+function pushWallSpan(room, side, at, len) {
+    const r = sideRect(room, side, at, len);
+    if (r.w < 3 || r.h < 3) return;
+    if (inBuildingBite(room, r)) return;
+    walls.push(r);
+}
+
+// A WINDOW IS A BARRICADE. Same rules as a boundary window: players never
+// pass, zombies chew through, and it re-boards at the breather. That is
+// what makes a building enterable by the horde rather than a safe box.
+function pushWindowSpan(room, side, at, len) {
+    const r = sideRect(room, side, at, len);
+    if (r.w < 3 || r.h < 3) return;
+    if (inBuildingBite(room, r)) return;
+    r.hp = 60;
+    r.maxHp = 60;
+    r.chewUntil = 0;
+    barricades.push(r);
+}
+
+function pushIfClear(r) {
+    if (r.w > 3 && r.h > 3) walls.push(r);
+}
+
+// The cut-back corner, in world coordinates.
+function inBuildingBite(room, r) {
+    const b = room.bite;
+    if (!b) return false;
+    const x = b.corner === 1 || b.corner === 2 ? room.x + room.w - b.w : room.x;
+    const y = b.corner === 2 || b.corner === 3 ? room.y + room.h - b.h : room.y;
+    return rectsOverlap(r, { x: x, y: y, w: b.w, h: b.h });
+}
+
+// Stairs, tables, chairs, benches, racking. DRAWN ONLY -- see the header.
+function addBuildingDecor(room, splitVertical) {
+    const d = room.decor;
+    const pad = WALL_T + 14;
+    const ix = room.x + pad, iy = room.y + pad;
+    const iw = room.w - pad * 2, ih = room.h - pad * 2;
+    if (iw < 40 || ih < 40) return;
+
+    // Stairs: every building has one flight, against a wall, drawn as
+    // treads from above. It is the single clearest "this has an upstairs".
+    const stW = Math.min(46, Math.round(iw * 0.34));
+    const stH = Math.min(74, Math.round(ih * 0.44));
+    d.push({ type: "stairs", x: Math.round(ix), y: Math.round(iy), w: stW, h: stH,
+             down: MP.random() < 0.5 });
+
+    const n = 2 + Math.floor(MP.random() * 3);
+    for (let i = 0; i < n; i++) {
+        const t = room.kind === "workshop" ? "bench"
+                : room.kind === "store" ? "rack" : "desk";
+        const w = t === "rack" ? 20 : 46 + Math.round(MP.random() * 22);
+        const h = t === "rack" ? 70 + Math.round(MP.random() * 40) : 28;
+        const x = Math.round(ix + stW + 10 + MP.random() * Math.max(1, iw - stW - 20 - w));
+        const y = Math.round(iy + MP.random() * Math.max(1, ih - h));
+        d.push({ type: t, x: x, y: y, w: w, h: h });
+        // A desk or a bench gets a chair; racking does not.
+        if (t !== "rack" && MP.random() < 0.7) {
+            d.push({ type: "chair", x: x + 12 + Math.round(MP.random() * 20),
+                     y: y + h + 6, w: 16, h: 16 });
+        }
+    }
+}
+
 function pierceWall(sides, index) {
     const w = sides[index];
     if (!w) return;

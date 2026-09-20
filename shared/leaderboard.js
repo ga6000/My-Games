@@ -229,12 +229,49 @@
         write(doc);
     }
 
-    function write(doc) {
+    // A REJECTED WRITE RETRIES ONCE WITHOUT THE OPTIONAL FIELDS (2026-09-20).
+    //
+    // `round` is optional and was added on 2026-09-19. If the Firestore rules
+    // whitelist field names -- which they may, and which cannot be checked
+    // from this repo because rules live in the console -- then a doc carrying
+    // `round` is refused ENTIRELY and the whole run is lost over a column.
+    // That is the wrong trade: the score is the point, the round is a nicety,
+    // and leaderboard.html already knows how to read a doc that has a score
+    // and no round.
+    //
+    // Measured 2026-09-20: 182 docs in the collection, every one written
+    // before `round` existed, and ZERO with `game: "zombie"` -- which is what
+    // a rules rejection of the new field would look like from outside.
+    var OPTIONAL_KEYS = ["round"];
+
+    function write(doc, isRetry) {
         try {
             writer(doc).catch(function (err) {
+                var code = (err && (err.code || err.message)) || String(err);
+                var hasOptional = false;
+                for (var i = 0; i < OPTIONAL_KEYS.length; i++) {
+                    if (doc[OPTIONAL_KEYS[i]] !== undefined) hasOptional = true;
+                }
+                if (!isRetry && hasOptional) {
+                    var bare = {};
+                    for (var k in doc) {
+                        if (!Object.prototype.hasOwnProperty.call(doc, k)) continue;
+                        if (OPTIONAL_KEYS.indexOf(k) === -1) bare[k] = doc[k];
+                    }
+                    note("score write refused (" + code + ") -- retrying without " +
+                         OPTIONAL_KEYS.join("/"));
+                    write(bare, true);
+                    return;
+                }
                 // Never let a failed write break gameplay. This is called from
-                // a death/finish handler the player should never see fail.
-                if (global.console && console.warn) console.warn("LB: score write failed", err);
+                // a death/finish handler the player should never see fail. Say
+                // WHICH write failed, though: the old message was a bare
+                // "score write failed" with no game and no score in it.
+                if (global.console && console.warn) {
+                    console.warn("LB: score write failed for game '" + doc.game +
+                                 "' (score " + doc.score + ", player " + doc.player +
+                                 "): " + code, err);
+                }
             });
         } catch (e) {
             if (global.console && console.warn) console.warn("LB: score write threw", e);

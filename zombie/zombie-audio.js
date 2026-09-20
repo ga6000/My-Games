@@ -293,43 +293,77 @@ function weaponVoice(idx, g, pan) {
     }
 }
 
-// THE AIR-RAID SIREN (2026-09-19). Two slow rise-and-fall sweeps over ~3.4s
-// on a detuned pair of sawtooths through a lowpass, which is what gives a
-// mechanical siren its beat rather than a clean glide.
+// THE SIREN (2026-09-19, rebuilt 2026-09-20 as a NUKE siren).
 //
-// It is the ONLY sound in this game that is not positional. Everything else
-// pans and falls off with distance (idea 39); this one is meant to be
+// Was an air-raid klaxon: two rise-and-falls over 3.4s at 220Hz. Asked for
+// "something more similar to a nuke siren, slower and more echoy", so:
+//
+//   - LOWER. 132Hz rather than 220, and it only climbs to 430 -- a civil
+//     defence siren is a big slow horn, not a klaxon.
+//   - SLOWER. One sweep takes 3.4s where the whole old sound did, and
+//     there are two of them, so it runs 7s.
+//   - ECHO. A feedback delay line, which is the whole difference: a siren
+//     heard across a city is mostly its own reflections. 0.38s delay at
+//     0.45 feedback through a lowpass, so each repeat is duller than the
+//     last, and the tail keeps ringing after the horn stops.
+//
+// It is still the ONLY sound in this game that is not positional.
+// Everything else pans and falls off with distance (idea 39); this one is
 // coming from everywhere at once, so it goes straight to the master bus and
 // ignores where the caller stood.
+const SIREN_SWEEP = 3.4;          // seconds for one rise-and-fall
+const SIREN_CYCLES = 2;
+
 function sirenCall() {
     if (!audioCtx || audioMuted) return;
     try {
         const t0 = audioCtx.currentTime;
+        const total = SIREN_SWEEP * SIREN_CYCLES;
+
         const out = audioCtx.createGain();
         const lp = audioCtx.createBiquadFilter();
         lp.type = "lowpass";
-        lp.frequency.value = 1500;
+        lp.frequency.value = 1100;
         lp.connect(out);
         out.connect(audioMaster);
+
+        // The echo: a delay fed back into itself, darkening each pass.
+        const dly = audioCtx.createDelay(1.0);
+        dly.delayTime.value = 0.38;
+        const fb = audioCtx.createGain();
+        fb.gain.value = 0.45;
+        const echoLp = audioCtx.createBiquadFilter();
+        echoLp.type = "lowpass";
+        echoLp.frequency.value = 900;
+        const wet = audioCtx.createGain();
+        wet.gain.value = 0.55;
+        out.connect(dly);
+        dly.connect(echoLp);
+        echoLp.connect(fb);
+        fb.connect(dly);                 // feedback loop
+        echoLp.connect(wet);
+        wet.connect(audioMaster);
+
         out.gain.setValueAtTime(0.0001, t0);
-        out.gain.exponentialRampToValueAtTime(0.30, t0 + 0.35);
-        out.gain.setValueAtTime(0.30, t0 + 2.7);
-        out.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.4);
+        out.gain.exponentialRampToValueAtTime(0.30, t0 + 0.6);
+        out.gain.setValueAtTime(0.30, t0 + total - 0.9);
+        out.gain.exponentialRampToValueAtTime(0.0001, t0 + total);
 
         for (let v = 0; v < 2; v++) {
             const o = audioCtx.createOscillator();
             o.type = "sawtooth";
-            const detune = v === 0 ? 1 : 1.006;      // the beat between them
-            o.frequency.setValueAtTime(220 * detune, t0);
-            // Two full rise-and-falls.
-            for (let c = 0; c < 2; c++) {
-                const b = t0 + c * 1.7;
-                o.frequency.exponentialRampToValueAtTime(680 * detune, b + 0.85);
-                o.frequency.exponentialRampToValueAtTime(220 * detune, b + 1.7);
+            const detune = v === 0 ? 1 : 1.005;      // the beat between them
+            o.frequency.setValueAtTime(132 * detune, t0);
+            for (let c = 0; c < SIREN_CYCLES; c++) {
+                const b = t0 + c * SIREN_SWEEP;
+                o.frequency.exponentialRampToValueAtTime(430 * detune, b + SIREN_SWEEP * 0.55);
+                o.frequency.exponentialRampToValueAtTime(132 * detune, b + SIREN_SWEEP);
             }
             o.connect(lp);
             o.start(t0);
-            o.stop(t0 + 3.5);
+            // Stop the oscillators with the horn; the delay line rings on
+            // by itself, which is the point.
+            o.stop(t0 + total + 0.1);
         }
     } catch (e) { /* audio is never worth breaking a frame over */ }
 }
