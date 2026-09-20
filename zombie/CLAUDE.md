@@ -319,7 +319,8 @@ Three rules for adding a sound:
    doorway at 112, windows are 112–151, doors 124–159, so everything clears it.
 
    *Updated 2026-09-18.* The ULTRA HEAVY is 34px, so **`NAV_PAD = 19`** (half of it plus the same
-   2px of skin) and the threshold is **78px**. The nook escape hole (`NOOK_HOLE`) was 74 — under the
+   2px of skin) and the threshold is **78px**. *(The SUPER SPLITTER replaced it on 2026-09-20 at
+   the same 34px, so the pad is unchanged and for the same reason.)* The nook escape hole (`NOOK_HOLE`) was 74 — under the
    new guarantee — and is now **90**. Every other opening already cleared 78; funnel halls were 240.
 
    *Updated 2026-09-19.* Funnel halls are **no longer 240**: each end is pinched to `HALL_DOOR`
@@ -1397,6 +1398,77 @@ was describing, on request:
    by two players on two plates, never bought), and `drawDoors` printed `String(d.cost)`
    unconditionally. Costless doors no longer draw a plate.
 
+## THE SUPER SPLITTER (2026-09-20)
+
+Replaces the ULTRA HEAVY in the same slot: 34px body, 30 HP, the same wire index, the same reason
+`NAV_PAD` is 19. Everything else is new, and all of it is about it **coming apart**.
+
+| | |
+|---|---|
+| every damaging shot | sheds a **SPAWNLING** (throttled — see below) |
+| every step of cumulative damage | drops a full **SPLITTER** |
+| death | throws **20 ULTRA SPAWNLINGS** in a **fan**, along the killing shot |
+
+**The fan is the only thing on this map that is not pathing the moment it exists.** It needed:
+
+- a **`launch` phase** (`updateZombieLaunch`) that `updateZombies` checks **first** and `continue`s
+  past — no pathing, no chewing, no screaming, and **exempt from the stuck watchdog** for exactly
+  the reason chewing is: travelling nowhere is the point.
+- **three appended fields on the zombie row** (`launchUntil`, `lvx`, `lvy`), present only while it
+  is actually in the air, so nothing else on the map pays for them. Remaining durations, never
+  timestamps (rule 1). Without them a guest draws a flying zombie as a teleport.
+- **`damageZombie` now takes the hitting round's velocity**, so the fan opens along the shot. A fan
+  that always pointed the same way would be a firework; the point is that where you stand when you
+  kill it decides where the pieces go.
+
+Verified: 20 thrown, staggered landings over ~1s, 104–194px of travel, spread perpendicular to the
+shot direction.
+
+### The balance was measured, and the first pass was wrong
+
+Shedding one spawnling per shot and one splitter per **8 raw damage** gives, at round 16 where
+`zombieHpMultiplier` puts this at 90 HP: **29 spawnlings and 11 splitters from one kill**, rising
+to 49 spawnlings by round 26. The swarm would have grown with the round *on top of* everything
+else that already does.
+
+So **the splitter step scales with the HP multiplier**, and **the spawnling throttle widens at half
+that rate**. Across rifle / SMG / sniper at rounds 16, 26 and 31:
+
+| | |
+|---|---|
+| splitters | **3**, every round, every gun |
+| spawnlings | **11 to 20** |
+| fan | **20**, always |
+
+**15–16 spawnlings is the number to tune by feel.** High enough that emptying a magazine into it is
+visibly a bad idea — which is the whole point of it — and low enough not to be a screen wipe.
+Burn ticks deliberately do **not** count as shots, or one flamethrower is an endless fountain.
+
+### Its own round (item 7)
+
+Every 5 rounds from 16 (`isSuperRound`), one at first and another every two special rounds after,
+capped at four (`superRoundCount`). The ordinary spawn table can still roll one outside those — the
+"on normal rounds too" half of the brief, and what stops the special round being the only time you
+meet it. `ultraCap` lifts to whatever the special round is supposed to deliver.
+
+### Drawing it
+
+A **square** — it is a splitter and the square says so — with seven smaller squares riding its
+**perimeter**, each crawling at its own speed and pulsing in size. That is the squelch. Riders
+crawl the edge rather than orbiting, because things going round a square body in a circle read as
+a halo.
+
+**Every rider is derived from its index and the clock**, so it costs no state, needs no reset and
+never crosses the wire. Colour moved from the ULTRA's red into the **splitter's blue family**,
+because the colour should say which mechanic you are about to deal with.
+
+### `Z_TYPE_KEYS` index 6 was REPLACED, not appended
+
+The list is append-only and this is the exception, safe only because the two are the same slot —
+same body, same HP, same role — so a client on the old build would draw the new one as an ULTRA
+HEAVY rather than as something nonsensical, and this group updates together. **`uspawn` is a
+genuine append on the end.**
+
 ## THE HORDE SWITCH — intensified play (2026-09-19)
 
 A heavy knife switch in the keep (`intensifyRect`, against the south wall, ~300px from the field
@@ -1522,4 +1594,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 65eb8a9e | 2026-09-20 -->
+<!-- doc-sync: 16c43797 | 2026-09-20 -->

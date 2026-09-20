@@ -368,4 +368,4 @@ written as §7 and the two contradicted each other.)*
   ready-check has been live since it shipped. The visible-disabled Continue button (§5) remains
   as the degradation path, but should not normally be seen.
 
-<!-- doc-sync: 9f600b86 | 2026-09-20 -->
+<!-- doc-sync: 85a70f20 | 2026-09-20 -->
