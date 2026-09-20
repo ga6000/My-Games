@@ -156,6 +156,15 @@ Ordered easiest → hardest. This ordering is also the recommended build order.
 > and since 2026-09-19 the intensify flag (`iz`/`hc` — deliberately snapshot **state** rather than
 > an event, because the event queue is capped at ten a snapshot and is the first thing dropped,
 > and "the horde has been called" must not be droppable).
+>
+> **The 2026-09-19 map revamp changed nothing on the wire, on purpose.** Zombie's nine sectors are
+> painted into a 12×9 grid now instead of being a 3×3 of rectangles, and the perimeter, landmarks
+> and per-sector floors are all new — but the map is still built by every client from one server
+> seed, `vz` is still nine remaining durations, and `ls` still heals a client whose geometry does
+> not match the host's. Worth noting because "we redesigned the map" is the kind of change that
+> usually does touch a protocol, and here the seed contract is exactly what stopped it: the
+> skeleton is now FIXED (identical on every client without being sent) and only the interior is
+> seeded.
 > **For the current design read `zombie/CLAUDE.md`, then `zombie/REBUILD_PLAN.md`,
 > `zombie/V3_PLAN.md` and `zombie/ENDGAME_PLAN.md` in that order.**
 >
@@ -612,4 +621,4 @@ Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: ff9a6b63 | 2026-09-20 -->
+<!-- doc-sync: 013d7782 | 2026-09-20 -->

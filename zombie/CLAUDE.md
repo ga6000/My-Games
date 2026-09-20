@@ -488,14 +488,23 @@ once a run is under way: page load, `resetGame()`, `onReady`, and the snapshot's
 
 ## Zones have identity
 
-Nine 1600×900 zones, each with a seeded template and a name you can call out (`zoneName(i)`):
-`COLD STORAGE`, `THE DRY POOL`, `SPILLWAY`, `THE KENNELS`, `DEAD LETTER`, `SLAG HEAP`,
-`TICKET HALL`, `THE ANNEX`, `PUMP HOUSE`, `MOTOR POOL`, `THE LAUNDRY`, plus `TURBINE HALL`
-(always exactly one — it holds the generator) and `THE BLOCKHOUSE` at the centre.
+> **Rewritten 2026-09-19.** ~~Nine 1600×900 zones, each with a seeded template shuffled into it
+> from a pool of eleven: `COLD STORAGE`, `THE DRY POOL`, `SPILLWAY`, `THE KENNELS`, `DEAD LETTER`,
+> `SLAG HEAP`, `TICKET HALL`, `THE ANNEX`, `PUMP HOUSE`, `MOTOR POOL`, `THE LAUNDRY`, plus
+> `TURBINE HALL` and `THE BLOCKHOUSE`.~~ The templates were the right idea solving half the
+> problem — a zone had a *character* but not a *place*, because its shape and position were
+> re-rolled underneath it. See "Map — nine PAINTED sectors" below for what replaced them. THE DRY
+> POOL, THE LAUNDRY, DEAD LETTER, SLAG HEAP, TICKET HALL and THE ANNEX are retired; the names are
+> kept in `zombie-level.js` as a list to draw on if the map ever grows past nine.
 
-Templates differ in building density, barrel and crate counts, whether they have a holdable
-outpost, and whether they have long sightline corridors. That is what makes "which door do we
-buy?" a real decision rather than a coin flip.
+Nine sectors, each with a fixed shape, a name you can call out (`zoneName(i)`) and a hero
+structure: `THE SPILLWAY`, `COLD STORAGE`, `THE KENNELS`, `THE YARD`, `THE BLOCKHOUSE` (centre),
+`TURBINE HALL` (the generator), `PUMP HOUSE`, `THE SLUICE YARD`, `THE MOTOR POOL`.
+
+Sectors differ in **shape and proportion** (5 to 18 cells, bbox fill 58–81%), building density,
+barrel and crate counts, whether they hold an outpost or long sightline corridors, and **how many
+guns and perk stations they carry**. That is what makes "which door do we buy?" a real decision
+rather than a coin flip.
 
 ### A gun and a perk belong to a TEMPLATE, not to a zone index (2026-09-19)
 
@@ -508,50 +517,40 @@ zone slots (`assignZones`), and then guns and perks were shuffled across zone *i
 everything else was a coin flip — the same map twice running put the shotgun in two unrelated
 places, and no zone was ever worth remembering.
 
-Now `GUN_HOMES` and `PERK_HOMES` name templates. The zone still moves around the map, but
-**THE KENNELS always sells the shotgun, wherever the kennels turn out to be** — which is the same
-reasoning that gave the sniper its corridor in the first place, applied to everything.
+> **Simplified again 2026-09-19 (later the same day).** Binding a gun to a *template* was one
+> layer short: the template still moved around the map. Now the sectors themselves are fixed, so
+> a gun simply belongs to a **sector**, listed on `SECTORS[].guns`. No preference lists, no
+> fallbacks, no shuffle. THE KENNELS sells the shotgun and THE KENNELS is always the S-step in the
+> north-centre. `GUN_COSTS` holds the prices; `PERK_SECTOR_HOMES` does the same for perks, with the
+> seed only choosing among a sector's own list and filling any spare slot from whatever is
+> unplaced — so a sector's stock is recognisable without being identical every run.
+>
+> Measured over 200 seeds: **every gun and every perk in its named sector 100% of the time**, 6
+> guns and 8 stations on every map, nothing in the wrong sector.
 
-| | Home, in order |
-|---|---|
-| SNIPER | SPILLWAY, THE LAUNDRY, then any `corridors` zone |
-| SHOTGUN | THE KENNELS, COLD STORAGE, THE ANNEX |
-| FLAMETHROWER | PUMP HOUSE, THE LAUNDRY, SPILLWAY |
-| ROCKET | SLAG HEAP, THE DRY POOL, MOTOR POOL |
-| SMG | MOTOR POOL, TICKET HALL, DEAD LETTER |
-| RIFLE | COLD STORAGE, DEAD LETTER, TICKET HALL |
-
-Only 8 of the 11 outer templates are on any given map, so each entry is an **ordered preference**.
-
-- **Guns always place.** A gun whose homes are all absent falls to any free zone. Losing the
-  rifle — the cheap first upgrade off the pistol — to a map roll would be a real balance
-  regression, so no gun is ever dropped.
-- **Perks may genuinely be absent**, which the brief allowed outright and which the game already
-  handles: 11 perks against 8 stations means three are missing every run whatever we do, and
-  `absentCardKeys()` already names them in the manual and announces them when power first comes
-  on. `CARD_ALWAYS` (OVERDRIVE) is the one exception and goes to **TURBINE HALL**, the one
-  template that is always placed.
-- **Funnel halls** prefer the water-handling zones (`HALL_HOMES`), *after* the existing rules that
-  are about whether a 560px hall physically fits — never the centre, never the sluice's zone,
-  corridor zones last.
-
-Measured over 300 seeds: 6 guns on every map, 8 stations on every map, no zone holding two things,
-OVERDRIVE in TURBINE HALL 100% of the time, and each gun in its first-choice template 52–66% of
-the time — which is essentially "always, when that template is on the map".
-
-**Each zone has its own floor (2026-09-18, `zombie-floors.js`)** — the playtest found the areas'
-identity too faint. A 64×64-texel tile per template, drawn 2 world units a texel with smoothing
-off: freezer tiles with frost (COLD STORAGE), cracked pool tiles (THE DRY POOL), oil-stained
-concrete with a bay line (MOTOR POOL), worn lino checker (THE LAUNDRY), wet concrete with water and
-a grate (SPILLWAY), dirt and straw (THE KENNELS), floorboards and stray post (DEAD LETTER),
-ember-flecked slag (SLAG HEAP), terrazzo (TICKET HALL), carpet tiles (THE ANNEX), diamond plate
+**Each sector has its own floor (2026-09-18, `zombie-floors.js`)** — the playtest found the areas'
+identity too faint. A 64×64-texel tile, drawn 2 world units a texel with smoothing off: freezer
+tiles with frost (COLD STORAGE), dirt and straw (THE KENNELS), wet concrete with water and a grate
+(THE SPILLWAY), oil-stained concrete with a bay line (THE MOTOR POOL and THE YARD), diamond plate
 (PUMP HOUSE), grating (TURBINE HALL), concrete block (THE BLOCKHOUSE), and wet stone "drain" slabs
-for the sluice room and funnel halls. Tileable value noise only ever *picks* between each tile's few
-flat colours — no gradients — and one large **grime noise map** (three flat alpha steps, 1024px
-repeat) over everything breaks the 128px repeat. Generated from fixed seeds: never `MP.random()`
-(it would shift the level stream) and never `Math.random()` (players must be able to say "the blue
-tiles"). The minimap tints each zone to match (`ZONE_FLOOR_TINT`). If the textures cannot be built,
-`drawGround()`'s old grid is the fallback.
+for the sluice room and the funnel halls. Tileable value noise only ever *picks* between each
+tile's few flat colours — no gradients — and one large **grime noise map** (three flat alpha steps,
+1024px repeat) over everything breaks the 128px repeat. Generated from fixed seeds: never
+`MP.random()` (it would shift the level stream) and never `Math.random()` (players must be able to
+say "the blue tiles"). The minimap tints each sector to match (`ZONE_FLOOR_TINT`, now chosen as a
+nine-colour palette rather than one at a time). If the textures cannot be built, `drawGround()`'s
+old grid is the fallback.
+
+> **Extended 2026-09-19 into three layers — EXTERIOR / INTERIOR / UNIQUE.** The tiles above were
+> washed across a sector's *whole rect*, so freezer tile ran over open ground and a wall was the
+> only thing telling you that you were indoors. They are the **interior** layer now and are painted
+> only inside a room footprint; open ground gets a flat, low-contrast **exterior** (dirt, gravel,
+> asphalt, concrete, wet concrete) and a structure's own ground gets a **unique** tile (rail
+> ballast, pipe invert, hardstanding). The tile *generators* did not change — only where they are
+> painted. See "Map — nine PAINTED sectors" below.
+>
+> The old floor tiles for the retired sectors (pool, laundry, letter, slag, ticket, annex) are
+> still in `ZF_PAINTERS` and still good; nothing on the map selects them.
 
 **Generation order changed (2026-09-18) and fixed a real layout bug.** The sluice used to be built
 *after* every zone's contents, and corridors, outposts and the generator never checked
@@ -568,15 +567,183 @@ of the new code is clean on all of it (`PLAYTEST_PASS_PLAN.md` → Verify).
 from one wall and a spur from the perpendicular wall formed an L that boxed in a corner pocket
 nothing could path into — a free safe spot, and a trap for any zombie that wandered in.
 
-## Map — 3×3 segmented zones
+## Map — nine PAINTED sectors (2026-09-19)
 
-> **A revamp is proposed but NOT built: `zombie/MAP_REVAMP_PLAN.md` (2026-09-19).** Nine sectors
-> of genuinely different shape and size, painted into a 12×9 coarse grid so `zoneOf` stays one
-> array read, a real perimeter with forest on two sides and culverted wall on the other two, and
-> a landmark per sector. Everything below describes what is actually on disk today.
+4800×2700, with a panning camera showing a **960×540** window (tightened from 1600×900 on
+2026-09-01; 2.78× less world on screen).
 
-4800×2700 — 9× the old arena — split into nine 1600×900 zones, with a panning camera showing a
-**960×540** window (tightened from 1600×900 on 2026-09-01; 2.78× less world on screen).
+> ~~Split into nine 1600×900 zones on a 3×3 grid.~~ **Superseded 2026-09-19.** Nine identical
+> rectangles with a template shuffled into each is why nowhere was worth remembering: you cannot
+> learn a place whose shape, position *and* contents are all re-rolled, and the sniper zone being
+> the only sector anyone could describe was the tell — it was the only one with a rule attached.
+> Plan and the full design: `zombie/MAP_REVAMP_PLAN.md`. Steps 1–4 of its sequencing are built;
+> step 5 (the container maze) is deliberately held.
+
+### The paint grid
+
+Sectors are **painted into a coarse 12 × 9 grid of 400 × 300 cells** (`ZONE_PAINT`, 108 entries of
+a sector id 0–8). That buys arbitrary rectilinear outlines while `zoneOf()` stays **one array
+read**, which matters because it runs per zombie per frame.
+
+```
+ SPL SPL CLD CLD CLD CLD KEN KEN KEN YRD YRD YRD
+ SPL SPL SPL CLD CLD CLD KEN KEN KEN YRD YRD YRD
+ SPL SPL SPL CLD CLD BLK BLK KEN KEN KEN YRD YRD
+ SPL SPL TRB TRB TRB BLK BLK BLK BLK YRD YRD YRD
+ SPL SPL TRB BLK BLK BLK BLK BLK BLK PMP PMP YRD
+ SPL SPL TRB TRB TRB BLK BLK PMP PMP PMP YRD YRD
+ SPL SPL SPL SPL SLU SLU SLU MTR MTR MTR YRD YRD
+ SLU SLU SLU SLU SLU SLU SLU MTR MTR YRD YRD MTR
+ SLU SLU SLU SLU SLU SLU SLU MTR MTR MTR MTR MTR
+```
+
+| Sector | Cells | Shape | bbox fill |
+|---|---|---|---|
+| THE SPILLWAY | 18 | stepped ribbon — a two-cell spine, a shoulder shelf, a four-cell foot | 64% |
+| COLD STORAGE | 9 | descending staircase | 75% |
+| THE KENNELS | 9 | S-step | 75% |
+| THE YARD | 18 | hourglass with a tongue — the tongue is the **rail spur**, and it runs between THE MOTOR POOL's bays | 75% |
+| TURBINE HALL | 7 | bracket, opening east, **wrapped around THE BLOCKHOUSE's west arm** | 78% |
+| THE BLOCKHOUSE | 14 | **cross** — the most irregular thing on the map | **58%** |
+| PUMP HOUSE | 5 | boot — the smallest, crossable in ~4s | 62% |
+| THE SLUICE YARD | 17 | tee — a base along the south wall, a stem to the gate plates | 81% |
+| THE MOTOR POOL | 11 | bracket with the Yard's spur through its middle | 73% |
+
+**`zoneBounds(i)` is a BOUNDING BOX, not the sector.** The Blockhouse's box is 58% ground
+belonging to two other sectors. **Anything that picks a point in the bounds must then call
+`inZone(x, y, i)`** — `findOpenSpot`, `findOpenSpotSure`, `buildZoneContents`, `placeWallBuys`,
+`placeCardStations`, `buildFunnelHall`, `buildCorridors`, `buildZoneBuildings`, `buildOutpost` all
+do. `rectTouchesZone()` is the same rule for rects and is why `markHotZones` no longer marks a
+cross's whole 2400×1200 box. `randomPointInZone()` picks from a sector's own cells.
+
+### Fixed skeleton, seeded interior
+
+`SECTORS` replaces `ZONE_TEMPLATES`. Shape, position, name, landmark, floor treatment and **which
+gun and how many perk stations** are fixed; buildings, cover, crates, barrels, container stacks,
+where inside a sector its structures stand and every door and window position along a shared wall
+are still seeded from `MP.random()`. Every client still builds from one seed.
+
+**Stock varies by sector** (`SECTORS[].guns` / `.perks`), which is the point — two sectors are
+worth a trip and three are deliberately bare. Totals are unchanged at 6 guns and 8 stations, so no
+balance number moved, only where they sit:
+
+| Sector | Guns | Stations |
+|---|---|---|
+| THE YARD | **2** — ROCKET, SMG | 2 |
+| THE MOTOR POOL | 0 | **2** |
+| COLD STORAGE / THE KENNELS / THE SPILLWAY | 1 each — RIFLE / SHOTGUN / SNIPER | 1 each |
+| PUMP HOUSE | 1 — FLAMETHROWER | 0 |
+| TURBINE HALL | 0 | 1 — OVERDRIVE, always |
+| THE BLOCKHOUSE / THE SLUICE YARD | 0 | 0 |
+
+### Boundaries, doors and pricing
+
+`zoneBoundaryRuns()` scans the paint for cells whose neighbour has a different id and merges them
+into **runs** — 42 of them over 17 sector pairs, every one axis-aligned and a whole number of
+cells long, which is what keeps both solid grids and the door/window art unchanged.
+
+**One door + window pair per sector PAIR, on the longest wall they share.** Per segment would have
+been 42 doors. One pair (THE BLOCKHOUSE | THE YARD) shares only a 300px wall, under the
+`BOUNDARY_BOTH_MIN` of 320, so it gets a **window and no door** — already a legal state ("zombies
+pass, players never do"), and the keep having one boarded window onto the yard is a better answer
+than widening a wall to suit the code.
+
+**Door pricing is graph depth, not ring distance.** `computeZoneDepth()` BFSes from the Blockhouse
+over door edges and `priceDoors()` charges `900 + 350 × depth` in a second pass — the cost is not
+known until every door exists. Ring distance in a 3×3 was approximating exactly this and means
+nothing once sectors interlock and the centre borders five of them.
+
+`zoneNavRebuild()` builds a 9×9 **next-hop table** for `zoneStepToward`, which used to be grid
+arithmetic. `assertZoneConnectivity()` runs at the end of `generateLevel` and checks every sector
+is reachable **by door** (players) and **at all** (zombies) — the check that would have caught the
+2026-09-18 walled-off gate plate.
+
+### The perimeter (2026-09-19)
+
+There used to be **no perimeter at all**. Now two edge conditions:
+
+- **North and west: deep forest.** A `FOREST_BAND` (240px) of scattered trunks **inside the map**,
+  no wall. Being inside is the point — it is a spawn **reservoir** with real cover rather than
+  "somewhere past the edge", and `z.entered` has less to do.
+- **South and east: a concrete wall**, with the escape gate set into the southern one. The heavy
+  gate and chainlink built on 2026-09-19 were standing in a wall that did not exist.
+
+**Culverts** (`PERIM_CULVERT`, 120px — well over the 78px guarantee) are mouths through the hard
+wall, ~7 a map, and they are not decoration: **walling two sides removes half the spawn
+frontier.** Measured from a camp at every sector's centroid, worst case **1,223px now against
+1,343px** under the old nearest-map-edge rule — better, not worse. Without culverts THE MOTOR POOL
+measured **+1,790px**, which is the failure this was built to avoid, and is the same trap the zone
+cooldown already hit once (a permanent "visited" flag doubled contact time to 25.6s).
+
+`offMapPoint()` picks whichever is nearer: a point in the forest band, or just outside the nearest
+culvert mouth.
+
+### Landmarks (2026-09-19)
+
+One hero structure per sector — the gantry crane (THE YARD), the wrecked bus (MOTOR POOL), the
+turbine drum, the pump bank, the chiller, the feed silo, the standpipe. THE BLOCKHOUSE's is the
+keep and THE SLUICE YARD's is the south wall; both already exist.
+
+**The height illusion is two flat fills**, applied identically to every one, and both are flat —
+no gradients, which is how 1980 raster games faked height:
+
+- a **cast shadow** offset down-right, one constant `rgba`
+- a **top face** offset up-left by `lift`, which *encodes* height: 16 on the crane against 5 on the bus
+
+Drawn **after the walls and culled to the VIEW, not the sector**, so the crane shows over a
+boundary wall from two sectors away. That is the entire point of a landmark. Each also gets a
+**minimap glyph** — shapes, not letters, because a letter at 6px is a smudge.
+
+**Two traps, both hit:** `findOpenSpotSure` relaxes the reserved-ground rule on its later passes
+(right for a wall-buy, which must exist somewhere; wrong for a 420px solid — it put the crane on a
+silo), and every spot finder takes a **square** `size`, so the crane was being fitted as 420×420
+and missed 39 maps in 40. Landmarks use `hallFits()` now, which tests the real rect, and they are
+placed **after the funnel halls and before the generic buildings** so they get first pick.
+
+### Sector interiors and the three floor layers
+
+`buildSectorInteriors()` gives four sectors their signature geometry: THE SPILLWAY's three 160px
+storm runs, THE KENNELS' pens opening onto the one lane you can run down, THE MOTOR POOL's
+three-walled service bays (deliberately the opposite — one way out), and THE YARD's rail spur with
+flatcars and container stacks. `INTERIOR_LANE` is 160 everywhere you are meant to fight.
+
+**`segmentedWall()` leaves deliberate gaps** and it is not cosmetic: an unbroken 1,380px pipe wall
+turns each run into a tube reachable only from its ends, and a reserved rect across an end sealed
+it — **579 unreachable nav cells in THE SPILLWAY alone**. Forest trunks reserve their own
+clearance for the same reason (clumped trunks against a boundary make a pocket). Both are the same
+failure the boundary-spur clipping rule already exists to prevent: a free safe spot for a player
+and a trap for any zombie that wanders in.
+
+**Floors are three layers now** (`zombie-floors.js`), asked for as "limit drawing of floor tiles to
+interior spaces":
+
+| Layer | What | Where |
+|---|---|---|
+| EXTERIOR | dirt, gravel, asphalt, concrete, wet concrete — flat, low contrast | the whole sector, per cell |
+| INTERIOR | the existing per-sector tiles | **only inside a room footprint** |
+| UNIQUE | rail ballast, pipe invert, hardstanding | only under the structure that owns it |
+
+`zfPatch()` pushes a patch, `zfInteriorAt()` returns a sector's interior tile, `zfClearPatches()`
+runs on regenerate. One tile used to be washed across a sector's **whole rect**, which is why the
+areas still read faintly after the 2026-09-18 floor pass — and why a wall was the only thing
+telling you that you were indoors.
+
+### Measured (2026-09-19)
+
+200 seeds unless stated. 6 wall-buys, 8 stations and 17 doors on every map; every gun and perk in
+its named sector **100%** of the time; **nothing in the wrong sector**; every sector reachable by
+door and by window on every map; all 7 landmarks on every map; 194/200 get both funnel halls (the
+rest use the pre-existing bare-funnel fallback); all 776 hall ends exactly 140px.
+
+**Nav reachability**, doors open and barricades broken, field from the keep: **54 unreachable
+cells of 608,060 (0.009%)** — about five 20px cells a map, which `relocateZombie` already covers.
+An A/B with each layer disabled is what found the pipe-run and forest pockets (579 and 488 cells)
+before they were fixed; run it again if this geometry is touched.
+
+### The old grid, for reference
+
+You start sealed in the centre sector and buy outward. **Every sector pair carries both a door
+and a boarded window**, and that pairing is the whole design:
 
 You start sealed in the centre zone and buy outward. **Every zone boundary carries both a door
 and a boarded window**, and that pairing is the whole design:
@@ -1292,4 +1459,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: c71f48e7 | 2026-09-20 -->
+<!-- doc-sync: 5c9586df | 2026-09-20 -->

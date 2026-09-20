@@ -526,6 +526,16 @@ run `check-global-collisions.js` after.
 > - **The win is a sequence**: the player is *drawn* walking off screen and the world fades to
 >   black before the card. The simulation is never moved, the same render/sim split §6.4 relies
 >   on and the same discipline as `RETRO.snap`.
+>
+> **2026-09-19 (the map revamp) added one technique worth stealing for every other game here.**
+> Zombie's landmarks read as *tall* on a top-down 2D map using two flat fills and nothing else:
+> a **cast shadow** offset down-right, and a **top face** offset up-left by a per-structure
+> `lift` that encodes the height (16px on the gantry crane against 5 on a wrecked bus). Applied
+> in one consistent direction across every structure, the whole world gains a height read for two
+> `fillRect`s each — no new pass, no gradient, and it is exactly how 1980 raster games faked
+> height. The third part is ordering: landmarks draw **after** the walls and are culled to the
+> **view** rather than to their sector, which is what lets the crane be visible from the sector
+> next door. Any game here with structures can use all three tomorrow.
 
 ### 6.4 RD Arena — `rd-arena/RDArena.html` · **RASTER** · anchor: *Space Invaders* (1978)
 **The best discovery in this review.** The flesh field is already thresholded at `gridB > 0.3`,
@@ -928,4 +938,4 @@ this is precisely the kind of cross-cutting root-level plan the 2026-09-02 audit
 - **Whether every game should convert at all.** Desert Robot Blaster and Wasteland Train Sim are
   Unity candidates; spending a session restyling them may be wasted.
 
-<!-- doc-sync: ff9a6b63 | 2026-09-20 -->
+<!-- doc-sync: 013d7782 | 2026-09-20 -->
