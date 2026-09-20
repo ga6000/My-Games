@@ -310,6 +310,16 @@ fall back in a fixed order.
 
 ## 8. PROPOSAL — the map after the 3x3
 
+> **Superseded 2026-09-19 (same day) by `zombie/MAP_REVAMP_PLAN.md`.** This section was the first
+> sketch and is kept for the constraint analysis in it, which still holds. The user asked to "get
+> more specific and intentional with the design", with "multiple features [per sector]" and
+> "shape / proportion of each sector ... more distinct / standout" — so the specific version lives
+> in its own file now: a region **paint grid** (12×9 cells of 400×300) that allows arbitrary
+> rectilinear sector shapes at no lookup cost, nine named sectors with a **five-to-one area
+> spread** and two to three features each, the perimeter with culverts, and a sequencing plan.
+> It also names the decision this all hangs on, which this sketch did not: **the map should stop
+> being fully procedural** — fixed skeleton, seeded interior.
+
 **Not being built in this pass.** The brief asked for a proposal and this is it; nothing below
 is implemented, and none of it should be started before items 1–7 have been played.
 

@@ -570,6 +570,11 @@ nothing could path into — a free safe spot, and a trap for any zombie that wan
 
 ## Map — 3×3 segmented zones
 
+> **A revamp is proposed but NOT built: `zombie/MAP_REVAMP_PLAN.md` (2026-09-19).** Nine sectors
+> of genuinely different shape and size, painted into a 12×9 coarse grid so `zoneOf` stays one
+> array read, a real perimeter with forest on two sides and culverted wall on the other two, and
+> a landmark per sector. Everything below describes what is actually on disk today.
+
 4800×2700 — 9× the old arena — split into nine 1600×900 zones, with a panning camera showing a
 **960×540** window (tightened from 1600×900 on 2026-09-01; 2.78× less world on screen).
 
@@ -1287,4 +1292,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: c71f48e7 | 2026-09-19 -->
+<!-- doc-sync: c71f48e7 | 2026-09-20 -->
