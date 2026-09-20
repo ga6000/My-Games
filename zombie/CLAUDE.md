@@ -520,7 +520,7 @@ places, and no zone was ever worth remembering.
 > **Simplified again 2026-09-19 (later the same day).** Binding a gun to a *template* was one
 > layer short: the template still moved around the map. Now the sectors themselves are fixed, so
 > a gun simply belongs to a **sector**, listed on `SECTORS[].guns`. No preference lists, no
-> fallbacks, no shuffle. THE KENNELS sells the shotgun and THE KENNELS is always the S-step in the
+> fallbacks, no shuffle. THE KENNELS sells the shotgun and THE KENNELS is always the same shape in the
 > north-centre. `GUN_COSTS` holds the prices; `PERK_SECTOR_HOMES` does the same for perks, with the
 > seed only choosing among a sector's own list and filling any spare slot from whatever is
 > unplaced — so a sector's stock is recognisable without being identical every run.
@@ -601,8 +601,8 @@ read**, which matters because it runs per zombie per frame.
 |---|---|---|---|
 | THE SPILLWAY | 18 | stepped ribbon — a two-cell spine, a shoulder shelf, a four-cell foot | 64% |
 | COLD STORAGE | 9 | descending staircase | 75% |
-| THE KENNELS | 9 | S-step | 75% |
-| THE YARD | 18 | hourglass with a tongue — the tongue is the **rail spur**, and it runs between THE MOTOR POOL's bays | 75% |
+| THE KENNELS | 8 | L — a 3x2 block with one more cell below its east end | 89% |
+| THE YARD | 19 | hourglass with a tongue — the tongue is the **rail spur**, and it runs between THE MOTOR POOL's bays. Its top 3x4 is unbroken, and that rectangle is the container maze | 79% |
 | TURBINE HALL | 7 | bracket, opening east, **wrapped around THE BLOCKHOUSE's west arm** | 78% |
 | THE BLOCKHOUSE | 14 | **cross** — the most irregular thing on the map | **58%** |
 | PUMP HOUSE | 5 | boot — the smallest, crossable in ~4s | 62% |
@@ -728,15 +728,78 @@ runs on regenerate. One tile used to be washed across a sector's **whole rect**,
 areas still read faintly after the 2026-09-18 floor pass — and why a wall was the only thing
 telling you that you were indoors.
 
+### The container maze (2026-09-19, sequence step 5)
+
+A shipping container maze in THE YARD. **Containers, not hedges** -- the user's call, and the
+better one: a hedge that blocks sight but not movement would need a **fourth** notion of solidity
+(there are two solid grids, and bullets gained a third *view* with `bulletBlockedAt`), whereas
+containers are sight-blocking by being solid, are rectilinear so they cost the flow field nothing
+walls do not already cost, and THE YARD was already stacking them.
+
+**Braided, not perfect, and that is the design.** A perfect maze -- one route between any two
+points -- is exactly the geometry the flow field is worst at: dead ends that zombies path into and
+stall in, with `relocateZombie` papering over it. So it is a **staggered baffle**: every horizontal
+lane runs the full width, vertical movement happens through the gaps, and consecutive rows are
+offset so no two gaps line up. You can always run, you can never see far, and there are no dead
+ends by construction -- which is also what a container yard is.
+
+`MAZE_LANE` is **140**, not the 160 the plan asked for. 160 was the right instinct, but at a 220
+pitch THE YARD's usable rectangle held only a 4x6 grid and, after the boundary reserves and the
+sector's ragged west edge, produced **four containers a map**. 140 still clears the 78px guarantee
+by 62 and is four times the widest body.
+
+**Two layout decisions fell out of it, and both are load-bearing:**
+
+- **THE YARD owns (col 9, row 2)**, taken from THE KENNELS, so cols 9-11 x rows 0-3 is an unbroken
+  1200x1200 block. Spread across the hourglass the maze was five boxes over 1,000x1,500, with 37%
+  of attempts failing `inZone`.
+- **Funnel halls no longer go in THE YARD.** A hall reserves 780x500 -- half the maze -- on the two
+  thirds of maps that put one there. A sector with a job does not get a second one. That left two
+  eligible sectors for two halls, so `HALL_MIN_CELLS` dropped 10 -> 9 to make COLD STORAGE a third
+  option; `finishFunnelsAndSilos` can still fall back to THE YARD if a hall genuinely cannot go
+  anywhere else.
+
+**Three bugs, not tuning, stood between four containers and a yard**, and two are the same shape as
+bugs found elsewhere this week:
+
+1. A single-slot container is exactly `pitch - lane` wide. When the pitch was retuned from 220/60
+   to 190/50, the old `w >= 60` guard silently threw away **every** single-slot container and only
+   two-slot runs were ever attempted. It reads `w >= MAZE_DEPTH` now.
+2. `placeContainer` used `blockedAtStatic`, which takes a **square** `size`, so a 440px container
+   was tested as 468x468 -- the identical trap the gantry crane hit. It uses `rectBlockedStatic`.
+3. The crane reserved its whole 420x150 span, taking a third of the maze's ground. **A gantry crane
+   spans a container yard**; it reserves only its legs now, and containers belong under its beam.
+
+**The test a maze actually needs** is not "is the map connected" but "with a player standing
+**inside** it, can a zombie starting anywhere still reach them" -- a maze that fails that is a free
+safe spot. Over 30 seeds, doors open and barricades broken: **15 passable nav cells of 733,192
+(0.002%) cannot reach a player in the container field.**
+
+> The first version of that test reported **13.4%** and was wrong. It seeded the flow field at the
+> **centroid of the containers**, which is usually *inside* one of them, and a field seeded on an
+> impassable cell is degenerate. If you re-run it, seed from the nearest cell `navPassable` agrees
+> with. A measurement that says the map is broken is worth doubting once before believing it.
+
+Drawn with the same two flat fills as the landmarks at a small lift, plus corrugation ribs and end
+frames. **This is the one place on the map where the palette is allowed to be loud** -- five
+container hues against a world of ember and grey (`AESTHETIC_GUIDE.md` 2.5) -- because a container
+yard that is not a jumble of colours does not read as one, and it is what makes THE YARD
+recognisable from across the map.
+
 ### Measured (2026-09-19)
 
 200 seeds unless stated. 6 wall-buys, 8 stations and 17 doors on every map; every gun and perk in
 its named sector **100%** of the time; **nothing in the wrong sector**; every sector reachable by
-door and by window on every map; all 7 landmarks on every map; 194/200 get both funnel halls (the
-rest use the pre-existing bare-funnel fallback); all 776 hall ends exactly 140px.
+door and by window on every map; all 7 landmarks on every map; 7.2 containers a map in THE YARD
+(4 to 11); all hall ends exactly 140px.
 
-**Nav reachability**, doors open and barricades broken, field from the keep: **54 unreachable
-cells of 608,060 (0.009%)** — about five 20px cells a map, which `relocateZombie` already covers.
+**Funnel halls: about 97% of maps get both** (144/150 after the maze landed). The rest fall back to
+a bare funnel ring with its silo alongside, which is the pre-existing behaviour and is **an
+accepted outcome, not a known gap** -- confirmed by the user 2026-09-19: *"sometimes bare funnel
+ring is ok"*. Do not spend effort chasing it to zero; the chain is completable either way.
+
+**Nav reachability**, doors open and barricades broken, field from the keep: **15 unreachable
+cells of 611,136 (0.002%)** — about five 20px cells a map, which `relocateZombie` already covers.
 An A/B with each layer disabled is what found the pipe-run and forest pockets (579 and 488 cells)
 before they were fixed; run it again if this geometry is touched.
 
@@ -1459,4 +1522,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 5c9586df | 2026-09-20 -->
+<!-- doc-sync: 65eb8a9e | 2026-09-20 -->

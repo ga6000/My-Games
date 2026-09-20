@@ -6,7 +6,9 @@ weapon density varying by sector, more on the memorable structures and **how the
 executed**, the maze rebranded as a **shipping container maze in the top-right sector**, and a
 **floor treatment split into interior / exterior / unique structure**.
 
-Build order agreed: **sequence steps 1–4**. Step 5 (the container maze) is deliberately held.
+Build order agreed: **sequence steps 1–4**, then step 5 on a follow-up.
+**All five are now built** — see `zombie/CLAUDE.md` for what actually shipped and where it
+differs from this plan (the maze lane is 140, not 160, and THE YARD gained a paint cell).
 
 Read `CLAUDE.md` → "Map", "Zones have identity" and "Pathfinding" first. Three live systems
 constrain all of this and they are in §1.
@@ -415,6 +417,8 @@ The strip curtains in COLD STORAGE (§4.3) are drawn-only for the same reason.
    The only step that can break the spawner.
 3. **Landmarks** — one hero structure per sector, using T1–T5, plus the minimap glyphs.
 4. **Sector interiors and the three floor layers** — the rest of §4, and §7.
-5. ~~The container maze.~~ **Held** (§8).
+5. ~~The container maze.~~ **Built 2026-09-20.** Braided rather than perfect, 140px lanes, and
+   it cost THE YARD one paint cell from THE KENNELS plus a rule that funnel halls stay out of the
+   Yard. Details in `zombie/CLAUDE.md` → "The container maze".
 
 Item 7 of the 2026-09-19 pass (guns and perks bound to sectors) is the prerequisite, and it landed.
