@@ -504,6 +504,9 @@ function draw() {
     drawPickups(now, inView);
     drawDecoys(now);
     drawWalls(inView);
+    // AFTER the walls on purpose (T3): a landmark has to be visible from
+    // the sector next door or it cannot be a landmark.
+    drawLandmarks(now, inView);
     drawDoors(inView);
     drawBarricades(inView);
     drawBlasts(now);
@@ -1068,6 +1071,227 @@ function drawCodex(now, inView) {
     ctx.fillText("MANUAL", c.x + c.w / 2, c.y + 16);
     ctx.fillText("[F]", c.x + c.w / 2, c.y + 30);
     ctx.textAlign = "left";
+}
+
+// T4: a GLYPH per landmark on the minimap, not a dot. This is what turns
+// the minimap from nine tinted boxes into something you navigate by -- the
+// point of the whole landmark pass is being able to say "north of the
+// crane" and have it mean a place, and that only works if the crane is on
+// the map you are both looking at.
+//
+// Each glyph is a handful of strokes at 5-9px. They are deliberately
+// SHAPES rather than letters: at this size a letter is a smudge, and a
+// silhouette is not.
+function drawMinimapLandmarks(ox, oy, sx, sy) {
+    if (typeof landmarks === "undefined") return;
+    ctx.save();
+    ctx.lineWidth = 1;
+    for (let i = 0; i < landmarks.length; i++) {
+        const l = landmarks[i];
+        const x = ox + (l.x + l.w / 2) * sx;
+        const y = oy + (l.y + l.h / 2) * sy;
+        ctx.strokeStyle = "#C8C8D2";
+        ctx.fillStyle = "#C8C8D2";
+        ctx.beginPath();
+        if (l.kind === "crane") {
+            // A gantry: two legs and a span.
+            ctx.moveTo(x - 5, y + 4); ctx.lineTo(x - 5, y - 3);
+            ctx.moveTo(x + 5, y + 4); ctx.lineTo(x + 5, y - 3);
+            ctx.moveTo(x - 7, y - 3); ctx.lineTo(x + 7, y - 3);
+            ctx.moveTo(x + 1, y - 3); ctx.lineTo(x + 1, y + 1);
+        } else if (l.kind === "bus") {
+            ctx.moveTo(x - 5, y - 2); ctx.lineTo(x + 5, y - 2);
+            ctx.lineTo(x + 5, y + 2); ctx.lineTo(x - 5, y + 2); ctx.closePath();
+            ctx.moveTo(x - 2, y - 2); ctx.lineTo(x - 2, y + 2);
+        } else if (l.kind === "turbine") {
+            ctx.moveTo(x - 5, y - 3); ctx.lineTo(x + 5, y - 3);
+            ctx.lineTo(x + 5, y + 3); ctx.lineTo(x - 5, y + 3); ctx.closePath();
+            ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3);
+        } else if (l.kind === "pumps") {
+            for (let k = -1; k <= 1; k++) ctx.arc(x + k * 4, y, 2, 0, Math.PI * 2);
+        } else if (l.kind === "chiller") {
+            ctx.moveTo(x - 4, y - 4); ctx.lineTo(x + 4, y - 4);
+            ctx.lineTo(x + 4, y + 4); ctx.lineTo(x - 4, y + 4); ctx.closePath();
+            ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y);
+        } else if (l.kind === "silo" || l.kind === "standpipe") {
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y);
+        } else {
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+        }
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+// ---------------------------------------------------
+//   LANDMARKS  (2026-09-19)
+// ---------------------------------------------------
+// One hero structure per sector. placeLandmarks() in zombie-level.js says
+// what they are and why; this is how they are drawn.
+//
+// The whole height illusion is two flat fills, applied the same way to
+// every structure on the map:
+//
+//   T1  a CAST SHADOW, one constant rgba, offset down-right
+//   T2  an OFFSET TOP FACE, drawn up-left by `lift`, in a lighter flat tone
+//
+// `lift` IS the height: 16 on the crane against 5 on the bus. Applying it
+// in one consistent direction across every landmark is what makes the
+// world read as lit from one place instead of nine. Both are flat fills,
+// no gradients -- which is how 1980 raster games faked height in the first
+// place (AESTHETIC_GUIDE 6.3).
+//
+// Drawn AFTER the walls and culled to the VIEW rather than the sector, so a
+// landmark shows over the boundary wall from the sector next door. That is
+// the entire point of having landmarks.
+const LM_SHADOW = "rgba(0,0,0,0.42)";
+
+function lmBody(l, base, top, edge) {
+    const lift = l.lift;
+    ctx.fillStyle = LM_SHADOW;                       // T1
+    ctx.fillRect(l.x + lift, l.y + lift, l.w, l.h);
+    ctx.fillStyle = base;                            // the footprint
+    ctx.fillRect(l.x, l.y, l.w, l.h);
+    ctx.fillStyle = top;                             // T2
+    ctx.fillRect(l.x - lift, l.y - lift, l.w, l.h);
+    if (edge) {
+        ctx.strokeStyle = edge;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(l.x - lift, l.y - lift, l.w, l.h);
+    }
+}
+
+function drawLandmarks(now, inView) {
+    if (typeof landmarks === "undefined") return;
+    for (let i = 0; i < landmarks.length; i++) {
+        const l = landmarks[i];
+        // Grown by the lift on both sides, or a tall thing pops in as its
+        // FOOTPRINT crosses the view edge while its top is already on screen.
+        if (!inView(l.x - l.lift - 40, l.y - l.lift - 40,
+                    l.w + l.lift * 2 + 80, l.h + l.lift * 2 + 80)) continue;
+
+        if (l.kind === "crane") {
+            // Two legs at ground level, then the beam well above them.
+            ctx.fillStyle = LM_SHADOW;
+            ctx.fillRect(l.x + 8, l.y + 8, 30, l.h);
+            ctx.fillRect(l.x + l.w - 22, l.y + 8, 30, l.h);
+            ctx.fillStyle = "#3B3B42";
+            ctx.fillRect(l.x, l.y, 30, l.h);
+            ctx.fillRect(l.x + l.w - 30, l.y, 30, l.h);
+            const by = l.y + l.h / 2 - 13;
+            ctx.fillStyle = LM_SHADOW;
+            ctx.fillRect(l.x + l.lift, by + l.lift, l.w, 26);
+            ctx.fillStyle = "#585860";
+            ctx.fillRect(l.x - l.lift, by - l.lift, l.w, 26);
+            ctx.fillStyle = "#74747E";
+            ctx.fillRect(l.x - l.lift, by - l.lift, l.w, 5);
+            // Lattice ticks, so it is a gantry and not a bar.
+            ctx.strokeStyle = "#2B2B31";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let t = 14; t < l.w - 10; t += 26) {
+                ctx.moveTo(l.x - l.lift + t, by - l.lift);
+                ctx.lineTo(l.x - l.lift + t + 14, by - l.lift + 26);
+            }
+            ctx.stroke();
+            // The hanging block, on a slow swing: the one animated landmark.
+            const hx = Math.round(l.x + l.w / 2 + Math.sin(now / 1900) * (l.w * 0.22));
+            ctx.strokeStyle = "#8A8A94";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(hx, by - l.lift + 26);
+            ctx.lineTo(hx, by + 34);
+            ctx.stroke();
+            ctx.fillStyle = "#6A6A74";
+            ctx.fillRect(hx - 9, by + 34, 18, 16);
+            continue;
+        }
+
+        if (l.kind === "bus") {
+            lmBody(l, "#2A3A2C", "#3E5642", "#54705A");
+            ctx.fillStyle = "#101A14";                  // the window band
+            for (let wx = l.x - l.lift + 14; wx < l.x - l.lift + l.w - 20; wx += 30) {
+                ctx.fillRect(wx, l.y - l.lift + 10, 20, 16);
+            }
+            ctx.fillStyle = "#6E5A2A";                  // rust along the sill
+            ctx.fillRect(l.x - l.lift, l.y - l.lift + l.h - 10, l.w, 4);
+            continue;
+        }
+
+        if (l.kind === "turbine") {
+            lmBody(l, "#2E3138", "#43474F", "#5C616B");
+            ctx.fillStyle = "#23262B";                  // end caps: a cylinder
+            ctx.fillRect(l.x - l.lift, l.y - l.lift, 16, l.h);
+            ctx.fillRect(l.x - l.lift + l.w - 16, l.y - l.lift, 16, l.h);
+            ctx.strokeStyle = "#5C616B";
+            ctx.lineWidth = 2;
+            for (let k = 1; k < 4; k++) {
+                const bx = l.x - l.lift + (l.w * k) / 4;
+                ctx.beginPath();
+                ctx.moveTo(bx, l.y - l.lift);
+                ctx.lineTo(bx, l.y - l.lift + l.h);
+                ctx.stroke();
+            }
+            continue;
+        }
+
+        if (l.kind === "pumps") {
+            lmBody(l, "#26303A", "#36434F", "#4C5D6B");
+            // Four volutes: the one curved motif on a map of right angles.
+            ctx.strokeStyle = "#6E8496";
+            ctx.lineWidth = 2;
+            for (let k = 0; k < 4; k++) {
+                const cx = l.x - l.lift + 26 + k * ((l.w - 52) / 3);
+                const cy = l.y - l.lift + l.h / 2;
+                for (let ring = 1; ring <= 3; ring++) {
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, ring * 6, 0, Math.PI * 1.6);
+                    ctx.stroke();
+                }
+            }
+            continue;
+        }
+
+        if (l.kind === "chiller") {
+            lmBody(l, "#20303A", "#2E4453", "#456A7E");
+            ctx.fillStyle = "#16242C";                  // condenser fins
+            for (let fy = l.y - l.lift + 8; fy < l.y - l.lift + l.h - 6; fy += 10) {
+                ctx.fillRect(l.x - l.lift + 8, fy, l.w - 16, 4);
+            }
+            continue;
+        }
+
+        if (l.kind === "silo" || l.kind === "standpipe") {
+            // Round-topped, so the two tallest slim structures do not read
+            // as more boxes.
+            const lift = l.lift;
+            const cx = l.x + l.w / 2, cy = l.y + l.h / 2, rr = l.w / 2;
+            ctx.fillStyle = LM_SHADOW;
+            ctx.beginPath();
+            ctx.arc(cx + lift, cy + lift, rr, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = l.kind === "silo" ? "#3E3424" : "#24323A";
+            ctx.beginPath();
+            ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = l.kind === "silo" ? "#5A4A2E" : "#354A56";
+            ctx.beginPath();
+            ctx.arc(cx - lift, cy - lift, rr, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = l.kind === "silo" ? "#7A6740" : "#4E6D7E";
+            ctx.lineWidth = 2;
+            // Hoops, which is what says "tank" rather than "circle".
+            for (let ring = 3; ring >= 1; ring--) {
+                ctx.beginPath();
+                ctx.arc(cx - lift, cy - lift, rr * (ring / 3), 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            continue;
+        }
+
+        lmBody(l, "#303038", "#454550", "#5E5E6A");
+    }
 }
 
 // THE INTENSIFY SWITCH (2026-09-19). "should look like a switch in the
@@ -1866,12 +2090,19 @@ function drawMinimap() {
     ctx.fillRect(ox, oy, MAP_W, MAP_H);
     // Each zone in its floor's tint (zombie-floors.js), so the map carries
     // the same identity the ground does.
+    // PER CELL (2026-09-19). This is what gives the minimap SILHOUETTES --
+    // the nine shapes are the map's identity now, and painting bounding
+    // boxes would show nine overlapping rectangles instead of a cross, a
+    // bracket and a tongue.
     ctx.globalAlpha = 0.28;
-    for (let z = 0; z < ZONE_COLS * ZONE_ROWS; z++) {
-        const key = zoneInfo[z] && zoneInfo[z].tpl ? zoneInfo[z].tpl.key : "centre";
-        const b = zoneBounds(z);
-        ctx.fillStyle = ZONE_FLOOR_TINT[key] || "#333333";
-        ctx.fillRect(ox + b.x * sx, oy + b.y * sy, b.w * sx, b.h * sy);
+    for (let cr = 0; cr < ZONE_ROWS_FINE; cr++) {
+        for (let cc = 0; cc < ZONE_COLS_FINE; cc++) {
+            const z = ZONE_PAINT[cr * ZONE_COLS_FINE + cc];
+            const key = zoneInfo[z] && zoneInfo[z].tpl ? zoneInfo[z].tpl.key : "centre";
+            ctx.fillStyle = ZONE_FLOOR_TINT[key] || "#333333";
+            ctx.fillRect(ox + cc * ZONE_CELL_W * sx, oy + cr * ZONE_CELL_H * sy,
+                         Math.ceil(ZONE_CELL_W * sx) + 1, Math.ceil(ZONE_CELL_H * sy) + 1);
+        }
     }
     ctx.globalAlpha = 1;
     ctx.strokeStyle = COLOR_WALL;
@@ -1883,6 +2114,7 @@ function drawMinimap() {
         const w = walls[i];
         ctx.fillRect(ox + w.x * sx, oy + w.y * sy, Math.max(1, w.w * sx), Math.max(1, w.h * sy));
     }
+    drawMinimapLandmarks(ox, oy, sx, sy);
 
     // Door state is the main strategic read on a segmented map: blue =
     // still sealed (and costing you), dim = opened.

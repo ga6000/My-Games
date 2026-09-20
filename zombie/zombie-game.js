@@ -1208,8 +1208,11 @@ function markHotZones() {
             w: ZONE_NEAR * 2,
             h: ZONE_NEAR * 2
         };
-        for (let z = 0; z < ZONE_COLS * ZONE_ROWS; z++) {
-            if (rectsOverlap(box, zoneBounds(z))) zoneHotUntil[z] = until;
+        // rectTouchesZone, not rectsOverlap(zoneBounds): a bbox test would
+        // mark the Blockhouse's entire 2400x1200 box from anywhere inside
+        // it, and the cross only occupies 58% of that.
+        for (let z = 0; z < ZONE_COUNT; z++) {
+            if (rectTouchesZone(box, z)) zoneHotUntil[z] = until;
         }
     }
 }

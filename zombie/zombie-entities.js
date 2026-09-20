@@ -595,10 +595,15 @@ function inSealedSluice(x, y) {
            y > sluiceRoom.y && y < sluiceRoom.y + sluiceRoom.h;
 }
 
+// "How far is that sector from this one", for ordering cold spawn
+// candidates nearest-first. It was Manhattan distance on the 3x3 grid
+// coordinates; with painted sectors there are no grid coordinates, so it is
+// the distance between sector CENTROIDS instead -- which is what the grid
+// version was approximating, and is honest about a sector like THE YARD
+// being long enough that its far end really is further away.
 function zoneGridDist(a, b) {
-    const ax = a % ZONE_COLS, ay = Math.floor(a / ZONE_COLS);
-    const bx = b % ZONE_COLS, by = Math.floor(b / ZONE_COLS);
-    return Math.abs(ax - bx) + Math.abs(ay - by);
+    const ca = zoneCentre(a), cb = zoneCentre(b);
+    return Math.hypot(ca.x - cb.x, ca.y - cb.y) / ZONE_CELL_W;
 }
 
 // Best open spot inside a zone: unseen, unblocked, and as close to the
@@ -614,6 +619,11 @@ function spotInZone(zone, size, targets, anchor) {
     for (let tries = 0; tries < 60; tries++) {
         const x = b.x + 90 + Math.random() * (b.w - 180 - size);
         const y = b.y + 90 + Math.random() * (b.h - 180 - size);
+        // The bbox of an irregular sector is mostly somebody else's ground
+        // (the Blockhouse's is 58% air), so a point in the box is not a
+        // point in the sector. Without this, "spawn in a COLD sector" could
+        // put a zombie in the hot one next door.
+        if (!inZone(x, y, zone)) continue;
         if (blockedAt(x, y, size, true)) continue;
         if (visibleToAnyone(x, y, targets)) continue;
         // Never inside the sealed sluice. Nothing can leave that room
@@ -632,18 +642,53 @@ function spotInZone(zone, size, targets, anchor) {
 // Off the edge of the map entirely, on the side nearest the anchor. Used
 // once every zone has been explored -- and as the fallback whenever no
 // unvisited zone can offer a hidden spot.
+// WHERE THEY COME IN FROM when every sector is hot. Rewritten 2026-09-19
+// with the perimeter: the map has edges now, and two of them are a wall.
+//
+//   NORTH and WEST are forest -- inside the map, with cover. Spawning
+//     there is better than spawning past the edge in every way: the
+//     zombie is immediately in play, it is immediately shootable, and
+//     z.entered has nothing to do.
+//   SOUTH and EAST are walled, so they are entered through CULVERTS. A
+//     point just outside the mouth, which walks in through it.
+//
+// Nearest frontier to the anchor wins, so a team camped in the walled
+// south-east gets the culvert two hundred px behind them rather than a
+// four-thousand-pixel walk from the forest. That is the whole reason
+// culverts exist -- see buildPerimeter().
 function offMapPoint(size, anchor) {
-    const left = anchor.x;
-    const right = WORLD_W - anchor.x;
-    const up = anchor.y;
-    const down = WORLD_H - anchor.y;
-    const m = Math.min(left, right, up, down);
     const jitter = (Math.random() - 0.5) * VIEW_H;
 
-    if (m === left)  return { x: -SPAWN_OFF_MAP_PAD, y: clamp(anchor.y + jitter, 0, WORLD_H - size) };
-    if (m === right) return { x: WORLD_W + SPAWN_OFF_MAP_PAD - size, y: clamp(anchor.y + jitter, 0, WORLD_H - size) };
-    if (m === up)    return { x: clamp(anchor.x + jitter, 0, WORLD_W - size), y: -SPAWN_OFF_MAP_PAD };
-    return { x: clamp(anchor.x + jitter, 0, WORLD_W - size), y: WORLD_H + SPAWN_OFF_MAP_PAD - size };
+    // The nearest culvert, if there are any.
+    let bestCul = null, bestCulD = Infinity;
+    if (typeof culverts !== "undefined") {
+        for (let i = 0; i < culverts.length; i++) {
+            const c = culverts[i];
+            const d = Math.hypot(c.x + c.w / 2 - anchor.x, c.y + c.h / 2 - anchor.y);
+            if (d < bestCulD) { bestCulD = d; bestCul = c; }
+        }
+    }
+
+    // The nearest point in the forest band, on whichever of the two soft
+    // edges is closer.
+    const band = (typeof FOREST_BAND !== "undefined") ? FOREST_BAND : 240;
+    const west = { x: 30 + Math.random() * (band - 60 - size),
+                   y: clamp(anchor.y + jitter, 20, WORLD_H - size - 20) };
+    const north = { x: clamp(anchor.x + jitter, 20, WORLD_W - size - 20),
+                    y: 30 + Math.random() * (band - 60 - size) };
+    const forest = (anchor.x <= anchor.y) ? west : north;
+    const forestD = Math.hypot(forest.x - anchor.x, forest.y - anchor.y);
+
+    if (bestCul && bestCulD < forestD) {
+        // Just OUTSIDE the mouth, so it walks in through the hole rather
+        // than materialising on the wall line.
+        const pad = 70;
+        if (bestCul.side === "south") {
+            return { x: bestCul.x + (bestCul.w - size) / 2, y: WORLD_H - WALL_T + pad };
+        }
+        return { x: WORLD_W - WALL_T + pad, y: bestCul.y + (bestCul.h - size) / 2 };
+    }
+    return forest;
 }
 
 function pickSpawnPoint(size) {
@@ -656,7 +701,7 @@ function pickSpawnPoint(size) {
     // Cold zones, nearest first.
     const now = Date.now();
     const cands = [];
-    for (let z = 0; z < ZONE_COLS * ZONE_ROWS; z++) {
+    for (let z = 0; z < ZONE_COUNT; z++) {
         if (now < zoneHotUntil[z]) continue;
         cands.push({ z: z, d: zoneGridDist(z, anchorZone) });
     }

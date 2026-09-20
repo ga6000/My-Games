@@ -43,10 +43,100 @@ let zoneHotUntil = [];  // deadline per zone; spawn-eligible once past it
 // without any pathfinding, and no sealed area can ever become a place
 // the horde can't follow you into. That's what stops "start small" from
 // turning into "hide in a box".
-const ZONE_COLS = 3;
-const ZONE_ROWS = 3;
-const ZONE_W = WORLD_W / ZONE_COLS;   // 1600
-const ZONE_H = WORLD_H / ZONE_ROWS;   // 900
+// ---------------------------------------------------
+//   SECTORS ARE PAINTED, NOT DIVIDED  (2026-09-19)
+// ---------------------------------------------------
+// The map used to be a 3x3 grid of identical 1600x900 rectangles. Nine
+// boxes of the same shape with a template shuffled into each is exactly
+// why nowhere was worth remembering -- you cannot learn a place whose
+// shape, position AND contents are all re-rolled. Plan:
+// `zombie/MAP_REVAMP_PLAN.md`.
+//
+// So the nine sectors are now PAINTED into a coarse 12x9 grid of 400x300
+// cells. That buys arbitrary rectilinear outlines -- crosses, brackets,
+// tongues, stepped ribbons -- while `zoneOf()` stays one array read, which
+// matters because it runs per zombie per frame.
+//
+// The skeleton is FIXED and the interiors stay seeded: shape, position,
+// name, landmark and which gun lives where never change, and the
+// buildings, cover, crates and door positions inside them still come out
+// of MP.random(). Every client still builds from one seed.
+//
+// READ THE PAINT AS A MAP. Each letter is one 400x300 cell:
+//
+//        SPL SPL CLD CLD CLD CLD KEN KEN KEN YRD YRD YRD
+//        SPL SPL SPL CLD CLD CLD KEN KEN KEN YRD YRD YRD
+//        SPL SPL SPL CLD CLD BLK BLK KEN KEN KEN YRD YRD
+//        SPL SPL TRB TRB TRB BLK BLK BLK BLK YRD YRD YRD
+//        SPL SPL TRB BLK BLK BLK BLK BLK BLK PMP PMP YRD
+//        SPL SPL TRB TRB TRB BLK BLK PMP PMP PMP YRD YRD
+//        SPL SPL SPL SPL SLU SLU SLU MTR MTR MTR YRD YRD
+//        SLU SLU SLU SLU SLU SLU SLU MTR MTR YRD YRD MTR
+//        SLU SLU SLU SLU SLU SLU SLU MTR MTR MTR MTR MTR
+//
+// Two interlocks are deliberate and should survive any edit:
+//   - TURBINE HALL is a bracket WRAPPED AROUND the Blockhouse's west arm,
+//     so the generator hall hugs the keep and a Blackout restart is a
+//     defend-one-mouth fight.
+//   - THE YARD pushes a tongue west between the Motor Pool's bays at row 7.
+//     That tongue is the RAIL SPUR, and it is the clearest "this is not a
+//     grid" signal on the minimap.
+//
+// Checked before it was written down (and re-checked by the harness):
+// all nine contiguous, all border >= 3 others, all reachable from the
+// centre, 108 of 108 cells claimed, and the keep, the sluice, both gate
+// plates and the escape all land in the sector that owns them.
+const ZONE_COUNT = 9;
+const ZONE_COLS_FINE = 12;
+const ZONE_ROWS_FINE = 9;
+const ZONE_CELL_W = WORLD_W / ZONE_COLS_FINE;   // 400
+const ZONE_CELL_H = WORLD_H / ZONE_ROWS_FINE;   // 300
+
+// Sector ids. 4 stays the centre and 7 stays the sluice's, because plenty
+// of code already reads `i !== 4` and `SLUICE_ZONE`.
+const Z_SPILLWAY = 0, Z_COLD = 1, Z_KENNELS = 2, Z_YARD = 3, Z_BLOCKHOUSE = 4,
+      Z_TURBINE = 5, Z_PUMP = 6, Z_SLUICE = 7, Z_MOTOR = 8;
+
+const ZONE_PAINT = [
+    0,0,1,1,1,1,2,2,2,3,3,3,
+    0,0,0,1,1,1,2,2,2,3,3,3,
+    0,0,0,1,1,4,4,2,2,2,3,3,
+    0,0,5,5,5,4,4,4,4,3,3,3,
+    0,0,5,4,4,4,4,4,4,6,6,3,
+    0,0,5,5,5,4,4,6,6,6,3,3,
+    0,0,0,0,7,7,7,8,8,8,3,3,
+    7,7,7,7,7,7,7,8,8,3,3,8,
+    7,7,7,7,7,7,7,8,8,8,8,8
+];
+
+// Bounding box + cell list per sector, built once at load. `cells` is what
+// makes an irregular sector safe to place things in: the bbox of a cross
+// is 58% air that belongs to somebody else.
+const zoneCellList = [];
+const zoneBoxes = [];
+(function buildZoneTables() {
+    for (let i = 0; i < ZONE_COUNT; i++) {
+        zoneCellList.push([]);
+        zoneBoxes.push({ x: WORLD_W, y: WORLD_H, x2: 0, y2: 0 });
+    }
+    for (let r = 0; r < ZONE_ROWS_FINE; r++) {
+        for (let c = 0; c < ZONE_COLS_FINE; c++) {
+            const z = ZONE_PAINT[r * ZONE_COLS_FINE + c];
+            zoneCellList[z].push(c, r);
+            const b = zoneBoxes[z];
+            b.x = Math.min(b.x, c * ZONE_CELL_W);
+            b.y = Math.min(b.y, r * ZONE_CELL_H);
+            b.x2 = Math.max(b.x2, (c + 1) * ZONE_CELL_W);
+            b.y2 = Math.max(b.y2, (r + 1) * ZONE_CELL_H);
+        }
+    }
+    for (let i = 0; i < ZONE_COUNT; i++) {
+        const b = zoneBoxes[i];
+        b.w = b.x2 - b.x;
+        b.h = b.y2 - b.y;
+    }
+})();
+
 const WALL_T = 20;
 
 // Zombie navigation between zones. Without this they beeline at the
@@ -61,17 +151,69 @@ function passageKey(a, b) {
 // One zone step from `fromZone` toward `toZone`, along whichever axis
 // has further to go. Corners are handled by re-deciding after each
 // crossing rather than planning the whole route.
-function zoneStepToward(fromZone, toZone) {
-    const fx = fromZone % ZONE_COLS, fy = Math.floor(fromZone / ZONE_COLS);
-    const tx = toZone % ZONE_COLS, ty = Math.floor(toZone / ZONE_COLS);
-    let dx = Math.sign(tx - fx), dy = Math.sign(ty - fy);
-    if (dx && dy) {
-        if (Math.abs(tx - fx) >= Math.abs(ty - fy)) dy = 0;
-        else dx = 0;
+// Which sector to head into next, on the shortest hop path. This used to be
+// grid arithmetic on a 3x3 -- "step along whichever axis has further to go"
+// -- which is meaningless once sectors are crosses and brackets and the
+// centre borders five of them. It is a precomputed next-hop table now,
+// built by zoneNavRebuild() from the passages that actually exist.
+//
+// 9x9 entries, rebuilt once per level. A zombie reads one array slot.
+let zoneNextHop = null;
+
+function zoneNavRebuild() {
+    const nb = [];
+    for (let i = 0; i < ZONE_COUNT; i++) nb.push([]);
+    for (const k in zonePassages) {
+        if (!Object.prototype.hasOwnProperty.call(zonePassages, k)) continue;
+        const parts = k.split(">");
+        const a = +parts[0], b = +parts[1];
+        nb[a].push(b);
+        nb[b].push(a);
     }
-    const nx = fx + dx, ny = fy + dy;
-    if (nx < 0 || ny < 0 || nx >= ZONE_COLS || ny >= ZONE_ROWS) return -1;
-    return ny * ZONE_COLS + nx;
+    zoneNextHop = new Int8Array(ZONE_COUNT * ZONE_COUNT).fill(-1);
+    // BFS out from every destination; the first hop back is the next hop.
+    for (let dest = 0; dest < ZONE_COUNT; dest++) {
+        const prev = new Int8Array(ZONE_COUNT).fill(-1);
+        const seen = new Uint8Array(ZONE_COUNT);
+        seen[dest] = 1;
+        let q = [dest];
+        while (q.length) {
+            const nx = [];
+            for (let i = 0; i < q.length; i++) {
+                const z = q[i];
+                for (let j = 0; j < nb[z].length; j++) {
+                    const n = nb[z][j];
+                    if (seen[n]) continue;
+                    seen[n] = 1;
+                    prev[n] = z;                 // one step closer to dest
+                    nx.push(n);
+                }
+            }
+            q = nx;
+        }
+        for (let from = 0; from < ZONE_COUNT; from++) {
+            zoneNextHop[from * ZONE_COUNT + dest] = (from === dest) ? from : prev[from];
+        }
+    }
+}
+
+function zoneStepToward(fromZone, toZone) {
+    if (!zoneNextHop || fromZone === toZone) return -1;
+    const n = zoneNextHop[fromZone * ZONE_COUNT + toZone];
+    return (n === undefined || n < 0) ? -1 : n;
+}
+
+// Sector centroid, for aiming through a gate toward the far side.
+function zoneCentre(i) {
+    const cl = zoneCellList[i];
+    if (!cl || !cl.length) return { x: WORLD_W / 2, y: WORLD_H / 2 };
+    let sx = 0, sy = 0;
+    for (let k = 0; k < cl.length; k += 2) {
+        sx += (cl[k] + 0.5) * ZONE_CELL_W;
+        sy += (cl[k + 1] + 0.5) * ZONE_CELL_H;
+    }
+    const n = cl.length / 2;
+    return { x: sx / n, y: sy / n };
 }
 
 // Where a zombie in `fromZone` should head to make progress toward
@@ -93,24 +235,51 @@ function zoneWaypoint(fromZone, toZone) {
     // across it.
     const gx = gate.x + gate.w / 2;
     const gy = gate.y + gate.h / 2;
-    const ncx = (next % ZONE_COLS + 0.5) * ZONE_W;
-    const ncy = (Math.floor(next / ZONE_COLS) + 0.5) * ZONE_H;
+    const nc = zoneCentre(next);
+    const ncx = nc.x, ncy = nc.y;
     const through = 80;
 
     if (gate.w < gate.h) return { x: gx + Math.sign(ncx - gx) * through, y: gy };
     return { x: gx, y: gy + Math.sign(ncy - gy) * through };
 }
 
+// One array read. Cheap enough to call per zombie per frame, which is
+// exactly what it is used for.
 function zoneOf(x, y) {
-    const cx = clamp(Math.floor(x / ZONE_W), 0, ZONE_COLS - 1);
-    const cy = clamp(Math.floor(y / ZONE_H), 0, ZONE_ROWS - 1);
-    return cy * ZONE_COLS + cx;
+    const c = clamp(Math.floor(x / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
+    const r = clamp(Math.floor(y / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
+    return ZONE_PAINT[r * ZONE_COLS_FINE + c];
 }
 
-// 0 = centre, 1 = orthogonal neighbour, 2 = corner.
-function zoneRing(cx, cy) {
-    return Math.max(Math.abs(cx - 1), Math.abs(cy - 1));
+// THE TEST EVERY PLACEMENT NEEDS. A sector's bounding box is not the
+// sector: the Blockhouse is a cross and its bbox is 58% ground belonging
+// to somebody else. Anything that picks a point inside zoneBounds() must
+// then check it is actually in the sector, or an irregular sector quietly
+// drops its crates, stations and wall-buys into its neighbours.
+function inZone(x, y, zone) {
+    return zoneOf(x, y) === zone;
 }
+
+// Does a rect touch any cell of this sector? Used by markHotZones, which
+// used to test the bbox and would now mark a cross's whole 2400x1200 box.
+function rectTouchesZone(r, zone) {
+    const c0 = clamp(Math.floor(r.x / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
+    const c1 = clamp(Math.floor((r.x + r.w) / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
+    const r0 = clamp(Math.floor(r.y / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
+    const r1 = clamp(Math.floor((r.y + r.h) / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
+    for (let rr = r0; rr <= r1; rr++) {
+        for (let cc = c0; cc <= c1; cc++) {
+            if (ZONE_PAINT[rr * ZONE_COLS_FINE + cc] === zone) return true;
+        }
+    }
+    return false;
+}
+
+// Graph distance from the Blockhouse, over DOOR edges only. This replaces
+// zoneRing(), which was "how far from the middle of a 3x3" and means
+// nothing once the centre borders five sectors and the shapes interlock.
+// Filled by buildZoneWalls() once it knows where the doors went.
+let zoneDepth = [];
 
 // ---------------------------------------------------
 //   SPATIAL INDEX  (two of them)
@@ -632,27 +801,17 @@ const KEEP_H = 420;
 // v2 generated all eight outer zones identically: one wall-buy and one
 // crate at a random spot. That made the one interesting decision
 // segmentation created -- WHICH door do we buy? -- completely arbitrary.
-// Each zone now has a layout character and a name you can call out.
-const ZONE_TEMPLATES = [
-    { key: "cold",    name: "COLD STORAGE", buildings: 15, barrels: 3,  crates: 2, outpost: false, corridors: false },
-    { key: "pool",    name: "THE DRY POOL", buildings: 3,  barrels: 10, crates: 1, outpost: true,  corridors: false },
-    { key: "motor",   name: "MOTOR POOL",   buildings: 8,  barrels: 5,  crates: 1, outpost: true,  corridors: false },
-    { key: "laundry", name: "THE LAUNDRY",  buildings: 4,  barrels: 2,  crates: 1, outpost: false, corridors: true },
-    { key: "spill",   name: "SPILLWAY",     buildings: 2,  barrels: 4,  crates: 1, outpost: false, corridors: true },
-    { key: "kennel",  name: "THE KENNELS",  buildings: 17, barrels: 2,  crates: 2, outpost: false, corridors: false },
-    { key: "letter",  name: "DEAD LETTER",  buildings: 7,  barrels: 2,  crates: 3, outpost: true,  corridors: false },
-    { key: "slag",    name: "SLAG HEAP",    buildings: 4,  barrels: 12, crates: 1, outpost: false, corridors: false },
-    { key: "ticket",  name: "TICKET HALL",  buildings: 5,  barrels: 4,  crates: 2, outpost: true,  corridors: false },
-    { key: "annex",   name: "THE ANNEX",    buildings: 10, barrels: 3,  crates: 1, outpost: true,  corridors: false },
-    { key: "pump",    name: "PUMP HOUSE",   buildings: 9,  barrels: 4,  crates: 2, outpost: true,  corridors: false }
-];
-
-// Always placed, always exactly one: it holds the generator.
-const TURBINE_TEMPLATE =
-    { key: "turbine", name: "TURBINE HALL", buildings: 6, barrels: 3, crates: 1, outpost: true, corridors: false, generator: true };
-
-const CENTRE_TEMPLATE =
-    { key: "centre", name: "THE BLOCKHOUSE", buildings: 3, barrels: 2, crates: 0, outpost: false, corridors: false };
+// Each zone got a layout character and a name you could call out.
+//
+// SUPERSEDED 2026-09-19. ZONE_TEMPLATES (11 templates shuffled into 8
+// outer slots, plus TURBINE_TEMPLATE and CENTRE_TEMPLATE) is gone, and
+// with it THE DRY POOL, THE LAUNDRY, DEAD LETTER, SLAG HEAP, TICKET HALL
+// and THE ANNEX. The templates were the right idea solving half the
+// problem: a zone had a character but not a PLACE, because both the shape
+// and the position were re-rolled underneath it. `SECTORS` above replaces
+// them with nine fixed sectors that own their shape, position, name,
+// landmark and stock. The cut names are kept here on purpose -- they are
+// a good list to draw on if the map ever grows past nine.
 
 let zoneInfo = [];        // 9 entries, index = zone number
 let generatorRect = null; // {x,y,w,h,cost}
@@ -679,31 +838,95 @@ function seededShuffle(arr) {
 // the rules that avoid it (turbine placement, funnel halls) say why.
 const SLUICE_ZONE = 7;
 
+// ---------------------------------------------------
+//   THE NINE SECTORS  (fixed, 2026-09-19)
+// ---------------------------------------------------
+// The identity of a sector no longer moves. THE KENNELS is always the
+// S-step in the north-centre, it always sells the shotgun, and the crane
+// is always in the north-east -- which is the entire point: "meet me at
+// the crane" has to mean somewhere.
+//
+// Only the INTERIOR is still seeded (buildings, cover, crates, barrels,
+// where inside the sector its structures sit, and every door and window
+// position along a shared wall), so MP.random() still does real work and
+// no two runs lay out the same.
+//
+// `guns` and `perks` are per-sector BUDGETS, not one-each: the Yard is
+// worth the trip and the Motor Pool is the perk sector. Totals are still
+// 6 guns and 8 stations, so no balance number moves -- only where they
+// sit. See MAP_REVAMP_PLAN.md 5.
+//
+// `density` scales buildings/barrels/crates by how many cells the sector
+// actually has, so the 5-cell Pump House is not dressed like the 18-cell
+// Spillway.
+const SECTORS = [
+    { id: Z_SPILLWAY,   key: "spill",   name: "THE SPILLWAY",   guns: ["sniper"],           perks: 1,
+      buildings: 3,  barrels: 4,  crates: 2, outpost: false, corridors: true  },
+    { id: Z_COLD,       key: "cold",    name: "COLD STORAGE",   guns: ["rifle"],            perks: 1,
+      buildings: 11, barrels: 3,  crates: 2, outpost: false, corridors: false },
+    { id: Z_KENNELS,    key: "kennel",  name: "THE KENNELS",    guns: ["shotgun"],          perks: 1,
+      buildings: 9,  barrels: 2,  crates: 2, outpost: false, corridors: false },
+    // 3 generic buildings, not 8: the CONTAINER STACKS are this sector's
+    // buildings (buildYardSpur), and at 8 there was no room left for them --
+    // measured at 1.5 containers placed of 14 attempted, which is not a
+    // container yard.
+    { id: Z_YARD,       key: "yard",    name: "THE YARD",       guns: ["rocket", "smg"],    perks: 2,
+      buildings: 3,  barrels: 6,  crates: 3, outpost: true,  corridors: false },
+    { id: Z_BLOCKHOUSE, key: "centre",  name: "THE BLOCKHOUSE", guns: [],                   perks: 0,
+      buildings: 3,  barrels: 2,  crates: 0, outpost: false, corridors: false },
+    { id: Z_TURBINE,    key: "turbine", name: "TURBINE HALL",   guns: [],                   perks: 1,
+      buildings: 2,  barrels: 3,  crates: 1, outpost: true,  corridors: false, generator: true },
+    { id: Z_PUMP,       key: "pump",    name: "PUMP HOUSE",     guns: ["flamer"],           perks: 0,
+      buildings: 4,  barrels: 2,  crates: 1, outpost: false, corridors: false },
+    { id: Z_SLUICE,     key: "sluice",  name: "THE SLUICE YARD",guns: [],                   perks: 0,
+      buildings: 5,  barrels: 4,  crates: 2, outpost: false, corridors: false },
+    { id: Z_MOTOR,      key: "motor",   name: "THE MOTOR POOL", guns: [],                   perks: 2,
+      buildings: 7,  barrels: 12, crates: 2, outpost: true,  corridors: true  }
+];
+
+// OVERDRIVE is still guaranteed and now has a fixed home: TURBINE HALL,
+// the sector that is always placed and thematically the power.
+const PERK_SECTOR_HOMES = {
+    turbine: ["overdrive"],
+    motor:   ["salvage", "scavenger", "conductor"],
+    yard:    ["skewer", "blastcap", "arc"],
+    cold:    ["ricochet", "laststand"],
+    kennel:  ["spite", "skewer"],
+    spill:   ["decoy", "arc", "ricochet"]
+};
+
 function assignZones() {
-    zoneInfo = new Array(ZONE_COLS * ZONE_ROWS);
-    zoneInfo[4] = { name: CENTRE_TEMPLATE.name, tpl: CENTRE_TEMPLATE };
-
-    const outer = [];
-    for (let i = 0; i < 9; i++) if (i !== 4) outer.push(i);
-
-    const pool = seededShuffle(ZONE_TEMPLATES);
-    // Never the sluice zone: the sluice and its approach take most of that
-    // zone's floor, and the generator is the one objective every run needs.
-    const turbineCands = outer.filter(function (z) { return z !== SLUICE_ZONE; });
-    const turbineAt = turbineCands[Math.floor(MP.random() * turbineCands.length)];
-
-    let p = 0;
-    for (let k = 0; k < outer.length; k++) {
-        const z = outer[k];
-        const tpl = (z === turbineAt) ? TURBINE_TEMPLATE : pool[p++];
-        zoneInfo[z] = { name: tpl.name, tpl: tpl };
+    zoneInfo = new Array(ZONE_COUNT);
+    for (let i = 0; i < SECTORS.length; i++) {
+        const t = SECTORS[i];
+        zoneInfo[t.id] = { name: t.name, tpl: t };
     }
 }
 
+// The sector's BOUNDING BOX. For an irregular sector this is a superset of
+// its ground -- always pair it with inZone() when placing anything.
 function zoneBounds(i) {
-    const cx = i % ZONE_COLS;
-    const cy = Math.floor(i / ZONE_COLS);
-    return { x: cx * ZONE_W, y: cy * ZONE_H, w: ZONE_W, h: ZONE_H, cx: cx, cy: cy };
+    const b = zoneBoxes[i] || zoneBoxes[0];
+    return { x: b.x, y: b.y, w: b.w, h: b.h };
+}
+
+// Area in cells, so callers can tell a 5-cell pocket from an 18-cell sector
+// (how many crates, barrels and buildings it should carry).
+function zoneCellCount(i) {
+    return zoneCellList[i] ? zoneCellList[i].length / 2 : 0;
+}
+
+// A point somewhere inside the sector proper, picked from its OWN cells --
+// the reliable way to get a start point in a cross or a bracket.
+function randomPointInZone(i, pad) {
+    const cl = zoneCellList[i];
+    if (!cl || !cl.length) return { x: WORLD_W / 2, y: WORLD_H / 2 };
+    const k = Math.floor(MP.random() * (cl.length / 2)) * 2;
+    const m = pad || 40;
+    return {
+        x: cl[k] * ZONE_CELL_W + m + MP.random() * Math.max(1, ZONE_CELL_W - m * 2),
+        y: cl[k + 1] * ZONE_CELL_H + m + MP.random() * Math.max(1, ZONE_CELL_H - m * 2)
+    };
 }
 
 function generateLevel() {
@@ -727,11 +950,19 @@ function generateLevel() {
     generatorRect = null;
     codexRect = null;
     intensifyRect = null;
+    if (typeof zfClearPatches === "function") zfClearPatches();
     generatorOn = false;
     genTripped = false;
     genRestart = 0;
 
     zoneHotUntil = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    forestRects = [];
+    culverts = [];
+    landmarks = [];
+    spillwayRuns = null;
+    kennelRun = null;
+    yardSpur = null;
+    yardContainers = [];
 
     resetEndgame();
     funnels = [];
@@ -741,6 +972,9 @@ function generateLevel() {
 
     assignZones();
     buildZoneWalls();
+    // The next-hop table the horde navigates the sectors by. It reads the
+    // passages buildZoneWalls() just created, so it cannot run before it.
+    zoneNavRebuild();
     buildKeep();
     // THE SLUICE GOES BEFORE THE ZONE CONTENTS (2026-09-18). It used to be
     // built after them, so nothing in its zone knew it was coming: across
@@ -750,7 +984,29 @@ function generateLevel() {
     // reserve in place before anything else asks where it may stand.
     buildSluice();
     planFunnelHalls();
+    buildPlannedHalls();
+    // Hero structures get first pick of what is left, because a landmark
+    // nobody can find is not a landmark: placed after the buildings, the
+    // crane failed to fit on 25 maps in 40.
+    placeLandmarks();
     buildZoneContents();
+    // AFTER the sluice (the south wall has to know where the escape gate is,
+    // so it does not put a culvert beside it) and AFTER the zone contents.
+    //
+    // Order matters and this is the second time on this map: the forest is
+    // made of solids, so planting it first meant THE SPILLWAY -- whose
+    // 800px spine has its western 240 in the band -- could no longer fit a
+    // funnel hall. Measured at 8 maps in 30 losing a hall; 0 with the
+    // perimeter built last. Trunks still avoid everything standing, via
+    // clashesReserved and blockedAtStatic.
+    buildPerimeter();
+    // Before the wall-buys and stations, so those route around the hero
+    // structures rather than the other way round -- a perk station tucked
+    // under the crane's beam is a station nobody finds.
+    // After the landmarks and the buildings, so a pen row or a pipe run
+    // routes around both, and before the wall-buys so those find ground
+    // that is actually still open.
+    buildSectorInteriors();
     placeWallBuys();
     placeCardStations();
     placeChokepointBarrels();
@@ -765,6 +1021,30 @@ function generateLevel() {
     markNavDirty();
 
     rebuildSolidIndex();
+    assertZoneConnectivity();
+}
+
+// EVERY SECTOR MUST BE REACHABLE. Cheap, and it is exactly the check that
+// would have caught the 2026-09-18 walled-off gate plate (68 seeds in 300
+// on which the endgame simply could not be finished, and nothing said so).
+//
+// Two separate questions, because players and zombies do not see the same
+// walls: players need a chain of DOORS, zombies need doors or windows. A
+// sector unreachable by zombies would be a place you could hide in a box,
+// which is the one thing segmentation must never allow.
+function assertZoneConnectivity() {
+    let unreachablePlayers = 0, unreachableZombies = 0;
+    for (let i = 0; i < ZONE_COUNT; i++) {
+        if (zoneDepth[i] >= 99) unreachablePlayers++;
+        if (zoneStepToward(Z_BLOCKHOUSE, i) < 0 && i !== Z_BLOCKHOUSE) unreachableZombies++;
+    }
+    if (unreachablePlayers || unreachableZombies) {
+        // Not a throw: a broken map is still better than a blank screen, and
+        // zDestroy/the dev panel's error capture will surface this.
+        console.warn("[zombie] sector connectivity: " + unreachablePlayers +
+                     " unreachable by door, " + unreachableZombies + " unreachable at all");
+    }
+    return !unreachablePlayers && !unreachableZombies;
 }
 
 // --- zone boundaries -------------------------------------------------
@@ -775,26 +1055,149 @@ function generateLevel() {
 // IDEA 29: window count, width and position all vary per boundary. v2
 // used a single 90px window at a fixed 150px offset on all twelve, so
 // every boundary read identically and there was nothing to learn.
-function buildZoneWalls() {
-    for (let v = 1; v < ZONE_COLS; v++) {
-        const X = v * ZONE_W - WALL_T / 2;
-        for (let r = 0; r < ZONE_ROWS; r++) {
-            emitBoundary(true, X, r * ZONE_H, ZONE_H,
-                r * ZONE_COLS + (v - 1), r * ZONE_COLS + v);
+// Walk the paint grid for cells whose neighbour belongs to somebody else,
+// and merge consecutive ones into RUNS. Every run is axis-aligned and a
+// whole number of cells long, which is what keeps both solid grids, the
+// door art and the window art working exactly as they did on the 3x3.
+//
+// 17 sector pairs, 42 runs on the current paint.
+function zoneBoundaryRuns() {
+    const runs = [];
+    // Vertical: between column c and c+1, merged down the rows.
+    for (let c = 0; c < ZONE_COLS_FINE - 1; c++) {
+        let r = 0;
+        while (r < ZONE_ROWS_FINE) {
+            const a = ZONE_PAINT[r * ZONE_COLS_FINE + c];
+            const b = ZONE_PAINT[r * ZONE_COLS_FINE + c + 1];
+            if (a === b) { r++; continue; }
+            let n = 0;
+            while (r + n < ZONE_ROWS_FINE &&
+                   ZONE_PAINT[(r + n) * ZONE_COLS_FINE + c] === a &&
+                   ZONE_PAINT[(r + n) * ZONE_COLS_FINE + c + 1] === b) n++;
+            runs.push({ vertical: true, fixed: (c + 1) * ZONE_CELL_W - WALL_T / 2,
+                        start: r * ZONE_CELL_H, span: n * ZONE_CELL_H, a: a, b: b });
+            r += n;
         }
     }
-    for (let h = 1; h < ZONE_ROWS; h++) {
-        const Y = h * ZONE_H - WALL_T / 2;
-        for (let c = 0; c < ZONE_COLS; c++) {
-            emitBoundary(false, Y, c * ZONE_W, ZONE_W,
-                (h - 1) * ZONE_COLS + c, h * ZONE_COLS + c);
+    // Horizontal: between row r and r+1, merged along the columns.
+    for (let r = 0; r < ZONE_ROWS_FINE - 1; r++) {
+        let c = 0;
+        while (c < ZONE_COLS_FINE) {
+            const a = ZONE_PAINT[r * ZONE_COLS_FINE + c];
+            const b = ZONE_PAINT[(r + 1) * ZONE_COLS_FINE + c];
+            if (a === b) { c++; continue; }
+            let n = 0;
+            while (c + n < ZONE_COLS_FINE &&
+                   ZONE_PAINT[r * ZONE_COLS_FINE + c + n] === a &&
+                   ZONE_PAINT[(r + 1) * ZONE_COLS_FINE + c + n] === b) n++;
+            runs.push({ vertical: false, fixed: (r + 1) * ZONE_CELL_H - WALL_T / 2,
+                        start: c * ZONE_CELL_W, span: n * ZONE_CELL_W, a: a, b: b });
+            c += n;
+        }
+    }
+    return runs;
+}
+
+// A door (124-159) and a window (112-151) plus margins need about this
+// much wall between them.
+const BOUNDARY_BOTH_MIN = 320;
+
+function buildZoneWalls() {
+    const runs = zoneBoundaryRuns();
+
+    // One opening pair PER SECTOR PAIR, on the longest wall they share.
+    // The old code put a door and a window on every boundary segment,
+    // which was fine when there were 12 of them; there are 42 runs now and
+    // that would be 42 doors. Per pair keeps the invariant that matters --
+    // no sector the horde cannot follow you into -- at 17 doors.
+    const best = {};
+    for (let i = 0; i < runs.length; i++) {
+        const k = passageKey(runs[i].a, runs[i].b);
+        if (!best[k] || runs[i].span > best[k].span) best[k] = runs[i];
+    }
+
+    for (let i = 0; i < runs.length; i++) {
+        const run = runs[i];
+        const k = passageKey(run.a, run.b);
+        if (best[k] !== run) {
+            // Not this pair's opening: solid wall the whole way.
+            pushBoundarySeg(run.vertical, run.fixed, run.start, run.span);
+            continue;
+        }
+        // A run under BOUNDARY_BOTH_MIN gets a WINDOW ONLY, never a door.
+        // That is not a compromise -- a window is already "zombies pass,
+        // players never do", so such a pair is simply a place the horde
+        // gets through and you do not. On the current paint exactly one
+        // pair is like this (THE BLOCKHOUSE | THE YARD, a single 300px
+        // wall), and the keep having one boarded window onto the yard is
+        // a better answer than widening the wall to suit the code.
+        emitBoundary(run.vertical, run.fixed, run.start, run.span, run.a, run.b,
+                     run.span >= BOUNDARY_BOTH_MIN);
+    }
+
+    computeZoneDepth();
+    priceDoors();
+}
+
+// Breadth-first from the Blockhouse over DOOR edges, so "how deep is this
+// sector" is how many doors you have to buy to stand in it. Ring distance
+// in a 3x3 was approximating exactly this and stops meaning anything once
+// the shapes interlock.
+function computeZoneDepth() {
+    zoneDepth = [];
+    for (let i = 0; i < ZONE_COUNT; i++) zoneDepth.push(99);
+    zoneDepth[Z_BLOCKHOUSE] = 0;
+
+    const neighbours = [];
+    for (let i = 0; i < ZONE_COUNT; i++) neighbours.push([]);
+    for (const k in zonePassages) {
+        if (!Object.prototype.hasOwnProperty.call(zonePassages, k)) continue;
+        if (!zonePassages[k].door) continue;          // doors only
+        const parts = k.split(">");
+        const a = +parts[0], b = +parts[1];
+        neighbours[a].push(b);
+        neighbours[b].push(a);
+    }
+
+    let queue = [Z_BLOCKHOUSE];
+    while (queue.length) {
+        const next = [];
+        for (let i = 0; i < queue.length; i++) {
+            const z = queue[i];
+            for (let j = 0; j < neighbours[z].length; j++) {
+                const n = neighbours[z][j];
+                if (zoneDepth[n] > zoneDepth[z] + 1) {
+                    zoneDepth[n] = zoneDepth[z] + 1;
+                    next.push(n);
+                }
+            }
+        }
+        queue = next;
+    }
+}
+
+// Doors are priced by depth, which is only known once every door exists --
+// hence the second pass. Same curve as the old ring pricing, so nothing
+// about the early economy moves for a sector that was one ring out.
+function priceDoors() {
+    for (const k in zonePassages) {
+        if (!Object.prototype.hasOwnProperty.call(zonePassages, k)) continue;
+        const d = zonePassages[k].door;
+        if (!d) continue;
+        const parts = k.split(">");
+        const deep = Math.max(zoneDepth[+parts[0]], zoneDepth[+parts[1]]);
+        d.cost = 900 + 350 * Math.max(1, deep);
+        d.ring = Math.min(zoneDepth[+parts[0]], zoneDepth[+parts[1]]);
+        if (d.ring === 0 && !d.trapped) {
+            d.trapped = true;
+            addDoorTrap(d.w < d.h, d);
         }
     }
 }
 
 // `vertical` says which axis the wall runs along. `fixed` is its position
 // on the other axis, `start`/`span` describe the segment it covers.
-function emitBoundary(vertical, fixed, start, span, zoneA, zoneB) {
+function emitBoundary(vertical, fixed, start, span, zoneA, zoneB, allowDoor) {
     // Openings are laid out in equal SLOTS rather than placed freely and
     // then de-overlapped. The free-placement version pushed each opening
     // past the previous one's clearance, and on a crowded boundary the
@@ -802,10 +1205,12 @@ function emitBoundary(vertical, fixed, start, span, zoneA, zoneB) {
     // silently produced a boundary with no opening at all, sealing a zone
     // and stranding every zombie behind it. Slots cannot collide and
     // cannot overflow, by construction.
-    const winCount = 1 + Math.floor(MP.random() * 3);
-    const total = 1 + winCount;
+    // Window count scales with how long the run is -- a 1600px wall wants
+    // more than one way through, a 300px one wants exactly one thing in it.
+    const winCount = Math.max(1, Math.min(3, Math.floor(span / 700) + 1));
+    const total = (allowDoor ? 1 : 0) + winCount;
     const slot = span / total;
-    const doorSlot = Math.floor(MP.random() * total);
+    const doorSlot = allowDoor ? Math.floor(MP.random() * total) : -1;
     const margin = 30;
 
     const gaps = [];
@@ -825,8 +1230,9 @@ function emitBoundary(vertical, fixed, start, span, zoneA, zoneB) {
         });
     }
 
-    const ringA = zoneRing(zoneA % ZONE_COLS, Math.floor(zoneA / ZONE_COLS));
-    const ringB = zoneRing(zoneB % ZONE_COLS, Math.floor(zoneB / ZONE_COLS));
+    // Cost and ring are NOT set here any more: they depend on graph depth
+    // from the Blockhouse, which is not known until every door exists.
+    // priceDoors() does a second pass once buildZoneWalls() is finished.
     const pk = passageKey(zoneA, zoneB);
     zonePassages[pk] = zonePassages[pk] || {};
 
@@ -840,12 +1246,11 @@ function emitBoundary(vertical, fixed, start, span, zoneA, zoneB) {
                 ? { x: fixed, y: g.at, w: WALL_T, h: g.size }
                 : { x: g.at, y: fixed, w: g.size, h: WALL_T };
             d.open = false;
-            d.cost = 900 + 350 * Math.max(ringA, ringB);
-            d.ring = Math.min(ringA, ringB);
+            d.cost = 900;                 // priceDoors() overwrites this
+            d.ring = 9;
             doors.push(d);
             zonePassages[pk].door = d;
             reserveAround(d, 150);
-            if (d.ring === 0) addDoorTrap(vertical, d);
         } else {
             const b = vertical
                 ? { x: fixed, y: g.at, w: WALL_T, h: g.size, hp: 100, maxHp: 100, chewUntil: 0 }
@@ -930,6 +1335,408 @@ function addDoorTrap(vertical, d) {
         : { x: d.x, y: d.y - 30, w: d.w, h: WALL_T + 60, cost: 650, armedUntil: 0, readyAt: 0 });
 }
 
+// ---------------------------------------------------
+//   SECTOR INTERIORS  (2026-09-19)
+// ---------------------------------------------------
+// The signature geometry of four sectors, so each one FEELS different to
+// move through rather than only looking different. MAP_REVAMP_PLAN.md 4.
+//
+// Every wall here is laid in short segments and each segment is dropped if
+// it clashes with reserved ground -- a boundary opening's approach, the
+// sluice, a funnel hall, a landmark. That is what lets these run right
+// across a sector without ever sealing a door or a window.
+//
+// INTERIOR_LANE is the clear width of anything you are meant to walk or
+// fight down. 160, comfortably over the 78px nav guarantee and wide enough
+// for two players to pass -- the same figure the container maze will want
+// when it is built (MAP_REVAMP_PLAN.md 8).
+const INTERIOR_LANE = 160;
+
+function buildSectorInteriors() {
+    buildSpillwayPipes();
+    buildKennels();
+    buildMotorBays();
+    buildYardSpur();
+}
+
+// A wall in segments, skipping anything that would land on reserved
+// ground -- and, every `gapEvery` segments, leaving a DELIBERATE gap.
+//
+// The gaps are not decoration. Measured 2026-09-19 with the flow field run
+// from the keep across 25 seeds: an unbroken 1,380px pipe wall turns each
+// run into a tube whose sides can only be reached from its two ends, and
+// any reserved rect landing across an end sealed it -- 579 unreachable nav
+// cells in THE SPILLWAY alone. A sealed pocket is both a free safe spot
+// for a player and a trap for any zombie that wanders in, which is exactly
+// the failure the boundary-spur clipping rule already exists to prevent
+// (see "Boundary cover spurs" in CLAUDE.md).
+//
+// They are also better fiction: a cross-drain between two storm runs.
+function segmentedWall(x, y, w, h, step, gapEvery) {
+    const vertical = h > w;
+    const len = vertical ? h : w;
+    const n = Math.max(1, Math.round(len / step));
+    const each = len / n;
+    const every = gapEvery || 3;
+    let laid = 0;
+    for (let i = 0; i < n; i++) {
+        // A gap, offset per wall so neighbouring runs do not line theirs up
+        // into one long open corridor across the sector.
+        if (n > 2 && i % every === (Math.floor(x / 97) + Math.floor(y / 89)) % every) continue;
+        const seg = vertical
+            ? { x: x, y: Math.round(y + i * each), w: w, h: Math.round(each) }
+            : { x: Math.round(x + i * each), y: y, w: Math.round(each), h: h };
+        const pad = { x: seg.x - 24, y: seg.y - 24, w: seg.w + 48, h: seg.h + 48 };
+        if (clashesReserved(pad)) continue;
+        walls.push(seg);
+        laid++;
+    }
+    return laid;
+}
+
+// --- THE SPILLWAY: three storm runs ----------------------------------
+// The sector's spine is two cells wide (800px) and its western 240 is
+// forest, which leaves 560 -- exactly three 160px runs with a 20px wall
+// between and either side. That is not a coincidence; the runs were sized
+// to the spine.
+function buildSpillwayPipes() {
+    const b = zoneBounds(Z_SPILLWAY);
+    const x0 = FOREST_BAND;                       // start where the trees stop
+    const usable = 800 - FOREST_BAND;             // the spine, minus forest
+    const runs = 3;
+    const lane = Math.floor((usable - WALL_T * (runs + 1)) / runs);
+    const top = 340, bottom = 1720;               // clear of both boundaries
+
+    for (let i = 0; i <= runs; i++) {
+        const x = x0 + i * (lane + WALL_T);
+        segmentedWall(x, top, WALL_T, bottom - top, 220);
+    }
+    // UNIQUE floor: the invert down each run, and wet concrete either side.
+    for (let i = 0; i < runs; i++) {
+        const x = x0 + WALL_T + i * (lane + WALL_T);
+        if (typeof zfPatch === "function") zfPatch(x, top, lane, bottom - top, "invert");
+    }
+    // The silt trap: the one open room, in the sector's foot.
+    if (typeof zfPatch === "function") zfPatch(x0, bottom + 40, usable, 220, "wetconcrete");
+    spillwayRuns = { x0: x0, lane: lane, runs: runs, top: top, bottom: bottom };
+}
+let spillwayRuns = null;
+
+// --- THE KENNELS: pens either side of the run ------------------------
+// You fight in the pens and you leave by the run, and that is the whole
+// tactical shape of the sector. The run is the only straight retreat.
+function buildKennels() {
+    const b = zoneBounds(Z_KENNELS);
+    const runY = Math.round(b.y + b.h * 0.52);
+    kennelRun = { x: b.x + 60, y: runY, w: b.w - 120, h: INTERIOR_LANE };
+
+    // Pen rows above and below, each a three-walled box opening on the run.
+    for (let side = -1; side <= 1; side += 2) {
+        const penY = side < 0 ? runY - 190 : runY + INTERIOR_LANE + 30;
+        for (let px = b.x + 120; px < b.x + b.w - 260; px += 200) {
+            const pw = 170, ph = 160;
+            if (!inZone(px, penY, Z_KENNELS) || !inZone(px + pw, penY + ph, Z_KENNELS)) continue;
+            if (clashesReserved({ x: px - 30, y: penY - 30, w: pw + 60, h: ph + 60 })) continue;
+            // Three walls: the side facing the run is left open.
+            walls.push({ x: px, y: penY, w: WALL_T, h: ph });
+            walls.push({ x: px + pw - WALL_T, y: penY, w: WALL_T, h: ph });
+            walls.push(side < 0
+                ? { x: px, y: penY, w: pw, h: WALL_T }
+                : { x: px, y: penY + ph - WALL_T, w: pw, h: WALL_T });
+            if (typeof zfPatch === "function") zfPatch(px, penY, pw, ph, "kennel");
+            // Reserve the pen AND the strip in front of its open side, so
+            // nothing later parks across the only way in and turns a pen
+            // into a sealed box.
+            reservedRects.push(side < 0
+                ? { x: px, y: penY, w: pw, h: ph + 70 }
+                : { x: px, y: penY - 70, w: pw, h: ph + 70 });
+        }
+    }
+}
+let kennelRun = null;
+
+// --- THE MOTOR POOL: service bays ------------------------------------
+// Three-walled pockets off the main run: cover you duck INTO, with one way
+// out -- deliberately the opposite of the Kennels' pens, which open onto
+// the one lane you can run down.
+function buildMotorBays() {
+    const b = zoneBounds(Z_MOTOR);
+    const bayY = Math.round(b.y + b.h - 300);
+    for (let bx = b.x + 140; bx < b.x + b.w - 300; bx += 260) {
+        const bw = 210, bh = 190;
+        if (!inZone(bx, bayY, Z_MOTOR) || !inZone(bx + bw, bayY + bh, Z_MOTOR)) continue;
+        if (clashesReserved({ x: bx - 40, y: bayY - 40, w: bw + 80, h: bh + 80 })) continue;
+        walls.push({ x: bx, y: bayY, w: WALL_T, h: bh });
+        walls.push({ x: bx + bw - WALL_T, y: bayY, w: WALL_T, h: bh });
+        walls.push({ x: bx, y: bayY + bh - WALL_T, w: bw, h: WALL_T });
+        // UNIQUE floor: hardstanding with a worn bay line.
+        if (typeof zfPatch === "function") zfPatch(bx, bayY, bw, bh, "hardstand");
+        reservedRects.push({ x: bx, y: bayY, w: bw, h: bh });
+    }
+}
+
+// --- THE YARD: the rail spur -----------------------------------------
+// The spur runs out of the Yard through its TONGUE and on into the Motor
+// Pool between the bays. It is the reason the tongue is shaped like that,
+// and it is the clearest "this is not a grid" mark on the minimap.
+//
+// Flatcars are solid; the track itself is floor. So the spur is a lane
+// with cover ON it rather than a wall across the sector.
+function buildYardSpur() {
+    const b = zoneBounds(Z_YARD);
+    // Along the tongue: row 7 of the paint, cols 9-10.
+    const y = 7 * ZONE_CELL_H + 90;
+    const x0 = 9 * ZONE_CELL_W - 260;             // starts inside the Motor Pool
+    const x1 = 11 * ZONE_CELL_W;
+    if (typeof zfPatch === "function") zfPatch(x0, y, x1 - x0, 110, "ballast");
+    yardSpur = { x: x0, y: y, w: x1 - x0, h: 110 };
+
+    // Flatcars standing on it.
+    for (let fx = x0 + 120; fx < x1 - 220; fx += 300) {
+        const fw = 190, fh = 54;
+        if (clashesReserved({ x: fx - 30, y: y - 30, w: fw + 60, h: fh + 60 })) continue;
+        walls.push({ x: fx, y: Math.round(y + 28), w: fw, h: fh });
+    }
+
+    // Container stacks in the north block -- SEEDED, and the seed of the
+    // shipping-container maze (MAP_REVAMP_PLAN.md 8). Building them as
+    // ordinary stacks now means that step is a density and layout change
+    // rather than new art.
+    yardContainers = [];
+    for (let i = 0; i < 20; i++) {
+        for (let tries = 0; tries < 10; tries++) {
+            const cw = MP.random() < 0.5 ? 150 : 90;
+            const ch = cw === 150 ? 60 : 100;
+            const cx = Math.round(b.x + 80 + MP.random() * Math.max(1, b.w - 160 - cw));
+            const cy = Math.round(b.y + 80 + MP.random() * Math.max(1, b.h - 160 - ch));
+            if (!inZone(cx, cy, Z_YARD) || !inZone(cx + cw, cy + ch, Z_YARD)) continue;
+            if (clashesReserved({ x: cx - 40, y: cy - 40, w: cw + 80, h: ch + 80 })) continue;
+            if (blockedAtStatic(cx - 20, cy - 20, Math.max(cw, ch) + 40)) continue;
+            const c = { x: cx, y: cy, w: cw, h: ch, hue: Math.floor(MP.random() * 5) };
+            walls.push({ x: cx, y: cy, w: cw, h: ch });
+            yardContainers.push(c);
+            // 48 is a lane and a half between stacks: enough that two of
+            // them cannot box the ground between them, and tight enough
+            // that the yard actually looks stacked. At 90 only 2 of 14
+            // containers ever placed, which is not a container yard.
+            reservedRects.push({ x: cx - 48, y: cy - 48, w: cw + 96, h: ch + 96 });
+            break;
+        }
+    }
+}
+let yardSpur = null;
+let yardContainers = [];
+
+// ---------------------------------------------------
+//   LANDMARKS  (2026-09-19)
+// ---------------------------------------------------
+// One hero structure per sector, so "meet me at the crane" means
+// somewhere. This is the payoff of the fixed skeleton: the crane is in
+// THE YARD every run, and the Yard is always the north-east.
+//
+// HOW THEY READ AS STRUCTURES on a top-down 2D map, which is the part
+// worth getting right (MAP_REVAMP_PLAN.md 4.1). Two techniques do nearly
+// all of it, and both are flat fills -- no gradients, per AESTHETIC_GUIDE
+// 6.3, which is how 1980 raster games faked height in the first place:
+//
+//   T1 CAST SHADOW -- a flat offset quad down-right of the footprint.
+//      Says "this is above the floor".
+//   T2 OFFSET TOP FACE -- the top drawn up-left of the base, by `lift`.
+//      Says HOW FAR above: lift ENCODES height, so the crane's 16 makes
+//      it read as the tallest thing on the map next to a bus's 5.
+//   T3 DRAWN OVER THE BOUNDARY WALL -- landmarks draw after walls and are
+//      culled to the VIEW, not to the sector, so the crane is visible from
+//      the sector next door. Without this none of the rest matters.
+//
+// `solid` says whether the body is collision as well as paint. The crane
+// is legs-only (you walk under the beam); the bus is solid.
+let landmarks = [];
+
+function placeLandmarks() {
+    landmarks = [];
+    addLandmark(Z_YARD,      "crane",   420, 150, 16);
+    addLandmark(Z_MOTOR,     "bus",     240,  62,  5);
+    addLandmark(Z_TURBINE,   "turbine", 190, 120, 10);
+    addLandmark(Z_PUMP,      "pumps",   210,  90,  7);
+    addLandmark(Z_COLD,      "chiller", 130, 130, 12);
+    addLandmark(Z_KENNELS,   "silo",    110, 110, 14);
+    addLandmark(Z_SPILLWAY,  "standpipe", 96, 96, 13);
+    // THE BLOCKHOUSE's landmark is the keep, and THE SLUICE YARD's is the
+    // south wall with the escape gate in it. Both already exist and both
+    // are fixed, so neither needs one placed.
+}
+
+function addLandmark(zone, kind, w, h, lift) {
+    const b = zoneBounds(zone);
+    // NOT findOpenSpotSure: that relaxes the reserved-ground rule on its
+    // later passes, which is right for a wall-buy (it must exist somewhere)
+    // and wrong for a 420px solid -- it put the crane on top of a silo on
+    // one seed in 200.
+    //
+    // Instead, ask for a genuinely clear spot with a shrinking clearance.
+    // Note resPad must stay ABOVE ZERO at every step: spotOk skips the
+    // reserved test entirely at 0, which would quietly bring the silo
+    // problem straight back.
+    // hallFits(), not findOpenSpot(): the spot finders take a SQUARE `size`,
+    // so a 420x150 crane was being tested as 420x420 and almost never fitted
+    // -- 39 maps in 40 had no crane. hallFits tests the real rect, checks
+    // reserved ground, standing walls, claimed floor AND sector containment,
+    // which is every rule a landmark needs.
+    let spot = null;
+    const pads = [110, 80, 50, 24, 8];
+    for (let i = 0; i < pads.length && !spot; i++) {
+        for (let tries = 0; tries < 90 && !spot; tries++) {
+            const x = Math.round(b.x + 50 + MP.random() * Math.max(1, b.w - 100 - w));
+            const y = Math.round(b.y + 50 + MP.random() * Math.max(1, b.h - 100 - h));
+            if (hallFits(x, y, w, h, pads[i], zone)) spot = { x: x, y: y };
+        }
+    }
+    // A sector without its landmark on a crowded seed is much better than a
+    // landmark standing on the endgame.
+    if (!spot) return;
+    const lm = { x: spot.x, y: spot.y, w: w, h: h, kind: kind, zone: zone, lift: lift };
+    landmarks.push(lm);
+
+    // Collision. The crane is its two LEGS only -- the beam is overhead and
+    // you walk under it, which is most of what makes it read as a gantry
+    // rather than a wall.
+    if (kind === "crane") {
+        walls.push({ x: lm.x, y: lm.y, w: 30, h: h });
+        walls.push({ x: lm.x + w - 30, y: lm.y, w: 30, h: h });
+    } else {
+        walls.push({ x: lm.x, y: lm.y, w: w, h: h });
+    }
+
+    // 130, not 80. A landmark is a solid block, and a solid block parked
+    // 80px off a wall boxes the strip between them -- measured as the
+    // single biggest source of unreachable nav cells once the landmarks
+    // went in (9 -> 105 across 25 seeds). Wider clearance also reads
+    // better: a hero structure wants room around it.
+    reservedRects.push({ x: lm.x - 130, y: lm.y - 130, w: w + 260, h: h + 260 });
+    claimFloor(lm.x, lm.y, w, h, 40);
+    // UNIQUE floor: every landmark stands on hardstanding, which is what
+    // stops it looking like it was dropped on dirt.
+    if (typeof zfPatch === "function") zfPatch(lm.x - 40, lm.y - 40, w + 80, h + 80, "hardstand");
+}
+
+// ---------------------------------------------------
+//   THE PERIMETER  (2026-09-19)
+// ---------------------------------------------------
+// The map used to have NO perimeter at all -- buildZoneWalls emitted only
+// the interior boundaries, so the world's edge was invisible and zombies
+// spawned past it and walked in. Two edge conditions now:
+//
+//   NORTH and WEST -- deep forest. A band of scattered trunks INSIDE the
+//     map, no wall. Sightlines break up, movement stays free.
+//   SOUTH and EAST -- a real concrete wall, with the escape gate set into
+//     the southern one (which is most of what makes the endgame legible:
+//     the heavy gate and its chainlink used to sit in a wall that did not
+//     exist, at the bottom of a map that simply stopped).
+//
+// THE THING THIS CAN BREAK, and the reason for both halves: walling two
+// sides removes half the spawn frontier. A team camped in the far
+// south-east is ~3,900px from the nearest forest, and contact time would
+// go up exactly where the map is hardest -- the same trap the zone
+// cooldown already hit once (CLAUDE.md records a permanent "visited" flag
+// doubling contact to 25.6s). So:
+//
+//   1. THE FOREST IS INSIDE THE MAP, which makes it a spawn RESERVOIR with
+//      real cover rather than "somewhere past the edge", and gives
+//      z.entered less to do.
+//   2. CULVERTS through the hard wall, at PERIM_CULVERT width -- well over
+//      the 78px nav guarantee -- so the frontier stays wrapped all the way
+//      around. A culvert also telegraphs a flank far better than the map
+//      edge ever did: you can see the thing you are about to be hit from.
+const FOREST_BAND = 240;          // how deep the forest reaches in
+const FOREST_TRUNK = 26;
+const PERIM_CULVERT = 120;        // clear width of a culvert mouth
+const PERIM_CULVERT_GAP = 900;    // roughly one every this far along
+let forestRects = [];             // trunks, for the draw
+let culverts = [];                // {x,y,w,h,side} mouths in the hard wall
+
+function buildPerimeter() {
+    forestRects = [];
+    culverts = [];
+
+    // --- SOUTH and EAST: a real wall, with culverts ---
+    // Laid as segments between the culvert mouths, so the mouths are holes
+    // in a wall rather than a wall drawn over holes.
+    buildPerimeterWall(false, WORLD_H - WALL_T, 0, WORLD_W, "south");
+    buildPerimeterWall(true, WORLD_W - WALL_T, 0, WORLD_H, "east");
+
+    // --- NORTH and WEST: forest ---
+    // Trunks are solid, so they break sightlines by being solid -- no third
+    // notion of solidity, the same reasoning that keeps the strip curtains
+    // in COLD STORAGE decorative and the container maze made of containers.
+    plantForest(0, 0, WORLD_W, FOREST_BAND);                    // north
+    plantForest(0, FOREST_BAND, FOREST_BAND, WORLD_H - FOREST_BAND); // west
+}
+
+function buildPerimeterWall(vertical, fixed, start, span, side) {
+    // Mouths first, then the wall between them.
+    const mouths = [];
+    const n = Math.max(2, Math.round(span / PERIM_CULVERT_GAP));
+    const slot = span / n;
+    for (let i = 0; i < n; i++) {
+        const free = Math.max(0, slot - PERIM_CULVERT - 120);
+        const at = start + i * slot + 60 + MP.random() * free;
+        // Never across the escape: that gate IS the way out and a culvert
+        // beside it would read as a second one.
+        if (side === "south" && escapeRect &&
+            at < escapeRect.x + escapeRect.w + 120 && at + PERIM_CULVERT > escapeRect.x - 120) continue;
+        mouths.push(at);
+    }
+
+    let at = start;
+    for (let i = 0; i < mouths.length; i++) {
+        const m = mouths[i];
+        if (m > at) pushPerimSeg(vertical, fixed, at, m - at);
+        culverts.push(vertical
+            ? { x: fixed, y: Math.round(m), w: WALL_T, h: PERIM_CULVERT, side: side }
+            : { x: Math.round(m), y: fixed, w: PERIM_CULVERT, h: WALL_T, side: side });
+        at = m + PERIM_CULVERT;
+    }
+    if (at < start + span) pushPerimSeg(vertical, fixed, at, start + span - at);
+}
+
+function pushPerimSeg(vertical, fixed, at, len) {
+    if (len < 4) return;
+    walls.push(vertical
+        ? { x: fixed, y: Math.round(at), w: WALL_T, h: Math.round(len) }
+        : { x: Math.round(at), y: fixed, w: Math.round(len), h: WALL_T });
+}
+
+// Scattered trunks at low density. Never near a boundary opening, the
+// keep, the sluice or anything already reserved -- the forest is cover,
+// not a second maze, and a trunk in a doorway is a nav problem.
+function plantForest(x0, y0, w, h) {
+    const target = Math.round((w * h) / 26000);
+    for (let i = 0; i < target; i++) {
+        for (let tries = 0; tries < 8; tries++) {
+            const x = Math.round(x0 + 20 + MP.random() * Math.max(1, w - 40 - FOREST_TRUNK));
+            const y = Math.round(y0 + 20 + MP.random() * Math.max(1, h - 40 - FOREST_TRUNK));
+            const box = { x: x - 70, y: y - 70, w: FOREST_TRUNK + 140, h: FOREST_TRUNK + 140 };
+            if (clashesReserved(box)) continue;
+            if (blockedAtStatic(x - 40, y - 40, FOREST_TRUNK + 80)) continue;
+            const t = { x: x, y: y, w: FOREST_TRUNK, h: FOREST_TRUNK, trunk: true };
+            walls.push(t);
+            forestRects.push(t);
+            // A trunk reserves its own clearance, so the next one cannot
+            // land beside it. Without this, clashesReserved never saw the
+            // trunks (they are walls, not reserved rects) and they could
+            // clump into a short wall -- which against a boundary makes a
+            // pocket nothing can path into.
+            reservedRects.push({ x: x - 86, y: y - 86, w: FOREST_TRUNK + 172, h: FOREST_TRUNK + 172 });
+            break;
+        }
+    }
+}
+
+// True in the forest band, which is where off-map spawning now comes from.
+function inForest(x, y) {
+    return x < FOREST_BAND || y < FOREST_BAND;
+}
+
 // --- the keep --------------------------------------------------------
 function buildKeep() {
     const kx = Math.round(WORLD_W / 2 - KEEP_W / 2);
@@ -956,6 +1763,7 @@ function buildKeep() {
 
     // One crate so round 1 is playable before anything is bought. There
     // is deliberately NO weapon here now -- see placeWallBuys().
+    if (typeof zfPatch === "function") zfPatch(kx, ky, KEEP_W, KEEP_H, "centre");
     ammoCrates.push({ x: kx + Math.round(KEEP_W / 2) - 16, y: ky + Math.round(KEEP_H / 2) - 16, size: 32, uses: 4 });
 
     // The field manual: a terminal in the keep explaining every weapon,
@@ -981,30 +1789,44 @@ function buildKeep() {
 // they route around it rather than through it. The first three did not
 // check reservedRects at all before 2026-09-18, which is half of how the
 // sluice room came to have walls in it.
+// The funnel halls go in BEFORE anything else in their sector -- they are
+// the largest single thing any sector has to fit (560x280 plus clearance)
+// and the endgame does not work without them. Hoisted out of
+// buildZoneContents 2026-09-19 so the landmarks can be placed between the
+// two: halls first, then hero structures, then the generic buildings that
+// route around both.
+function buildPlannedHalls() {
+    for (let i = 0; i < hallPlan.length; i++) {
+        const z = hallPlan[i];
+        if (z === undefined || !zoneInfo[z]) continue;
+        buildFunnelHall(zoneBounds(z), z, i + 1);
+    }
+}
+
 function buildZoneContents() {
-    for (let z = 0; z < 9; z++) {
+    for (let z = 0; z < ZONE_COUNT; z++) {
         const info = zoneInfo[z];
         if (!info) continue;
         const tpl = info.tpl;
         const b = zoneBounds(z);
 
-        const hallK = hallPlan.indexOf(z);
-        if (hallK !== -1) buildFunnelHall(b, z, hallK + 1);
-
-        if (tpl.corridors) buildCorridors(b);
+        if (tpl.corridors) buildCorridors(b, z);
         if (tpl.outpost) buildOutpost(b, z);
-        if (tpl.generator) buildGenerator(b);
+        if (tpl.generator) buildGenerator(b, z);
 
-        buildZoneBuildings(b, tpl.buildings);
+        buildZoneBuildings(b, tpl.buildings, z);
 
+        // Every loose item now passes the sector id, so an irregular sector
+        // stops donating its crates and barrels to whoever owns the rest of
+        // its bounding box.
         for (let i = 0; i < tpl.crates; i++) {
-            const spot = findOpenSpot(b, 32);
+            const spot = findOpenSpot(b, 32, 0, z);
             if (!spot) continue;
             ammoCrates.push({ x: spot.x, y: spot.y, size: 32, uses: 3 });
             claimFloor(spot.x, spot.y, 32, 32, 30);
         }
         for (let i = 0; i < tpl.barrels; i++) {
-            const spot = findOpenSpot(b, 24);
+            const spot = findOpenSpot(b, 24, 0, z);
             if (!spot) continue;
             barrels.push({ x: spot.x, y: spot.y, size: 24, alive: true });
             claimFloor(spot.x, spot.y, 24, 24, 16);
@@ -1028,14 +1850,17 @@ function clashesReserved(r) {
 // doorway approach) is re-rolled, then dropped. Before 2026-09-18 lanes
 // were laid blind, and a SPILLWAY or LAUNDRY in the sluice's zone ran a
 // wall straight through the funnel room.
-function buildCorridors(b) {
+function buildCorridors(b, z) {
     const lanes = 2 + Math.floor(MP.random() * 2);
     for (let i = 0; i < lanes; i++) {
-        for (let tries = 0; tries < 12; tries++) {
+        for (let tries = 0; tries < 16; tries++) {
             const y = b.y + 200 + MP.random() * (b.h - 400);
             const len = b.w * (0.5 + MP.random() * 0.3);
             const x = b.x + 120 + MP.random() * Math.max(1, b.w - 240 - len);
             const res = { x: x - 60, y: y - 90, w: len + 120, h: 180 };
+            // Both ends inside the sector, or a sightline lane runs out
+            // through a neighbour's ground (2026-09-19).
+            if (z !== undefined && (!inZone(x, y, z) || !inZone(x + len, y, z))) continue;
             if (clashesReserved(res)) continue;
             walls.push({ x: Math.round(x), y: Math.round(y), w: Math.round(len), h: WALL_T });
             reservedRects.push(res);
@@ -1054,9 +1879,10 @@ function buildOutpost(b, z) {
     const ow = 260;
     const oh = 190;
     let ox = 0, oy = 0, found = false;
-    for (let tries = 0; tries < 30 && !found; tries++) {
+    for (let tries = 0; tries < 40 && !found; tries++) {
         ox = Math.round(b.x + 200 + MP.random() * (b.w - 400 - ow));
         oy = Math.round(b.y + 160 + MP.random() * (b.h - 320 - oh));
+        if (!inZone(ox, oy, z) || !inZone(ox + ow, oy + oh, z)) continue;
         found = !clashesReserved({ x: ox - 90, y: oy - 90, w: ow + 180, h: oh + 180 });
     }
     if (!found) return;
@@ -1073,15 +1899,19 @@ function buildOutpost(b, z) {
     walls.push({ x: ox + ow - WALL_T, y: gy + gap, w: WALL_T, h: oy + oh - (gy + gap) });
     barricades.push({ x: ox + ow - WALL_T, y: gy, w: WALL_T, h: gap, hp: 80, maxHp: 80, chewUntil: 0 });
 
+    if (typeof zfPatch === "function") zfPatch(ox, oy, ow, oh, zfInteriorAt(ox + ow / 2, oy + oh / 2));
     reservedRects.push({ x: ox - 90, y: oy - 90, w: ow + 180, h: oh + 180 });
     zoneInfo[z].outpost = { x: ox, y: oy, w: ow, h: oh };
 }
 
 // Every run needs exactly one generator, so it uses the placement that
 // cannot come back empty, and it stays out of reserved ground.
-function buildGenerator(b) {
-    const spot = findOpenSpotSure(b, 70, 140);
+function buildGenerator(b, z) {
+    const spot = findOpenSpotSure(b, 70, 140, z);
     generatorRect = { x: spot.x, y: spot.y, w: 70, h: 70, cost: 2500 };
+    // UNIQUE: the generator's plinth, with the cable runs converging on it
+    // drawn over the top by drawGenerator.
+    if (typeof zfPatch === "function") zfPatch(spot.x - 60, spot.y - 60, 190, 190, "hardstand");
     reservedRects.push({ x: spot.x - 140, y: spot.y - 140, w: 350, h: 350 });
     claimFloor(spot.x, spot.y, 70, 70, 60);
 }
@@ -1096,7 +1926,7 @@ function buildGenerator(b) {
 // NAV_PAD 19 makes the guarantee 78, so the hole is 90 (2026-09-18).
 const NOOK_HOLE = 90;
 
-function buildZoneBuildings(b, count) {
+function buildZoneBuildings(b, count, z) {
     let made = 0;
     let attempts = 0;
     while (made < count && attempts < count * 40) {
@@ -1106,6 +1936,11 @@ function buildZoneBuildings(b, count) {
         const bx = b.x + 110 + MP.random() * Math.max(1, b.w - 220 - bw);
         const by = b.y + 110 + MP.random() * Math.max(1, b.h - 220 - bh);
 
+        // All four corners in the sector. A building is the thing most
+        // likely to straddle a painted boundary, and one that does reads as
+        // a wall dropped across the edge of two sectors.
+        if (z !== undefined && (!inZone(bx, by, z) || !inZone(bx + bw, by, z) ||
+                                !inZone(bx, by + bh, z) || !inZone(bx + bw, by + bh, z))) continue;
         if (nearZoneBoundary(bx, by, bw, bh)) continue;
         const box = { x: bx - 95, y: by - 95, w: bw + 190, h: bh + 190 };
         let clash = false;
@@ -1133,6 +1968,12 @@ function buildZoneBuildings(b, count) {
         }
 
         for (let k = 0; k < sides.length; k++) if (sides[k]) walls.push(sides[k]);
+        // INTERIOR floor: this is the inside of a building, so it gets the
+        // sector's own tile. Everything outside it keeps the exterior
+        // ground (zombie-floors.js, the three layers).
+        if (typeof zfPatch === "function") {
+            zfPatch(bx, by, bw, bh, zfInteriorAt(bx + bw / 2, by + bh / 2));
+        }
         reservedRects.push({ x: bx, y: by, w: bw, h: bh });
         made++;
     }
@@ -1156,15 +1997,21 @@ function pierceWall(sides, index) {
     }
 }
 
+// True if the rect is within `margin` of ANY sector boundary. It used to
+// test the 3x3 lattice lines; with painted sectors the boundaries are
+// wherever two different ids meet, so this asks the paint directly: grow
+// the rect by the margin and see whether it covers more than one sector.
 function nearZoneBoundary(x, y, w, h) {
     const margin = 150;
-    for (let v = 1; v < ZONE_COLS; v++) {
-        const X = v * ZONE_W;
-        if (x - margin < X && x + w + margin > X) return true;
-    }
-    for (let r = 1; r < ZONE_ROWS; r++) {
-        const Y = r * ZONE_H;
-        if (y - margin < Y && y + h + margin > Y) return true;
+    const c0 = clamp(Math.floor((x - margin) / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
+    const c1 = clamp(Math.floor((x + w + margin) / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
+    const r0 = clamp(Math.floor((y - margin) / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
+    const r1 = clamp(Math.floor((y + h + margin) / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
+    const first = ZONE_PAINT[r0 * ZONE_COLS_FINE + c0];
+    for (let rr = r0; rr <= r1; rr++) {
+        for (let cc = c0; cc <= c1; cc++) {
+            if (ZONE_PAINT[rr * ZONE_COLS_FINE + cc] !== first) return true;
+        }
     }
     return false;
 }
@@ -1195,10 +2042,16 @@ function spotOk(x, y, size, resPad) {
     return true;
 }
 
-function findOpenSpot(b, size, resPad) {
-    for (let tries = 0; tries < 60; tries++) {
+// `zone`, when given, is the sector the spot must actually be IN. The
+// bounding box of a painted sector is a superset of its ground -- the
+// Blockhouse's box is 58% somebody else's -- so without this a wall-buy
+// or a perk station lands in the wrong sector and the map lies about
+// where its guns are (2026-09-19).
+function findOpenSpot(b, size, resPad, zone) {
+    for (let tries = 0; tries < 80; tries++) {
         const x = Math.round(b.x + 120 + MP.random() * (b.w - 240 - size));
         const y = Math.round(b.y + 120 + MP.random() * (b.h - 240 - size));
+        if (zone !== undefined && !inZone(x + size / 2, y + size / 2, zone)) continue;
         if (!spotOk(x, y, size, resPad || 0)) continue;
         return { x: x, y: y };
     }
@@ -1212,13 +2065,18 @@ function findOpenSpot(b, size, resPad) {
 // random draw, then walks the zone on a grid, and only then relaxes: first
 // the reserved-ground rule, then the item-overlap rule. It always returns a
 // spot that is clear of walls unless the zone is literally solid.
-function findOpenSpotSure(b, size, resPad) {
-    const r = findOpenSpot(b, size, resPad);
+function findOpenSpotSure(b, size, resPad, zone) {
+    const r = findOpenSpot(b, size, resPad, zone);
     if (r) return r;
-    const passes = [resPad || 0, 0, -1];
+    // The sector is honoured on the first three passes and only dropped on
+    // the last one -- a spot in the wrong sector still beats a spot inside
+    // a wall, which is what this function exists to prevent.
+    const passes = [resPad || 0, 0, -1, -2];
     for (let pass = 0; pass < passes.length; pass++) {
+        const wantZone = (pass < 3) ? zone : undefined;
         for (let y = b.y + 130; y <= b.y + b.h - 130 - size; y += 30) {
             for (let x = b.x + 130; x <= b.x + b.w - 130 - size; x += 30) {
+                if (wantZone !== undefined && !inZone(x + size / 2, y + size / 2, wantZone)) continue;
                 if (passes[pass] >= 0) {
                     if (spotOk(x, y, size, passes[pass])) return { x: x, y: y };
                 } else if (!blockedAtStatic(x - 20, y - 20, size + 40)) {
@@ -1227,7 +2085,10 @@ function findOpenSpotSure(b, size, resPad) {
             }
         }
     }
-    return { x: Math.round(b.x + b.w / 2 - size / 2), y: Math.round(b.y + b.h / 2 - size / 2) };
+    // Last resort: the middle of one of the sector's own cells, never the
+    // middle of its bounding box (which for a cross is not in it at all).
+    const c = randomPointInZone(zone !== undefined ? zone : 0, 80);
+    return { x: Math.round(c.x - size / 2), y: Math.round(c.y - size / 2) };
 }
 
 // --- WHERE THINGS LIVE (2026-09-19) ----------------------------------
@@ -1271,40 +2132,29 @@ function zoneForTemplates(free, prefs) {
 }
 
 function placeWallBuys() {
-    const outer = [];
-    for (let i = 0; i < 9; i++) if (i !== 4 && zoneInfo[i]) outer.push(i);
-
-    // The fallback order is seeded, not index order, so a gun that misses
-    // every home it named does not always land in the north-west.
-    let free = seededShuffle(outer);
-    const take = function (z) { free = free.filter(function (v) { return v !== z; }); };
-
-    for (let g = 0; g < GUN_HOMES.length; g++) {
-        const key = GUN_HOMES[g][0], cost = GUN_HOMES[g][1], prefs = GUN_HOMES[g][2];
-        let z = zoneForTemplates(free, prefs);
-        // The sniper keeps its old rule as a second chance: ANY long-sightline
-        // zone will do, not only the two named ones.
-        if (z < 0 && key === "sniper") {
-            for (let i = 0; i < free.length && z < 0; i++) {
-                if (zoneInfo[free[i]].tpl.corridors) z = free[i];
-            }
+    // Straight off the sector table now (2026-09-19). No shuffle, no
+    // preference list, no fallback: THE KENNELS sells the shotgun, every
+    // run, because a sector is only worth remembering if what is in it is
+    // worth remembering. THE YARD carries TWO -- it is the biggest sector
+    // and the furthest from the keep -- and three sectors carry none.
+    // Totals are still six, so no balance number moved.
+    for (let i = 0; i < SECTORS.length; i++) {
+        const sec = SECTORS[i];
+        for (let g = 0; g < sec.guns.length; g++) {
+            addWallBuy(sec.id, sec.guns[g], GUN_COSTS[sec.guns[g]]);
         }
-        // EVERY GUN ALWAYS PLACES. Losing the rifle -- the cheap first
-        // upgrade off the pistol -- to a map roll would be a real balance
-        // regression, so a gun whose homes are all absent takes any free
-        // zone. Perks are the ones allowed to be missing (see below).
-        if (z < 0) z = free.length ? free[0] : -1;
-        if (z < 0) break;                       // fewer than 6 outer zones: cannot happen today
-        take(z);
-        addWallBuy(z, key, cost);
     }
 }
+
+const GUN_COSTS = {
+    rifle: 1500, shotgun: 2600, smg: 3400, sniper: 4200, flamer: 5800, rocket: 7500
+};
 
 function addWallBuy(zone, weapon, cost) {
     const b = zoneBounds(zone);
     // The sure finder: the old `|| { x: b.x + 200, ... }` fallback could put
     // a wall-buy inside a wall.
-    const spot = findOpenSpotSure(b, 110);
+    const spot = findOpenSpotSure(b, 110, 0, zone);
     wallBuys.push({ x: spot.x, y: spot.y, w: 110, h: 28, weapon: weapon, cost: cost, zone: zone });
     reservedRects.push({ x: spot.x - 70, y: spot.y - 70, w: 250, h: 170 });
     claimFloor(spot.x, spot.y, 110, 28, 40);
@@ -1347,45 +2197,52 @@ const PERK_HOMES = {
 };
 
 function placeCardStations() {
-    const outer = [];
-    for (let i = 0; i < 9; i++) if (i !== 4 && zoneInfo[i]) outer.push(i);
+    // Per-sector budget (SECTORS[].perks) rather than one per outer zone.
+    // THE MOTOR POOL and THE YARD carry two each, THE PUMP HOUSE, THE
+    // SLUICE YARD and THE BLOCKHOUSE carry none. Still eight in total.
+    //
+    // WHICH perk a sector sells comes from PERK_SECTOR_HOMES, in order, so
+    // OVERDRIVE is always TURBINE HALL and SALVAGE is always the motor
+    // pool's first slot. The seed only picks among a sector's OWN list and
+    // fills any leftover slot from whatever is unplaced -- so a sector's
+    // stock is recognisable without being identical every run.
+    const placed = {};
+    const plan = [];
 
-    let free = seededShuffle(outer);
-    const take = function (z) { free = free.filter(function (v) { return v !== z; }); };
-    const placed = [];
-
-    // CARD_ALWAYS first, so its home is claimed before anything can take it.
-    const order = [CARD_ALWAYS].concat(
-        seededShuffle(CARD_KEYS.filter(function (k) { return k !== CARD_ALWAYS; })));
-
-    for (let i = 0; i < order.length && placed.length < CARD_STATION_COUNT; i++) {
-        const key = order[i];
-        let z = zoneForTemplates(free, PERK_HOMES[key] || []);
-        // Only CARD_ALWAYS is guaranteed a slot when its home is absent.
-        // Every other perk simply is not on this map, which is the point.
-        if (z < 0 && key === CARD_ALWAYS) z = free.length ? free[0] : -1;
-        if (z < 0) continue;
-        take(z);
-        placed.push({ card: key, zone: z });
+    for (let i = 0; i < SECTORS.length; i++) {
+        const sec = SECTORS[i];
+        const home = PERK_SECTOR_HOMES[sec.key] || [];
+        let taken = 0;
+        for (let h = 0; h < home.length && taken < sec.perks; h++) {
+            if (placed[home[h]]) continue;
+            placed[home[h]] = true;
+            plan.push({ zone: sec.id, card: home[h] });
+            taken++;
+        }
+        // The sector wants more stations than it has named perks.
+        for (let t = taken; t < sec.perks; t++) plan.push({ zone: sec.id, card: null });
     }
 
-    // Any station left over (a map short of perk homes) goes to a perk that
-    // did not get one, so the map still sells CARD_STATION_COUNT of them.
-    for (let i = 0; i < order.length && placed.length < CARD_STATION_COUNT && free.length; i++) {
-        const key = order[i];
-        if (placed.some(function (p) { return p.card === key; })) continue;
-        placed.push({ card: key, zone: free[0] });
-        take(free[0]);
+    // Fill the blanks from everything still unplaced, seeded.
+    const spare = seededShuffle(CARD_KEYS.filter(function (k) { return !placed[k]; }));
+    let sp = 0;
+    for (let i = 0; i < plan.length; i++) {
+        if (plan[i].card) continue;
+        while (sp < spare.length && placed[spare[sp]]) sp++;
+        if (sp >= spare.length) { plan[i].card = null; continue; }
+        plan[i].card = spare[sp];
+        placed[spare[sp]] = true;
+        sp++;
     }
 
-    for (let i = 0; i < placed.length; i++) {
-        const b = zoneBounds(placed[i].zone);
-        const spot = findOpenSpotSure(b, 60);
+    for (let i = 0; i < plan.length; i++) {
+        if (!plan[i].card) continue;
+        const spot = findOpenSpotSure(zoneBounds(plan[i].zone), 60, 0, plan[i].zone);
         cardStations.push({
             x: spot.x, y: spot.y, w: 60, h: 44,
-            card: placed[i].card,
-            cost: CARDS[placed[i].card].cost,
-            zone: placed[i].zone
+            card: plan[i].card,
+            cost: CARDS[plan[i].card].cost,
+            zone: plan[i].zone
         });
         reservedRects.push({ x: spot.x - 70, y: spot.y - 70, w: 200, h: 184 });
         claimFloor(spot.x, spot.y, 60, 44, 40);
@@ -1518,9 +2375,21 @@ let hallPlan = [];             // the zones chosen for funnel 2 and funnel 3
 // long sightline walls leave the least room).
 const HALL_HOMES = ["spill", "pump", "slag", "pool", "motor", "turbine"];
 
+// A hall is 560x280 plus clearance, so a sector has to be big enough to
+// hold one at all. PUMP HOUSE is five cells and TURBINE HALL is a bracket
+// around the keep's arm -- neither can, and discovering that through
+// buildFunnelHall's fallback path (which drops the hall and leaves a bare
+// funnel ring) was how a map ended up with a silo in open ground.
+// HALL_MIN_CELLS excludes them up front instead.
+const HALL_MIN_CELLS = 10;
+
 function planFunnelHalls() {
     const cands = [];
-    for (let i = 0; i < 9; i++) if (i !== 4 && i !== SLUICE_ZONE && zoneInfo[i]) cands.push(i);
+    for (let i = 0; i < ZONE_COUNT; i++) {
+        if (i === Z_BLOCKHOUSE || i === SLUICE_ZONE || !zoneInfo[i]) continue;
+        if (zoneCellCount(i) < HALL_MIN_CELLS) continue;
+        cands.push(i);
+    }
     const order = seededShuffle(cands);
     const open = order.filter(function (z) { return !zoneInfo[z].tpl.corridors; });
     const lanes = order.filter(function (z) { return zoneInfo[z].tpl.corridors; });
@@ -1547,9 +2416,32 @@ function rectBlockedStatic(r) {
     return false;
 }
 
-function hallFits(x, y, w, h, margin) {
+// `zone` is the sector the hall must sit wholly inside. This replaced a
+// nearZoneBoundary() test (2026-09-19): on the 3x3 that was a fine proxy
+// for "not straddling an edge", but painted sectors are irregular and
+// nearZoneBoundary's 150px margin rejected so much of a staircase or a
+// bracket that a 560x280 hall almost never fitted -- measured at two halls
+// on only 11 of 60 maps, with 10 maps getting NONE.
+//
+// Containment is the real requirement and it is also more permissive: the
+// hall may sit right up against its sector's edge as long as every part of
+// it, plus its clearance, is on this sector's ground.
+function hallInZone(box, zone) {
+    if (zone === undefined) return true;
+    const step = 100;
+    for (let yy = box.y; yy <= box.y + box.h; yy += step) {
+        for (let xx = box.x; xx <= box.x + box.w; xx += step) {
+            if (!inZone(xx, yy, zone)) return false;
+        }
+    }
+    // The four corners exactly, in case the step skipped past them.
+    return inZone(box.x, box.y, zone) && inZone(box.x + box.w, box.y, zone) &&
+           inZone(box.x, box.y + box.h, zone) && inZone(box.x + box.w, box.y + box.h, zone);
+}
+
+function hallFits(x, y, w, h, margin, zone) {
     const box = { x: x - margin, y: y - margin, w: w + margin * 2, h: h + margin * 2 };
-    if (nearZoneBoundary(x, y, w, h)) return false;
+    if (!hallInZone(box, zone)) return false;
     if (clashesReserved(box)) return false;
     if (rectBlockedStatic(box)) return false;
     if (!onClearFloor(box.x, box.y, box.w, box.h)) return false;
@@ -1641,15 +2533,20 @@ function makeFunnelHall(x, y, vertical, z, k) {
 }
 
 // Horizontal first (a zone is 1600 wide and only 900 tall), then vertical.
+// Both orientations are tried from the start now, alternating, rather than
+// horizontal for 90 attempts and vertical for 50. THE SPILLWAY's spine is
+// 800px wide and 2100 tall: a vertical hall drops straight into it and a
+// horizontal one never will, so spending the first 90 tries on horizontal
+// was most of why that sector never got one.
 function buildFunnelHall(b, z, k, margin) {
     const m = margin || 70;
-    for (let attempt = 0; attempt < 140; attempt++) {
-        const vertical = attempt >= 90;
+    for (let attempt = 0; attempt < 220; attempt++) {
+        const vertical = (attempt & 1) === 1;
         const w = vertical ? HALL_WID : HALL_LEN;
         const h = vertical ? HALL_LEN : HALL_WID;
-        const x = Math.round(b.x + 170 + MP.random() * Math.max(1, b.w - 340 - w));
-        const y = Math.round(b.y + 160 + MP.random() * Math.max(1, b.h - 320 - h));
-        if (!hallFits(x, y, w, h, m)) continue;
+        const x = Math.round(b.x + 40 + MP.random() * Math.max(1, b.w - 80 - w));
+        const y = Math.round(b.y + 40 + MP.random() * Math.max(1, b.h - 80 - h));
+        if (!hallFits(x, y, w, h, m, z)) continue;
         makeFunnelHall(x, y, vertical, z, k);
         return true;
     }
@@ -1666,18 +2563,30 @@ function finishFunnelsAndSilos() {
         if (funnels[k]) continue;
         let done = false;
         const cands = [];
-        for (let i = 0; i < 9; i++) {
-            if (i === 4 || i === SLUICE_ZONE || !zoneInfo[i]) continue;
+        for (let i = 0; i < ZONE_COUNT; i++) {
+            if (i === Z_BLOCKHOUSE || i === SLUICE_ZONE || !zoneInfo[i]) continue;
             if (funnelHalls[1] && funnelHalls[1].zone === i) continue;
             if (funnelHalls[2] && funnelHalls[2].zone === i) continue;
             cands.push(i);
         }
-        for (let c = 0; c < cands.length && !done; c++) {
-            done = buildFunnelHall(zoneBounds(cands[c]), cands[c], k, 100);
+        // Biggest sector first -- it has the most room left once the
+        // buildings are standing.
+        cands.sort(function (a, b) { return zoneCellCount(b) - zoneCellCount(a); });
+
+        // ESCALATING margins, not a single wider one. The old fallback
+        // retried at margin 100 where the first pass used 70, which asks for
+        // MORE clearance on the attempt that already failed -- backwards, and
+        // it is why 5 maps in 300 still ended up with a bare funnel ring
+        // instead of a hall after the sectors became irregular.
+        const margins = [70, 50, 34];
+        for (let m = 0; m < margins.length && !done; m++) {
+            for (let c = 0; c < cands.length && !done; c++) {
+                done = buildFunnelHall(zoneBounds(cands[c]), cands[c], k, margins[m]);
+            }
         }
         if (done) continue;
         const z = cands.length ? cands[0] : 0;
-        const spot = findOpenSpotSure(zoneBounds(z), 300);
+        const spot = findOpenSpotSure(zoneBounds(z), 300, 0, z);
         funnels[k] = { x: spot.x + 110, y: spot.y + 150, r: HALL_FUNNEL_R, zone: z };
         silos[k] = { x: spot.x + 230, y: spot.y + 20, w: SILO_W, h: SILO_H, zone: z };
         siloPipes[k] = pipeBetween(funnels[k], silos[k]);

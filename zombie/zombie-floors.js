@@ -37,12 +37,55 @@ const FLOOR_GRIME_TEX = 128;
 const FLOOR_GRIME_SCALE = 8;     // one grime texel = 8 world units
 
 // A tint per zone for the minimap, so the map shows the same identity.
+// The minimap tint per sector. Nine of these are the map's colour identity
+// now that the sectors are fixed, so they are chosen as a PALETTE rather
+// than one at a time: cold blues north-west, warm earths north-centre,
+// rust and steel east, wet greens south.
 const ZONE_FLOOR_TINT = {
-    cold: "#2B4552", pool: "#135A5C", motor: "#4A4630", laundry: "#4A4436",
-    spill: "#1D4A56", kennel: "#5A4520", letter: "#5A3A1C", slag: "#5A2A14",
-    ticket: "#44444E", annex: "#2E4A36", pump: "#3E4448", turbine: "#3A4046",
-    centre: "#38382F"
+    spill: "#1D4A56", cold: "#2B4552", kennel: "#5A4520", yard: "#5A3A1C",
+    centre: "#38382F", turbine: "#3A4046", pump: "#3E4448", sluice: "#1C4A44",
+    motor: "#4A4630",
+    // Cut sector keys, kept so an old save or a stray key still draws.
+    pool: "#135A5C", laundry: "#4A4436", letter: "#5A3A1C", slag: "#5A2A14",
+    ticket: "#44444E", annex: "#2E4A36"
 };
+
+// EXTERIOR ground and INTERIOR floor per sector (2026-09-19). The exterior
+// is painted across the sector; the interior only inside a building or room
+// footprint, from zfFloorPatches.
+const ZONE_EXTERIOR = {
+    spill: "wetconcrete", cold: "gravel",   kennel: "dirt",    yard: "gravel",
+    centre: "concrete",   turbine: "concrete", pump: "wetconcrete",
+    sluice: "drain",      motor: "asphalt"
+};
+const ZONE_INTERIOR = {
+    spill: "spill", cold: "cold", kennel: "kennel", yard: "motor",
+    centre: "centre", turbine: "turbine", pump: "pump", sluice: "centre",
+    motor: "motor"
+};
+
+// INTERIOR and UNIQUE floor patches, pushed by whatever builds the room or
+// structure that owns them (zombie-level.js). Painted over the exterior
+// base, in build order. Cleared by generateLevel().
+let zfFloorPatches = [];
+
+function zfClearPatches() {
+    zfFloorPatches = [];
+}
+
+// `kind` is a ZF_PAINTERS key. A sector's own interior tile is
+// ZONE_INTERIOR[sectorKey]; pass that rather than guessing.
+function zfPatch(x, y, w, h, kind) {
+    if (!kind || w <= 0 || h <= 0) return;
+    zfFloorPatches.push({ x: x, y: y, w: w, h: h, kind: kind });
+}
+
+// The interior tile for whichever sector this point is in.
+function zfInteriorAt(x, y) {
+    const z = typeof zoneOf === "function" ? zoneOf(x, y) : 4;
+    const key = zoneInfo[z] && zoneInfo[z].tpl ? zoneInfo[z].tpl.key : "centre";
+    return ZONE_INTERIOR[key] || "centre";
+}
 
 let zfPatterns = null;           // key -> CanvasPattern
 let zfGrime = null;
@@ -279,6 +322,99 @@ const ZF_PAINTERS = {
         }
     },
     // Wet stone slabs and old blood: the sluice and the funnel halls.
+    // ---------------------------------------------------
+    //   EXTERIOR GROUND  (2026-09-19)
+    // ---------------------------------------------------
+    // Asked for: "limit drawing of floor tiles to interior spaces or only
+    // where they should apply. There should be an interior / exterior /
+    // unique structure treatment."
+    //
+    // Before this, one tile was washed across a sector's WHOLE rect, so
+    // freezer tile ran over open ground and a wall was the only thing
+    // telling you that you were indoors. These are the OUTSIDE: flatter,
+    // lower contrast and much less patterned than the interiors, because
+    // their job is to be the thing an interior stands out against.
+    dirt: function (px, n, m, rng) {
+        const pal = [zfHex("#221A11"), zfHex("#281F15"), zfHex("#2E2418")];
+        for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
+            const i = y * FLOOR_TEX + x;
+            let c = zfPick(pal, n[i]);
+            if (m[i] > 0.90) c = zfHex("#3A2E1C");        // scuffed to lighter earth
+            px(x, y, c);
+        }
+    },
+    gravel: function (px, n, m, rng) {
+        const pal = [zfHex("#1C1C1E"), zfHex("#232326"), zfHex("#2A2A2D")];
+        for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
+            const i = y * FLOOR_TEX + x;
+            let c = zfPick(pal, n[i]);
+            if (m[i] > 0.88) c = zfHex("#343438");        // a paler stone
+            px(x, y, c);
+        }
+    },
+    asphalt: function (px, n, m, rng) {
+        const pal = [zfHex("#161618"), zfHex("#1B1B1D"), zfHex("#202022")];
+        for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
+            const i = y * FLOOR_TEX + x;
+            let c = zfPick(pal, n[i]);
+            if (m[i] > 0.93) c = zfHex("#2A2622");        // old oil
+            px(x, y, c);
+        }
+    },
+    concrete: function (px, n, m) {
+        const pal = [zfHex("#1E1E1C"), zfHex("#242422"), zfHex("#2A2A27")];
+        for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
+            const i = y * FLOOR_TEX + x;
+            // Slab joints every 32, so the outside still has a grain.
+            const joint = (x % 32 === 0) || (y % 32 === 0);
+            px(x, y, joint ? zfHex("#151513") : zfPick(pal, n[i]));
+        }
+    },
+    wetconcrete: function (px, n, m) {
+        const pal = [zfHex("#151C1E"), zfHex("#1A2326"), zfHex("#1F2A2D")];
+        for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
+            const i = y * FLOOR_TEX + x;
+            let c = zfPick(pal, n[i]);
+            if (m[i] > 0.78) c = zfHex("#233238");        // standing water
+            px(x, y, c);
+        }
+    },
+
+    // ---------------------------------------------------
+    //   UNIQUE STRUCTURE GROUND
+    // ---------------------------------------------------
+    // Only ever painted under the structure that owns it.
+    // Rail ballast: the Yard's spur, which runs on into the Motor Pool.
+    ballast: function (px, n, m) {
+        const pal = [zfHex("#26221C"), zfHex("#2D2822"), zfHex("#332E27")];
+        for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
+            const i = y * FLOOR_TEX + x;
+            // Sleepers across the run every 16px.
+            const sleeper = (y % 16) < 5;
+            px(x, y, sleeper ? zfHex("#1A1510") : zfPick(pal, n[i]));
+        }
+    },
+    // The invert of a storm pipe: a painted centre line on wet floor.
+    invert: function (px, n, m) {
+        const pal = [zfHex("#111A1C"), zfHex("#152023"), zfHex("#192629")];
+        for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
+            const i = y * FLOOR_TEX + x;
+            const line = (x > 30 && x < 34);
+            px(x, y, line ? zfHex("#3E4A3A") : zfPick(pal, n[i]));
+        }
+    },
+    // Hardstanding: the crane's pad and the Motor Pool's bays.
+    hardstand: function (px, n, m) {
+        const pal = [zfHex("#232321"), zfHex("#292927"), zfHex("#2F2F2C")];
+        for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
+            const i = y * FLOOR_TEX + x;
+            const joint = (x % 21 === 0) || (y % 21 === 0);
+            let c = joint ? zfHex("#17170F") : zfPick(pal, n[i]);
+            if (m[i] > 0.95) c = zfHex("#4A3A18");        // a painted bay line, worn
+            px(x, y, c);
+        }
+    },
+
     drain: function (px, n, m) {
         for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
             const i = y * FLOOR_TEX + x;
@@ -385,12 +521,42 @@ function drawZoneFloors(vr) {
     const prevSmooth = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
 
-    for (let z = 0; z < ZONE_COLS * ZONE_ROWS; z++) {
-        const b = zoneBounds(z);
-        const r = zfClip(b.x, b.y, b.w, b.h, vr);
+    // THREE LAYERS, IN ORDER (2026-09-19).
+    //
+    //   1. EXTERIOR -- the sector's open ground, painted per cell
+    //   2. INTERIOR -- the sector's own tile, only inside a room footprint
+    //   3. UNIQUE   -- a structure's own ground, only under that structure
+    //
+    // Before this one tile was washed across the sector's whole rect, which
+    // is why the areas still read faintly even after the 2026-09-18 floor
+    // pass: freezer tile ran over open ground, carpet ran under a rail
+    // spur, and a wall was the only thing telling you that you were indoors.
+    //
+    // PER CELL for layer 1, not per bounding box: sectors are painted into
+    // a 12x9 grid now and most of them are not rectangles, so filling
+    // zoneBounds() would paint a cross's whole box -- 58% of which belongs
+    // to two other sectors -- and whichever drew last would win.
+    for (let cr = 0; cr < ZONE_ROWS_FINE; cr++) {
+        for (let cc = 0; cc < ZONE_COLS_FINE; cc++) {
+            const r = zfClip(cc * ZONE_CELL_W, cr * ZONE_CELL_H,
+                             ZONE_CELL_W, ZONE_CELL_H, vr);
+            if (!r) continue;
+            const z = ZONE_PAINT[cr * ZONE_COLS_FINE + cc];
+            const key = zoneInfo[z] && zoneInfo[z].tpl ? zoneInfo[z].tpl.key : "centre";
+            const ext = ZONE_EXTERIOR[key] || "concrete";
+            ctx.fillStyle = zfPatterns[ext] || zfPatterns.centre;
+            ctx.fillRect(r.x, r.y, r.w, r.h);
+        }
+    }
+
+    // Layers 2 and 3. One flat list, painted in the order it was built, so
+    // a structure laid over a room wins -- which is what you want: the
+    // crane's hardstanding covers whatever the yard's shed floor was.
+    for (let i = 0; i < zfFloorPatches.length; i++) {
+        const fp = zfFloorPatches[i];
+        const r = zfClip(fp.x, fp.y, fp.w, fp.h, vr);
         if (!r) continue;
-        const key = zoneInfo[z] && zoneInfo[z].tpl ? zoneInfo[z].tpl.key : "centre";
-        ctx.fillStyle = zfPatterns[key] || zfPatterns.centre;
+        ctx.fillStyle = zfPatterns[fp.kind] || zfPatterns.centre;
         ctx.fillRect(r.x, r.y, r.w, r.h);
     }
 

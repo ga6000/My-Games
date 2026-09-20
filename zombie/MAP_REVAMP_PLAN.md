@@ -1,85 +1,62 @@
 # Zombie — the map revamp
 
-**A design proposal. Nothing here is built.** Supersedes and expands §8 of
-`INTENSIFY_PASS_PLAN.md`, which was the first sketch; this is the specific version, written
-2026-09-19 after "I'd like to get more specific and intentional with the design. there can be
-multiple features [per sector] and shape / proportion of each sector can be more distinct /
-standout."
+Supersedes §8 of `INTENSIFY_PASS_PLAN.md`. **Revision 2, 2026-09-19**, after the user read
+revision 1 and asked for: irregular shapes rather than varied rectangles (L, S, H and the like),
+weapon density varying by sector, more on the memorable structures and **how they are actually
+executed**, the maze rebranded as a **shipping container maze in the top-right sector**, and a
+**floor treatment split into interior / exterior / unique structure**.
+
+Build order agreed: **sequence steps 1–4**. Step 5 (the container maze) is deliberately held.
 
 Read `CLAUDE.md` → "Map", "Zones have identity" and "Pathfinding" first. Three live systems
-constrain every idea below and they are listed in §1 before any of it.
+constrain all of this and they are in §1.
 
 ---
 
-## 0. The decision this all hangs on
+## 0. The decision this hangs on
 
-**The map should stop being fully procedural.**
-
-Right now every sector is a 1600×900 rectangle with a template shuffled into it, and that is the
-root cause of the thing the brief is asking to fix. You cannot remember a place whose shape,
-position and contents are all re-rolled. The sniper zone is the one sector anybody can describe,
-and it is the one sector with a rule attached to it.
-
-So: **fixed skeleton, seeded interior.**
+**The map stops being fully procedural.** Fixed skeleton, seeded interior.
 
 | | Fixed, every run | Seeded, per run |
 |---|---|---|
-| Sector shape, size and position | ✅ | |
-| Sector name and landmark | ✅ | |
-| Which gun / perk lives where | ✅ (the 2026-09-19 template binding, now positional) | |
+| Sector shape, size, position | ✅ | |
+| Sector name, landmark, floor treatment | ✅ | |
+| Which gun / perk lives where, and how many | ✅ | |
 | The perimeter and its edge conditions | ✅ | |
 | Sluice, escape, keep | ✅ (already fixed) | |
-| Buildings, cover and crates inside a sector | | ✅ |
-| Barrel and trap placement | | ✅ |
+| Buildings, cover, crates, barrels | | ✅ |
+| Where inside a sector its structures sit | | ✅ |
 | Which two sectors get the funnel halls | | ✅ |
-| Boundary door and window positions along a shared edge | | ✅ |
+| Door and window positions along a shared edge | | ✅ |
 
-That keeps `MP.random()` doing real work and every client still builds the world from one seed —
-the hard constraint is untouched. What changes is that **the skeleton is learnable**: "the crane"
-and "the pipes" mean the same place in every run, the way "the sluice" already does.
+`MP.random()` still does real work and every client still builds from one seed — the hard
+constraint is untouched. What changes is that **the skeleton is learnable**.
 
-It also deletes a whole class of bug. The 2026-09-18 pass found walls inside the funnel room on
-239 of 300 seeds and a gate plate walled off on 68, purely because a fixed landmark was competing
-with procedural geometry for the same ground. A fixed skeleton removes that competition entirely.
-
-**This is the call to make first.** Everything below assumes it. If the answer is no — if the map
-must stay fully procedural — then most of §3 is unbuildable and the honest fallback is just §5's
-landmark pass.
+It also deletes a class of bug: the 2026-09-18 pass found walls inside the funnel room on 239 of
+300 seeds, purely because a fixed landmark competed with procedural geometry for the same ground.
 
 ---
 
-## 1. What the current grid is actually buying
+## 1. What the current grid is buying
 
-Three systems depend on the 3×3, and only one of them depends on it being *rectangles*:
+1. **`zoneHotUntil[9]`** — spawn placement is "which sectors are cold, nearest first". Needs a
+   partition into nine nameable regions and an O(1) point→region lookup. **Not rectangles.**
+2. **Every boundary carries a door and a boarded window.** Needs every neighbouring pair to share
+   a wall run long enough for both (≈320px: a door, a window, and a post between).
+3. **Off-map spawning** is the fallback when nothing is cold. Needs edges zombies walk in through.
+   **This is the one the perimeter can break** — §5.
 
-1. **`zoneHotUntil[9]`** — spawn placement is "which sectors are cold, nearest first". It needs a
-   partition of the map into nine nameable regions and an O(1) point→region lookup. **It does not
-   need rectangles.**
-2. **Every boundary carries a door and a boarded window.** That pairing is the whole segmentation
-   design: there is no sector the horde cannot follow you into, so "start small" can never become
-   "hide in a box". It needs every pair of neighbouring regions to share a wall run long enough to
-   hold both (≈ 320px: a 124–159px door, a 112–151px window, and a post between them).
-3. **Off-map spawning** is the fallback when nothing is cold, and `z.entered` is a one-way leash.
-   It needs edges zombies can walk in through. **This is the one the perimeter proposal can
-   break**, and §4 is mostly about not breaking it.
-
-Plus the hard floor from `CLAUDE.md` rule 3: **no opening narrower than `2*NAV_CELL + 2*NAV_PAD`
-= 78px**, or the flow field stops routing large zombies through it. Every corridor, pipe, pen
-gate and culvert below is sized against that number.
+Hard floor: **no opening narrower than `2*NAV_CELL + 2*NAV_PAD` = 78px**, or the flow field stops
+routing large zombies through it. Every corridor, pipe, gate and culvert below is sized against it.
 
 ---
 
 ## 2. The mechanism: a region paint grid
 
-The thing that makes varied shapes cheap. **A coarse grid of 12 × 9 cells at 400 × 300 px**, each
-cell painted with a region id 0–8. 108 cells over the existing 4800 × 2700 world.
+**12 × 9 cells at 400 × 300px**, each painted with a region id 0–8. 108 cells over the existing
+4800 × 2700 world.
 
 ```js
-// zoneOf() becomes one array read instead of two divisions.
-const ZONE_COLS_FINE = 12, ZONE_ROWS_FINE = 9;
-const ZONE_CELL_W = 400, ZONE_CELL_H = 300;
-const ZONE_PAINT = [ /* 108 ids, the table in §3 */ ];
-
 function zoneOf(x, y) {
     const c = clamp(Math.floor(x / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
     const r = clamp(Math.floor(y / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
@@ -87,318 +64,357 @@ function zoneOf(x, y) {
 }
 ```
 
-What this buys, and why it is the right shape of solution:
+- **Arbitrary rectilinear regions** — crosses, brackets, tongues, stepped ribbons — with no polygon
+  test and no change to the cost of `zoneOf`, which runs per zombie per frame.
+- **Boundaries fall out for free.** Scan for cell pairs whose ids differ; each contiguous run is a
+  wall segment, already axis-aligned, already a multiple of 300 or 400px. The door/window pair goes
+  on the longest run each region pair shares. **Axis-aligned boundaries** is what keeps both solid
+  grids and the existing door/window art working unchanged.
+- **`zoneBounds(i)` becomes a bounding box plus a cell list.** Anything placing an object by
+  picking a point in the bounds must also test `zoneOf(x, y) === i`, or an irregular sector drops
+  crates into its neighbour. Six call sites: `findOpenSpot`, `findOpenSpotSure`,
+  `buildZoneContents`, `placeWallBuys`, `placeCardStations`, `buildFunnelHall`.
+- **The minimap gets silhouettes.** Draw the paint grid tinted per sector and the nine shapes
+  become readable at a glance — which is most of what "features players remember" means in play.
 
-- **Arbitrary rectilinear regions** — L-shapes, long ribbons, stepped edges, pockets — with no
-  polygon test anywhere and no change to the cost of `zoneOf`, which runs per zombie per frame.
-- **Boundaries fall out for free.** Scan the paint for cell pairs whose ids differ; each contiguous
-  run of such edges is a wall segment, already axis-aligned, already a multiple of 300 or 400 px.
-  `buildZoneWalls` walks that list instead of the 3×3 lattice, and the door/window pair goes on
-  the longest run each region pair shares. **Boundaries stay axis-aligned**, which is what keeps
-  the two solid grids, the door art and the window art all working unchanged.
-- **`zoneBounds(i)` becomes a bounding box plus a cell list.** Anything that places an object by
-  picking a point in the bounds must also test `zoneOf(x, y) === i`, or an L-shaped sector will
-  drop crates into its neighbour's ground. That is the one call-site change with teeth:
-  `findOpenSpot`, `findOpenSpotSure`, `buildZoneContents`, `placeWallBuys`, `placeCardStations`,
-  `buildFunnelHall`.
-- **The minimap gets silhouettes.** Draw the paint grid tinted per region and the nine shapes
-  become readable at a glance — which is most of what "recognizable features that players
-  remember" actually means in play. Today the minimap shows nine identical boxes.
-
-**What it costs.** Region adjacency stops being the tidy 3×3 four-neighbour graph: the centre
-ends up bordering seven sectors in the layout below. So `generateLevel` needs a **connectivity
-assert** — every region reachable from the centre through door openings — and the door price
-curve needs a look, because "ring distance from the centre" is no longer a meaningful number
-(§6).
+**Costs.** Adjacency stops being the 3×3 four-neighbour graph (the centre borders six sectors
+here), so generation needs a **connectivity assert**, and door pricing needs replacing (§7).
 
 ---
 
-## 3. The nine sectors
+## 3. The nine sectors — shapes
 
 ```
         col 0    1    2    3    4    5    6    7    8    9   10   11
-      ┌────────────────────────────────────────────────────────────────
-row 0 │  SPL  SPL  CLD  CLD  CLD  KEN  KEN  KEN  YRD  YRD  YRD  YRD
-row 1 │  SPL  SPL  CLD  CLD  CLD  KEN  KEN  KEN  YRD  YRD  YRD  YRD
-row 2 │  SPL  SPL  CLD  CLD  CLD  KEN  KEN  KEN  YRD  YRD  YRD  YRD
-row 3 │  SPL  SPL  TRB  TRB  BLK  BLK  BLK  BLK  YRD  YRD  YRD  YRD
-row 4 │  SPL  SPL  TRB  TRB  BLK  BLK  BLK  BLK  PMP  PMP  YRD  YRD
-row 5 │  SPL  SPL  TRB  TRB  BLK  BLK  BLK  BLK  PMP  PMP  YRD  YRD
-row 6 │  SPL  SPL  TRB  TRB  SLU  SLU  SLU  MTR  MTR  MTR  MTR  MTR
-row 7 │  SPL  SPL  SPL  SLU  SLU  SLU  SLU  MTR  MTR  MTR  MTR  MTR
-row 8 │  SPL  SPL  SPL  SLU  SLU  SLU  SLU  MTR  MTR  MTR  MTR  MTR
+      ┌──────────────────────────────────────────────────────────────
+row 0 │  SPL  SPL  CLD  CLD  CLD  CLD  KEN  KEN  KEN  YRD  YRD  YRD
+row 1 │  SPL  SPL  SPL  CLD  CLD  CLD  KEN  KEN  KEN  YRD  YRD  YRD
+row 2 │  SPL  SPL  SPL  CLD  CLD  BLK  BLK  KEN  KEN  KEN  YRD  YRD
+row 3 │  SPL  SPL  TRB  TRB  TRB  BLK  BLK  BLK  BLK  YRD  YRD  YRD
+row 4 │  SPL  SPL  TRB  BLK  BLK  BLK  BLK  BLK  BLK  PMP  PMP  YRD
+row 5 │  SPL  SPL  TRB  TRB  TRB  BLK  BLK  PMP  PMP  PMP  YRD  YRD
+row 6 │  SPL  SPL  SPL  SPL  SLU  SLU  SLU  MTR  MTR  MTR  YRD  YRD
+row 7 │  SLU  SLU  SLU  SLU  SLU  SLU  SLU  MTR  MTR  YRD  YRD  MTR
+row 8 │  SLU  SLU  SLU  SLU  SLU  SLU  SLU  MTR  MTR  MTR  MTR  MTR
 ```
 
-| | Sector | Cells | Footprint | Proportion |
+| Sector | Cells | Shape | bbox fill | Borders |
 |---|---|---|---|---|
-| SPL | **THE SPILLWAY** | 20 | 800 × 2100, with a 1200-wide foot | **1 : 2.6** — the longest, thinnest thing on the map |
-| CLD | **COLD STORAGE** | 9 | 1200 × 900 | 1.33 : 1 |
-| KEN | **THE KENNELS** | 9 | 1200 × 900 | 1.33 : 1 — *deliberately the same box as CLD* |
-| YRD | **THE YARD** | 20 | 1600 × 1200 with an 800 × 600 arm | **L** — the only sector that wraps a corner |
-| TRB | **TURBINE HALL** | 8 | 800 × 1200 | **1 : 1.5** — a vertical slot |
-| BLK | **THE BLOCKHOUSE** | 12 | 1600 × 900 | 1.78 : 1 — the start |
-| PMP | **PUMP HOUSE** | 4 | 800 × 600 | **the smallest**, crossable in ~4s |
-| SLU | **THE SLUICE YARD** | 11 | stepped, 1600 × 900 → 1200 × 600 | stepped down to the south wall |
-| MTR | **THE MOTOR POOL** | 15 | 2000 × 900 | **2.2 : 1** — the widest, shallowest |
+| **THE SPILLWAY** | 18 | **stepped ribbon** — a two-cell spine with a shelf at the shoulder and a four-cell foot | 64% | 3 |
+| **COLD STORAGE** | 9 | **descending staircase** — 4 wide, then 3, then 2 | 75% | 4 |
+| **THE KENNELS** | 9 | **S-step** — a 3×2 block with its bottom row shifted one east | 75% | 3 |
+| **THE YARD** | 18 | **hourglass with a tongue** — a big north-east block, a one-cell waist, then a spur reaching west *between the Motor Pool's bays* | 75% | 4 |
+| **TURBINE HALL** | 7 | **bracket, opening east** — two arms and a spine, wrapped around the Blockhouse's west arm | 78% | 4 |
+| **THE BLOCKHOUSE** | 14 | **cross** — the most irregular thing on the map | **58%** | 6 |
+| **PUMP HOUSE** | 5 | **boot** — the smallest sector, an L on its side | 62% | 3 |
+| **THE SLUICE YARD** | 17 | **tee** — a wide base along the south wall, a stem rising to the gate plates | 81% | 4 |
+| **THE MOTOR POOL** | 11 | **bracket with a bite** — the Yard's rail spur runs straight through its middle | 73% | 3 |
 
-**Area spread is 4 cells to 20 — five to one.** That is the point: today all nine are identical.
+Area spread **5 cells to 18 — 3.6 to 1**. Bbox fill **58% to 81%**: not one of these is a
+rectangle, and the two most distinctive (the cross and the boot) are the ones you spend the most
+and least time in.
 
-**CLD and KEN are the same box on purpose.** One matched pair makes the other seven read as
-deliberately varied rather than randomly ragged, and it forces those two to be told apart by their
-*contents* — which is the sharper design problem and the more interesting answer.
+**Verified before it was written down** (`shapes.py`, in the scratchpad): all nine contiguous
+4-connected, all nine border at least three others, all reachable from the Blockhouse, 108 of 108
+cells claimed, and every fixed feature lands in the right sector — the keep in BLK, the sluice,
+both gate plates and the escape in SLU.
 
-Everything fixed today still lands where it lands: the keep (620 × 420 at 2090–2710, 1140–1560)
-sits well inside BLK; the sluice (2170–2630, 2170–2490), both gate plates and the escape
-(2310–2490, 2626–2692) all sit inside SLU. Worth an assert at generation rather than a comment.
+### Two interlocks worth keeping
 
-### 3.1 THE SPILLWAY — the pipes
-
-*A 2100px-tall ribbon down the west edge, 800px wide, widening to 1200 at the foot.*
-
-1. **Three parallel stormwater runs, north–south, drawn as actual pipe** — ribbed barrel walls
-   curving away above and below, a painted invert line down the centre of each, and a **graded
-   mouth** at each end: a vertical gradient plus a foreshortened opening, so the floor reads as
-   sloping down into the pipe. The grade is drawn, never simulated — movement is untouched, the
-   same render/sim split `AESTHETIC_GUIDE.md` §6.4 already relies on. Runs are 160px clear
-   (2× the 78px guarantee, and wide enough for two players to pass).
-2. **Grate shafts.** Every ~500px a square of pale light falls from an overhead grate, with the
-   grate's bars drawn as shadow across the floor. Pools of light in an otherwise unlit tube, which
-   is also where you choose to stand and fight.
-3. **The silt trap**, at the foot: a wide sump chamber where the three runs converge, the one open
-   room in the sector, with a low weir wall across it as cover.
-
-**Holds the SNIPER**, as it does today — the runs are the longest uninterrupted sightlines in the
-game, and you can watch something come at you for 2000px. **The feel is commitment**: once you are
-in a run you go forward or back and there is no third option.
-
-### 3.2 COLD STORAGE — the freezer rooms
-
-*A compact 1200 × 900 block, the most regular geometry on the map.*
-
-1. **A grid of freezer rooms** off a central spine corridor — small, square, hard-walled, most
-   standing open and a few shut. The one sector built out of right angles and repetition.
-2. **The frost floor**, which `zombie-floors.js` already draws, carried onto the *walls* as a pale
-   rime line at floor level, so the sector reads cold from any angle.
-3. **Strip curtains** at each room mouth: hanging vertical plastic strips, drawn only. **Not
-   sight-blocking** — see §7 for why that temptation is a trap.
-
-**Holds the RIFLE and RICOCHET.** Flat parallel hard walls everywhere is exactly the geometry
-where a bouncing round is worth a perk slot, and that is the kind of pairing the brief is after:
-the place explains the thing found there.
-
-### 3.3 THE KENNELS — the warren
-
-*The same 1200 × 900 box as COLD STORAGE, and nothing else about it is the same.*
-
-1. **Rows of pens** — the densest cover on the map, many small enclosures with 112px gates. It is
-   the sector where you cannot see more than one row ahead.
-2. **The run**: one long open lane straight down the middle, wall to wall. The only place you can
-   retreat in a straight line, and therefore the whole tactical shape of the sector — you fight in
-   the pens and you leave by the run.
-3. **Chain fencing rather than masonry** on the pen walls, drawn as mesh, so the sector's
-   silhouette on the minimap is dotted where everything else is solid.
-
-**Holds the SHOTGUN.**
-
-### 3.4 THE YARD — the crane
-
-*The largest sector and the only L: 1600 × 1200 across the north-east, with an 800 × 600 arm
-reaching south.*
-
-1. **The gantry crane.** THE landmark. Drawn tall enough to be visible from two sectors away —
-   over the boundary walls, above the sector — so "meet at the crane" works from across the map.
-   This is the single feature that most directly answers the brief.
-2. **A rail spur with flatcars**: long, low, parallel solids forming lanes that run at a different
-   angle from everything else on the map.
-3. **Container stacks** filling the arm, in a layout that is seeded — the one sector whose interior
-   changes noticeably between runs, which is also what stops the biggest sector becoming rote.
-
-**Holds SCAVENGER.**
-
-### 3.5 TURBINE HALL — the slot
-
-*800 × 1200. A vertical slot between the pipes and the keep.*
-
-1. **The generator**, as today, on a raised plinth in the middle of the hall.
-2. **Two turbine housings** flanking it, long and low, dividing the slot into three lanes — so the
-   room you must defend during a Blackout restart has exactly three approaches and you can say out
-   loud which one you are watching.
-3. **Cable runs** overhead and underfoot, drawn as the sector's floor motif, all converging on the
-   plinth.
-
-Its job is inherited from the Blackout mechanic: from 2026-09-18 a Blackout trips the generator
-and the round cannot clear until someone stands here for 5s. **That is a defend-the-point fight,
-and this sector should be shaped for it** — which the current random placement of the generator
-inside a generic zone does not do at all.
-
-### 3.6 THE BLOCKHOUSE — the start
-
-*1600 × 900 at the centre. The keep, the field manual, the horde switch, the first crate.*
-
-Unchanged in substance. Two notes:
-
-1. **It borders seven sectors** in this layout, against three or four today. That is deliberate —
-   "which door do we buy first?" becomes a real opening decision with seven answers instead of
-   two — but it is also the reason the door price curve needs rethinking (§6).
-2. **The horde switch and the manual sit on opposite walls**, as they now do, and the keep should
-   stay the one place on the map with no ambiguity about what each object is.
-
-### 3.7 PUMP HOUSE — the pocket
-
-*800 × 600. Four cells. The smallest sector by a factor of five.*
-
-1. **One machine hall.** Not a region you traverse — a *room* you are in. Four pump housings on a
-   diamond-plate floor, and that is the whole sector.
-2. **A mezzanine walkway** around two sides, drawn above with solid plant beneath, so the space
-   reads as taller than it is wide.
-3. **Standing water** across the floor with the pumps' discharge running through it, which is the
-   visual link to THE SPILLWAY on the far side of the map.
-
-**Holds the FLAMETHROWER and CONDUCTOR.** A tiny hard-walled room is where a short-range cone and
-a trap network are both at their best, and where the flamethrower's new 340-round magazine is
-least punishing.
-
-**Deliberately the one sector that is a single space.** Nine regions that are all "an area with
-stuff in it" is the current failure; one of them being a room is what makes the others read as
-areas.
-
-### 3.8 THE SLUICE YARD — the south wall
-
-*Stepped: 1600 × 900 across the top, dropping to 1200 × 600 against the south perimeter.*
-
-1. **The sluice, the two gate plates and funnel 1**, all at their existing fixed coordinates.
-2. **The south perimeter wall itself** — a real concrete wall, not an invisible world edge — with
-   **the escape gate set into it**. This is worth more than it sounds: the heavy gate and
-   chainlink gate built on 2026-09-19 currently sit in a wall that does not exist, at the bottom
-   of a map that simply stops. Putting them in a wall makes the whole endgame legible.
-3. **A flood channel** running east–west along the base of the wall, dry until THE FLOOD, then
-   running — a visual payoff for the one moment the map is supposed to feel overwhelmed.
-
-### 3.9 THE MOTOR POOL — the long hall
-
-*2000 × 900. The widest, shallowest sector: a horizontal hall you read left to right.*
-
-1. **Service bays in a row**, each a three-walled pocket off the main run — cover you duck into,
-   with one way out, which is the opposite of the pens in THE KENNELS.
-2. **The fuel island** in the middle, carrying most of the map's barrels, as its template already
-   does.
-3. **A wrecked bus** across the eastern end: a landmark, a long piece of cover, and the thing that
-   breaks the sector's one long sightline into two.
-
-**Holds the ROCKET and SALVAGE.**
+- **TURBINE HALL's bracket wraps THE BLOCKHOUSE's west arm.** The generator hall hugs the keep,
+  which is the fiction you want: your power comes from next door, and defending it during a
+  Blackout means holding a bracket with one mouth.
+- **THE YARD's tongue runs between THE MOTOR POOL's bays**, and it is a **rail spur** — the same
+  spur that is one of the Yard's structures. One sector physically reaching into another, with a
+  reason. This is the single clearest "not a grid" signal on the minimap.
 
 ---
 
-## 4. The perimeter — and the spawner problem
+## 4. The nine sectors — structures, and how to draw them
 
-Today `buildZoneWalls` emits no perimeter at all. The map's edge is invisible, and zombies spawn
-past it and walk in.
+The brief: *"talk about the memorable structures more and discuss execution."* So: what each one
+is, and **how a top-down 2D renderer makes it read as a structure rather than a wall**.
 
-**Proposed: two edge conditions.**
+### 4.1 The five execution techniques
 
-- **North and west — deep forest.** A 240px band of scattered trunk solids at low density, inside
-  the map, with no wall. Sightlines break up, movement stays free, and it is visibly a different
-  kind of ground. It touches THE SPILLWAY, COLD STORAGE, THE KENNELS and THE YARD.
+Everything below is built from these, and they are cheap. None needs a new render pass.
+
+| | Technique | What it does | Cost |
+|---|---|---|---|
+| **T1** | **Cast shadow** — a flat offset quad down-right of the footprint, one constant `rgba` | Instantly reads as height. The single highest value-per-byte trick here | one `fillRect` |
+| **T2** | **Offset top face** — draw the top face 6–14px up-left of the base footprint, in a lighter flat colour | A crude axonometric nudge. Taller structure = bigger offset, so offset *encodes* height | 2 `fillRect` |
+| **T3** | **Draw over the boundary wall** — landmarks draw at world level, after walls, culled to the view and not to the sector | Makes a structure visible **from the next sector**, which is what "meet at the crane" requires | ordering only |
+| **T4** | **Minimap glyph** — a 5–7px distinct mark per landmark, not a dot | Turns the minimap from nine boxes into a map you navigate by | one path each |
+| **T5** | **Silhouette on the floor** — the structure's shadow/stain painted into the floor layer, not the entity layer | Survives being off-screen; the ground remembers what stood there | floor pass |
+
+**T1 + T2 together are the whole illusion.** Shadow says "something is above the floor"; the
+offset top face says how far above. Applied consistently in one direction (down-right shadow,
+up-left top face) across every structure on the map, the whole world gains a height read without a
+single new system. `AESTHETIC_GUIDE.md` §6.3 is satisfied because both are **flat fills, no
+gradients** — this is exactly how 1980 raster games faked height.
+
+### 4.2 THE SPILLWAY — the three pipes
+
+*Stepped ribbon down the west edge. **Holds the SNIPER.***
+
+1. **Three parallel storm runs, drawn as pipe.** Each run is a 160px clear channel (2× the 78px
+   guarantee) between two ribbed walls. Execution: the wall is a flat band with **rib ticks every
+   24px** (one `fillRect` each, in a loop already culled to the view), and the **invert line** is a
+   single 2px stripe down the centre of the channel in a darker floor tone. The ribs are what make
+   it read as pipe rather than corridor, and they cost one small rect each.
+2. **Graded mouths.** At each end of a run, a **foreshortened opening**: a trapezoid narrowing into
+   darkness, with three flat bands stepping from floor tone to near-black. That is the grade —
+   drawn, never simulated. Movement is untouched, per the render/sim split.
+3. **Grate shafts** every ~500px: a pale square on the floor with **bar shadows** struck across it
+   (T5 — painted into the floor layer, so it is part of the ground). Pools of light in an unlit
+   tube, and the natural place to stand and fight.
+4. **The silt trap** at the foot: the one open room, with a low weir wall as cover.
+
+### 4.3 COLD STORAGE — the cold room doors
+
+*Descending staircase, north-west. **Holds the RIFLE.***
+
+1. **Heavy insulated doors**, the hero object: a thick slab with a **chrome latch handle** drawn as
+   two bright rects, and a **rime halo** on the floor in front of it. Most stand open, a few shut.
+   The handle is the recognisable bit — 6px of bright metal that reads at a glance.
+2. **A spine corridor** with the rooms off it, the one place on the map built from right angles and
+   repetition.
+3. **Rime at floor level on the walls** — a pale 3px line along the base of every wall in the
+   sector, so it reads cold from any angle without changing the wall art.
+4. **Strip curtains** at each room mouth: hanging vertical plastic strips, **drawn only, not
+   sight-blocking** (§8).
+
+### 4.4 THE KENNELS — the run
+
+*S-step, north-centre. **Holds the SHOTGUN.***
+
+1. **The run**: one long open lane wall to wall, the only straight retreat in the sector, and the
+   whole tactical shape of the place — you fight in the pens and you leave by the run.
+2. **Pens** either side: many small enclosures with 112px gates, the densest cover on the map.
+3. **Chain fence rather than masonry** on the pen walls. Execution: a 1px mesh stroke (the same
+   diamond pattern the escape's chainlink gate already uses) instead of a filled band, so the
+   sector's **minimap silhouette is dotted where everything else is solid** — a free identity cue.
+
+### 4.5 THE YARD — the gantry crane
+
+*Hourglass with a tongue, north-east. **Holds the ROCKET and the SMG — the only two-gun sector.***
+
+1. **The gantry crane. The landmark of the map.** Execution, and this is the one worth doing
+   properly:
+   - Two **leg footprints** ~600px apart, each with a T1 shadow.
+   - A **spanning beam** drawn *between and above* them as a long flat band with a T2 offset of
+     ~14px — the largest offset on the map, which is what makes it the tallest thing.
+   - The beam draws **over the sector boundary wall** (T3), so it is visible from THE KENNELS and
+     THE MOTOR POOL. This is the entire point.
+   - A **hanging block** on a 2px cable, swinging on a slow sine — the only animated landmark.
+   - T4 glyph: a small gantry outline on the minimap.
+2. **The rail spur**, running west out of the sector through its tongue and into THE MOTOR POOL:
+   two parallel rails with sleeper ticks, drawn into the floor layer (T5), and **flatcars** on it
+   as long low solids forming lanes at an angle unlike anything else on the map.
+3. **Container stacks**, seeded, in the north block: 40×20-ish solids in flat saturated colours
+   (the one place the palette is allowed to be loud), each with a T2 top face. **These are the
+   seed of the container maze** (§8) — building them now as ordinary stacks means step 5 is a
+   density and layout change, not new art.
+
+### 4.6 TURBINE HALL — the turbine
+
+*Bracket opening east, wrapped around the keep's west arm. **Holds OVERDRIVE.***
+
+1. **The turbine itself**: a large drum, the sector's hero — a wide flat cylinder body with **end
+   caps** as two darker bands and a T2 top face. It sits across the bracket's spine so you must go
+   around it.
+2. **The generator** on a raised plinth in the bracket's mouth, facing THE BLOCKHOUSE. The Blackout
+   restart (5s standing, from 2026-09-18) is a defend-the-point fight, and the bracket gives it
+   exactly one mouth to watch — which the current random placement in a generic zone does not.
+3. **Cable runs** converging on the plinth, painted into the floor (T5): thick dark lines that all
+   point at the thing you have to defend. Wayfinding drawn as decoration.
+
+### 4.7 THE BLOCKHOUSE — the keep
+
+*Cross, centre. The start. **No wall-buy, no perk station** — you leave to arm yourself.*
+
+1. The keep, the field manual, the horde switch, the first crate, unchanged.
+2. **It borders six sectors.** "Which door first?" becomes a real opening decision with six
+   answers. This is also why door pricing must change (§7).
+3. **The four arms of the cross are the approaches**, each ending at a boundary — so the shape
+   itself teaches the map: the sector you start in points at the ones you can buy into.
+
+### 4.8 PUMP HOUSE — the pump bank
+
+*Boot, the smallest sector. **Holds the FLAMETHROWER.***
+
+1. **One machine hall.** Not a region you traverse — a **room you are in**, crossable in about four
+   seconds. Deliberately the one sector that is a single space: nine regions that are all "an area
+   with stuff in it" is the current failure, and one of them being a room is what makes the rest
+   read as areas.
+2. **The pump bank**: four housings in a row, each a body plus a **volute spiral** drawn as three
+   nested arcs — the one curved motif on a map of right angles.
+3. **Standing water** across the floor with discharge running through it, which is the visual link
+   to THE SPILLWAY on the far side of the map.
+
+A tiny hard-walled room is where a short-range cone is at its best and where the flamethrower's
+340-round magazine is least punishing.
+
+### 4.9 THE SLUICE YARD — the south wall
+
+*Tee along the southern perimeter. **No gun** — it is the endgame's room.*
+
+1. The sluice, both gate plates and funnel 1, at their existing fixed coordinates, in the stem.
+2. **The south perimeter wall**, with **the escape gate set into it**. The heavy gate and chainlink
+   gate built on 2026-09-19 currently sit in a wall that does not exist, at the bottom of a map
+   that simply stops. Putting them in a wall is most of what makes the endgame legible.
+3. **A flood channel** along the base of the wall, dry until THE FLOOD and then running — a payoff
+   for the one moment the map is meant to feel overwhelmed.
+
+### 4.10 THE MOTOR POOL — the bays and the bus
+
+*Bracket with the Yard's rail spur through it. **No gun, two perk stations** — the richest sector
+for perks and the poorest for guns.*
+
+1. **Service bays in a row**, each a three-walled pocket off the main run: cover you duck into,
+   with one way out — the exact opposite of the pens in THE KENNELS.
+2. **The wrecked bus** across the eastern end: a landmark, a long piece of cover, and the thing
+   that breaks the sector's one long sightline into two. Execution: a 240×60 body, **window band**
+   as a row of dark rects, a T1 shadow, and a T2 top face — three fills and a loop.
+3. **The fuel island** in the middle, carrying most of the map's barrels as its template already
+   does.
+
+---
+
+## 5. Weapon and perk density varies by sector
+
+Asked for: *"some areas can have slightly more weapons etc."* Today it is rigidly one gun in each
+of six sectors and one perk station in each of eight. Now it is a **per-sector budget**, so a
+sector can be worth travelling to:
+
+| Sector | Guns | Perk stations | Why |
+|---|---|---|---|
+| THE YARD | **2** — ROCKET, SMG | 2 | Biggest sector, the maze's future home, and the furthest from the keep |
+| COLD STORAGE | 1 — RIFLE | 1 | The cheap first upgrade, close to the start |
+| THE KENNELS | 1 — SHOTGUN | 1 | |
+| THE SPILLWAY | 1 — SNIPER | 1 | |
+| PUMP HOUSE | 1 — FLAMETHROWER | 0 | Small, and it already holds a heavy gun |
+| THE MOTOR POOL | 0 | **2** | The perk sector. Richest in barrels, poorest in guns |
+| TURBINE HALL | 0 | 1 — OVERDRIVE | Always present, thematically the power |
+| THE SLUICE YARD | 0 | 0 | The endgame's room; nothing competes with it |
+| THE BLOCKHOUSE | 0 | 0 | You leave to arm yourself |
+| | **6** | **8** | unchanged totals |
+
+Totals are unchanged, so **no balance number moves** — only where they sit. The distribution is
+the point: two sectors are worth a trip, two are deliberately bare.
+
+---
+
+## 6. The perimeter — and the spawner problem
+
+Today `buildZoneWalls` emits no perimeter at all. The map's edge is invisible.
+
+- **North and west — deep forest.** A 240px band of scattered trunk solids at low density, *inside*
+  the map, no wall. Touches THE SPILLWAY, COLD STORAGE, THE KENNELS, THE YARD.
 - **South and east — a hard concrete perimeter wall.** The escape gate is set into the southern
   one; THE YARD and THE MOTOR POOL back onto the eastern one.
 
-### The thing that will break if this is done carelessly
+### What will break if this is done carelessly
 
 Off-map spawning is the fallback when no sector is cold. **Walling two sides removes half the
-map's spawn frontier**, and a team camped in THE MOTOR POOL — the far south-east corner, ~3,900px
-from the nearest forest — would face a contact time far worse than anything measured today. That
-is the same trap the zone-cooldown system already hit once: `CLAUDE.md` records a permanent
-"visited" flag doubling contact time to 25.6s exactly when rounds should be hardest, which also
-made opening the map *easier*, backwards.
+spawn frontier**, and a team camped in THE MOTOR POOL — far south-east, ~3,900px from the nearest
+forest — would face a contact time far worse than anything measured. Same trap the zone cooldown
+already hit: `CLAUDE.md` records a permanent "visited" flag doubling contact time to 25.6s exactly
+when rounds should be hardest, which also made opening the map *easier*, backwards.
 
-**Two mitigations, and both are needed:**
+**Two mitigations, both needed:**
 
-1. **The forest is a spawn reservoir, not an off-map region.** Because it is *inside* the map,
-   `pickSpawnPoint` gets a real source with real cover instead of "somewhere past the edge", and
-   `z.entered` has less work to do. Forest cells count as cold unless a player is in or beside
-   them, like any other ground.
-2. **Culverts in the hard wall.** Grated mouths at intervals along the south and east perimeter —
-   sized at or above the 78px guarantee, drawn as pipe ends to rhyme with THE SPILLWAY — that
-   zombies come out of. The wall stays a wall and stays readable as one, and the spawn frontier
-   stays wrapped all the way around the map. Culverts are also a far better *telegraph* than the
-   map edge: you can see the thing you are about to be flanked from.
+1. **The forest is a spawn reservoir, not an off-map region.** Being *inside* the map gives
+   `pickSpawnPoint` a real source with real cover instead of "somewhere past the edge", and
+   `z.entered` has less to do. Forest cells are cold unless a player is in or beside them.
+2. **Culverts in the hard wall** — grated mouths at intervals along the south and east perimeter,
+   at or above the 78px guarantee, drawn as pipe ends to rhyme with THE SPILLWAY. The wall stays a
+   wall and the spawn frontier stays wrapped all the way around. Culverts also **telegraph** far
+   better than the map edge: you can see the thing you are about to be flanked from.
 
-**Measure before committing.** Re-run the existing contact-time benchmark (`CLAUDE.md` →
-"Pacing, measured": 11.3s round 1, 12.8s late game) from a camp in every sector, not just the
-centre. If MOTOR POOL or THE YARD measure much worse than 12.8s, add culverts until they do not.
+**Measure before committing.** Re-run the contact-time benchmark (`CLAUDE.md` → "Pacing,
+measured": 11.3s round 1, 12.8s late) from a camp in **every** sector. If MOTOR POOL or THE YARD
+measure much worse than 12.8s, add culverts until they do not.
 
 ---
 
-## 5. If the fixed skeleton is rejected
+## 7. Floors: interior / exterior / unique
 
-The one part of this that works on a procedural map, and it is still worth doing on its own:
+Asked for as a side note, and it is the change that will do the most for how the map reads:
+*"limit drawing of floor tiles to interior spaces or only where they should apply. There should be
+an interior / exterior / unique structure treatment."*
 
-**One landmark per sector, drawn big, placed by the existing template system.** A water tower, a
-crane, a collapsed gantry, a rail spur, a chimney. Tall enough to be visible over boundary walls
-and drawn on the minimap. Bound to the template (as guns and perks now are, since 2026-09-19), so
-"the crane is in the yard" stays true even though the yard moves.
+Today `drawZoneFloors` paints a sector's **entire rect** with one tile. So freezer tile runs across
+open ground, carpet runs under a rail spur, and every sector is a flat wash of one texture. That is
+why the areas still read faintly even after the 2026-09-18 floor pass.
 
-That gets maybe half the memorability for a tenth of the work, and it is compatible with
-everything that exists today.
+**Three layers, painted in order:**
 
----
+| Layer | What | Where |
+|---|---|---|
+| **EXTERIOR** | the sector's open-ground base — dirt, gravel, asphalt apron, concrete slab. Flat, low-contrast, little pattern | everywhere in the sector, first |
+| **INTERIOR** | the existing per-template tiles — freezer tile, lino checker, floorboards, carpet, terrazzo | **only inside a room or building footprint** |
+| **UNIQUE** | per-structure treatments — pipe invert and rib shadow, drain slab, diamond plate on the pump deck, rail sleepers, crane hardstanding, bay stripes | only under the structure that owns it |
 
-## 6. Consequences to work through before building
+**Mechanism.** The level already claims footprints (`claimFloor`, `keepClearRects`). Add a parallel
+**`floorPatches = [{x, y, w, h, kind}]`**, pushed by whatever builds the room or structure, and
+have `drawZoneFloors` paint exterior first and then the patches over it, culled to the view like
+everything else. The tile *generators* in `zombie-floors.js` do not change at all — only **where**
+they are painted, plus the new exterior and unique tiles.
 
-- **Door pricing.** `d.cost = 900 + 350 * max(ringA, ringB)` is ring distance from the centre in a
-  3×3. With irregular regions and a centre that borders seven of them, "ring" stops meaning
-  anything. Replace it with **graph distance from THE BLOCKHOUSE through door openings**, computed
-  once at generation — which is what ring distance was approximating anyway.
-- **Seven doors out of the keep** is a much wider opening decision than two. Good for choice,
-  but the early economy was tuned against a narrower one. Re-measure the round 1–5 scrap curve.
-- **`zoneBounds` callers must test `zoneOf`**, or L-shaped sectors leak their contents into
-  neighbours. Six call sites, listed in §2.
-- **Funnel halls need 560 × 280 plus clearance.** PUMP HOUSE (800 × 600) and TURBINE HALL
-  (800 × 1200) cannot hold one. `planFunnelHalls` must exclude sectors that cannot fit a hall
-  rather than discovering it through its fallback path.
-- **`ZONE_FLOOR_TINT` and `zombie-floors.js`** are per-template and keep working unchanged, but
-  with fixed sectors the tint becomes part of each sector's identity rather than a per-run
-  accident — which is a gain, and worth picking the nine deliberately as a palette.
-- **A connectivity assert at generation.** Every region reachable from the centre through door
-  openings. Cheap, and it is the check that would have caught the 2026-09-18 walled-off gate plate.
+This also fixes something that is a bug today: a building's interior and the ground outside it are
+currently the same texture, so a wall is the only thing telling you that you are indoors.
 
 ---
 
-## 7. The hedge maze — why it is not in §3
+## 8. The container maze — held, and why it is containers
 
-It was in the brief and it is a good instinct, but it is a **pathfinding and visibility change
-wearing a decoration's hat**, and it would be the most expensive item here:
+Agreed to hold. When it comes, it is **a shipping container maze in THE YARD** (top right), not a
+hedge maze — the user's call, and the better one:
 
-- **Sight-blocking but walkable needs a third solid set.** The game has two
-  (`solidGridPlayer`, `solidGridZombie`) and gained a third *view* for bullets on 2026-09-19
-  (`bulletBlockedAt`). A fourth concept — blocks line of sight, blocks nothing else — means
-  touching `navClearLine`, `visibleToAnyone` and the lighting, and `visibleToAnyone` is what stops
-  zombies spawning in shot you are looking at.
-- **Solid and walkable is much cheaper** and is just a warren — which THE KENNELS already is, and
-  doing it twice would weaken both.
-- If it is built anyway, build it **solid, sight-blocking by virtue of being solid, and
-  generously wide**: 160px lanes, not 90, and re-run the traversal measurement from
-  `CLAUDE.md` → "Measured again (2026-09-18)" for every zombie type including the ULTRA HEAVY.
-  A maze of minimum-width corridors is precisely the geometry the flow field is worst at.
+- **The Yard already has container stacks** as a §4.5 structure, so the maze is a *density and
+  layout* change to something already on the map, not new art and not a new sector.
+- **Containers are solid and sight-blocking by being solid**, which sidesteps the whole problem a
+  hedge maze has: sight-blocking-but-walkable needs a fourth notion of solidity (there are two
+  solid grids, and bullets gained a third *view* on 2026-09-19 with `bulletBlockedAt`).
+- Containers are **rectilinear**, so they cost the flow field nothing that walls do not already
+  cost, and they can be laid out on the paint grid's own 400×300 rhythm.
 
-The strip curtains in COLD STORAGE (§3.2) are drawn-only for exactly this reason.
+**When it is built:** lanes at **160px, not 90** — a maze of minimum-width corridors is exactly the
+geometry the flow field is worst at — and re-run the traversal measurement from `CLAUDE.md` →
+"Measured again (2026-09-18)" for every type including the ULTRA HEAVY. The Yard holding the ROCKET
+and the SMG (§5) is deliberate preparation: one gun for the lanes, one for what comes down them.
+
+The strip curtains in COLD STORAGE (§4.3) are drawn-only for the same reason.
 
 ---
 
-## 8. Sequencing
+## 9. Consequences to work through
 
-Each step is playable on its own, and each one is worth having even if the next never happens.
+- **Door pricing.** `d.cost = 900 + 350 * max(ringA, ringB)` is ring distance in a 3×3. With
+  irregular regions and a centre bordering six, "ring" means nothing. Replace with **graph
+  distance from THE BLOCKHOUSE through door openings**, computed once at generation — which is
+  what ring distance was approximating.
+- **Six doors out of the keep** is a wider opening decision than two. Re-measure the round 1–5
+  scrap curve.
+- **`zoneBounds` callers must test `zoneOf`** — six sites, §2.
+- **Funnel halls need 560 × 280 plus clearance.** PUMP HOUSE (5 cells) and TURBINE HALL (7, a
+  bracket) cannot hold one. `planFunnelHalls` must exclude sectors that cannot fit a hall rather
+  than discovering it through its fallback.
+- **A connectivity assert at generation** — every region reachable from the centre through door
+  openings. It is the check that would have caught the 2026-09-18 walled-off gate plate.
 
-1. **The paint grid and the nine shapes**, with the existing template contents dropped into them
-   unchanged. No new art. This is the step that proves `zoneOf`, the boundary scan, the
-   `zoneBounds` call sites and the connectivity assert, and it is the one that can break the most.
-   Play it before going further — the shapes alone change how the map feels.
-2. **The perimeter and the culverts**, with the contact-time benchmark re-run from a camp in every
-   sector. The only step that can break the spawner.
-3. **Landmarks** — one per sector, drawn big and on the minimap. Pure generation plus draw.
-4. **Sector interiors**, one sector per session, in the order they are most visited: THE
-   BLOCKHOUSE's neighbours first, THE SPILLWAY's pipes as the flagship.
-5. **The hedge maze**, only if §7's cost is still acceptable after 1–4.
+---
 
-Item 7 of the 2026-09-19 pass (guns and perks bound to templates) is a prerequisite for all of it,
-and it has landed. A sector is memorable when a known thing lives there.
+## 10. Sequencing — building 1 to 4
+
+1. **The paint grid and the nine shapes**, existing template contents dropped in unchanged. Proves
+   `zoneOf`, the boundary scan, the `zoneBounds` call sites and the connectivity assert. The step
+   that can break the most.
+2. **The perimeter and the culverts**, with the contact-time benchmark re-run from every sector.
+   The only step that can break the spawner.
+3. **Landmarks** — one hero structure per sector, using T1–T5, plus the minimap glyphs.
+4. **Sector interiors and the three floor layers** — the rest of §4, and §7.
+5. ~~The container maze.~~ **Held** (§8).
+
+Item 7 of the 2026-09-19 pass (guns and perks bound to sectors) is the prerequisite, and it landed.
