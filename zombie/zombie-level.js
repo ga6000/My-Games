@@ -66,13 +66,18 @@ let zoneHotUntil = [];  // deadline per zone; spawn-eligible once past it
 //
 //        SPL SPL CLD CLD CLD CLD KEN KEN KEN YRD YRD YRD
 //        SPL SPL SPL CLD CLD CLD KEN KEN KEN YRD YRD YRD
-//        SPL SPL SPL CLD CLD BLK BLK KEN KEN KEN YRD YRD
+//        SPL SPL SPL CLD CLD BLK BLK KEN KEN YRD YRD YRD
 //        SPL SPL TRB TRB TRB BLK BLK BLK BLK YRD YRD YRD
 //        SPL SPL TRB BLK BLK BLK BLK BLK BLK PMP PMP YRD
 //        SPL SPL TRB TRB TRB BLK BLK PMP PMP PMP YRD YRD
 //        SPL SPL SPL SPL SLU SLU SLU MTR MTR MTR YRD YRD
 //        SLU SLU SLU SLU SLU SLU SLU MTR MTR YRD YRD MTR
 //        SLU SLU SLU SLU SLU SLU SLU MTR MTR MTR MTR MTR
+//
+// THE YARD owns (col 9, row 2) so that cols 9-11 x rows 0-3 is an unbroken
+// 1200x1200 block -- that rectangle is the container maze's ground, and
+// without it the maze was five boxes scattered over an hourglass. It costs
+// THE KENNELS one cell (9 -> 8) and leaves it an L rather than an S-step.
 //
 // Two interlocks are deliberate and should survive any edit:
 //   - TURBINE HALL is a bracket WRAPPED AROUND the Blockhouse's west arm,
@@ -100,7 +105,7 @@ const Z_SPILLWAY = 0, Z_COLD = 1, Z_KENNELS = 2, Z_YARD = 3, Z_BLOCKHOUSE = 4,
 const ZONE_PAINT = [
     0,0,1,1,1,1,2,2,2,3,3,3,
     0,0,0,1,1,1,2,2,2,3,3,3,
-    0,0,0,1,1,4,4,2,2,2,3,3,
+    0,0,0,1,1,4,4,2,2,3,3,3,
     0,0,5,5,5,4,4,4,4,3,3,3,
     0,0,5,4,4,4,4,4,4,6,6,3,
     0,0,5,5,5,4,4,6,6,6,3,3,
@@ -989,6 +994,10 @@ function generateLevel() {
     // nobody can find is not a landmark: placed after the buildings, the
     // crane failed to fit on 25 maps in 40.
     placeLandmarks();
+    // The maze is what THE YARD IS, so it places with the hero structures
+    // rather than after the generic buildings -- at the back of the queue
+    // only 0.5 containers of ~20 ever went down, which is not a maze.
+    buildContainerMaze();
     buildZoneContents();
     // AFTER the sluice (the south wall has to know where the escape gate is,
     // so it does not put a culvert beside it) and AFTER the zone contents.
@@ -1498,32 +1507,146 @@ function buildYardSpur() {
         walls.push({ x: fx, y: Math.round(y + 28), w: fw, h: fh });
     }
 
-    // Container stacks in the north block -- SEEDED, and the seed of the
-    // shipping-container maze (MAP_REVAMP_PLAN.md 8). Building them as
-    // ordinary stacks now means that step is a density and layout change
-    // rather than new art.
+}
+
+// --- THE CONTAINER MAZE (2026-09-19, sequence step 5) ----------------
+// A shipping container maze in THE YARD, which is the user's call and the
+// better one. A hedge maze would have needed a FOURTH notion of solidity
+// -- there are two solid grids and bullets gained a third view on
+// 2026-09-19 (bulletBlockedAt) -- because "blocks sight, blocks nothing
+// else" is not something this engine has. Containers are sight-blocking
+// BY BEING SOLID, they are rectilinear so they cost the flow field nothing
+// that walls do not already cost, and the Yard was already stacking them.
+//
+// IT IS BRAIDED, NOT PERFECT, AND THAT IS THE WHOLE DESIGN.
+// A perfect maze -- one route between any two points -- is precisely the
+// geometry the flow field is worst at: dead ends that zombies path into
+// and stall in, and `relocateZombie` papering over it. So this is a
+// STAGGERED BAFFLE layout instead:
+//
+//   - every horizontal lane runs the full width, uninterrupted
+//   - vertical movement happens through the GAPS between containers
+//   - consecutive rows are offset, so no two gaps line up
+//
+// You can always run; you can never see far; and there are no dead ends by
+// construction. Which is also what a real container yard is.
+//
+// MAZE_LANE is 140: 1.8x the 78px nav guarantee, four times the widest
+// body (the ULTRA HEAVY, 34px), and wide enough for two players to pass.
+// The plan called for 160 and that was the right instinct -- a maze of
+// minimum-width corridors is the one thing not to build -- but at a 220
+// pitch THE YARD's usable rectangle only holds a 4x6 grid, and after the
+// boundary-door reserves and the sector's own irregular west edge that
+// came out as FOUR containers a map. Four containers is not a maze.
+//
+// 140 + 50 is a 190 pitch, which fits 5 x 8 over the same ground. The
+// guarantee still clears by 62px, and the traversal measurement below is
+// what says that is really true rather than arithmetic that looks true.
+const MAZE_LANE = 140;
+const MAZE_DEPTH = 50;                       // a container across its short side
+const MAZE_PITCH = MAZE_LANE + MAZE_DEPTH;   // 190
+
+function buildContainerMaze() {
     yardContainers = [];
-    for (let i = 0; i < 20; i++) {
-        for (let tries = 0; tries < 10; tries++) {
-            const cw = MP.random() < 0.5 ? 150 : 90;
-            const ch = cw === 150 ? 60 : 100;
-            const cx = Math.round(b.x + 80 + MP.random() * Math.max(1, b.w - 160 - cw));
-            const cy = Math.round(b.y + 80 + MP.random() * Math.max(1, b.h - 160 - ch));
-            if (!inZone(cx, cy, Z_YARD) || !inZone(cx + cw, cy + ch, Z_YARD)) continue;
-            if (clashesReserved({ x: cx - 40, y: cy - 40, w: cw + 80, h: ch + 80 })) continue;
-            if (blockedAtStatic(cx - 20, cy - 20, Math.max(cw, ch) + 40)) continue;
-            const c = { x: cx, y: cy, w: cw, h: ch, hue: Math.floor(MP.random() * 5) };
-            walls.push({ x: cx, y: cy, w: cw, h: ch });
-            yardContainers.push(c);
-            // 48 is a lane and a half between stacks: enough that two of
-            // them cannot box the ground between them, and tight enough
-            // that the yard actually looks stacked. At 90 only 2 of 14
-            // containers ever placed, which is not a container yard.
-            reservedRects.push({ x: cx - 48, y: cy - 48, w: cw + 96, h: ch + 96 });
-            break;
+    const b = zoneBounds(Z_YARD);
+
+    // The maze fills the Yard's northern TWO THIRDS -- below the forest
+    // band, inside the east perimeter wall, and clear of the western
+    // boundary's door and window reserves (which run 150px deep and ate
+    // the first column of every row when this started at b.x + 20).
+    //
+    // 1090 x 1500 at a 220 pitch is a 4 x 6 grid. It was 5 x 4 over the
+    // north block alone, which is 8 attempts a map: not a maze, a few
+    // crates. The Yard is 18 cells and tall, so the maze uses the height.
+    // THE YARD'S SOLID NORTH-EAST RECTANGLE, not the whole sector.
+    //
+    // Spread across all 18 cells the maze came out as five containers
+    // scattered over 1,000 x 1,500 -- measured at 37% of attempts thrown
+    // out by inZone, because the sector is an hourglass and its western
+    // column belongs to it on only three of eight rows. Five boxes spread
+    // that thin is a scatter, not a maze.
+    //
+    // Cols 10-11 rows 0-3 is 800 x 1,200 of unbroken Yard, and a container
+    // yard is a DENSE BLOCK anyway -- that is what one looks like. Same
+    // container count in a third of the ground reads as something you have
+    // to pick your way through.
+    const x0 = b.x + 200;
+    const y0 = Math.max(b.y + 20, FOREST_BAND + 40);
+    const x1 = b.x + b.w - 30;
+    const y1 = Math.min(b.y + b.h - 20, 1200);
+
+    const cols = Math.floor((x1 - x0) / MAZE_PITCH);
+    const rows = Math.floor((y1 - y0) / MAZE_PITCH);
+    if (cols < 2 || rows < 2) return;
+
+    for (let r = 0; r < rows; r++) {
+        // Offset every other row by half a pitch, so a gap in one row never
+        // sits above a gap in the next. That is what makes it a maze rather
+        // than a grid of pillars you can see straight through.
+        const rowShift = (r % 2) * Math.round(MAZE_PITCH / 2);
+        const y = Math.round(y0 + r * MAZE_PITCH + MAZE_LANE);
+
+        // Decide the whole row FIRST, then merge neighbours into runs. The
+        // first version stepped run-then-gap and so only ever attempted two
+        // containers in a four-slot row -- 12 attempts a map, which is a few
+        // crates rather than a maze.
+        const fill = [];
+        for (let i = 0; i < cols; i++) fill.push(MP.random() < 0.66);
+        // A row with no gap in it is a wall across the sector. Never.
+        let anyGap = false;
+        for (let i = 0; i < cols; i++) if (!fill[i]) anyGap = true;
+        if (!anyGap) fill[Math.floor(MP.random() * cols)] = false;
+
+        let c = 0;
+        while (c < cols) {
+            if (!fill[c]) { c++; continue; }
+            // Adjacent slots merge into one longer container, capped at
+            // three (a 500px box, about a 40ft container at this scale).
+            // Capped at TWO, not three. A three-slot run is 430px long and
+            // at that length it straddles the sector's edge or a reserved
+            // rect and is thrown away whole -- one long container lost takes
+            // an entire row of the maze with it. Two is a 240px box, which
+            // is a shipping container anyway.
+            let run = 0;
+            while (c + run < cols && fill[c + run] && run < 2) run++;
+            const x = Math.round(x0 + c * MAZE_PITCH + rowShift);
+            const w = run * MAZE_PITCH - MAZE_LANE;
+            // >= MAZE_DEPTH, not a literal 60. A single-slot container is
+            // exactly MAZE_DEPTH wide (pitch minus lane), so when the pitch
+            // was retuned from 220/60 to 190/50 the old `w >= 60` silently
+            // threw away EVERY single-slot container and only two-slot runs
+            // were ever attempted. That is the whole reason the maze kept
+            // coming out as one or two boxes.
+            if (w >= MAZE_DEPTH && x + w <= x1) placeContainer(x, y, w, MAZE_DEPTH);
+            c += run;
         }
     }
 }
+
+// One container. Skipped rather than forced: a container that cannot go
+// down leaves a wider lane, which is never a problem, whereas one forced
+// onto reserved ground can wall off the crane or a wall-buy.
+function placeContainer(x, y, w, h) {
+    if (!inZone(x, y, Z_YARD) || !inZone(x + w, y, Z_YARD) ||
+        !inZone(x, y + h, Z_YARD) || !inZone(x + w, y + h, Z_YARD)) return;
+    // The bare footprint, with no margin: the 160px lanes either side ARE
+    // the clearance, and a 26px margin on every side quietly adds 52 to the
+    // pitch and halves how many containers fit.
+    if (clashesReserved({ x: x, y: y, w: w, h: h })) return;
+    // rectBlockedStatic, NOT blockedAtStatic: the latter takes a square
+    // `size`, so a 440px container was being tested as a 468x468 block and
+    // almost nothing placed. Exactly the trap the gantry crane hit.
+    if (rectBlockedStatic({ x: x - 14, y: y - 14, w: w + 28, h: h + 28 })) return;
+
+    walls.push({ x: x, y: y, w: w, h: h, container: true });
+    yardContainers.push({ x: x, y: y, w: w, h: h, hue: Math.floor(MP.random() * 5) });
+    // Only the footprint is reserved, NOT a margin: the lanes between
+    // containers are the point, and reserving them would stop the next row
+    // going down at all.
+    reservedRects.push({ x: x, y: y, w: w, h: h });
+    if (typeof zfPatch === "function") zfPatch(x - 10, y - 10, w + 20, h + 20, "hardstand");
+}
+
 let yardSpur = null;
 let yardContainers = [];
 
@@ -1612,7 +1735,19 @@ function addLandmark(zone, kind, w, h, lift) {
     // single biggest source of unreachable nav cells once the landmarks
     // went in (9 -> 105 across 25 seeds). Wider clearance also reads
     // better: a hero structure wants room around it.
-    reservedRects.push({ x: lm.x - 130, y: lm.y - 130, w: w + 260, h: h + 260 });
+    //
+    // THE CRANE IS THE EXCEPTION and reserves only its LEGS. A gantry crane
+    // spans a container yard -- that is what a gantry crane is for -- so
+    // containers belong under its beam, and reserving the whole 420x150
+    // span took roughly a third of the maze's ground and left 1.2
+    // containers a map. The beam is overhead and you walk under it; only
+    // the legs are collision (see addLandmark above).
+    if (kind === "crane") {
+        reservedRects.push({ x: lm.x - 70, y: lm.y - 70, w: 30 + 140, h: h + 140 });
+        reservedRects.push({ x: lm.x + w - 30 - 70, y: lm.y - 70, w: 30 + 140, h: h + 140 });
+    } else {
+        reservedRects.push({ x: lm.x - 130, y: lm.y - 130, w: w + 260, h: h + 260 });
+    }
     claimFloor(lm.x, lm.y, w, h, 40);
     // UNIQUE floor: every landmark stands on hardstanding, which is what
     // stops it looking like it was dropped on dirt.
@@ -2381,13 +2516,24 @@ const HALL_HOMES = ["spill", "pump", "slag", "pool", "motor", "turbine"];
 // buildFunnelHall's fallback path (which drops the hall and leaves a bare
 // funnel ring) was how a map ended up with a silo in open ground.
 // HALL_MIN_CELLS excludes them up front instead.
-const HALL_MIN_CELLS = 10;
+// 9, not 10. Excluding THE YARD (it has the maze) left only THE SPILLWAY
+// and THE MOTOR POOL eligible -- exactly two candidates for exactly two
+// halls, so a single failure cost a hall and the rate fell to 1.88 a map.
+// COLD STORAGE at 9 cells is a real third option.
+const HALL_MIN_CELLS = 9;
 
 function planFunnelHalls() {
     const cands = [];
     for (let i = 0; i < ZONE_COUNT; i++) {
         if (i === Z_BLOCKHOUSE || i === SLUICE_ZONE || !zoneInfo[i]) continue;
         if (zoneCellCount(i) < HALL_MIN_CELLS) continue;
+        // NOT THE YARD. Its unbroken 1200x1200 block is the container
+        // maze's ground, and a funnel hall reserves 780x500 of it -- which
+        // is half the maze, on the two thirds of maps that put a hall
+        // there. A sector with a job does not get a second one.
+        // finishFunnelsAndSilos can still fall back to the Yard if a hall
+        // genuinely cannot go anywhere else.
+        if (i === Z_YARD) continue;
         cands.push(i);
     }
     const order = seededShuffle(cands);

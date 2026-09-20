@@ -505,7 +505,9 @@ function draw() {
     drawDecoys(now);
     drawWalls(inView);
     // AFTER the walls on purpose (T3): a landmark has to be visible from
-    // the sector next door or it cannot be a landmark.
+    // the sector next door or it cannot be a landmark. The containers go
+    // first so a crane leg standing among them draws over them.
+    drawContainers(inView);
     drawLandmarks(now, inView);
     drawDoors(inView);
     drawBarricades(inView);
@@ -1122,6 +1124,58 @@ function drawMinimapLandmarks(ox, oy, sx, sy) {
         ctx.stroke();
     }
     ctx.restore();
+}
+
+// ---------------------------------------------------
+//   THE CONTAINER MAZE  (2026-09-19)
+// ---------------------------------------------------
+// THE YARD's shipping containers, drawn over the plain wall the collision
+// grid already knows about. Same two flat fills as the landmarks -- a cast
+// shadow down-right and a top face offset up-left -- at a small `lift`,
+// because a container is a box on the ground, not a gantry.
+//
+// This is the ONE PLACE ON THE MAP WHERE THE PALETTE IS ALLOWED TO BE
+// LOUD. Everything else lives in the ember world hue and greys
+// (AESTHETIC_GUIDE 2.5); a container yard that is not a jumble of colours
+// does not read as a container yard, and the contrast is exactly what
+// makes the Yard recognisable from across the map and on the minimap.
+const CONTAINER_LIFT = 6;
+const CONTAINER_HUES = [
+    { base: "#6B2418", top: "#8E3320", edge: "#B4462C" },   // rust red
+    { base: "#1C4257", top: "#2A5D79", edge: "#3E7D9E" },      // sea blue
+    { base: "#3F4A1E", top: "#57662A", edge: "#77893C" },      // olive
+    { base: "#5A4412", top: "#7A5C1A", edge: "#9E7826" },      // ochre
+    { base: "#3A3A42", top: "#50505C", edge: "#6E6E7C" }       // weathered grey
+];
+
+function drawContainers(inView) {
+    if (typeof yardContainers === "undefined") return;
+    for (let i = 0; i < yardContainers.length; i++) {
+        const c = yardContainers[i];
+        if (!inView(c.x - 12, c.y - 12, c.w + 24, c.h + 24)) continue;
+        const col = CONTAINER_HUES[c.hue % CONTAINER_HUES.length];
+
+        ctx.fillStyle = LM_SHADOW;
+        ctx.fillRect(c.x + CONTAINER_LIFT, c.y + CONTAINER_LIFT, c.w, c.h);
+        ctx.fillStyle = col.base;
+        ctx.fillRect(c.x, c.y, c.w, c.h);
+        ctx.fillStyle = col.top;
+        ctx.fillRect(c.x - CONTAINER_LIFT, c.y - CONTAINER_LIFT, c.w, c.h);
+
+        // Corrugation: the vertical ribbing is what makes a coloured box a
+        // shipping container. Every 10px, one flat darker line.
+        ctx.fillStyle = col.base;
+        const tx = c.x - CONTAINER_LIFT, ty = c.y - CONTAINER_LIFT;
+        if (c.w >= c.h) {
+            for (let rx = tx + 6; rx < tx + c.w - 4; rx += 10) ctx.fillRect(rx, ty + 3, 2, c.h - 6);
+        } else {
+            for (let ry = ty + 6; ry < ty + c.h - 4; ry += 10) ctx.fillRect(tx + 3, ry, c.w - 6, 2);
+        }
+        // End frames, which is where a container's structure actually is.
+        ctx.strokeStyle = col.edge;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(tx, ty, c.w, c.h);
+    }
 }
 
 // ---------------------------------------------------
