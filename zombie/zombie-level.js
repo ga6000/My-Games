@@ -119,8 +119,8 @@ const ZONE_PAINT = [
     0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,
     0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,
     0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,2,2,3,3,3,3,3,3,
-    0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,
-    0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,
+    0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,2,2,3,3,3,3,
+    0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,2,2,3,3,3,3,
     0,0,0,0,5,5,5,5,5,5,4,4,4,4,4,4,2,2,3,3,3,3,3,3,
     0,0,0,0,5,5,5,5,4,4,4,4,4,4,4,4,2,2,3,3,3,3,3,3,
     0,0,0,0,5,5,5,5,4,4,4,4,4,4,4,4,6,6,6,6,3,3,3,3,
@@ -1386,14 +1386,14 @@ function emitBoundary(vertical, fixed, start, span, zoneA, zoneB, allowDoor) {
             d.ring = 9;
             doors.push(d);
             zonePassages[pk].door = d;
-            reserveAround(d, 150);
+            reserveAround(d, 150, true);
         } else {
             const b = vertical
                 ? { x: fixed, y: g.at, w: WALL_T, h: g.size, hp: 100, maxHp: 100, chewUntil: 0 }
                 : { x: g.at, y: fixed, w: g.size, h: WALL_T, hp: 100, maxHp: 100, chewUntil: 0 };
             barricades.push(b);
             if (!zonePassages[pk].window) zonePassages[pk].window = b;
-            reserveAround(b, 120);
+            reserveAround(b, 120, true);
         }
         at = g.at + g.size;
     }
@@ -1412,8 +1412,47 @@ function pushBoundarySeg(vertical, fixed, at, len) {
         : { x: at, y: fixed, w: len, h: WALL_T });
 }
 
-function reserveAround(r, pad) {
-    reservedRects.push({ x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 });
+// `soft` marks a reservation that exists only to keep the ground around a
+// boundary OPENING clear, as opposed to one protecting a structure (the keep,
+// a funnel hall, a landmark, the rail spur). The two are not the same
+// constraint and conflating them is expensive:
+//
+// Measured in THE KENNELS, 2026-09-20. 54% of candidate positions passed
+// inZone and then clashesReserved rejected 97% OF THOSE -- 1598 down to 54,
+// leaving 1.5% of the sector placeable. The reserved rects touching the sector
+// totalled 1,731,152 px2 against a sector area of 900,000: overlapping
+// reservations covering nearly twice the ground that exists. The 150px inward
+// door reserves were almost all of it.
+//
+// A building must not sit on a doorway. A railcar 100px from one is exactly
+// the claustrophobia a tight-quarters sector is supposed to have. So the
+// Kennels honours hard reserves and takes its own, smaller clearance from the
+// openings themselves -- see kennelSpotOk().
+function reserveAround(r, pad, soft) {
+    reservedRects.push({ x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2,
+                         soft: !!soft });
+}
+
+// Structural reservations only. Everything clashesReserved tests except the
+// ground held around boundary openings.
+function clashesReservedHard(r) {
+    for (let j = 0; j < reservedRects.length; j++) {
+        if (reservedRects[j].soft) continue;
+        if (rectsOverlap(r, reservedRects[j])) return true;
+    }
+    return false;
+}
+
+// The clearance a piece of Kennels stock keeps from any door or window. Well
+// over the 78px nav guarantee, so a doorway never becomes unusable, and far
+// under the 150px a building takes -- which is the whole point.
+const KENNEL_DOOR_CLEAR = 82;
+
+function clearOfOpenings(r, pad) {
+    const grown = { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+    for (let i = 0; i < doors.length; i++) if (rectsOverlap(grown, doors[i])) return false;
+    for (let i = 0; i < barricades.length; i++) if (rectsOverlap(grown, barricades[i])) return false;
+    return true;
 }
 
 // IDEA 28: the ground either side of a boundary opening is where you
@@ -1584,9 +1623,48 @@ let spillwayRuns = null;
 // widest body, and THE KENNELS is only ~1200x660 of usable ground once the
 // forest band and the boundary reserves are taken off. This is meant to be
 // the tight sector.
-const KENNEL_LANE = 136;
+// 100, not 136 (2026-09-20, on a playtest call that the shotgun sector was
+// "not reading as a tight-quarters sector").
+//
+// This constant IS the hallway: every piece of stock keeps KENNEL_LANE clear
+// of every other, so it sets both how wide the gaps are and, through that, how
+// many pieces fit at all. At 136 the effective footprint of a railcar was
+// 322 x 190 and the sector could hold about nine -- lanes you stroll down.
+//
+// 90 is deliberately the TIGHTEST LANE ON THE MAP: under the container maze's
+// 140 and INTERIOR_LANE's 160, and still 12px over the 78px nav guarantee
+// (2*NAV_CELL + 2*NAV_PAD), so a SUPER SPLITTER at 34px still routes through
+// it with room to spare. Do not take it below 78 -- see rule 3 in CLAUDE.md.
+const KENNEL_LANE = 90;
 const RAILCAR_LONG = 186;        // along its length
 const RAILCAR_SHORT = 56;        // across it
+const KENNEL_SHORT = 104;        // a single-slot container, for packing gaps
+// A CONTAINER IS NOT A RAILCAR AND SHOULD NOT BE 56px ACROSS.
+//
+// This is what was actually making the sector read as open ground. At a 90px
+// lane the count is near the packing limit -- about 8 pieces -- so density
+// could not come from more of them; the pieces themselves were thin slivers,
+// and a 56px sliver reads as an obstacle you walk around, not as a wall that
+// makes a corridor. A container at 96 across reads as a block, and the gap
+// between two of them reads as a hallway.
+//
+// Railcars stay narrow, because a railcar IS narrow. The mix is the point.
+const KENNEL_CONTAINER_DEEP = 96;
+// How close two pieces may sit END TO END. ZERO, so a run of stock forms a
+// genuinely continuous wall.
+//
+// It was 22, and that was the wrong kind of number. A GAP MUST BE EITHER
+// CLOSED OR WALKABLE, NEVER IN BETWEEN: at 22 the pieces did not join, but the
+// slot between them was far under the 78px nav guarantee, so it held passable
+// cells the flow field could never reach. Measured, that took map-wide nav
+// reachability from 0.0055% to 0.0531% and 298 OF THE 321 UNREACHABLE CELLS
+// WERE IN THIS SECTOR -- a free safe spot for a player and a trap for any
+// zombie that wandered in, which is the same failure the boundary-spur
+// clipping rule and segmentedWall() both exist to prevent.
+//
+// At 0 the runs are solid and the only gaps are the lanes across them, which
+// are KENNEL_LANE and walkable by construction.
+const KENNEL_END_GAP = 0;
 
 let kennelRun = null;     // the sector's one straight retreat
 let railcars = [];        // rolling stock, here and on the Yard's spur
@@ -1615,23 +1693,49 @@ function buildKennels() {
     // with lanes between them -- while fitting itself to whatever ground is
     // actually free. The separation IS the hallway: every piece keeps
     // KENNEL_LANE clear of every other, so the gaps cannot close up.
+    // `want` is a TARGET, not a guarantee -- the separation rule caps the real
+    // number, and on a crowded seed the sector simply fills up. Raised 9 -> 34
+    // with the lane cut, because at 136 the count was limited by geometry and
+    // asking for more did nothing; at 100 it is limited by `want`.
     const placed = [];
-    const want = 9;
+    const want = 72;
     for (let i = 0; i < want; i++) {
-        for (let tries = 0; tries < 60; tries++) {
-            const vertical = MP.random() < 0.42;
-            const isCar = MP.random() < 0.55;
-            const w = vertical ? RAILCAR_SHORT : RAILCAR_LONG;
-            const h = vertical ? RAILCAR_LONG : RAILCAR_SHORT;
+        for (let tries = 0; tries < 170; tries++) {
+            const vertical = MP.random() < 0.46;
+            const isCar = MP.random() < 0.45;
+            // Two lengths, not one. A field of identical 186px pieces tiles
+            // at one pitch and leaves every remainder unusable; a short piece
+            // fits the gaps a long one cannot, which is what turns a row of
+            // stock into a warren.
+            const long = isCar || MP.random() < 0.45;
+            const len = long ? RAILCAR_LONG : KENNEL_SHORT;
+            const across = isCar ? RAILCAR_SHORT : KENNEL_CONTAINER_DEEP;
+            const w = vertical ? across : len;
+            const h = vertical ? len : across;
             const x = Math.round(b.x + 40 + MP.random() * Math.max(1, b.w - 80 - w));
             const y = Math.round(Math.max(b.y + 40, FOREST_BAND + 30) +
                                  MP.random() * Math.max(1, b.h - 80 - h));
 
-            // A lane clear of every piece already down.
+            // SEPARATION IS ANISOTROPIC, and this is what makes the sector
+            // read as tight quarters rather than as a field of obstacles.
+            //
+            // A uniform KENNEL_LANE in both axes produces a SCATTER: every
+            // piece islanded, gaps everywhere, and the eye reads "things
+            // placed about" instead of "corridors". The container maze feels
+            // claustrophobic with seven pieces because it is a baffle, not a
+            // scatter.
+            //
+            // So: pieces may sit almost end to end ALONG their length, which
+            // lines them up into runs that read as walls, and must keep the
+            // full lane ACROSS it, which is the hallway between runs. Same
+            // count of pieces, completely different sector.
+            const alongX = w >= h;
+            const padX = alongX ? KENNEL_END_GAP : KENNEL_LANE;
+            const padY = alongX ? KENNEL_LANE : KENNEL_END_GAP;
             let tooClose = false;
             for (let k = 0; k < placed.length && !tooClose; k++) {
-                if (rectsOverlap({ x: x - KENNEL_LANE, y: y - KENNEL_LANE,
-                                   w: w + KENNEL_LANE * 2, h: h + KENNEL_LANE * 2 }, placed[k])) {
+                if (rectsOverlap({ x: x - padX, y: y - padY,
+                                   w: w + padX * 2, h: h + padY * 2 }, placed[k])) {
                     tooClose = true;
                 }
             }
@@ -1644,11 +1748,33 @@ function buildKennels() {
     }
 }
 // Returns whether the piece actually went down, so the caller can retry.
+// KENNEL_ELBOW: how much sector ground a piece needs around it.
+//
+// Not decoration -- this is what stops a piece SEALING a passage. THE KENNELS
+// has a one-cell-tall western arm at row 3, and a cell is 150px, so a single
+// container laid across it closes the arm completely. Measured on seed 22352:
+// one cluster of 44 unreachable cells at x 2440-2820, y 480-540, which is
+// exactly that arm. Requiring sector ground all round means a piece can only
+// go where the sector is more than one piece deep, so it can narrow a route
+// and never close one.
+const KENNEL_ELBOW = 70;
+
 function placeKennelPiece(x, y, w, h, vertical, isCar) {
+    const ex = KENNEL_ELBOW;
+    if (!inZone(x - ex, y - ex, Z_KENNELS) || !inZone(x + w + ex, y - ex, Z_KENNELS) ||
+        !inZone(x - ex, y + h + ex, Z_KENNELS) || !inZone(x + w + ex, y + h + ex, Z_KENNELS)) return false;
     if (!inZone(x, y, Z_KENNELS) || !inZone(x + w, y, Z_KENNELS) ||
         !inZone(x, y + h, Z_KENNELS) || !inZone(x + w, y + h, Z_KENNELS)) return false;
-    if (clashesReserved({ x: x - 10, y: y - 10, w: w + 20, h: h + 20 })) return false;
-    if (rectBlockedStatic({ x: x - 10, y: y - 10, w: w + 20, h: h + 20 })) return false;
+    // HARD reserves only, plus a smaller clearance measured from the openings
+    // themselves. See reserveAround: the 150px door reserves left 1.5% of this
+    // sector placeable, which is why it never read as tight quarters.
+    if (clashesReservedHard({ x: x - 10, y: y - 10, w: w + 20, h: h + 20 })) return false;
+    if (!clearOfOpenings({ x: x, y: y, w: w, h: h }, KENNEL_DOOR_CLEAR)) return false;
+    // Beside the running line, never on it.
+    if (onSpurLane({ x: x, y: y, w: w, h: h }, 26)) return false;
+    // 2px, not 10: at 10 two pieces meant to abut are held apart by a 10-20px
+    // slot, which is the sliver-pocket problem again in a different place.
+    if (rectBlockedStatic({ x: x - 2, y: y - 2, w: w + 4, h: h + 4 })) return false;
 
     walls.push({ x: x, y: y, w: w, h: h });
     if (isCar) {
@@ -1758,8 +1884,25 @@ function railLeg(x, y, w, h) {
 //
 // Reserved, not walled: the track is FLOOR. This only keeps buildings,
 // containers, crates and stations off the line.
+// The reservation is SOFT and the LANE is recorded separately.
+//
+// The reservation exists to keep buildings, containers, crates and stations
+// off the track -- and those all test clashesReserved, so it still does. But
+// THE KENNELS' own rolling stock standing beside the track is not a mistake,
+// it is the picture, and the spur crosses a quarter of that sector (1440x160
+// of about a million px2). So the Kennels tests clashesReservedHard, which
+// skips this, and is held off the running line by spurLanes instead.
+let spurLanes = [];
+
 function railReserve(x, y, w, h) {
-    reservedRects.push({ x: x - 20, y: y - 20, w: w + 40, h: h + 40 });
+    reservedRects.push({ x: x - 20, y: y - 20, w: w + 40, h: h + 40, soft: true });
+    spurLanes.push({ x: x, y: y, w: w, h: h });
+}
+
+function onSpurLane(r, pad) {
+    const g = { x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 };
+    for (let i = 0; i < spurLanes.length; i++) if (rectsOverlap(g, spurLanes[i])) return true;
+    return false;
 }
 
 // Rolling stock standing on a leg, spaced along it. Solid -- this is the

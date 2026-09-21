@@ -759,6 +759,61 @@ Measured over 120 seeds: **2-8 pieces of rolling stock a map** (mode 6), present
 sectors -- Kennels 1.1, Yard 3.6, Motor Pool 0.7 per map. The *track* always runs the full line;
 the stock is what varies.
 
+### THE KENNELS is a tight-quarters sector (2026-09-20)
+
+Asked for after a playtest: the shotgun sector was *"not reading as a tight-quarters sector"*.
+It carried about **2.8 pieces of stock a map at ~3% solid coverage**; it now carries **8.1
+(6-13) at 8.7%**. Five things were in the way, and only one of them was the piece count.
+
+**1. Reservations covered nearly twice the sector.** 54% of candidate positions passed `inZone`
+and then `clashesReserved` rejected **97% of those** -- 1598 down to 54, leaving **1.5% of the
+sector placeable**. Reserved rects touching the Kennels totalled 1,731,152 px2 against a sector
+area of 900,000. Almost all of it was the **150px inward reserve around every boundary opening**.
+
+So `reserveAround` takes a **`soft`** flag and `clashesReservedHard()` skips them. A building must
+not sit on a doorway; a railcar 82px from one is the claustrophobia the sector is supposed to have.
+The Kennels honours hard reserves and takes its own `KENNEL_DOOR_CLEAR` (82, comfortably over the
+78px nav guarantee) from the openings themselves. The rail spur's reservation is soft for the same
+reason -- it crosses a quarter of this sector, and stock beside the running line is the picture --
+with `spurLanes` keeping stock off the track itself.
+
+**2. The pieces were too thin to read as walls.** A railcar is 56px across, and at a 90px lane the
+count is near the packing limit, so density could not come from more of them. A 56px sliver reads
+as an obstacle you walk around; `KENNEL_CONTAINER_DEEP` (96) reads as a block, and the gap between
+two blocks reads as a hallway. Railcars stay narrow, because a railcar is narrow -- the mix is
+the point.
+
+**3. Separation is ANISOTROPIC, and this is the one that changed the feel.** A uniform lane in both
+axes produces a **scatter**: every piece islanded, and the eye reads "things placed about". Pieces
+may now sit end to end along their length (`KENNEL_END_GAP`), which lines them into runs that read
+as walls, and must keep the full `KENNEL_LANE` across it, which is the hallway between runs. Same
+geometry budget, completely different sector. The container maze feels claustrophobic with seven
+pieces for exactly this reason: it is a baffle, not a scatter.
+
+**4. `KENNEL_END_GAP` is 0, and 22 was the wrong kind of number.** A GAP MUST BE EITHER CLOSED OR
+WALKABLE, NEVER IN BETWEEN. At 22 the pieces did not join, but the slot between them was far under
+the nav guarantee, so it held passable cells the flow field could never reach: map-wide nav
+reachability went **0.0055% -> 0.0531%, and 298 of the 321 unreachable cells were in this sector**.
+The static clearance in `placeKennelPiece` dropped 10 -> 2 for the same reason.
+
+**5. `KENNEL_ELBOW` (70) stops a piece SEALING a passage.** Closing the end gaps did not fix the
+pockets, because they were not between pieces: THE KENNELS has a **one-cell-tall western arm at
+row 3**, and a cell is 150px, so a single container laid across it closes the arm completely.
+Clustering the unreachable cells on seed 22352 gave **one blob of 44 at x 2440-2820, y 480-540** --
+exactly that arm. Requiring sector ground all round means a piece can only go where the sector is
+more than one piece deep, so it can narrow a route and never close one.
+
+**70 is not negotiable down to 50.** Tried: 50 still protects the row-3 arm on paper (a 96-deep
+piece needs the arm to be 196px and it is 150) and nav went straight back to **0.0617%**, because
+vertical pieces and other narrow spots need the extra 20px. It costs about three pieces a map and
+it buys the sector's connectivity.
+
+THE KENNELS also grew **30 -> 34 cells**, taking four from THE YARD at rows 4-5. The Yard is 58
+and still the largest sector; its container maze was re-measured at **7.2 pieces a map, unchanged**.
+
+Final, 25 seeds with doors open and barricades broken: **nav reachability 0.0036% (22 cells), which
+is better than the 0.0055% before this work**. Generation is 39ms a map.
+
 ### Thresholds -- the fourth floor treatment (2026-09-20)
 
 Beside interior / exterior / unique: **a worn patch across every door and window.** It is the one
@@ -973,7 +1028,8 @@ Re-measured rather than assumed -- the grid, the stock, the density and the pale
 | rolling stock a map | 2-8, mode 6, across all three spur sectors |
 | threshold patches a map | ~63 |
 | floor tint, min dE between adjacent sectors | **22.7** (was 5.5) |
-| nav reachability, doors open + barricades broken | **34 cells of 616,206 = 0.0055%** (25 seeds) |
+| nav reachability, doors open + barricades broken | **22 cells = 0.0036%** (25 seeds) |
+| THE KENNELS stock | **8.1 a map (6-13), 8.7% solid coverage** -- was 2.8 at ~3% |
 
 **Nav reachability is slightly worse than the 0.002% of 2026-09-19 and that is expected**, not a
 regression to chase: the rail gates, the reserved sightlines and a higher `bpc` in two sectors all
@@ -1789,4 +1845,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: c09b8256 | 2026-09-21 -->
+<!-- doc-sync: 5a582633 | 2026-09-21 -->
