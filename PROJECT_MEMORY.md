@@ -677,6 +677,47 @@ assume embedding, hasn't been decided — flagging so it isn't silently assumed 
 
 ---
 
+## A late connection can demote a solo host mid-run (2026-09-20)
+
+**This affects every game in the repo, not just Zombie**, and it is the kind of fault that reads as
+a bug in whatever you were testing.
+
+`shared/mp-core.js` goes solo after `CONNECT_TIMEOUT_MS` (6s) so a double-clicked or offline game
+still plays -- the client is its own host. But `socket.onclose` retries every 3s **forever**, and a
+later successful open upgrades the session to `"online"`, at which point `hostId` comes from the
+server. If any other socket in that room holds host -- a friend, a second browser tab, or a stale
+connection the server has not yet reaped -- the client is **demoted while it is already playing**
+and every host-only system stops. In Zombie that is the entire zombie simulation: the game loads,
+plays for a few seconds, and then nothing ever spawns again.
+
+**`?solo=1` (or `?offline=1`) opens no socket at all.** Nothing to retry, nothing to race.
+`isHost()` already returns true whenever `status !== "online"`, so this is not a special case
+anywhere else. Use it for any local playtest that does not specifically need two clients.
+
+The old workaround, `?server=ws://127.0.0.1:9` (a dead port), still works but is obscure and leaves
+a 3s retry loop running.
+
+**Lesson worth keeping: "it works for ten seconds then stops" is a host-election symptom**, not a
+gameplay one. Check `MP.isHost()` before reading the game's own code.
+
+## The Zombie map revamp, in numbers (2026-09-20)
+
+Twelve proposals from `zombie/MAP_DESIGN_GUIDE.md`, all shipped. Three findings generalise beyond
+Zombie:
+
+- **A coarse paint grid is a hard constraint on shape, not a stylistic one.** Zombie's sectors
+  could not be L / S / H shaped because an H needs a 5x5 bounding box and **nine of nine sector
+  bounding boxes failed** on a 12x9 grid. Refining to 24x18 cost **+2 merged boundary runs** --
+  because the run builder merges collinear cells, a 2x upsample of the *old* shapes measures
+  exactly the same 39. If a generator merges its output, resolution is nearly free.
+- **A sector against the map edge can be a C, an E or a comb but never an S or a Z**, at any
+  resolution -- an S bulges both ways and one way is off-map.
+- **Per-sector colour has to be measured, not eyeballed.** Zombie's nine floor tints existed to
+  tell areas apart and the minimum dE76 between two *adjacent* sectors was 5.5, with the whole map
+  inside a 7.5-point lightness band. Re-solving under hue/chroma/lightness constraints took it to
+  22.7. The same method the identity palette used in `AESTHETIC_GUIDE.md` 2.4 applies to any
+  per-area palette.
+
 ## Design & aesthetic patterns
 
 **Still true of the code: not standardized.** Each game has its own visual identity (Gyro Space
@@ -806,4 +847,4 @@ Update this section when any part of the guide actually lands.
 | 2026-09-02 | RD Arena **pathfinding regression fixed, enemies doubled, edges smoothed**. The central base added earlier the same day **silently killed pathfinding entirely**: with the player inside a sanctuary their own coarse cell is blocked, so the flow-field seed falls back to the nearest open cell — but the base is **13 flow cells across** and the fallback only searched `r <= 6`, so the seed was dropped, `rebuildFlowField` returned early, and **every cost stayed at INF**. Measured **0% of open cells reachable**; every grunt was blind bee-lining into walls, which is what "non-heavies getting stuck" actually was. Search now runs to `r <= 24` and seeds every equally-nearest open cell (enemies funnel to the nearest doorway) — **92.6% reachable** after. Three more layers so a round, which only ends on a clear field, can never softlock: **probe steering** around the coarse flow direction; a **getting-unstuck ladder** (carve at 1.5s, relocate at 4.3s); and a **net-progress watchdog** — the one that actually guarantees termination, because regrowing flesh can seal an enemy in a pocket where it *keeps shuffling* so the stuck timer never fires. Its guard is each kind's hold distance plus margin, not a flat number (a flat 400 left anything sealed between the hold distance and 400px permanently exempt). Also adopted **ring spawning from `zombie`** (700-1300px, flow-reachable) — a uniform spawn on a 4800px map is a 30-60s walk. Result: 10 grunts went from **0 arriving in 22s to 9 of 10 within 33s**, and round 1 from **never clearing to 28.5s**. **Enemy size doubled** (grunt 4.5—>9, heavy 12—>24) — safe because enemy wall collision is a point test on the centre, so radius does not affect wedging; grunt hit area is 2.86x larger. **Blocky flesh edges smoothed** by rendering solid cells as overlapping discs (r = 0.78*cellSize) in one fill — render-only, +0.53ms/frame, `gridB` untouched so the future MP bitmask is unaffected. Death blood speed cut to 0.45x: it used to carve its own channel so long streaks read as corridors, but with erosion now a card it only paints, and at full speed it smeared ~500px of noise over intact walls. |
 | 2026-08-24 | Promoted 5 concept games (glass-city-escape, particle-simulation, infected-labyrinth, wasteland-train-sim, and the newly-surfaced kula-world) from `z. Unfinished Concepts/` into their own repo folders. Not yet linked from the hub or verified stable. |
 
-<!-- doc-sync: 85a70f20 | 2026-09-20 -->
+<!-- doc-sync: ab107bca | 2026-09-21 -->

@@ -1270,4 +1270,4 @@ rewritten to `GAME_PROTOTYPE_INSTRUCTIONS.md` first**, not copied. The parts wor
 are the maths (`glGravityAt`, `glBeta`, `glIntegrate`) and the three-stage render order;
 the harness around them is deliberately throwaway.
 
-<!-- doc-sync: 53170539 | 2026-09-20 -->
+<!-- doc-sync: 53170539 | 2026-09-21 -->

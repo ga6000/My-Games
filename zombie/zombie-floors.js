@@ -42,9 +42,45 @@ const FLOOR_GRIME_SCALE = 8;     // one grime texel = 8 world units
 // than one at a time: cold blues north-west, warm earths north-centre,
 // rust and steel east, wet greens south.
 const ZONE_FLOOR_TINT = {
-    spill: "#1D4A56", cold: "#2B4552", kennel: "#5A4520", yard: "#5A3A1C",
-    centre: "#38382F", turbine: "#3A4046", pump: "#3E4448", sluice: "#1C4A44",
-    motor: "#4A4630",
+    // RE-SOLVED 2026-09-20 for perceptual separation (MAP_DESIGN_GUIDE P7).
+    //
+    // These nine exist to tell sectors apart, and measured in CIELAB the old
+    // set did not: the minimum dE76 between two sectors that SHARE A BOUNDARY
+    // was 5.5 (Spillway / Cold Storage, over a four-cell border -- the same
+    // colour at a glance), six of eighteen adjacent pairs fell under dE 12,
+    // and Turbine Hall / Pump House sat 2.2 apart, which is one tint occupying
+    // two of nine slots.
+    //
+    // The deeper fault was tonal. Every floor in the game sat inside a
+    // 7.5-POINT LIGHTNESS BAND (L* 23.3 to 30.7), so the tints were asked to
+    // do all their work in hue and chroma, at very low chroma, in a dark scene
+    // lit by a 340px pocket. Lightness is the one channel that survives those
+    // conditions and it was unused.
+    //
+    // Solved under three constraints, so this is a re-solve and not a repaint:
+    // each sector's hue stays within 34 degrees of the one it had, chroma is
+    // held between 10 and 24, and L* between 18 and 36 -- dark enough that
+    // nothing reads as lit floor.
+    //
+    //   min dE, adjacent pairs     5.5 -> 22.7   (+314%)
+    //   mean dE, adjacent pairs   16.9 -> 34.7
+    //   adjacent pairs under 12   6/18 -> 0/18
+    //   min dE, ANY pair           2.2 -> 19.0   (+782%)
+    //   L* range                   7.5 -> 18.0
+    //
+    // THE CHROMA FLOOR IS LOAD-BEARING. An earlier solve had no lower bound
+    // and greyed the Spillway out to #2C2C2C -- at very low chroma the hue
+    // lock stops meaning anything, and the sector lost its water. A later one
+    // had a floor but seeded from the current values, three of which are
+    // already below it, so those sectors were rejected on every move and never
+    // changed at all. Seed AT the floor, then optimise.
+    //
+    // These are TINTS. ZF_PAINTERS mixes several flat colours per zone over
+    // the top, so the shipped contrast is not these numbers -- re-measure
+    // against rendered tiles, not this table.
+    spill: "#0A5F5C", cold: "#00323E", kennel: "#515831", yard: "#4A1F1B",
+    centre: "#3B2906", turbine: "#24294C", pump: "#28597A", sluice: "#01341F",
+    motor: "#605146",
     // Cut sector keys, kept so an old save or a stray key still draws.
     pool: "#135A5C", laundry: "#4A4436", letter: "#5A3A1C", slag: "#5A2A14",
     ticket: "#44444E", annex: "#2E4A36"
@@ -411,6 +447,29 @@ const ZF_PAINTERS = {
             const joint = (x % 21 === 0) || (y % 21 === 0);
             let c = joint ? zfHex("#17170F") : zfPick(pal, n[i]);
             if (m[i] > 0.95) c = zfHex("#4A3A18");        // a painted bay line, worn
+            px(x, y, c);
+        }
+    },
+
+    // THRESHOLD (2026-09-20, MAP_DESIGN_GUIDE P12). The fourth treatment
+    // beside interior / exterior / unique, painted across every door and
+    // window opening.
+    //
+    // It is the one place on the map where two sectors' floors meet, and
+    // until now they simply abutted -- a hard seam between two tiles with
+    // nothing to explain it. A worn patch is what is actually there: this is
+    // the ground every player and every zombie in the game walks over, so it
+    // is scuffed through to the substrate and greasy at the edges.
+    //
+    // Deliberately near-neutral and DARK, so it reads as wear on whichever
+    // two floors it joins rather than as a third colour between them.
+    threshold: function (px, n, m) {
+        for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
+            const i = y * FLOOR_TEX + x;
+            // Scuffed through in the middle, where the traffic is.
+            let c = n[i] > 0.62 ? zfHex("#22201E") : zfHex("#171614");
+            if (n[i] > 0.86) c = zfHex("#2C2926");
+            if (m[i] > 0.72) c = zfHex("#0E0D0C");     // ground-in grime
             px(x, y, c);
         }
     },

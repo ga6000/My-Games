@@ -58,6 +58,37 @@ which is hardcoded in the deployed hub and Gyro Space. Rename the repo/readme on
 
 ---
 
+
+## `?solo=1` -- local testing without the server (2026-09-20)
+
+Added after a report that *"server/online integration prevents zombies spawning which makes local
+play testing hard. It forces me to commit/push or form a new branch in order to play test
+features."* The mechanism, read from `shared/mp-core.js` rather than guessed:
+
+1. `connect()` always ran, and always joined the live server's default room.
+2. `CONNECT_TIMEOUT_MS` is 6,000, so a slow or unreachable server drops the client to **solo** --
+   it is its own host, and everything works.
+3. **`socket.onclose` retries every 3s forever, and a later successful open upgrades the session to
+   `"online"`.** At that point `hostId = data.hostId` comes from the server and `onHostChange`
+   fires.
+
+So a local session can start fine and be **demoted mid-run** the moment the socket finally opens,
+if any other socket in that room holds host -- a friend, a second tab, or a stale connection the
+server has not reaped. Every host-only system stops; in Zombie that is the entire zombie
+simulation. It reads as "the feature I am testing is broken".
+
+`?solo=1` (or `?offline=1`) opens **no socket at all**, so there is nothing to retry and nothing to
+race. `isHost()` already returns true whenever `status !== "online"`, so solo is not a special case
+anywhere else in the codebase -- this only decides how the client gets there. `?solo=0` and
+`?solo=false` are deliberately not solo.
+
+The old workaround was `?server=ws://127.0.0.1:9` -- point it at a dead port so the connection
+fails. It works, but it is obscure, it looks like a typo, and `onclose` keeps retrying it forever.
+
+**Verified:** `status "solo"`, `isHost true`, no socket opened, and round 1 spending budget 7 -> 3
+with four zombies alive.
+
+
 ## 2. The real blocker: no game generates a deterministic world
 
 **Every one of these games builds its world with unseeded `Math.random()`**, including
@@ -621,4 +652,4 @@ Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: 85a70f20 | 2026-09-20 -->
+<!-- doc-sync: ab107bca | 2026-09-21 -->

@@ -187,4 +187,4 @@ camera.
 - `Firebase / Leaderboard Integrated?` remains `No` — round reached would be the obvious score.
 
 
-<!-- doc-sync: 7fd3fd4a | 2026-09-20 -->
+<!-- doc-sync: 7fd3fd4a | 2026-09-21 -->

@@ -197,7 +197,43 @@
         return !!selfId && selfId === hostId;
     }
 
+    // ?solo=1 -- NEVER TOUCH THE NETWORK (2026-09-20).
+    //
+    // Added because local playtesting was effectively impossible. connect()
+    // always ran, always joined the live server's default room, and took
+    // `hostId` from whatever the server said. Any other socket in that room --
+    // a friend, a second tab, or a stale connection the server has not yet
+    // reaped -- makes this client a GUEST, and every host-only system (in
+    // Zombie: the entire zombie simulation) simply never runs. The symptom is
+    // a game that loads perfectly and spawns nothing, which reads as a bug in
+    // whatever you were testing rather than as a lobby problem.
+    //
+    // The old workaround was `?server=ws://127.0.0.1:9` -- point it at a dead
+    // port so the connection fails and isHost() falls through to true. That
+    // works, but it is obscure, it looks like a typo, and onclose keeps
+    // retrying it every 3s forever.
+    //
+    // This is the honest version of the same thing: no socket is ever opened,
+    // so there is nothing to retry and nothing to race. isHost() already
+    // returns true whenever status !== "online", so solo play is not a special
+    // case anywhere else in the codebase -- this only decides how we get there.
+    function soloRequested() {
+        try {
+            var p = new URLSearchParams(window.location.search);
+            var v = p.get("solo") || p.get("offline");
+            // Bare ?solo counts; ?solo=0 and ?solo=false deliberately do not.
+            return v !== null && v !== "0" && v.toLowerCase() !== "false";
+        } catch (e) {
+            return false;
+        }
+    }
+
     function connect() {
+        if (soloRequested()) {
+            // Straight to solo. No socket, so no onclose, so no retry loop.
+            goSolo();
+            return;
+        }
         var url = serverUrl();
         setStatus("connecting");
 

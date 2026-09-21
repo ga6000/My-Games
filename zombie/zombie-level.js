@@ -92,10 +92,22 @@ let zoneHotUntil = [];  // deadline per zone; spawn-eligible once past it
 // centre, 108 of 108 cells claimed, and the keep, the sluice, both gate
 // plates and the escape all land in the sector that owns them.
 const ZONE_COUNT = 9;
-const ZONE_COLS_FINE = 12;
-const ZONE_ROWS_FINE = 9;
-const ZONE_CELL_W = WORLD_W / ZONE_COLS_FINE;   // 400
-const ZONE_CELL_H = WORLD_H / ZONE_ROWS_FINE;   // 300
+// 24 x 18 since 2026-09-20 (MAP_DESIGN_GUIDE P1). It was 12 x 9, and that
+// was the binding constraint on sector SHAPE, not taste or effort: an H needs
+// a bounding box of at least 5 x 5 -- two spines, a gap, a crossbar -- and at
+// 108 cells over nine sectors the average sector was twelve cells against the
+// twenty-five a 5x5 needs. Measured: NINE of nine bounding boxes failed, the
+// largest pairs being 4x7 and 3x8. No painter could have drawn an H here.
+//
+// The refinement is close to free, which is the part worth knowing.
+// zoneBoundaryRuns() merges collinear cells, so shape complexity -- not cell
+// count -- is what costs a run: a 2x upsample of the OLD shapes measures
+// exactly 39 runs, identical to the old grid, and the shapes actually shipped
+// below cost 41. Two runs bought every silhouette on the map.
+const ZONE_COLS_FINE = 24;
+const ZONE_ROWS_FINE = 18;
+const ZONE_CELL_W = WORLD_W / ZONE_COLS_FINE;   // 200
+const ZONE_CELL_H = WORLD_H / ZONE_ROWS_FINE;   // 150
 
 // Sector ids. 4 stays the centre and 7 stays the sluice's, because plenty
 // of code already reads `i !== 4` and `SLUICE_ZONE`.
@@ -103,15 +115,24 @@ const Z_SPILLWAY = 0, Z_COLD = 1, Z_KENNELS = 2, Z_YARD = 3, Z_BLOCKHOUSE = 4,
       Z_TURBINE = 5, Z_PUMP = 6, Z_SLUICE = 7, Z_MOTOR = 8;
 
 const ZONE_PAINT = [
-    0,0,1,1,1,1,2,2,2,3,3,3,
-    0,0,0,1,1,1,2,2,2,3,3,3,
-    0,0,0,1,1,4,4,2,2,3,3,3,
-    0,0,5,5,5,4,4,4,4,3,3,3,
-    0,0,5,4,4,4,4,4,4,6,6,3,
-    0,0,5,5,5,4,4,6,6,6,3,3,
-    0,0,0,0,7,7,7,8,8,8,3,3,
-    7,7,7,7,7,7,7,8,8,3,3,8,
-    7,7,7,7,7,7,7,8,8,8,8,8
+    0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,
+    0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,
+    0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,
+    0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,2,2,3,3,3,3,3,3,
+    0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,
+    0,0,0,0,0,0,1,1,1,1,1,1,1,1,2,2,2,2,3,3,3,3,3,3,
+    0,0,0,0,5,5,5,5,5,5,4,4,4,4,4,4,2,2,3,3,3,3,3,3,
+    0,0,0,0,5,5,5,5,4,4,4,4,4,4,4,4,2,2,3,3,3,3,3,3,
+    0,0,0,0,5,5,5,5,4,4,4,4,4,4,4,4,6,6,6,6,3,3,3,3,
+    0,0,0,0,5,5,5,5,4,4,4,4,4,4,4,4,6,6,6,6,6,6,3,3,
+    0,0,0,0,5,5,5,5,5,5,4,4,4,4,4,4,6,6,6,6,6,6,3,3,
+    0,0,0,0,0,0,5,5,5,5,5,5,4,4,4,4,6,6,6,6,6,6,3,3,
+    0,0,0,0,0,0,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8,3,3,
+    0,0,0,0,0,0,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8,3,3,
+    7,7,7,7,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8,8,8,
+    7,7,7,7,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8,8,8,
+    7,7,7,7,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8,8,8,
+    7,7,7,7,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8,8,8,8
 ];
 
 // Bounding box + cell list per sector, built once at load. `cells` is what
@@ -861,33 +882,66 @@ const SLUICE_ZONE = 7;
 // 6 guns and 8 stations, so no balance number moves -- only where they
 // sit. See MAP_REVAMP_PLAN.md 5.
 //
-// `density` scales buildings/barrels/crates by how many cells the sector
-// actually has, so the 5-cell Pump House is not dressed like the 18-cell
-// Spillway.
+// `bpc` is BUILDINGS PER CELL, not a flat count (2026-09-20, MAP_DESIGN_GUIDE
+// P10). The comment here used to describe a `density` field that scaled
+// buildings by sector size -- and no such field ever existed; buildZoneContents
+// read a flat `buildings` count. So the same number landed in a 5-cell sector
+// and an 18-cell one, and density ranged over 7.6x without anyone choosing it.
+//
+// Measured on the old grid: COLD STORAGE ran 1.22 buildings a cell and was a
+// deliberate warren; THE SPILLWAY ran 0.17 over eighteen cells and was simply
+// the emptiest ground in the game. Those two stay far apart on purpose -- what
+// changes is that the spread is now stated rather than accidental, and the
+// Spillway roughly doubles.
+//
+// THE YARD and THE KENNELS stay low deliberately: their real buildings are the
+// container stacks and the rolling stock, which are placed separately, and
+// raising this would crowd them out. That was measured once already at 1.5
+// containers placed of 14 attempted.
 const SECTORS = [
     { id: Z_SPILLWAY,   key: "spill",   name: "THE SPILLWAY",   guns: ["sniper"],           perks: 1,
-      buildings: 3,  barrels: 4,  crates: 2, outpost: false, corridors: true  },
+      bpc: 0.090, barrels: 4,  crates: 2, outpost: false, corridors: true  },
     { id: Z_COLD,       key: "cold",    name: "COLD STORAGE",   guns: ["rifle"],            perks: 1,
-      buildings: 11, barrels: 3,  crates: 2, outpost: false, corridors: false },
+      bpc: 0.275, barrels: 3,  crates: 2, outpost: false, corridors: false },
     { id: Z_KENNELS,    key: "kennel",  name: "THE KENNELS",    guns: ["shotgun"],          perks: 1,
-      buildings: 2,  barrels: 2,  crates: 2, outpost: false, corridors: false },
-    // 3 generic buildings, not 8: the CONTAINER STACKS are this sector's
-    // buildings (buildYardSpur), and at 8 there was no room left for them --
-    // measured at 1.5 containers placed of 14 attempted, which is not a
-    // container yard.
-    { id: Z_YARD,       key: "yard",    name: "THE YARD",       guns: ["rocket", "smg"],    perks: 2,
-      buildings: 3,  barrels: 6,  crates: 3, outpost: true,  corridors: false },
+      bpc: 0.095, barrels: 2,  crates: 2, outpost: false, corridors: false },
+    // Low bpc on purpose: the CONTAINER STACKS are this sector's buildings
+    // (buildContainerMaze), and at a higher figure there was no room left for
+    // them -- measured at 1.5 containers placed of 14 attempted, which is not
+    // a container yard.
+    //
+    // THE SMG MOVED OUT to THE SLUICE YARD on 2026-09-20 (P4). One ring-1 door
+    // used to buy the rocket, the SMG, two perks, the crane, the maze and an
+    // outpost; east/west guns ran 3:1 over identical ground. The rocket is
+    // still here and the Yard is ring 2 now, so it is still the sector worth
+    // the trip -- it is just no longer the whole game.
+    { id: Z_YARD,       key: "yard",    name: "THE YARD",       guns: ["rocket"],           perks: 2,
+      bpc: 0.050, barrels: 6,  crates: 3, outpost: true,  corridors: false },
     { id: Z_BLOCKHOUSE, key: "centre",  name: "THE BLOCKHOUSE", guns: [],                   perks: 0,
-      buildings: 3,  barrels: 2,  crates: 0, outpost: false, corridors: false },
+      bpc: 0.075, barrels: 2,  crates: 0, outpost: false, corridors: false },
     { id: Z_TURBINE,    key: "turbine", name: "TURBINE HALL",   guns: [],                   perks: 1,
-      buildings: 2,  barrels: 3,  crates: 1, outpost: true,  corridors: false, generator: true },
-    { id: Z_PUMP,       key: "pump",    name: "PUMP HOUSE",     guns: ["flamer"],           perks: 0,
-      buildings: 4,  barrels: 2,  crates: 1, outpost: false, corridors: false },
-    { id: Z_SLUICE,     key: "sluice",  name: "THE SLUICE YARD",guns: [],                   perks: 0,
-      buildings: 5,  barrels: 4,  crates: 2, outpost: false, corridors: false },
+      bpc: 0.100, barrels: 3,  crates: 1, outpost: true,  corridors: false, generator: true },
+    // A perk at last (P5). It was the only sector selling a gun and carrying
+    // no station, which made it a shop with a door charge rather than a place.
+    { id: Z_PUMP,       key: "pump",    name: "PUMP HOUSE",     guns: ["flamer"],           perks: 1,
+      bpc: 0.180, barrels: 2,  crates: 1, outpost: false, corridors: false },
+    // 15.7% of the map with no gun and no perk until 2026-09-20: ground you
+    // crossed all game for sixty seconds of endgame. It sells the SMG now, so
+    // the escape ground is somewhere you have already learned to fight in
+    // before it matters.
+    { id: Z_SLUICE,     key: "sluice",  name: "THE SLUICE YARD",guns: ["smg"],              perks: 0,
+      bpc: 0.100, barrels: 4,  crates: 2, outpost: false, corridors: false },
     { id: Z_MOTOR,      key: "motor",   name: "THE MOTOR POOL", guns: [],                   perks: 2,
-      buildings: 7,  barrels: 12, crates: 2, outpost: true,  corridors: true  }
+      bpc: 0.125, barrels: 12, crates: 2, outpost: true,  corridors: true  }
 ];
+
+// Buildings for a sector, from its per-cell rate and its actual area. Floor,
+// not round, would give the Yard 3 and the Spillway 7 either way; Math.round
+// is used so a rate change reads as intended rather than being eaten.
+function sectorBuildingCount(tpl) {
+    return Math.max(1, Math.round(zoneCellCount(tpl.id) * (tpl.bpc || 0.08)));
+}
+
 
 // OVERDRIVE is still guaranteed and now has a fixed home: TURBINE HALL,
 // the sector that is always placed and thematically the power.
@@ -897,7 +951,11 @@ const PERK_SECTOR_HOMES = {
     yard:    ["skewer", "blastcap", "arc"],
     cold:    ["ricochet", "laststand"],
     kennel:  ["spite", "skewer"],
-    spill:   ["decoy", "arc", "ricochet"]
+    spill:   ["decoy", "arc", "ricochet"],
+    // Added with the Pump House's first station (2026-09-20). Fire and blast,
+    // beside the flamethrower it sells -- the perk should say what the sector
+    // is for.
+    pump:    ["blastcap", "spite"]
 };
 
 function assignZones() {
@@ -1005,6 +1063,7 @@ function generateLevel() {
     // rail cars and containers ARE the sector, and behind the buildings
     // only 0.2 cars a map were getting down. buildKennels appends to
     // yardContainers, so it must follow the maze, which clears that list.
+    buildRailSpur();
     buildContainerMaze();
     buildKennels();
     buildZoneContents();
@@ -1036,6 +1095,9 @@ function generateLevel() {
     // signature matches and the grid silently survives from the previous
     // layout -- zombies then path against walls that no longer exist.
     navDoorSig = null;
+    // Every opening on the map exists by now, which is what this pass needs.
+    paintThresholds();
+
     markNavDirty();
 
     rebuildSolidIndex();
@@ -1431,7 +1493,10 @@ const INTERIOR_LANE = 160;
 function buildSectorInteriors() {
     buildSpillwayPipes();
     buildMotorBays();
-    buildYardSpur();
+    // buildRailSpur() is NOT here any more (2026-09-20). It is hoisted to run
+    // before the container maze and the generic buildings -- it crosses three
+    // sectors, so it has to claim its ground before anything else does, the
+    // same reason the maze and the Kennels were hoisted before it.
 }
 
 // A wall in segments, skipping anything that would land on reserved
@@ -1528,7 +1593,10 @@ let railcars = [];        // rolling stock, here and on the Yard's spur
 
 function buildKennels() {
     const b = zoneBounds(Z_KENNELS);
-    railcars = [];
+    // railcars is NOT reset here (2026-09-20). generateLevel() already clears
+    // it, and the rail spur is built BEFORE the Kennels now -- clearing it
+    // here silently deleted every piece of rolling stock on the spur, so the
+    // only railcars on the map were this sector's own.
 
     // The run: a full-width lane, kept clear of everything.
     const runY = Math.round(b.y + b.h * 0.56);
@@ -1622,27 +1690,169 @@ function buildMotorBays() {
 //
 // Flatcars are solid; the track itself is floor. So the spur is a lane
 // with cover ON it rather than a wall across the sector.
-function buildYardSpur() {
-    const b = zoneBounds(Z_YARD);
-    // Along the tongue: row 7 of the paint, cols 9-10.
-    const y = 7 * ZONE_CELL_H + 90;
-    const x0 = 9 * ZONE_CELL_W - 260;             // starts inside the Motor Pool
-    const x1 = 11 * ZONE_CELL_W;
-    if (typeof zfPatch === "function") zfPatch(x0, y, x1 - x0, 110, "ballast");
-    yardSpur = { x: x0, y: y, w: x1 - x0, h: 110 };
+// --- THE RAIL SPUR: KENNELS -> YARD -> MOTOR POOL (2026-09-20, P6) ----
+//
+// This fixes a real contradiction rather than adding decoration. THE KENNELS'
+// rail cars and THE MOTOR POOL's flatcars were given SHARED ARTWORK on
+// 2026-09-20 so that "the spur visibly runs between them" -- and on the old
+// paint THE TWO SECTORS WERE NOT ADJACENT. The art implied one rail line
+// across a gap it never crossed.
+//
+// On the 24x18 paint THE YARD sits between them, which is the correct answer
+// and not a workaround: a gantry crane exists to move containers between a
+// rail head and a stack, so the Yard is the natural middle of the line. The
+// spur is now one continuous L -- east out of the Kennels' neck, across the
+// Yard under the crane, then south down the Yard's tail into the Motor Pool's
+// bays.
+//
+// WHERE IT CROSSES A BOUNDARY WALL IT IS A BOARDED RAIL GATE, not a hole.
+// A plain gap would have handed players a free route between three sectors
+// and quietly deleted two door purchases -- the whole "buy outward" economy.
+// A barricade is the idiom the map already has for exactly this ("zombies
+// pass, players never do"), it needs no new notion of solidity, and a rail
+// gate boarded over is what it looks like anyway.
+const SPUR_LANE = 120;            // >= the 78px nav guarantee, and window-width
+const SPUR_GATE_HP = 140;         // sturdier than a window: it is a gate
 
-    // Flatcars standing on it. Recorded in `railcars` since 2026-09-20 so
-    // they draw as rolling stock rather than as plain wall -- the same art
-    // THE KENNELS now uses, which is what makes the spur read as one line
-    // running between the two sectors.
-    for (let fx = x0 + 120; fx < x1 - 220; fx += 300) {
-        const fw = 190, fh = 54;
-        if (clashesReserved({ x: fx - 30, y: y - 30, w: fw + 60, h: fh + 60 })) continue;
-        const fy = Math.round(y + 28);
-        walls.push({ x: fx, y: fy, w: fw, h: fh });
-        railcars.push({ x: fx, y: fy, w: fw, h: fh, vertical: false });
+// Split every wall this rect crosses, leaving a clean opening. Returns the
+// rects that were actually opened, so the caller can board them.
+function carveOpening(o) {
+    const kept = [];
+    const cut = [];
+    for (let i = 0; i < walls.length; i++) {
+        const w = walls[i];
+        if (w.x >= o.x + o.w || w.x + w.w <= o.x ||
+            w.y >= o.y + o.h || w.y + w.h <= o.y) { kept.push(w); continue; }
+        cut.push({ x: Math.max(w.x, o.x), y: Math.max(w.y, o.y),
+                   w: Math.min(w.x + w.w, o.x + o.w) - Math.max(w.x, o.x),
+                   h: Math.min(w.y + w.h, o.y + o.h) - Math.max(w.y, o.y) });
+        // Keep whatever of the wall lies outside the opening. Rectilinear
+        // walls only, so four slabs is exhaustive.
+        if (w.y < o.y) kept.push({ x: w.x, y: w.y, w: w.w, h: o.y - w.y });
+        if (w.y + w.h > o.y + o.h) kept.push({ x: w.x, y: o.y + o.h, w: w.w, h: w.y + w.h - (o.y + o.h) });
+        const ty = Math.max(w.y, o.y), by = Math.min(w.y + w.h, o.y + o.h);
+        if (w.x < o.x) kept.push({ x: w.x, y: ty, w: o.x - w.x, h: by - ty });
+        if (w.x + w.w > o.x + o.w) kept.push({ x: o.x + o.w, y: ty, w: w.x + w.w - (o.x + o.w), h: by - ty });
     }
+    walls = kept;
+    return cut;
+}
 
+// One leg of the line. Lays ballast, reserves the lane so nothing is placed
+// on the track, and boards any boundary it crosses.
+function railLeg(x, y, w, h) {
+    if (typeof zfPatch === "function") zfPatch(x, y, w, h, "ballast");
+    const opened = carveOpening({ x: x, y: y, w: w, h: h });
+    for (let i = 0; i < opened.length; i++) {
+        const o = opened[i];
+        barricades.push({ x: o.x, y: o.y, w: o.w, h: o.h,
+                          hp: SPUR_GATE_HP, maxHp: SPUR_GATE_HP, chewUntil: 0 });
+    }
+    claimFloor(x, y, w, h, 0);
+}
+
+// Reserved LAST, after the rolling stock is down. Reserving the lane first
+// makes the line clash with itself -- every piece of stock sits on the track
+// by definition, so the first version placed exactly zero and the only
+// railcars on the map were the Kennels' own.
+//
+// Reserved, not walled: the track is FLOOR. This only keeps buildings,
+// containers, crates and stations off the line.
+function railReserve(x, y, w, h) {
+    reservedRects.push({ x: x - 20, y: y - 20, w: w + 40, h: h + 40 });
+}
+
+// Rolling stock standing on a leg, spaced along it. Solid -- this is the
+// cover that makes the spur a lane with things on it rather than a corridor.
+function railStock(x, y, w, h, vertical) {
+    const along = vertical ? h : w;
+    const step = 300;
+    for (let d = 90; d < along - 210; d += step) {
+        const cw = vertical ? 54 : 190;
+        const ch = vertical ? 190 : 54;
+        const cx = Math.round(vertical ? x + (w - cw) / 2 : x + d);
+        const cy = Math.round(vertical ? y + d : y + (h - ch) / 2);
+        // Never ON a rail gate, or the gate is unusable -- but tested against
+        // the gates themselves, not nearZoneBoundary(), whose fixed 150px
+        // margin is most of a 200x150 cell and rejected every piece on the
+        // southbound leg.
+        if (blockedByRailGate(cx, cy, cw, ch)) continue;
+        // Reserved ground placed BEFORE the spur -- the crane's legs, the
+        // funnel halls, the keep. The spur's own lane is not reserved yet,
+        // which is the point of the ordering.
+        if (clashesReserved({ x: cx - 24, y: cy - 24, w: cw + 48, h: ch + 48 })) continue;
+        walls.push({ x: cx, y: cy, w: cw, h: ch });
+        railcars.push({ x: cx, y: cy, w: cw, h: ch, vertical: vertical });
+    }
+}
+
+// A rail gate has to stay walkable-through for zombies, so nothing parks on
+// one. 40px of clearance each side.
+function blockedByRailGate(x, y, w, h) {
+    for (let i = 0; i < barricades.length; i++) {
+        const b = barricades[i];
+        if (rectsOverlap({ x: x - 40, y: y - 40, w: w + 80, h: h + 80 }, b)) return true;
+    }
+    return false;
+}
+
+// --- P12: THRESHOLDS ------------------------------------------------
+// A worn patch across every door and window, painted in ONE PASS AT THE END,
+// because that is the only point at which every opening on the map exists --
+// boundary doors, the keep's two barricades, the sluice, the rail gates and
+// the funnel halls are created by six different functions.
+//
+// THRESH_REACH is how far the wear spreads either side of the opening. At
+// roughly two thirds of a body it reads as traffic rather than as a doormat.
+const THRESH_REACH = 26;
+
+function paintThresholds() {
+    if (typeof zfPatch !== "function") return;
+    const mark = function (r) {
+        const vertical = r.w < r.h;
+        if (vertical) zfPatch(r.x - THRESH_REACH, r.y, r.w + THRESH_REACH * 2, r.h, "threshold");
+        else zfPatch(r.x, r.y - THRESH_REACH, r.w, r.h + THRESH_REACH * 2, "threshold");
+    };
+    for (let i = 0; i < doors.length; i++) mark(doors[i]);
+    for (let i = 0; i < barricades.length; i++) mark(barricades[i]);
+}
+
+function buildRailSpur() {
+    // Leg A runs east along the KENNELS' neck (cols 16-17 at rows 6-7 are the
+    // only Kennels cells at this height -- the same tail that severs
+    // Yard <-> Blockhouse) and on across THE YARD.
+    // ROW 6 ONLY, high in the cell. Every boundary reserves 150px inward for
+    // its door, and the Kennels/Pump boundary below row 7 therefore reserves
+    // y 1050-1200 -- so a lane straddling rows 6 and 7 sat inside it and most
+    // of the rolling stock on this leg was silently dropped.
+    const ay = 6 * ZONE_CELL_H + 20;
+    const ax0 = 16 * ZONE_CELL_W + 10;            // just inside the Kennels
+    const ax1 = 23 * ZONE_CELL_W + 10;
+
+    // Leg B turns south down THE YARD's two-cell tail (cols 22-23) and runs
+    // into THE MOTOR POOL.
+    // NOT centred in the two-cell tail: the Yard/Pump boundary at x = 4400
+    // reserves 150px east of itself, and centring put the lane one pixel
+    // inside that, which rejected every piece of stock on the leg. Sit in the
+    // band that is actually free, between that reserve and the east
+    // perimeter wall.
+    const bx = 22 * ZONE_CELL_W + 200;
+    // Deep into THE MOTOR POOL, not just over its boundary. At 16 rows the
+    // only southbound piece of stock landed within the rail gate's 40px
+    // clearance and was dropped, so the Motor Pool -- half the point of the
+    // line -- had none of it.
+    const by1 = 17 * ZONE_CELL_H + 110;
+
+    railLeg(ax0, ay, ax1 - ax0, SPUR_LANE);
+    railLeg(bx, ay, SPUR_LANE, by1 - ay);
+    yardSpur = { x: ax0, y: ay, w: ax1 - ax0, h: SPUR_LANE };
+
+    // Stock first, reservation second -- see railReserve.
+    railStock(ax0, ay, ax1 - ax0, SPUR_LANE, false);
+    railStock(bx, ay + SPUR_LANE + 60, SPUR_LANE, by1 - ay - SPUR_LANE - 60, true);
+
+    railReserve(ax0, ay, ax1 - ax0, SPUR_LANE);
+    railReserve(bx, ay, SPUR_LANE, by1 - ay);
 }
 
 // --- THE CONTAINER MAZE (2026-09-19, sequence step 5) ----------------
@@ -1825,6 +2035,120 @@ function placeLandmarks() {
     // are fixed, so neither needs one placed.
 }
 
+// --- P9: LANDMARK SIGHTLINES (2026-09-20) ---------------------------
+// The height ladder already works -- crane 16, silo 14, standpipe 13, down to
+// the bus at 5 -- and landmarks draw after the walls, culled to the VIEW, so
+// one is visible from the sector next door. What was missing is that nothing
+// guaranteed a landmark could be seen from anywhere USEFUL: placement took any
+// spot that fitted. The map had a skyline and no sightlines.
+//
+// So a spot with clear line of sight from one of the sector's own doorways is
+// PREFERRED -- you come through the door, you see the crane, you know which
+// way you are facing. It is a preference and not a requirement on purpose: the
+// existing rule that a sector without its landmark beats a landmark standing
+// on the endgame has already cost one bug, and it still holds below.
+// EYE_STEP_IN: the eye is not the middle of the doorway, it is a stride
+// INSIDE the sector.
+//
+// Cast from the doorway's own centre and the result is nearly meaningless: the
+// centre lies in the plane of the boundary wall, so every line that is not
+// close to perpendicular clips the wall the door is set in, and the test
+// degenerates into "is the landmark straight ahead". Measured, that put only
+// 13.6% of landmarks 'visible' and reserving the line changed it by 0.3 points
+// -- the occluder was the doorway itself, not anything placed later.
+//
+// A stride in is also what the brief actually describes: you come THROUGH the
+// door and see the crane.
+const EYE_STEP_IN = 130;
+
+function sectorOpenings(zone) {
+    const out = [];
+    const push = function (r) {
+        const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+        const vertical = r.w < r.h;
+        // Step off the wall into THIS sector -- whichever side that is.
+        for (let sgn = -1; sgn <= 1; sgn += 2) {
+            const ex = vertical ? cx + sgn * EYE_STEP_IN : cx;
+            const ey = vertical ? cy : cy + sgn * EYE_STEP_IN;
+            if (ex < 0 || ey < 0 || ex >= WORLD_W || ey >= WORLD_H) continue;
+            if (zoneOf(ex, ey) === zone) out.push({ x: ex, y: ey });
+        }
+    };
+    for (const k in zonePassages) {
+        if (!Object.prototype.hasOwnProperty.call(zonePassages, k)) continue;
+        const parts = k.split(">");
+        if (+parts[0] !== zone && +parts[1] !== zone) continue;
+        const p = zonePassages[k];
+        if (p.door) push(p.door);
+        if (p.window) push(p.window);
+    }
+    return out;
+}
+
+// Sampled along the line. 18px steps against a 10px probe: fine enough that a
+// 20px wall cannot fall between two samples, which is the same mistake the nav
+// grid made once when it sampled cell centres and made walls invisible.
+// `skip` is the landmark's own footprint. Without it this reports nonsense
+// the moment the landmark is solid: the line is cast to the body's CENTRE, so
+// its last samples are inside the body and every landmark blocks itself. It
+// did not show up at placement time -- the landmark is not a wall yet when its
+// spot is chosen -- and showed up as "crane 98%, everything else 0%" when the
+// same test was run over a finished map. The crane is the one landmark with no
+// collision.
+function clearSightStatic(x0, y0, x1, y1, skip) {
+    const dx = x1 - x0, dy = y1 - y0;
+    const steps = Math.ceil(Math.hypot(dx, dy) / 18);
+    for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const px = x0 + dx * t, py = y0 + dy * t;
+        if (skip && px >= skip.x - 6 && px <= skip.x + skip.w + 6 &&
+                    py >= skip.y - 6 && py <= skip.y + skip.h + 6) break;
+        if (rectBlockedStatic({ x: px - 5, y: py - 5, w: 10, h: 10 })) return false;
+    }
+    return true;
+}
+
+// Returns the eye that can see this spot, or null. The EYE is returned rather
+// than a boolean because choosing the spot is only half of P9 -- the line has
+// to survive everything placed afterwards, and to protect it we need to know
+// which line it was.
+function landmarkSightline(x, y, w, h, eyes) {
+    if (!eyes.length) return null;
+    const cx = x + w / 2, cy = y + h / 2;
+    const body = { x: x, y: y, w: w, h: h };
+    for (let i = 0; i < eyes.length; i++) {
+        if (clearSightStatic(eyes[i].x, eyes[i].y, cx, cy, body)) return eyes[i];
+    }
+    return null;
+}
+
+function landmarkSeen(x, y, w, h, eyes) {
+    return !eyes.length || !!landmarkSightline(x, y, w, h, eyes);
+}
+
+// HOLD THE LINE OPEN. Landmarks are placed early, on purpose -- they get first
+// pick of ground -- so at the moment a sightline is chosen the buildings,
+// containers, rail stock and pen rows do not exist yet. Measured across 100
+// seeds, choosing a clear line and then letting the rest of generation run
+// left only 13.6% of landmarks actually visible from a doorway afterwards.
+//
+// So reserve a few boxes ALONG the line rather than the whole corridor: four
+// 70px waypoints over the middle stretch. A continuous corridor would be tens
+// of rects per landmark and clashesReserved is linear, and the two ends do not
+// need it -- a doorway already reserves 150px and a landmark reserves 80.
+const SIGHT_WAYPOINTS = 4;
+
+function reserveSightline(eye, x, y, w, h) {
+    if (!eye) return;
+    const cx = x + w / 2, cy = y + h / 2;
+    for (let i = 0; i < SIGHT_WAYPOINTS; i++) {
+        const t = 0.25 + (0.5 * i) / Math.max(1, SIGHT_WAYPOINTS - 1);
+        const px = eye.x + (cx - eye.x) * t;
+        const py = eye.y + (cy - eye.y) * t;
+        reservedRects.push({ x: Math.round(px - 35), y: Math.round(py - 35), w: 70, h: 70 });
+    }
+}
+
 function addLandmark(zone, kind, w, h, lift) {
     const b = zoneBounds(zone);
     // NOT findOpenSpotSure: that relaxes the reserved-ground rule on its
@@ -1842,19 +2166,29 @@ function addLandmark(zone, kind, w, h, lift) {
     // reserved ground, standing walls, claimed floor AND sector containment,
     // which is every rule a landmark needs.
     let spot = null;
+    let anyFit = null;                       // the old behaviour, kept as the floor
     const pads = [110, 80, 50, 24, 8];
+    const eyes = sectorOpenings(zone);       // P9
     for (let i = 0; i < pads.length && !spot; i++) {
         for (let tries = 0; tries < 90 && !spot; tries++) {
             const x = Math.round(b.x + 50 + MP.random() * Math.max(1, b.w - 100 - w));
             const y = Math.round(b.y + 50 + MP.random() * Math.max(1, b.h - 100 - h));
-            if (hallFits(x, y, w, h, pads[i], zone)) spot = { x: x, y: y };
+            if (!hallFits(x, y, w, h, pads[i], zone)) continue;
+            if (!anyFit) anyFit = { x: x, y: y };
+            // PREFER a spot you can see from one of this sector's doorways.
+            const eye = landmarkSightline(x, y, w, h, eyes);
+            if (eye) spot = { x: x, y: y, eye: eye };
         }
     }
+    // No sightline anywhere? Take the spot that merely fits. A landmark you
+    // cannot see from the door is still better than no landmark.
+    if (!spot) spot = anyFit;
     // A sector without its landmark on a crowded seed is much better than a
     // landmark standing on the endgame.
     if (!spot) return;
     const lm = { x: spot.x, y: spot.y, w: w, h: h, kind: kind, zone: zone, lift: lift };
     landmarks.push(lm);
+    reserveSightline(spot.eye, spot.x, spot.y, w, h);
 
     // Collision. THE CRANE HAS NONE AT ALL (2026-09-20, on request: "make it
     // so you can walk under the gantry crane, it would look more correct
@@ -2159,7 +2493,7 @@ function buildZoneContents() {
         if (tpl.outpost) buildOutpost(b, z);
         if (tpl.generator) buildGenerator(b, z);
 
-        buildZoneBuildings(b, tpl.buildings, z);
+        buildZoneBuildings(b, sectorBuildingCount(tpl), z);
 
         // Every loose item now passes the sector id, so an irregular sector
         // stops donating its crates and barrels to whoever owns the rest of
@@ -2902,7 +3236,10 @@ const HALL_HOMES = ["spill", "pump", "slag", "pool", "motor", "turbine"];
 // and THE MOTOR POOL eligible -- exactly two candidates for exactly two
 // halls, so a single failure cost a hall and the rate fell to 1.88 a map.
 // COLD STORAGE at 9 cells is a real third option.
-const HALL_MIN_CELLS = 9;
+// 36, not 9: a cell is a quarter of the area it was at 12x9 (2026-09-20).
+// This is a count of CELLS, so it does not follow the constants and had to be
+// moved by hand -- one of exactly three places in the file that did.
+const HALL_MIN_CELLS = 36;
 
 function planFunnelHalls() {
     const cands = [];

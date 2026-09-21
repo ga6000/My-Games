@@ -568,13 +568,52 @@ function drawGround(vr) {
     ctx.stroke();
 }
 
+// P8 (2026-09-20): WALLS ARE KEYED PER SECTOR, like the floors already were.
+//
+// There were nine floor treatments and exactly one wall, and the wall is the
+// surface you actually look at: a top-down game with a 340px light pocket
+// spends most of its time showing you a corridor, not a floor. So the one
+// place sector identity was most visible carried none of it.
+//
+// Body and cap per sector, drawn from the same hue family as that sector's
+// floor so the two read as one material -- concrete in the Blockhouse, dark
+// steel in Turbine Hall, oxide-stained block in the Yard. The cap is the 2px
+// top/left highlight that was already there; it is the cheap half of the
+// height read and it now says WHERE as well as HOW TALL.
+//
+// Cost is one zoneOf() per wall per frame, which is a single array read --
+// the same reason zoneOf is safe in the per-zombie path.
+const ZONE_WALL = {
+    spill:   ["#4A6A6E", "#7FA3A6"],
+    cold:    ["#3E5A66", "#7093A0"],
+    kennel:  ["#6A6248", "#9A9070"],
+    yard:    ["#6E4A3E", "#A0766A"],
+    centre:  ["#5E5A50", "#918C80"],
+    turbine: ["#4A4E68", "#7C82A2"],
+    pump:    ["#46627A", "#7C9AB4"],
+    sluice:  ["#3E5A4A", "#72957F"],
+    motor:   ["#6A625A", "#9C948A"]
+};
+
+function wallPalette(x, y) {
+    if (typeof zoneOf !== "function") return null;
+    const z = zoneOf(x, y);
+    const tpl = zoneInfo && zoneInfo[z] && zoneInfo[z].tpl;
+    return (tpl && ZONE_WALL[tpl.key]) || null;
+}
+
 function drawWalls(inView) {
     for (let i = 0; i < walls.length; i++) {
         const w = walls[i];
         if (!inView(w.x, w.y, w.w, w.h)) continue;
-        ctx.fillStyle = COLOR_WALL;
+        // Sampled at the CENTRE. A boundary wall is centred on the line
+        // between two sectors, so its own corner can sit in either one and
+        // sampling x,y made a run flicker between two palettes along its
+        // length.
+        const pal = wallPalette(w.x + w.w / 2, w.y + w.h / 2);
+        ctx.fillStyle = pal ? pal[0] : COLOR_WALL;
         ctx.fillRect(w.x, w.y, w.w, w.h);
-        ctx.fillStyle = COLOR_WALL_LIT;
+        ctx.fillStyle = pal ? pal[1] : COLOR_WALL_LIT;
         ctx.fillRect(w.x, w.y, w.w, 2);
         ctx.fillRect(w.x, w.y, 2, w.h);
     }

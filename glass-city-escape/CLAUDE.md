@@ -586,4 +586,4 @@ hazards, not synchronised entities.
 **Level generation uses `MP.random()`, never `Math.random()`** — a stray `Math.random()` in
 `gc-world.js` means two players race different cities.
 
-<!-- doc-sync: 06580fba | 2026-09-20 -->
+<!-- doc-sync: 06580fba | 2026-09-21 -->

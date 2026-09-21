@@ -538,8 +538,32 @@ for the sluice room and the funnel halls. Tileable value noise only ever *picks*
 tile's few flat colours — no gradients — and one large **grime noise map** (three flat alpha steps,
 1024px repeat) over everything breaks the 128px repeat. Generated from fixed seeds: never
 `MP.random()` (it would shift the level stream) and never `Math.random()` (players must be able to
-say "the blue tiles"). The minimap tints each sector to match (`ZONE_FLOOR_TINT`, now chosen as a
-nine-colour palette rather than one at a time). If the textures cannot be built, `drawGround()`'s
+say "the blue tiles"). The minimap tints each sector to match (`ZONE_FLOOR_TINT`).
+
+> **The palette was RE-SOLVED on 2026-09-20 (`MAP_DESIGN_GUIDE.md` P7), and the old one was
+> measurably not doing its job.** In CIELAB the minimum dE76 between two sectors that *share a
+> boundary* was **5.5** (Spillway / Cold Storage, over a four-cell border -- the same colour at a
+> glance), six of eighteen adjacent pairs fell under dE 12, and Turbine Hall / Pump House sat 2.2
+> apart, one tint occupying two of nine slots.
+>
+> The deeper fault was tonal: every floor in the game sat inside a **7.5-point lightness band**
+> (L* 23.3-30.7), so the tints were asked to do all their work in hue and chroma, at very low
+> chroma, in a dark scene lit by a 340px pocket. Lightness is the one channel that survives those
+> conditions and it was unused.
+>
+> Solved under three constraints so it is a re-solve and not a repaint -- hue within 34 degrees of
+> the original, chroma 10-24, L* 18-36 so nothing reads as lit floor:
+> **min adjacent dE 5.5 -> 22.7, mean 16.9 -> 34.7, pairs under 12 six -> zero, min dE between ANY
+> two sectors 2.2 -> 19.0, L* range 7.5 -> 18.0.**
+>
+> **The chroma FLOOR is load-bearing.** A solve without a lower bound greyed the Spillway out to
+> `#2C2C2C` -- at very low chroma the hue lock stops meaning anything and the sector lost its
+> water. A later one had a floor but seeded from the current values, three of which are already
+> below it, so those sectors were rejected on every move and **never changed at all**. Seed *at*
+> the floor, then optimise.
+>
+> These are **tints**: `ZF_PAINTERS` mixes several flat colours per zone over the top, so the
+> shipped contrast is not these numbers. Re-measure against rendered tiles, not the table. If the textures cannot be built, `drawGround()`'s
 old grid is the fallback.
 
 > **Extended 2026-09-19 into three layers — EXTERIOR / INTERIOR / UNIQUE.** The tiles above were
@@ -582,40 +606,78 @@ nothing could path into — a free safe spot, and a trap for any zombie that wan
 
 ### The paint grid
 
-Sectors are **painted into a coarse 12 × 9 grid of 400 × 300 cells** (`ZONE_PAINT`, 108 entries of
-a sector id 0–8). That buys arbitrary rectilinear outlines while `zoneOf()` stays **one array
-read**, which matters because it runs per zombie per frame.
+Sectors are **painted into a 24 × 18 grid of 200 × 150 cells** (`ZONE_PAINT`, 432 entries of a
+sector id 0–8). That buys arbitrary rectilinear outlines while `zoneOf()` stays **one array read**,
+which matters because it runs per zombie per frame.
+
+> **It was 12 × 9 until 2026-09-20**, and that was the binding constraint on sector SHAPE — not
+> taste and not effort. An H needs a bounding box of at least **5 × 5** (two spines, a gap, a
+> crossbar) and its notches must open onto a real neighbour or they island a sector, which
+> `assertZoneConnectivity` rejects. At 108 cells over nine sectors the average sector was twelve
+> cells against the twenty-five a 5 × 5 needs, and **nine of nine bounding boxes failed** — the
+> largest pairs were 4 × 7 and 3 × 8. No painter could have drawn an H on that grid.
+>
+> **The refinement is close to free, which is the part worth knowing.** `zoneBoundaryRuns()` merges
+> collinear cells, so what costs a run is shape complexity, not cell count: a 2× upsample of the
+> *old* shapes measures **exactly 39 runs**, identical to the old grid. The shapes actually shipped
+> below cost **41**. Two runs bought every silhouette on the map.
+>
+> A second rule falls out of the map edges and never goes away: **a sector against the border can
+> be a C, an E or a comb, but never an S or a Z**, because an S bulges both ways and one way is
+> off-map. That rules THE SPILLWAY (west) and THE SLUICE YARD (south) out of S/Z at any resolution.
 
 ```
- SPL SPL CLD CLD CLD CLD KEN KEN KEN YRD YRD YRD
- SPL SPL SPL CLD CLD CLD KEN KEN KEN YRD YRD YRD
- SPL SPL SPL CLD CLD BLK BLK KEN KEN KEN YRD YRD
- SPL SPL TRB TRB TRB BLK BLK BLK BLK YRD YRD YRD
- SPL SPL TRB BLK BLK BLK BLK BLK BLK PMP PMP YRD
- SPL SPL TRB TRB TRB BLK BLK PMP PMP PMP YRD YRD
- SPL SPL SPL SPL SLU SLU SLU MTR MTR MTR YRD YRD
- SLU SLU SLU SLU SLU SLU SLU MTR MTR YRD YRD MTR
- SLU SLU SLU SLU SLU SLU SLU MTR MTR MTR MTR MTR
+  0 SSSSSSCCCCCCCCKKKKYYYYYY     S spillway   C cold storage   K kennels
+  1 SSSSSSCCCCCCCCKKKKYYYYYY     Y yard       B blockhouse     T turbine
+  2 SSSSSSCCCCCCCCKKKKYYYYYY     P pump       L sluice         M motor
+  3 SSSSSSSSCCCCKKKKKKYYYYYY     <- COLD STORAGE's waist: the H
+  4 SSSSSSCCCCCCCCKKKKYYYYYY
+  5 SSSSSSCCCCCCCCKKKKYYYYYY
+  6 SSSSTTTTTTBBBBBBKKYYYYYY
+  7 SSSSTTTTBBBBBBBBKKYYYYYY     <- the Kennels' tail severs YARD <-> BLOCKHOUSE
+  8 SSSSTTTTBBBBBBBBPPPPYYYY
+  9 SSSSTTTTBBBBBBBBPPPPPPYY
+ 10 SSSSTTTTTTBBBBBBPPPPPPYY
+ 11 SSSSSSTTTTTTBBBBPPPPPPYY
+ 12 SSSSSSLLLLLLLLMMMMMMMMYY
+ 13 SSSSSSLLLLLLLLMMMMMMMMYY
+ 14 LLLLLLLLLLLLLLMMMMMMMMMM
+ 15 LLLLLLLLLLLLLLMMMMMMMMMM
+ 16 LLLLLLLLLLLLLLMMMMMMMMMM
+ 17 LLLLLLLLLLLLLLMMMMMMMMMM
 ```
 
-| Sector | Cells | Shape | bbox fill |
+| Sector | Cells | Shape | ring |
 |---|---|---|---|
-| THE SPILLWAY | 18 | stepped ribbon — a two-cell spine, a shoulder shelf, a four-cell foot | 64% |
-| COLD STORAGE | 9 | descending staircase | 75% |
-| THE KENNELS | 8 | L — a 3x2 block with one more cell below its east end | 89% |
-| THE YARD | 19 | hourglass with a tongue — the tongue is the **rail spur**, and it runs between THE MOTOR POOL's bays. Its top 3x4 is unbroken, and that rectangle is the container maze | 79% |
-| TURBINE HALL | 7 | bracket, opening east, **wrapped around THE BLOCKHOUSE's west arm** | 78% |
-| THE BLOCKHOUSE | 14 | **cross** — the most irregular thing on the map | **58%** |
-| PUMP HOUSE | 5 | boot — the smallest, crossable in ~4s | 62% |
-| THE SLUICE YARD | 17 | tee — a base along the south wall, a stem to the gate plates | 81% |
-| THE MOTOR POOL | 11 | bracket with the Yard's spur through its middle | 73% |
+| THE SPILLWAY | 76 | comb against the west edge — two bulges east, neither an S | 2 |
+| COLD STORAGE | 44 | **a true H**, arms at rows 0–2 and 4–5, waist at row 3 | 1 |
+| THE KENNELS | 30 | staircase with a tail down to row 7 | 1 |
+| THE YARD | 62 | hook — a wide head north-east, a two-cell tail down the east edge | **2** |
+| THE BLOCKHOUSE | 40 | arrow narrowing south toward the escape | 0 |
+| TURBINE HALL | 30 | dog-leg | 1 |
+| PUMP HOUSE | 22 | L | 1 |
+| THE SLUICE YARD | 72 | tee along the south wall | 1 |
+| THE MOTOR POOL | 56 | bracket with the rail spur through it | 1 |
 
-**`zoneBounds(i)` is a BOUNDING BOX, not the sector.** The Blockhouse's box is 58% ground
-belonging to two other sectors. **Anything that picks a point in the bounds must then call
-`inZone(x, y, i)`** — `findOpenSpot`, `findOpenSpotSure`, `buildZoneContents`, `placeWallBuys`,
-`placeCardStations`, `buildFunnelHall`, `buildCorridors`, `buildZoneBuildings`, `buildOutpost` all
-do. `rectTouchesZone()` is the same rule for rects and is why `markHotZones` no longer marks a
-cross's whole 2400×1200 box. `randomPointInZone()` picks from a sector's own cells.
+**COLD STORAGE's waist is ONE row, not two, and that is a measured constraint rather than a
+preference.** The first version used a two-row waist, giving 300px-deep arms — and every boundary
+reserves **150px inward for its door**, so a two-row arm has *nothing* left once both long edges
+are taken out. The 130px chiller could not be placed and the map shipped six landmarks instead of
+seven. **A sector arm that has to hold a hero structure needs three rows.**
+
+**THE YARD IS RING 2 NOW.** On the old paint it touched the Blockhouse at exactly one cell, so the
+rocket was one 1,250 door from spawn; the Kennels' tail at rows 6–7 severs that. Cost to own the
+rocket goes **8,750 → 10,350**. It is still the sector worth the trip — it is no longer the whole
+game for one door.
+
+**`zoneBounds(i)` is a BOUNDING BOX, not the sector.** Unchanged and still the trap: anything that
+picks a point in the bounds must then call `inZone(x, y, i)`.
+
+**Three things do NOT follow the grid constants** and had to move by hand when it changed:
+`HALL_MIN_CELLS` (9 → **36**, since a cell is a quarter of the area it was), the rail spur's cell
+literals, and `randomPointInZone`'s pad (checked, still fits: 200 − 80 and 150 − 80 are positive).
+`zoneGridDist` divides by `ZONE_CELL_W` but only ever *orders* spawn candidates and never compares
+against a threshold, so a uniform scale change is harmless — both call sites checked.
 
 ### Fixed skeleton, seeded interior
 
@@ -630,12 +692,123 @@ balance number moved, only where they sit:
 
 | Sector | Guns | Stations |
 |---|---|---|
-| THE YARD | **2** — ROCKET, SMG | 2 |
+| THE YARD | 1 — ROCKET | 2 |
 | THE MOTOR POOL | 0 | **2** |
 | COLD STORAGE / THE KENNELS / THE SPILLWAY | 1 each — RIFLE / SHOTGUN / SNIPER | 1 each |
-| PUMP HOUSE | 1 — FLAMETHROWER | 0 |
+| PUMP HOUSE | 1 — FLAMETHROWER | **1** |
 | TURBINE HALL | 0 | 1 — OVERDRIVE, always |
-| THE BLOCKHOUSE / THE SLUICE YARD | 0 | 0 |
+| **THE SLUICE YARD** | **1 — SMG** | 0 |
+| THE BLOCKHOUSE | 0 | 0 |
+
+> **Two moves on 2026-09-20, both from measured asymmetry** (`MAP_DESIGN_GUIDE.md` C1/C4/C5).
+> Over *exactly* the same 35 cells, the east half of the map (Yard + Pump House + Motor Pool) held
+> **three guns and four perks** and the west/south half (Spillway + Sluice Yard) held **one and
+> one**. Nothing in the fiction explained it and nothing in the pacing needed it.
+>
+> - **THE SMG moved to THE SLUICE YARD.** East/west guns go 3:1 -> 2:2, and the sector that was
+>   15.7% of the map with nothing in it until the last sixty seconds now has a reason to exist --
+>   you learn the escape ground before the run that depends on it.
+> - **PUMP HOUSE gained a station**, the only sector selling a gun and carrying none. Totals are
+>   **6 guns and 9 stations** (was 8). `CARD_ALWAYS` is untouched. `PERK_SECTOR_HOMES` gained
+>   `pump: ["blastcap", "spite"]` -- fire and blast, beside the flamethrower it sells.
+
+### Building density is PER CELL (`bpc`), not a flat count
+
+The comment in `SECTORS` used to describe a `density` field that scaled buildings by sector size.
+**No such field ever existed** -- `buildZoneContents` read a flat `buildings` count -- so the same
+number landed in a 5-cell sector and an 18-cell one, and density ranged over **7.6x** without
+anyone choosing it. `sectorBuildingCount()` derives the count from `bpc * zoneCellCount()`.
+
+COLD STORAGE stays a warren on purpose (0.275/cell); **THE SPILLWAY roughly doubles** from what was
+the emptiest ground in the game. THE YARD and THE KENNELS stay deliberately low -- their real
+buildings are the container stacks and the rolling stock, placed separately, and raising this
+crowds them out (measured once at 1.5 containers placed of 14 attempted).
+
+### The rail spur -- KENNELS -> THE YARD -> THE MOTOR POOL (2026-09-20)
+
+This fixes a contradiction rather than adding decoration. The Kennels' rail cars and the Motor
+Pool's flatcars were given **shared artwork** on 2026-09-20 so the spur "visibly runs between
+them" -- and **on the old paint the two sectors were not adjacent.** The art implied one rail line
+across a gap it never crossed.
+
+On the new paint THE YARD sits between them, which is the right answer and not a workaround: a
+gantry crane exists to move containers between a rail head and a stack, so the Yard is the natural
+middle of the line. One continuous L -- east out of the Kennels' neck, across the Yard under the
+crane, then south down the Yard's tail into the Motor Pool.
+
+**Where it crosses a boundary wall it is a BOARDED RAIL GATE, not a hole.** A plain gap would have
+handed players a free route between three sectors and quietly deleted two door purchases -- the
+whole "buy outward" economy. A barricade is the idiom the map already has for this ("zombies pass,
+players never do"), needs no new notion of solidity, and a rail gate boarded over is what it looks
+like anyway. `carveOpening()` splits the walls; the cut pieces become barricades at 140 HP.
+
+**Three ordering bugs, all the same shape, and worth knowing because the next feature will hit
+them too:**
+
+1. **The lane reserved itself.** `railLeg` reserved the track before `railStock` ran, and every
+   piece of rolling stock sits on the track by definition -- so it clashed with its own reservation
+   and **zero** pieces were placed. Stock first, `railReserve` second.
+2. **`buildKennels()` reset `railcars = []`**, and the spur is built before it now, so it deleted
+   every piece the spur had just placed. `generateLevel()` already clears the array.
+3. **Both legs sat inside a 150px boundary door reserve** -- leg A straddled rows 6-7 and the
+   Kennels/Pump boundary reserves y 1050-1200; leg B was centred in the Yard's two-cell tail and
+   landed **one pixel** inside the Yard/Pump reserve. Both silently dropped their stock. The legs
+   sit in the band that is actually free.
+
+Measured over 120 seeds: **2-8 pieces of rolling stock a map** (mode 6), present in all three
+sectors -- Kennels 1.1, Yard 3.6, Motor Pool 0.7 per map. The *track* always runs the full line;
+the stock is what varies.
+
+### Thresholds -- the fourth floor treatment (2026-09-20)
+
+Beside interior / exterior / unique: **a worn patch across every door and window.** It is the one
+place on the map where two sectors' floors meet, and until now they simply abutted -- a hard seam
+between two tiles with nothing to explain it. The `threshold` tile is deliberately near-neutral and
+dark so it reads as wear on whichever two floors it joins, not as a third colour between them.
+
+`paintThresholds()` runs in **one pass at the end of `generateLevel`**, because that is the only
+point at which every opening exists -- boundary doors, the keep's two barricades, the sluice, the
+rail gates and the funnel halls are created by six different functions. ~63 patches a map.
+
+### Walls are keyed per sector (2026-09-20)
+
+There were nine floor treatments and **one** wall. The wall is the surface you actually look at: a
+top-down game with a 340px light pocket spends most of its time showing you a corridor, not a
+floor, so the place sector identity was most visible carried none of it. `ZONE_WALL` gives each
+sector a body and a cap drawn from its own floor's hue family.
+
+**Sampled at the wall's CENTRE, not its corner.** A boundary wall is centred on the line between
+two sectors, so its own top-left can sit in either one -- sampling `x, y` made a single run flicker
+between two palettes along its length. Cost is one `zoneOf()` per wall per frame, a single array
+read.
+
+### Landmark sightlines (2026-09-20)
+
+The height ladder already worked -- crane 16, silo 14, standpipe 13, down to the bus at 5 -- but
+nothing guaranteed a landmark could be seen from anywhere useful. The map had a skyline and no
+sightlines. `addLandmark` now **prefers** a spot with clear line of sight from one of the sector's
+own doorways, and keeps the old "any spot that fits" as the floor, because *a sector without its
+landmark beats a landmark standing on the endgame* and that rule has already cost one bug.
+
+**Two things had to be right before the measurement meant anything**, and both were wrong first:
+
+- **The eye is a stride INSIDE the sector (`EYE_STEP_IN` = 130), not the middle of the doorway.**
+  The doorway's centre lies in the plane of the boundary wall, so every line that is not near
+  perpendicular clips the wall the door is set in, and the test degenerates into "is the landmark
+  straight ahead". That reported 13.6%, and reserving the line moved it by 0.3 points -- because
+  the occluder was the doorway itself, not anything placed later.
+- **The landmark blocked its own sightline.** The line is cast to the body's centre, so once the
+  landmark is solid its last samples are inside it. This does not show up at placement time (it is
+  not a wall yet) and showed up as **"crane 98%, everything else 0%"** over finished maps -- the
+  crane being the one landmark with no collision. `clearSightStatic` takes the body to skip.
+
+Sightlines are also **held open**: four 70px waypoints along the chosen line, because landmarks are
+placed early by design and the buildings, containers and rolling stock do not exist yet when the
+line is picked. A continuous corridor would be tens of rects per landmark and `clashesReserved` is
+linear.
+
+Measured over 100 seeds: **100% of landmarks, all seven kinds, visible from one of their sector's
+doorways on a fully built map.**
 
 ### Boundaries, doors and pricing
 
@@ -786,6 +959,28 @@ frames. **This is the one place on the map where the palette is allowed to be lo
 container hues against a world of ember and grey (`AESTHETIC_GUIDE.md` 2.5) -- because a container
 yard that is not a jumble of colours does not read as one, and it is what makes THE YARD
 recognisable from across the map.
+
+### Measured (2026-09-20, after the twelve map proposals)
+
+Re-measured rather than assumed -- the grid, the stock, the density and the palette all moved.
+
+| | |
+|---|---|
+| guns / stations / doors / landmarks | **6 / 9 / 19 / 7 on every seed** (120 seeds) |
+| anything in the wrong sector | **0** |
+| generation failures | **0** |
+| landmarks visible from a doorway | **100%**, all 7 kinds (100 seeds) |
+| rolling stock a map | 2-8, mode 6, across all three spur sectors |
+| threshold patches a map | ~63 |
+| floor tint, min dE between adjacent sectors | **22.7** (was 5.5) |
+| nav reachability, doors open + barricades broken | **34 cells of 616,206 = 0.0055%** (25 seeds) |
+
+**Nav reachability is slightly worse than the 0.002% of 2026-09-19 and that is expected**, not a
+regression to chase: the rail gates, the reserved sightlines and a higher `bpc` in two sectors all
+add geometry. It is ~1.4 cells a map, and 31 of the 34 are on a single seed as scattered 2-3 cell
+nooks inside the container maze -- which is what `relocateZombie` exists for. **Re-run the A/B with
+each layer disabled if this geometry is touched again**; that is what found the pipe-run and forest
+pockets (579 and 488 cells).
 
 ### Measured (2026-09-19)
 
@@ -1594,4 +1789,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 16c43797 | 2026-09-20 -->
+<!-- doc-sync: c09b8256 | 2026-09-21 -->
