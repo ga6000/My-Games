@@ -1026,6 +1026,7 @@ function generateLevel() {
     spillwayRuns = null;
     kennelRun = null;
     railcars = [];
+    railPaths = [];
     buildingRooms = [];
     yardSpur = null;
     yardContainers = [];
@@ -1680,7 +1681,10 @@ function buildKennels() {
     const runY = Math.round(b.y + b.h * 0.56);
     kennelRun = { x: b.x, y: runY, w: b.w, h: KENNEL_LANE };
     reservedRects.push({ x: kennelRun.x, y: kennelRun.y, w: kennelRun.w, h: kennelRun.h });
-    if (typeof zfPatch === "function") zfPatch(kennelRun.x, kennelRun.y, kennelRun.w, kennelRun.h, "ballast");
+    // NOT painted as track any more (2026-09-21). It was ballast across the
+    // sector's whole BOUNDING BOX, so on 40 maps of 40 it ran under a
+    // boundary wall and out the other side -- a railway to nowhere. It is a
+    // lane, not a line; the railcars get their own sidings (placeKennelPiece).
 
     // ADAPTIVE, NOT A GRID (2026-09-20). A fixed pitch was the obvious way
     // to lay rolling stock and it does not survive this sector: THE KENNELS
@@ -1779,8 +1783,10 @@ function placeKennelPiece(x, y, w, h, vertical, isCar) {
     walls.push({ x: x, y: y, w: w, h: h });
     if (isCar) {
         railcars.push({ x: x, y: y, w: w, h: h, vertical: vertical });
-        // Rolling stock stands on track.
-        if (typeof zfPatch === "function") zfPatch(x - 8, y - 8, w + 16, h + 16, "ballast");
+        // Rolling stock stands on track: a short SIDING in the car's own
+        // orientation (2026-09-21), rather than a ballast square under it
+        // that the tile's world-grid stripes then ran across at random.
+        kennelSiding(x, y, w, h, vertical);
     } else {
         yardContainers.push({ x: x, y: y, w: w, h: h, hue: Math.floor(MP.random() * 5) });
         if (typeof zfPatch === "function") zfPatch(x - 8, y - 8, w + 16, h + 16, "hardstand");
@@ -1960,6 +1966,42 @@ function paintThresholds() {
     for (let i = 0; i < barricades.length; i++) mark(barricades[i]);
 }
 
+// --- TRACK GEOMETRY (2026-09-21) --------------------------------------
+// What drawRailTracks() (zombie-render.js) lays sleepers and rails along.
+// Each entry is a centreline POLYLINE, a bed width, and a curve radius
+// used to fillet every interior vertex -- the spur's corner is a curve,
+// not two rectangles meeting.
+//
+// PURE GEOMETRY, NO MP.random(). It is derived from rects the level has
+// already placed, so adding it cannot move one other thing on any seed.
+//
+// The ballast floor patch is still laid under each leg (railLeg), because
+// it is the gravel; the track art used to be baked into that tile, which
+// repeats on the WORLD grid, so only a leg that happened to run along the
+// tile's stripes read as track.
+let railPaths = [];
+
+const SIDING_RUNOUT = 28;         // how far a siding runs past each end of its car
+const SIDING_BED = 80;            // across: the car is 56, so 12px of shoulder
+
+function railPath(pts, w, r) {
+    railPaths.push({ pts: pts, w: w, r: r || 0 });
+}
+
+function kennelSiding(x, y, w, h, vertical) {
+    if (vertical) {
+        const cx = x + w / 2;
+        const y0 = y - SIDING_RUNOUT, y1 = y + h + SIDING_RUNOUT;
+        railPath([{ x: cx, y: y0 }, { x: cx, y: y1 }], SIDING_BED, 0);
+        if (typeof zfPatch === "function") zfPatch(cx - SIDING_BED / 2, y0, SIDING_BED, y1 - y0, "ballast");
+    } else {
+        const cy = y + h / 2;
+        const x0 = x - SIDING_RUNOUT, x1 = x + w + SIDING_RUNOUT;
+        railPath([{ x: x0, y: cy }, { x: x1, y: cy }], SIDING_BED, 0);
+        if (typeof zfPatch === "function") zfPatch(x0, cy - SIDING_BED / 2, x1 - x0, SIDING_BED, "ballast");
+    }
+}
+
 function buildRailSpur() {
     // Leg A runs east along the KENNELS' neck (cols 16-17 at rows 6-7 are the
     // only Kennels cells at this height -- the same tail that severs
@@ -1989,6 +2031,12 @@ function buildRailSpur() {
     railLeg(ax0, ay, ax1 - ax0, SPUR_LANE);
     railLeg(bx, ay, SPUR_LANE, by1 - ay);
     yardSpur = { x: ax0, y: ay, w: ax1 - ax0, h: SPUR_LANE };
+    // One line, not two legs: east along A's centre, turning south down
+    // B's. The corner vertex is the crossing of the two centrelines; the
+    // fillet radius of 90 keeps the bed within ~9px of the lanes' union.
+    const half = SPUR_LANE / 2;
+    railPath([{ x: ax0, y: ay + half }, { x: bx + half, y: ay + half }, { x: bx + half, y: by1 }],
+             SPUR_LANE, 90);
 
     // Stock first, reservation second -- see railReserve.
     railStock(ax0, ay, ax1 - ax0, SPUR_LANE, false);

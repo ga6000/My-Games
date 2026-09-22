@@ -420,14 +420,23 @@ const ZF_PAINTERS = {
     //   UNIQUE STRUCTURE GROUND
     // ---------------------------------------------------
     // Only ever painted under the structure that owns it.
-    // Rail ballast: the Yard's spur, which runs on into the Motor Pool.
+    // Rail ballast: the bed under the Yard's spur and the Kennels' sidings.
+    //
+    // PLAIN GRAVEL, NO SLEEPERS (2026-09-21). It used to paint sleepers as
+    // horizontal stripes every 16px -- and a tile repeats on the WORLD grid,
+    // not along the track, so the east-west leg read as sleepers and the
+    // north-south leg as a ladder of stripes running the wrong way, with no
+    // rails on either and no corner. The track itself is drawn now, by
+    // drawRailTracks() in zombie-render.js, from level.railPaths; this is
+    // only the stone it lies on.
     ballast: function (px, n, m) {
-        const pal = [zfHex("#26221C"), zfHex("#2D2822"), zfHex("#332E27")];
+        const pal = [zfHex("#221E19"), zfHex("#29251F"), zfHex("#302B24")];
         for (let y = 0; y < FLOOR_TEX; y++) for (let x = 0; x < FLOOR_TEX; x++) {
             const i = y * FLOOR_TEX + x;
-            // Sleepers across the run every 16px.
-            const sleeper = (y % 16) < 5;
-            px(x, y, sleeper ? zfHex("#1A1510") : zfPick(pal, n[i]));
+            let c = zfPick(pal, n[i]);
+            if (m[i] > 0.9) c = zfHex("#3A342C");          // a pale stone
+            else if (m[i] < 0.12) c = zfHex("#1A1713");    // a gap between stones
+            px(x, y, c);
         }
     },
     // The invert of a storm pipe: a painted centre line on wet floor.

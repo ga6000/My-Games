@@ -594,6 +594,12 @@ nothing could path into — a free safe spot, and a trap for any zombie that wan
 
 ## Map — nine PAINTED sectors (2026-09-19)
 
+> **Read `MAP_VISUAL_AUDIT.md` first (2026-09-21).** It is the first pass that *looked* at rendered
+> maps, and several numbers below turned out to be targets rather than outputs; each one is marked
+> where it stands. `LEVEL_BUILDER_PLAN.md` is the plan to replace random building placement with
+> hand-authored stamps. The visual direction is under reconsideration (audit §4) and
+> `AESTHETIC_GUIDE.md` §6.3 has not been changed.
+
 4800×2700, with a panning camera showing a **960×540** window (tightened from 1600×900 on
 2026-09-01; 2.78× less world on screen).
 
@@ -724,6 +730,12 @@ the emptiest ground in the game. THE YARD and THE KENNELS stay deliberately low 
 buildings are the container stacks and the rolling stock, placed separately, and raising this
 crowds them out (measured once at 1.5 containers placed of 14 attempted).
 
+> **Superseded 2026-09-21 -- the "warren" was a target, not an output.** A 40-seed sweep
+> (`MAP_VISUAL_AUDIT.md` §1.2) found **COLD STORAGE gets 0 buildings a map against a target of 12**,
+> and the whole map **5.3 against 49**. Placement `continue`s on any clash, so a sector whose
+> ground is taken by landmarks, halls and reserves simply gets nothing, and nothing reports it.
+> `bpc` sets how many are *attempted*. Re-measure before quoting any density here.
+
 ### The rail spur -- KENNELS -> THE YARD -> THE MOTOR POOL (2026-09-20)
 
 This fixes a contradiction rather than adding decoration. The Kennels' rail cars and the Motor
@@ -758,6 +770,28 @@ them too:**
 Measured over 120 seeds: **2-8 pieces of rolling stock a map** (mode 6), present in all three
 sectors -- Kennels 1.1, Yard 3.6, Motor Pool 0.7 per map. The *track* always runs the full line;
 the stock is what varies.
+
+**The track is DRAWN now, not tiled (2026-09-21).** It used to be baked into the `ballast` floor
+tile as stripes every 16px, and a tile repeats on the **world grid**, not along the track. So leg
+A read as sleepers, leg B as stripes running the wrong way, neither had rails, and the corner was
+two rectangles meeting. Now:
+
+- `ballast` is **plain gravel** (`zombie-floors.js`). It is only the bed.
+- **`railPaths`** (`zombie-level.js`) is a list of `{ pts, w, r }`: a centreline polyline, a bed
+  width, and a fillet radius for every interior vertex. The spur is one path with a **90px curve**
+  at the corner. It is pure geometry derived from rects already placed, **no `MP.random()`**, so
+  adding it moved nothing on any seed.
+- **`drawRailTracks(inView)`** (`zombie-render.js`), drawn after the floors and before furniture,
+  lays sleepers across the direction of travel and two rails along it, including through the
+  curve. Each path is rendered once into an offscreen canvas at 2 world units per texel and
+  blitted with smoothing off, so the curve is stepped pixels. It is cached by `railPaths` array
+  identity, so a reseed rebuilds it. **44ms once per level** (146ms before a rect prefilter).
+- The bed keeps the lanes' **square** outer corner; only the track curves. A curved bed over the
+  square ballast patch left a seam between two gravels.
+- **THE KENNELS' run is no longer painted as track.** It was ballast across the sector's bounding
+  box and ran under a boundary wall on 40 maps of 40. It is still a reserved lane. Each Kennels
+  railcar gets a **siding** instead (`kennelSiding`: the car's length + 28px at each end, 80px
+  bed, in the car's own orientation).
 
 ### THE KENNELS is a tight-quarters sector (2026-09-20)
 
@@ -810,6 +844,8 @@ it buys the sector's connectivity.
 
 THE KENNELS also grew **30 -> 34 cells**, taking four from THE YARD at rows 4-5. The Yard is 58
 and still the largest sector; its container maze was re-measured at **7.2 pieces a map, unchanged**.
+> **Superseded 2026-09-21:** the 40-seed audit counted **3.35 containers a map in THE YARD**, not
+> 7.2 (`MAP_VISUAL_AUDIT.md` §1.2). Where the 7.2 came from is not known. Treat it as unverified.
 
 Final, 25 seeds with doors open and barricades broken: **nav reachability 0.0036% (22 cells), which
 is better than the 0.0055% before this work**. Generation is 39ms a map.
@@ -936,6 +972,14 @@ storm runs, THE KENNELS' pens opening onto the one lane you can run down, THE MO
 three-walled service bays (deliberately the opposite — one way out), and THE YARD's rail spur with
 flatcars and container stacks. `INTERIOR_LANE` is 160 everywhere you are meant to fight.
 
+> **Superseded 2026-09-21 -- this describes the design, not the map.** Measured over 40 seeds
+> (`MAP_VISUAL_AUDIT.md` §1.2-1.3): **2.5 of 16 Spillway pipe segments** and **0.6 of ~6 Motor
+> Pool bays** get built. Buildings are placed in `buildZoneContents()` *before* the pipes, so the
+> pipes lose, and the drain floor is still painted under the buildings that took their ground.
+> The pens were replaced by rolling stock on 2026-09-20 (below). The pipe centre line is a tile
+> artifact repeating every 128px, unrelated to where any pipe is. Not fixed; held for the art
+> direction decision and the stamp work (`LEVEL_BUILDER_PLAN.md`).
+
 **`segmentedWall()` leaves deliberate gaps** and it is not cosmetic: an unbroken 1,380px pipe wall
 turns each run into a tube reachable only from its ends, and a reserved rect across an end sealed
 it — **579 unreachable nav cells in THE SPILLWAY alone**. Forest trunks reserve their own
@@ -951,6 +995,9 @@ interior spaces":
 | EXTERIOR | dirt, gravel, asphalt, concrete, wet concrete — flat, low contrast | the whole sector, per cell |
 | INTERIOR | the existing per-sector tiles | **only inside a room footprint** |
 | UNIQUE | rail ballast, pipe invert, hardstanding | only under the structure that owns it |
+
+(2026-09-21: ballast is plain gravel now. The track is drawn over it by `drawRailTracks`; see the
+rail spur section.)
 
 `zfPatch()` pushes a patch, `zfInteriorAt()` returns a sector's interior tile, `zfClearPatches()`
 runs on regenerate. One tile used to be washed across a sector's **whole rect**, which is why the
@@ -1044,6 +1091,7 @@ pockets (579 and 488 cells).
 its named sector **100%** of the time; **nothing in the wrong sector**; every sector reachable by
 door and by window on every map; all 7 landmarks on every map; 7.2 containers a map in THE YARD
 (4 to 11); all hall ends exactly 140px.
+> **2026-09-21:** the 40-seed audit measured **3.35** Yard containers, not 7.2. See above.
 
 **Funnel halls: about 97% of maps get both** (144/150 after the maze landed). The rest fall back to
 a bare funnel ring with its silo alongside, which is the pre-existing behaviour and is **an
@@ -1814,6 +1862,13 @@ the modulo, which measures 187–210 of 800 for each of the four.
 
 ## Known gaps
 
+- **Buildings are broken on most maps (audit 2026-09-21, `MAP_VISUAL_AUDIT.md` §1.1).** 95% have
+  an open corner: `makeBuilding`'s "bite" removes shell spans but never walls the bite's inner
+  edges. 26% of furniture overlaps walls and 23% of stairs stand outside the building, because
+  decor is placed against the full rect. Building windows use the barricade art. **Deliberately
+  not patched.** Buildings are to be hand-authored as stamps (`LEVEL_BUILDER_PLAN.md`), and the
+  visual direction is being reconsidered first (`MAP_VISUAL_AUDIT.md` §4).
+
 - ~~**A solo player cannot be revived.** Downed needs another *alive* player in the room, which is
   now necessarily a networked teammate. Playing alone, going down is a 25-second crawl that ends
   in death regardless — strictly worse than just dying. Worth either shortening the bleed-out
@@ -1845,4 +1900,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 5a582633 | 2026-09-21 -->
+<!-- doc-sync: 7269919f | 2026-09-21 -->

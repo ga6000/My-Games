@@ -491,6 +491,9 @@ function draw() {
     ctx.lineWidth = 3;
     ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
 
+    // Track is floor too, but drawn, not tiled: over the ballast, under
+    // everything that stands on it (2026-09-21).
+    drawRailTracks(inView);
     // Furniture first: it is floor dressing, under every entity.
     drawBuildingInteriors(inView);
     drawSiloPipes(now, inView);
@@ -1224,6 +1227,190 @@ function drawRailcars(inView) {
             ctx.fillRect(c.x + c.w - 4, c.y + q - 10, 8, 22);
             ctx.fillRect(c.x + c.w - 4, c.y + c.h - q - 12, 8, 22);
         }
+    }
+}
+
+// ---------------------------------------------------
+//   RAIL TRACK  (2026-09-21)
+// ---------------------------------------------------
+// Sleepers ACROSS the direction of travel, two rails ALONG it, and a real
+// curve at the spur's corner -- laid along railPaths (zombie-level.js),
+// which is geometry, not a tile. The track used to be baked into the
+// ballast floor tile, and a tile repeats on the WORLD grid: the east-west
+// leg read as sleepers, the north-south leg as stripes running the wrong
+// way with no rails, and the corner was two rectangles meeting.
+//
+// Each path is rendered ONCE into an offscreen canvas at RAIL_TEXEL world
+// units per texel -- the floor tiles' own scale -- and blitted with
+// smoothing off, so the curve comes out as stepped pixels like everything
+// else on the floor. The cache is keyed by array identity: generateLevel()
+// assigns a new railPaths, so a reseed rebuilds it.
+const RAIL_TEXEL = 2;
+const RAIL_GAUGE = 40;             // centre to centre of the rails
+const RAIL_W = 4;
+const RAIL_SLEEPER_LEN = 64;
+const RAIL_SLEEPER_W = 6;
+const RAIL_SLEEPER_PITCH = 16;
+let railTrackCache = [];
+let railTrackCacheSrc = null;
+
+// A path's centreline as straight runs and filleted arcs, each carrying the
+// distance along the line it starts at, so sleepers keep their pitch
+// straight through a curve.
+function railPieces(path) {
+    const pts = path.pts, out = [];
+    let s = 0, cur = pts[0];
+    for (let i = 0; i < pts.length - 1; i++) {
+        const b = pts[i + 1];
+        const dl = Math.hypot(b.x - pts[i].x, b.y - pts[i].y) || 1;
+        const dx = (b.x - pts[i].x) / dl, dy = (b.y - pts[i].y) / dl;
+        let end = b, next = b, arc = null;
+        if (i + 2 < pts.length && path.r > 0) {
+            const c2 = pts[i + 2];
+            const el = Math.hypot(c2.x - b.x, c2.y - b.y) || 1;
+            const ex = (c2.x - b.x) / el, ey = (c2.y - b.y) / el;
+            const cross = dx * ey - dy * ex;
+            const turn = Math.atan2(Math.abs(cross), dx * ex + dy * ey);
+            if (turn > 1e-3) {
+                const t = path.r * Math.tan(turn / 2);
+                const sg = cross > 0 ? 1 : -1;
+                end = { x: b.x - dx * t, y: b.y - dy * t };
+                next = { x: b.x + ex * t, y: b.y + ey * t };
+                const cx = end.x - dy * sg * path.r, cy = end.y + dx * sg * path.r;
+                arc = { kind: 1, cx: cx, cy: cy, r: path.r, sweep: turn, sg: sg,
+                        a0: Math.atan2(end.y - cy, end.x - cx) };
+            }
+        }
+        const len = Math.hypot(end.x - cur.x, end.y - cur.y);
+        out.push({ kind: 0, ax: cur.x, ay: cur.y, dx: dx, dy: dy, len: len, s0: s });
+        s += len;
+        if (arc) { arc.s0 = s; out.push(arc); s += arc.r * arc.sweep; }
+        cur = next;
+    }
+    return out;
+}
+
+function railTexelHash(ix, iy) {
+    let h = (ix * 374761393 + iy * 668265263) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function railTrackCanvas(path) {
+    const T = RAIL_TEXEL, half = path.w / 2;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < path.pts.length; i++) {
+        const q = path.pts[i];
+        x0 = Math.min(x0, q.x - half); y0 = Math.min(y0, q.y - half);
+        x1 = Math.max(x1, q.x + half); y1 = Math.max(y1, q.y + half);
+    }
+    // Snapped to the texel grid, so neighbouring paths share one lattice.
+    x0 = Math.floor(x0 / T) * T; y0 = Math.floor(y0 / T) * T;
+    const tw = Math.ceil((x1 - x0) / T), th = Math.ceil((y1 - y0) / T);
+    const pieces = railPieces(path);
+    const cv = document.createElement("canvas");
+    cv.width = tw; cv.height = th;
+    const g = cv.getContext("2d");
+    const img = g.createImageData(tw, th);
+    const d = img.data;
+    const BED = [[0x22, 0x1E, 0x19], [0x29, 0x25, 0x1F], [0x30, 0x2B, 0x24], [0x3A, 0x34, 0x2C]];
+    const SLEEPER = [[0x3B, 0x2E, 0x22], [0x34, 0x28, 0x1D]];
+    const RAIL_TOP = [0x81, 0x7D, 0x75], RAIL_FOOT = [0x15, 0x12, 0x0F];
+    // An L's bounding box is mostly NOT the L: test the legs' own rects
+    // (plus room for a fillet's bulge) before the per-piece maths. Measured
+    // 146ms -> a fraction of that on the spur, once per level.
+    const near = [];
+    for (let k = 0; k < path.pts.length - 1; k++) {
+        const a = path.pts[k], b = path.pts[k + 1], m = half + 24;
+        near.push({ x0: Math.min(a.x, b.x) - m, y0: Math.min(a.y, b.y) - m,
+                    x1: Math.max(a.x, b.x) + m, y1: Math.max(a.y, b.y) + m });
+    }
+    for (let v = 0; v < th; v++) {
+        for (let u = 0; u < tw; u++) {
+            const px = x0 + (u + 0.5) * T, py = y0 + (v + 0.5) * T;
+            let close = false;
+            for (let k = 0; k < near.length && !close; k++) {
+                const n = near[k];
+                close = px >= n.x0 && px <= n.x1 && py >= n.y0 && py <= n.y1;
+            }
+            if (!close) continue;
+            let off = Infinity, along = 0;
+            for (let k = 0; k < pieces.length; k++) {
+                const pc = pieces[k];
+                if (pc.kind === 0) {
+                    const qx = px - pc.ax, qy = py - pc.ay;
+                    const t = qx * pc.dx + qy * pc.dy;
+                    if (t < 0 || t > pc.len) continue;
+                    const o = Math.abs(qx * pc.dy - qy * pc.dx);
+                    if (o < off) { off = o; along = pc.s0 + t; }
+                } else {
+                    const vx = px - pc.cx, vy = py - pc.cy;
+                    let a = Math.atan2(vy, vx) - pc.a0;
+                    while (a > Math.PI) a -= 2 * Math.PI;
+                    while (a <= -Math.PI) a += 2 * Math.PI;
+                    a *= pc.sg;
+                    if (a < 0 || a > pc.sweep) continue;
+                    const o = Math.abs(Math.hypot(vx, vy) - pc.r);
+                    if (o < off) { off = o; along = pc.s0 + pc.r * a; }
+                }
+            }
+            // The BED keeps the lanes' square outer corner, which the level
+            // has already laid as ballast floor -- a curved bed over a
+            // square patch leaves a seam of two gravels. Only the track curves.
+            let inBed = off <= half;
+            for (let k = 0; !inBed && k < path.pts.length - 1; k++) {
+                const a = path.pts[k], b = path.pts[k + 1];
+                const lx = Math.min(a.x, b.x) - (a.x !== b.x ? 0 : half);
+                const ly = Math.min(a.y, b.y) - (a.y !== b.y ? 0 : half);
+                const hx = Math.max(a.x, b.x) + (a.x !== b.x ? 0 : half);
+                const hy = Math.max(a.y, b.y) + (a.y !== b.y ? 0 : half);
+                // Axis-aligned legs only, which is all the level lays; an
+                // interior vertex is widened by half so the legs meet square.
+                const ex0 = k > 0 ? half : 0, ex1 = k < path.pts.length - 2 ? half : 0;
+                if (px >= lx - (a.x !== b.x ? (a.x < b.x ? ex0 : ex1) : 0) &&
+                    px <= hx + (a.x !== b.x ? (a.x < b.x ? ex1 : ex0) : 0) &&
+                    py >= ly - (a.y !== b.y ? (a.y < b.y ? ex0 : ex1) : 0) &&
+                    py <= hy + (a.y !== b.y ? (a.y < b.y ? ex1 : ex0) : 0)) inBed = true;
+            }
+            if (!inBed) continue;
+            if (off > half) off = Infinity;
+            let c;
+            const toRail = Math.abs(off - RAIL_GAUGE / 2);
+            if (toRail < RAIL_W / 2) c = RAIL_TOP;
+            else if (toRail < RAIL_W / 2 + T) c = RAIL_FOOT;
+            else if (off <= RAIL_SLEEPER_LEN / 2 &&
+                     (along % RAIL_SLEEPER_PITCH) < RAIL_SLEEPER_W) {
+                c = SLEEPER[Math.floor(along / RAIL_SLEEPER_PITCH) & 1];
+            } else {
+                const hv = railTexelHash(Math.floor(px / T), Math.floor(py / T));
+                c = BED[hv < 0.3 ? 0 : hv < 0.7 ? 1 : hv < 0.94 ? 2 : 3];
+            }
+            const o4 = (v * tw + u) * 4;
+            d[o4] = c[0]; d[o4 + 1] = c[1]; d[o4 + 2] = c[2]; d[o4 + 3] = 255;
+        }
+    }
+    g.putImageData(img, 0, 0);
+    return { canvas: cv, x: x0, y: y0, w: tw * T, h: th * T };
+}
+
+function drawRailTracks(inView) {
+    if (typeof railPaths === "undefined") return;
+    if (railTrackCacheSrc !== railPaths || railTrackCache.length !== railPaths.length) {
+        railTrackCache = [];
+        try {
+            for (let i = 0; i < railPaths.length; i++) railTrackCache.push(railTrackCanvas(railPaths[i]));
+        } catch (e) {
+            // Track is never worth a crash; the ballast under it still draws.
+            railTrackCache = [];
+        }
+        railTrackCacheSrc = railPaths;
+        // Pad on failure so the length test above does not retry every frame.
+        railTrackCache.length = railPaths.length;
+    }
+    for (let i = 0; i < railTrackCache.length; i++) {
+        const c = railTrackCache[i];
+        if (!c || !inView(c.x, c.y, c.w, c.h)) continue;
+        ctx.drawImage(c.canvas, c.x, c.y, c.w, c.h);
     }
 }
 
