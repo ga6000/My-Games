@@ -69,7 +69,10 @@ actual codebase; see `PROJECT_MEMORY.md` for current per-game status and open te
   Run `node scripts/check-global-collisions.js` from the repo root before calling a split done —
   it flags duplicate top-level identifiers across every script that loads on the same page.
 - **The hub (`index.html`) links to each game as a separate full page**
-  (`<a href="javelin-battle/javelin-battle.html">`), not an embedded `<div>`. ~~**No current game
+  (`<a href="javelin-battle/javelin-battle.html">`), not an embedded `<div>`. *(Corrected
+  2026-09-20: tiles are votes now, not `<a href>`. The hub navigates to the game's page when the
+  room's ready-check launches it, or from a solo button when the server is unreachable. Still a
+  full page, still not an embed; `HUB_LOBBY_PLAN.md` §9.)* ~~**No current game
   implements `window.GameInstance`.**~~ **Corrected 2026-09-05: several do** — Reality Rewrite
   (verified against this contract on 2026-09-05), Glucose Dash, and Space Tracer. **RD Arena is
   the one active game that does not**: it has the teardown plumbing (one `AbortController`,

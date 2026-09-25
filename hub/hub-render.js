@@ -14,11 +14,10 @@
 //   RENDERING
 // ===================================================
 function gameHref(game) {
-    // Carries identity forward on every tile link, so a game opened from
-    // here knows who you are without you re-entering it -- and so does a
-    // link pasted to a friend, whose browser has no localStorage from
-    // this session. Built by hand rather than via URL(), which mangles
-    // relative paths under file://.
+    // Carries identity forward into every game launched from here (the
+    // countdown and the solo button), so the game knows who you are
+    // without you re-entering it. Built by hand rather than via URL(),
+    // which mangles relative paths under file://.
     if (!myName) return game.href;
     return game.href
         + "?name=" + encodeURIComponent(myName)
@@ -51,16 +50,21 @@ function renderTiles() {
     const games = gamesOnPage(currentPage);
     const parts = [];
 
+    // A tile is a VOTE, not a link (HUB_LOBBY_PLAN.md §9). It used to be
+    // <a href> straight into the game, so the obvious click -- "I pick
+    // this one" -- skipped the vote, Continue and the ready-check
+    // entirely. The only ways into a game from here are now the launch
+    // countdown and the bottom bar's solo button.
     games.forEach(g => {
         parts.push(`
-            <a class="tile${g.id === leader ? " is-leader" : ""}" href="${escapeAttr(gameHref(g))}" data-game-id="${escapeAttr(g.id)}">
+            <div class="tile${g.id === leader ? " is-leader" : ""}" data-game-id="${escapeAttr(g.id)}">
                 <button class="vote-check" data-game-id="${escapeAttr(g.id)}" title="Vote for this game" aria-label="Vote for ${escapeAttr(g.title)}"></button>
                 ${g.isNew ? '<div class="new-badge">NEW</div>' : ""}
                 ${g.stamp ? `<div class="tile-stamp${g.broken ? " blocked" : ""}">${escapeHtml(g.stamp)}</div>` : ""}
                 <div class="tile-icon">${g.icon}</div>
                 <div class="tile-title">${escapeHtml(g.title)}</div>
                 <div class="tile-desc">${escapeHtml(g.desc)}</div>
-            </a>
+            </div>
         `);
     });
 
@@ -145,21 +149,31 @@ function renderRoster() {
 // Cheap enough to redo wholesale: at most 8 buttons, and a vote is a
 // person clicking, not a per-frame event.
 function renderAllVoteChecks() {
+    const mine = myChoice();
+
     tileGrid.querySelectorAll(".vote-check").forEach(btn => {
         const gameId = btn.dataset.gameId;
         const voters = votesByGame.get(gameId);
         const voterNames = voters ? Array.from(voters.keys()) : [];
+        const isMine = gameId === mine;
 
-        btn.classList.toggle("mine", voterNames.includes(myName));
+        btn.classList.toggle("mine", isMine);
+
+        // Marked on the whole tile, not only by your dot in the badge: a
+        // tile click has to visibly DO something now that it no longer
+        // opens the game, and one 8px dot in a corner didn't read as that.
+        const tile = btn.closest(".tile");
+        if (tile) tile.classList.toggle("is-mine", isMine);
 
         if (voterNames.length === 0) {
             btn.innerHTML = '<span class="vote-check-empty-icon">✓</span>';
-            btn.title = "Vote for this game";
+            btn.title = isMine ? "Your pick — click to take it back" : "Vote for this game";
         } else {
             btn.innerHTML = voterNames
                 .map(n => `<span class="vote-check-dot" style="background:${escapeAttr(voters.get(n))}"></span>`)
                 .join("");
-            btn.title = voterNames.join(", ") + " voted for this";
+            btn.title = voterNames.join(", ") + " voted for this"
+                + (isMine ? " — click to take your vote back" : "");
         }
     });
 }
@@ -184,6 +198,43 @@ function renderBottomBar() {
     if (Date.now() < transientHintUntil) continueHint.textContent = transientHint;
 }
 
+// What the bar says while the lobby is down. Drawn rather than left
+// implicit: before HUB_LOBBY_PLAN.md §9 a dropped socket re-rendered
+// nothing, and the board kept showing a Continue button nothing would
+// answer.
+function connectionHint() {
+    if (socket && socket.readyState === WebSocket.OPEN) return "Joining the room…";
+    return connectFailures === 0
+        ? "Connecting to the game server (it can take a minute to wake up)"
+        : "Can't reach the game server, still trying";
+}
+
+// Shown when nothing is winning. Online and with votes on the board, that
+// means a tie -- said out loud, or Continue vanishing the moment a second
+// person votes looks like a bug.
+function idleHint() {
+    if (!myName) return "";
+    if (!lobbyOnline()) return connectionHint();
+
+    let anyVotes = false;
+    votesByGame.forEach(voters => { if (voters.size > 0) anyVotes = true; });
+
+    return anyVotes
+        ? "It's a tie — someone needs to switch their vote"
+        : "Click a game to vote — the winner unlocks Continue";
+}
+
+// For a second click on the tile you already chose. It keeps the vote
+// (see the tile handler in hub-boot.js), so say what happens next instead.
+function ownChoiceHint(gameId) {
+    const game = gameById(gameId);
+    const title = game ? game.title : "That game";
+    if (!lobbyOnline()) return title + " is already your pick — the button below plays it solo";
+    return effectiveLeader() === gameId
+        ? title + " is already your vote — click Continue below when you're ready"
+        : title + " is already your vote — it needs the most votes to unlock Continue";
+}
+
 function renderBottomBarInner() {
     const leader = effectiveLeader();
     const game = leader ? gameById(leader) : null;
@@ -193,19 +244,31 @@ function renderBottomBarInner() {
     // the moment a vote lands.
     if (!game) {
         continueBtn.hidden = true;
-        continueHint.textContent = myName
-            ? "Vote for a game — the winner unlocks Continue"
-            : "";
+        continueHint.textContent = idleHint();
+        return;
+    }
+
+    continueBtn.hidden = false;
+    continueBtn.classList.toggle("is-launching", isLaunching);
+
+    // No lobby, so nobody to wait for: the button launches this player
+    // alone, straight to the link the tile itself used to be. Replaces the
+    // visibly-disabled "ready-check unavailable" button (HUB_LOBBY_PLAN.md
+    // §9c) -- with tiles as votes, that button would be the only exit.
+    if (!lobbyOnline() && !isLaunching) {
+        continueBtn.classList.remove("iam-ready");
+        continueDots.hidden = true;
+        continueLabel.textContent = "PLAY " + game.title.toUpperCase() + " SOLO";
+        continueBtn.title = "Opens the game just for you";
+        continueHint.textContent = connectionHint() + " • play solo now, or wait and your pick becomes your vote";
         return;
     }
 
     const total = Object.keys(roomMembers).length;
     const iAmReady = readyNames.includes(myName);
 
-    continueBtn.hidden = false;
+    continueDots.hidden = false;
     continueBtn.classList.toggle("iam-ready", iAmReady && !isLaunching);
-    continueBtn.classList.toggle("is-launching", isLaunching);
-    continueBtn.disabled = !serverHasLobby;
 
     continueLabel.textContent = isLaunching
         ? "STARTING " + game.title.toUpperCase()
@@ -217,15 +280,10 @@ function renderBottomBarInner() {
             `<span class="vote-check-dot" style="background:${escapeAttr((roomMembers[n] && roomMembers[n].color) || getColorFromName(n))}"></span>`
         ).join("");
 
-    if (!serverHasLobby) {
-        continueHint.textContent = "Ready-check unavailable — the server needs the lobby update deployed";
-        continueBtn.title = "The connected server doesn't implement the ready-check yet";
-    } else {
-        continueBtn.title = "";
-        continueHint.textContent = isLaunching
-            ? "Everyone's ready — click again to cancel"
-            : `${readyNames.length}/${total} ready • everyone must click Continue`;
-    }
+    continueBtn.title = "";
+    continueHint.textContent = isLaunching
+        ? "Everyone's ready — click again to cancel"
+        : `${readyNames.length}/${total} ready • everyone must click Continue`;
 }
 
 function renderAll() {
@@ -362,6 +420,8 @@ function showIdentityOverlay() {
     serverHasLobby = false;
     serverLeaderGameId = null;
     readyNames = [];
+    offlinePick = null;
+    connectFailures = 0;
     renderAll();
 }
 

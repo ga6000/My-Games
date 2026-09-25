@@ -221,9 +221,22 @@ let isLaunching = false;
 // Whether the server we're actually talking to implements the lobby
 // protocol. The hub has shipped code for a protocol the server didn't
 // implement once before (votes and cursors did nothing in production for
-// weeks) -- so instead of a Continue button that silently does nothing,
-// an un-upgraded server gets a visibly disabled button that says why.
+// weeks) -- so the lobby only counts as up once a "lobby" message has
+// actually arrived. Until then the hub says so and offers a clearly
+// labelled solo launch instead (HUB_LOBBY_PLAN.md §9c; this used to be a
+// visibly disabled Continue button, back when tiles were still links).
 let serverHasLobby = false;
+
+// Connection attempts that have closed since the last one that opened. Zero
+// means the first attempt is still pending -- a cold Render start (tens of
+// seconds) and a server that is simply down look identical until one fails.
+let connectFailures = 0;
+
+// A game picked while the lobby isn't up: still connecting, unreachable, or
+// offline. Tiles are votes now, not links (HUB_LOBBY_PLAN.md §9), so without
+// this a hub that can't reach the server could open nothing at all. The pick
+// drives a PLAY SOLO button, and becomes a real vote once the lobby comes up.
+let offlinePick = null;
 
 let currentPage = 0;
 

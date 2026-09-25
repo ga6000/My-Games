@@ -17,9 +17,16 @@ function connectAndJoin(name, room) {
     myName = name;
     myRoom = (room || "public").toUpperCase();
 
+    // A new socket hasn't proven anything yet. Left over from a previous
+    // connection, this would show that server's winner and a live
+    // Continue button until the new lobby message arrived.
+    serverHasLobby = false;
+
     socket = new WebSocket(SERVER_URL);
 
     socket.onopen = () => {
+        connectFailures = 0;
+        renderBottomBar();   // "Connecting..." -> "Joining the room..."
         socket.send(JSON.stringify({
             type: "join-room",
             // The hub has its own namespace. It used to send no game
@@ -42,6 +49,13 @@ function connectAndJoin(name, room) {
     };
 
     socket.onclose = () => {
+        // The lobby went away with the socket. Redraw, so the board stops
+        // showing a winner and a Continue button that nothing will answer
+        // -- this used to re-render nothing at all.
+        connectFailures++;
+        syncBoard();
+        renderBottomBar();
+
         // Quiet reconnect -- doesn't bounce the player back to the join
         // form, it just re-establishes presence underneath them.
         if (reconnectTimer) clearTracked(reconnectTimer);
@@ -116,6 +130,16 @@ function handleServerMessage(data) {
         serverLeaderGameId = data.leaderGameId || null;
         readyNames = data.ready || [];
         if (!data.launching) stopCountdown();
+
+        // A game picked while the lobby was down -- typically during a
+        // Render cold start -- becomes a real vote now instead of being
+        // dropped with the offline state (HUB_LOBBY_PLAN.md §9c).
+        if (offlinePick) {
+            const pick = offlinePick;
+            offlinePick = null;
+            sendVote(pick, true);
+        }
+
         syncBoard();         // the winning tile is highlighted
         renderRoster();      // ready players are marked in the roster too
         renderBottomBar();
@@ -134,6 +158,17 @@ function handleServerMessage(data) {
     } else if (data.type === "cursor-update") {
         renderRemoteCursor(data);
     }
+}
+
+// voted:false clears it -- and the server only clears it if that game is
+// still your current vote, so a stale in-flight clear can't wipe a newer one.
+function sendVote(gameId, voted) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({
+        type: "vote-update",
+        gameId: gameId,
+        voted: voted
+    }));
 }
 
 
@@ -173,6 +208,14 @@ function stopCountdown() {
     if (countdownTick) { clearTracked(countdownTick); countdownTick = null; }
     countdownOverlay.hidden = true;
     isLaunching = false;
+}
+
+// The no-lobby path (HUB_LOBBY_PLAN.md §9c): nobody to wait for, so no
+// countdown. Same link the tile itself used to be, so a solo player lands
+// exactly where they always did.
+function launchSolo(gameId) {
+    const game = gameById(gameId);
+    if (game) window.location.href = gameHref(game);
 }
 
 

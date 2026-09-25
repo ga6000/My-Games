@@ -41,6 +41,8 @@ Two adjacent defects fixed at the same time:
 **Consequence of "server-side": this needs a Render redeploy of `gyro-space-server` before the
 ready-check works in production.** Until then the hub still works (browse, page, vote, cursors)
 and the Continue button renders in a visibly disabled state that says why — see §5.
+*(**Superseded 2026-09-20 by §9c:** once tiles stopped being links, a disabled button would have
+been the only exit. Without the lobby, the button is now a labelled solo launch.)*
 
 ---
 
@@ -150,6 +152,14 @@ button disabled with "ready-check needs the server update." Server state takes o
 once shipped comments describing a protocol the server didn't implement, and silently did
 nothing. This fails loudly instead.
 
+> **Superseded 2026-09-20 (§9c).** The principle stands, and the mechanism changed. A disabled
+> Continue was fine while every tile was also a link into its game: the button was never the
+> only exit. Once tiles became votes it would have been. Without a `lobby` message the hub now
+> says what the connection is doing, and turns the button into **PLAY \<GAME\> SOLO** for your own
+> pick. It still fails loudly; it just no longer fails *shut*. The local plurality copy
+> (`computeLocalLeader()`) is deleted. Your own pick replaces it, and the server is now the only
+> place a tie is decided.
+
 ---
 
 ## 6. Verification — results (2026-08-28)
@@ -186,7 +196,8 @@ begins.** The first draft did neither and reported passes on stale evidence.
   25%/75% offset within it. A malformed anchor from the network is rejected before it reaches
   `querySelector`.
 - Degradation: with `serverHasLobby` false the button renders visible-but-disabled reading
-  "Ready-check unavailable — the server needs the lobby update deployed".
+  "Ready-check unavailable — the server needs the lobby update deployed". *(Behaviour replaced
+  2026-09-20 by the solo launch; see §9c and §9d.)*
 - `file://`: one inline classic script, no modules, no external references, no `new URL()`,
   and `localStorage` access wrapped in try/catch (which the old hub lacked).
 - `node scripts/check-global-collisions.js` passes.
@@ -218,6 +229,9 @@ is the only game that behaves on a phone. That reads as broken when it isn't.
 
 Stamps are **cosmetic**: `pointer-events: none`, tiles stay clickable, votable and launchable.
 A group can still agree to all open the same solo game.
+*(**2026-09-20: no longer "launchable."** That word was the bug §9 fixes: a click on a tile
+opened the game and skipped the vote. A tile click is now a vote. Stamps are still cosmetic,
+and a stamped game can still win the vote and be launched by the ready-check.)*
 
 > **Not a game, no card needed (2026-09-03):** `rd-arena-bench/rd-bench.html` is a developer
 > harness for profiling the reaction-diffusion field, not something anyone plays. It is
@@ -366,6 +380,110 @@ written as §7 and the two contradicted each other.)*
 - ~~**The server redeploy in §2 may still be outstanding.**~~ — **resolved 2026-09-02.** The
   user confirmed the Render server is redeployed after each edit, overridden from GitHub, so the
   ready-check has been live since it shipped. The visible-disabled Continue button (§5) remains
-  as the degradation path, but should not normally be seen.
+  as the degradation path, but should not normally be seen. *(2026-09-20: that button is gone;
+  the degradation path is now the solo launch in §9c. Re-confirmed the same day that the live
+  server runs the lobby protocol, by probing it directly; see §9a.)*
+
+---
+
+## 9. Round three: the tile is the vote (2026-09-20)
+
+Written before editing, per root `CLAUDE.md`. Implemented and verified the same day; see §9d.
+
+### 9a. The bug
+
+Reported by the user: *after typing a name and room, selecting a game just launches it — no
+vote, no waiting for everyone, no Continue.*
+
+Every tile was `<a class="tile" href="zombie/Zombie.html?name=…&room=…">`, a link straight into
+the game. The only vote control was the 26px `.vote-check` badge in the tile's top-left corner.
+Clicking anywhere else on the tile — the obvious way to "select a game" — navigated at once, so
+the group never voted, nobody saw Continue, and the ready-check never ran.
+
+**Nothing was broken on the wire.** Probed the live server 2026-09-20 from Node in a throwaway
+`_hub:ZZPROBE…` room: `vote-update` came back as a `lobby` naming the leader, `ready-update`
+came back as `launch` with `delayMs: 3000`, all inside 0.2 s. The feature worked. The board sent
+the obvious click around it. (§7a says tiles *"stay clickable, votable and launchable"* — that
+"launchable" is the bug.)
+
+### 9b. Decisions
+
+- **A tile click is a vote.** It sets your vote to that game; it does not toggle. Someone who
+  clicks a second time expecting the old launch would otherwise quietly undo their own vote, so
+  clicking the tile you already voted for keeps the vote and flashes a hint pointing at Continue.
+- **The ✓ badge stays, and stays a toggle.** It is now the way to withdraw a vote, and it is the
+  keyboard path (it is the focusable `<button>`).
+- **Tiles become `<div>`, not `<a>`.** Nothing opens a game from a tile any more. The only ways
+  into a game from the hub are the ready-check countdown and the solo button in §9c.
+- Your own choice is marked on the whole tile (`.is-mine`), not just by one dot in the badge —
+  a tile click has to visibly do something.
+- **Unchanged:** the rule that reveals Continue (unique leader, §2), the strict ready-check, and
+  the server. No server change and no redeploy.
+
+### 9c. The offline fallback this forces
+
+The tile link was also the hub's only way into a game **without the server**, and `file://`
+double-click play is a hard constraint. With tiles as votes, a hub that can't reach the lobby
+would open nothing at all. So:
+
+- When the lobby isn't up — still connecting (Render cold-starts in tens of seconds),
+  unreachable, or talking to a server without the lobby protocol — a tile click makes a **local
+  pick**. The bottom button reads **PLAY \<GAME\> SOLO** and navigates with exactly the
+  `?name=&room=` link the tile used to be. The hint says why.
+- When the lobby comes up, a pending pick is **sent as a real vote**, so clicking a game during a
+  cold start is not thrown away.
+- **This replaces §5's degradation path** (a visible-but-disabled Continue). That was right while
+  tiles were links: a disabled button was never the only exit. With tiles as votes it would be the
+  only exit, and shut. `computeLocalLeader()` goes with it; the local pick replaces the local tally.
+- Connection state is now drawn. `onclose` used to re-render nothing, so a dropped socket left a
+  live-looking Continue button that did nothing when clicked.
+
+**Files:** `hub-core.js` (state), `hub-layout.js` (`lobbyOnline()`, `effectiveLeader()`,
+`myChoice()`), `hub-render.js` (tiles, bottom bar), `hub-net.js` (status, pick promotion, solo
+launch), `hub-boot.js` (click handlers), `index.html` (tile CSS).
+
+**Open, asked rather than done:** the report says *"requiring all players to vote."* The rule in
+§2 is weaker on the vote and stronger on the launch: a unique leader reveals Continue, then
+**everyone** must press it. The locked rule is kept. Making Continue also wait until everyone has
+voted would be a small client-side gate, and is the user's call.
+
+### 9d. Verification (2026-09-20)
+
+Two browser clients, each at its own origin (`localhost` and `127.0.0.1`, so their
+`localStorage` could not cross), against a **local** `server.js` on :8131. `WebSocket` was
+redirected in the page and `gameHref` given a trailing `&solo=1`, so nothing touched the live
+server, including the games the countdown launched. Every click went through the real delegated
+handler.
+
+- **Tile click votes, and navigates nowhere.** Alice clicked the Zombie tile's *title*: URL
+  unchanged, tile `is-leader is-mine`, button `CONTINUE → ZOMBIE`, hint `0/2 ready`.
+- **A second click keeps the vote.** Hint: *"Zombie is already your vote — click Continue
+  below…"*.
+- **Tie.** Bob voted Space Tracer. On both screens Continue went away and the hint read *"It's a
+  tie — someone needs to switch their vote"*. Bob switched to Zombie and Continue came back.
+- **Full launch.** Alice pressed Continue (`READY — ZOMBIE`, `1/2 ready`), then Bob. Both got the
+  countdown, and both landed on `zombie/Zombie.html?name=<self>&room=TESTV`. The server log read
+  `Launching zombie in _hub:TESTV (2 players)`.
+- **The badge toggles.** On your own tile it took the vote back. On another tile it voted.
+- **Offline.** Pointed at a dead port, the hint read *"Connecting to the game server…"*, then
+  *"Can't reach the game server, still trying"*. A tile click made a local pick, and the button
+  read `PLAY GLASS CITY ESCAPE SOLO`. The ✓ badge cleared the pick.
+- **Pick becomes vote.** Picked RD Arena while offline, then pointed the socket at the local
+  server. Within one reconnect (~1 s) the server held `rd-arena: Alice`, and the button read
+  `CONTINUE → RD ARENA`.
+- **A dropped socket is drawn.** After `socket.close()` the Continue button went away and the hint
+  said so. It was back online by itself ~3.2 s later. The vote had gone with the disconnect,
+  which is the server's existing leave behaviour and was not changed.
+- **Solo launch.** `PLAY ZOMBIE SOLO` navigated to `zombie/Zombie.html?name=Alice&room=TESTO`,
+  the same link the tile used to be.
+- **Teardown.** `destroy()` left 0 timeouts, 0 intervals, the signal aborted and the socket's
+  `onclose` null. A tile click afterwards did nothing.
+- **Looked at, not just measured** (1280×720 screenshot): the voted tile shows the amber leader
+  ring outside and the hot inner ring inside. Layout unchanged.
+- Checkers: collisions OK (`index.html`, 9 local scripts). Undefined-globals OK for the hub, and
+  it does cover these files: a deliberately planted typo (`launchSoloX`) was reported, then
+  reverted. Its `index.html (inline #1)` parse error is **pre-existing and harmless**: the HTML
+  comment above the script tags contains the literal text `<script src>`, which its regex reads
+  as an inline script.
 
 <!-- doc-sync: 05f881c2 | 2026-09-21 -->

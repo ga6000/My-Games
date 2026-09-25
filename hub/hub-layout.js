@@ -15,26 +15,33 @@
 // ===================================================
 // Strict plurality: the one game with MORE votes than any other. A tie
 // means no winner, so the group breaks it rather than the page picking
-// for them. The server runs this same rule and its answer wins; this
-// local copy only labels the button before/without a lobby-capable
-// server, and uses identical logic so the two can't disagree.
-function computeLocalLeader() {
-    let leader = null;
-    let best = 0;
-    let tied = false;
-
-    votesByGame.forEach((voters, gameId) => {
-        const count = voters.size;
-        if (count === 0) return;
-        if (count > best) { leader = gameId; best = count; tied = false; }
-        else if (count === best) { tied = true; }
-    });
-
-    return tied ? null : leader;
+// for them. Only the server computes it (computeLeader() in server.js),
+// so no two clients can disagree about whether a spread is a tie.
+//
+// The lobby counts as up only once the server has answered with its
+// state. An open socket isn't enough, and neither is one that was open a
+// moment ago -- connectAndJoin() resets serverHasLobby on every attempt.
+function lobbyOnline() {
+    return !!socket && socket.readyState === WebSocket.OPEN && serverHasLobby;
 }
 
+// Without the lobby there is no group choice to show, so the "winner" is
+// your own local pick and Continue becomes a solo launch. This used to be
+// a local copy of the plurality rule (computeLocalLeader) that labelled a
+// visibly-disabled button; HUB_LOBBY_PLAN.md §9c replaced both, because
+// once tiles stopped being links that button was the only way out.
 function effectiveLeader() {
-    return serverHasLobby ? serverLeaderGameId : computeLocalLeader();
+    return lobbyOnline() ? serverLeaderGameId : offlinePick;
+}
+
+// The tile that is YOURS: your server-confirmed vote while the lobby is
+// up, your local pick while it isn't.
+function myChoice() {
+    if (!lobbyOnline()) return offlinePick;
+    for (const [gameId, voters] of votesByGame) {
+        if (voters.has(myName)) return gameId;
+    }
+    return null;
 }
 
 

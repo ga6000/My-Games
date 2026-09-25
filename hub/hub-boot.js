@@ -38,31 +38,52 @@ changeIdentityBtn.addEventListener("click", () => {
     identityRoomInput.value = myRoom === "PUBLIC" ? "" : myRoom;
 }, { signal: hubSignal });
 
-// Delegated on the grid rather than per-button, so re-rendering a page
-// of tiles doesn't mean re-attaching eight listeners.
+// Delegated on the grid rather than per-tile, so re-rendering a page of
+// tiles doesn't mean re-attaching listeners.
+//
+// A click ANYWHERE on a tile votes for it (HUB_LOBBY_PLAN.md §9). Tiles
+// used to be links into the game and only the small ✓ badge voted, so
+// the obvious click skipped the vote, Continue and the ready-check
+// entirely. The badge is still there, as the toggle: the one way to take
+// a vote back.
 tileGrid.addEventListener("click", (e) => {
-    const btn = e.target.closest(".vote-check");
-    if (!btn) return;
+    const tile = e.target.closest(".tile[data-game-id]");
+    if (!tile || !myName) return;
 
-    // These buttons sit inside <a class="tile"> links. Without stopping
-    // the event, voting would ALSO navigate into the game -- and voting
-    // and playing are deliberately two different actions.
-    e.preventDefault();
-    e.stopPropagation();
+    const gameId = tile.dataset.gameId;
+    const onBadge = !!e.target.closest(".vote-check");
+    const isMine = myChoice() === gameId;
 
-    if (!myName || !socket || socket.readyState !== WebSocket.OPEN) return;
+    // A second click on your own tile KEEPS the vote. Anyone used to
+    // tiles launching games will click again when nothing opens, and a
+    // toggle here would quietly undo the vote they just cast.
+    if (isMine && !onBadge) {
+        flashHint(ownChoiceHint(gameId));
+        return;
+    }
 
     hubSoundVote();
-    socket.send(JSON.stringify({
-        type: "vote-update",
-        gameId: btn.dataset.gameId,
-        voted: !btn.classList.contains("mine")   // Toggle: clicking my own vote clears it
-    }));
+
+    // No lobby yet (or at all): a local pick, which drives the solo
+    // button and becomes a real vote once the lobby comes up (hub-net.js).
+    if (!lobbyOnline()) {
+        offlinePick = isMine ? null : gameId;
+        syncBoard();
+        renderBottomBar();
+        return;
+    }
+
+    sendVote(gameId, !isMine);
 }, { signal: hubSignal });
 
 continueBtn.addEventListener("click", () => {
     const leader = effectiveLeader();
-    if (!leader || !socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!leader) return;
+
+    if (!lobbyOnline()) {
+        if (!isLaunching) launchSolo(leader);
+        return;
+    }
 
     socket.send(JSON.stringify({
         type: "ready-update",
