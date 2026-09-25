@@ -85,6 +85,10 @@ continueBtn.addEventListener("click", () => {
         return;
     }
 
+    // A disabled button fires no click, so this only guards a click that
+    // raced a vote being withdrawn between render and press (§9e).
+    if (!isLaunching && pendingVoters().length > 0) return;
+
     socket.send(JSON.stringify({
         type: "ready-update",
         ready: !readyNames.includes(myName),

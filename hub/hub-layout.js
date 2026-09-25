@@ -44,6 +44,22 @@ function myChoice() {
     return null;
 }
 
+// Who in the room still hasn't voted. Continue waits for them
+// (HUB_LOBBY_PLAN.md §9e, decided 2026-09-24): the leader rule alone let
+// one fast clicker reveal Continue while nobody else had said anything,
+// and a Continue click is consent to THAT game -- so a room could launch
+// with most of it never having expressed a preference.
+//
+// Keyed by name, exactly as the server keys votes and ready. People who
+// are inside a GAME (presenceList) are deliberately not counted: they
+// can't vote from in there, and counting them would stall every launch,
+// which is the whole reason the hub has its own namespace (§3).
+function pendingVoters() {
+    const voted = new Set();
+    votesByGame.forEach(voters => voters.forEach((color, name) => voted.add(name)));
+    return Object.keys(roomMembers).filter(name => !voted.has(name));
+}
+
 
 
 // ===================================================

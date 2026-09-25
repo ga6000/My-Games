@@ -209,19 +209,49 @@ function connectionHint() {
         : "Can't reach the game server, still trying";
 }
 
-// Shown when nothing is winning. Online and with votes on the board, that
-// means a tie -- said out loud, or Continue vanishing the moment a second
-// person votes looks like a bug.
+// Names rather than a count while the list is short: "waiting for Bob"
+// tells the room who to nudge, and in a 3-10 person group that is nearly
+// always the useful form.
+//
+// You are "you", and first. Reading your own name in the list of people
+// being waited for is a small thing that makes the bar feel like it is
+// talking about someone else.
+function waitingClause(names) {
+    const who = names.slice().sort((a, b) => (a === myName ? -1 : b === myName ? 1 : 0))
+                     .map(n => (n === myName ? "you" : n));
+
+    if (who.length === 1) return "waiting for " + who[0] + " to vote";
+    if (who.length === 2) return "waiting for " + who[0] + " and " + who[1] + " to vote";
+    if (who.length === 3) return "waiting for " + who[0] + ", " + who[1] + " and " + who[2] + " to vote";
+    return "waiting for " + who.length + " more players to vote";
+}
+
+function waitingHint(names) {
+    // Nobody left but you: the ask is yours, so say the ask rather than
+    // "waiting for you", which reads like the room is stuck on itself.
+    if (names.length === 1 && names[0] === myName) {
+        return "Click a game to vote — everyone votes, then Continue";
+    }
+    const s = waitingClause(names);
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Shown when nothing is winning. With votes on the board and everyone in,
+// that means a tie -- said out loud, or Continue vanishing the moment a
+// second person votes looks like a bug. Someone still to vote is the more
+// useful thing to say, so it wins.
 function idleHint() {
     if (!myName) return "";
     if (!lobbyOnline()) return connectionHint();
 
     let anyVotes = false;
     votesByGame.forEach(voters => { if (voters.size > 0) anyVotes = true; });
+    if (!anyVotes) return "Click a game to vote — everyone votes, then Continue";
 
-    return anyVotes
-        ? "It's a tie — someone needs to switch their vote"
-        : "Click a game to vote — the winner unlocks Continue";
+    const waiting = pendingVoters();
+    return waiting.length > 0
+        ? waitingHint(waiting)
+        : "It's a tie — someone needs to switch their vote";
 }
 
 // For a second click on the tile you already chose. It keeps the vote
@@ -230,6 +260,10 @@ function ownChoiceHint(gameId) {
     const game = gameById(gameId);
     const title = game ? game.title : "That game";
     if (!lobbyOnline()) return title + " is already your pick — the button below plays it solo";
+
+    const waiting = pendingVoters();
+    if (waiting.length > 0) return title + " is already your vote — " + waitingClause(waiting);
+
     return effectiveLeader() === gameId
         ? title + " is already your vote — click Continue below when you're ready"
         : title + " is already your vote — it needs the most votes to unlock Continue";
@@ -267,7 +301,14 @@ function renderBottomBarInner() {
     const total = Object.keys(roomMembers).length;
     const iAmReady = readyNames.includes(myName);
 
+    // Everyone votes before anyone can start (§9e). A countdown that is
+    // already running is left alone -- by then the room has voted, and a
+    // vote withdrawn mid-count is the server's business, not a reason to
+    // disable the button someone may be reaching for to cancel.
+    const waiting = isLaunching ? [] : pendingVoters();
+
     continueDots.hidden = false;
+    continueBtn.disabled = waiting.length > 0;
     continueBtn.classList.toggle("iam-ready", iAmReady && !isLaunching);
 
     continueLabel.textContent = isLaunching
@@ -279,6 +320,12 @@ function renderBottomBarInner() {
         : readyNames.map(n =>
             `<span class="vote-check-dot" style="background:${escapeAttr((roomMembers[n] && roomMembers[n].color) || getColorFromName(n))}"></span>`
         ).join("");
+
+    if (waiting.length > 0) {
+        continueBtn.title = "Everyone in the room votes before it can start";
+        continueHint.textContent = waitingHint(waiting);
+        return;
+    }
 
     continueBtn.title = "";
     continueHint.textContent = isLaunching

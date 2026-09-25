@@ -33,7 +33,7 @@ Two adjacent defects fixed at the same time:
 
 | Question | Decision | Rejected alternatives |
 |---|---|---|
-| What reveals Continue | **Unique vote leader** — strictly more votes than any other game. A tie shows no button. | Unanimous vote (deadlocks at 7/8); any-vote (target shifts under people); explicit host pick (second interaction to discover) |
+| What reveals Continue | **Unique vote leader** — strictly more votes than any other game. A tie shows no button. *(Tightened 2026-09-24 by §9e: a unique leader **and** every player has voted. Still not unanimity — you vote for what you want, then consent to whatever wins.)* | Unanimous vote (deadlocks at 7/8); any-vote (target shifts under people); explicit host pick (second interaction to discover) |
 | Board sizing | **Same games per page everywhere, shape reflows** — page 1 is the same 8 games for all players; only rows x cols change per viewport | Pixel-identical scaled board (unreadable on portrait phones); fully adaptive tile count (players literally on different pages) |
 | Ready-check transport | **Server-side state + server-run countdown**, mirroring the existing `vote-update` | Generic `relay` (no snapshot for late joiners, per-client timer drift) |
 | Countdown cancel rules | **Strict** — every player in the room must be ready; cancels on un-ready, leader change, or a new player joining | Ignore late joiners; force-start escape hatch; majority-start |
@@ -446,6 +446,7 @@ launch), `hub-boot.js` (click handlers), `index.html` (tile CSS).
 §2 is weaker on the vote and stronger on the launch: a unique leader reveals Continue, then
 **everyone** must press it. The locked rule is kept. Making Continue also wait until everyone has
 voted would be a small client-side gate, and is the user's call.
+*(**Answered 2026-09-24: wait for everyone's vote.** Built as §9e.)*
 
 ### 9d. Verification (2026-09-20)
 
@@ -486,4 +487,37 @@ handler.
   comment above the script tags contains the literal text `<script src>`, which its regex reads
   as an inline script.
 
-<!-- doc-sync: 05f881c2 | 2026-09-21 -->
+### 9e. Everyone votes first (2026-09-24)
+
+The user's answer to the question §9b left open. **Continue now waits for a unique leader *and*
+for every player in the room to have voted.**
+
+Not unanimity, which §2 rejected and still rejects: you vote for the game you want, and then
+consent to whatever wins. What it closes is the gap where one fast clicker revealed Continue
+while nobody else had said anything — and since pressing Continue is consent to *that* game, a
+room could launch with most of it never having expressed a preference.
+
+- **Client-side only.** `pendingVoters()` in `hub-layout.js` is names in `roomMembers` with no
+  vote. Continue renders **visibly disabled** with the leader still named, because seeing what is
+  winning while you wait is the point; the hint says who is missing. No server change: the server
+  still holds the one rule that matters (all players ready), so a stale client can't start a room.
+- **Who is counted** is unchanged and deliberate: people inside a game (`presenceList`) are shown
+  but never counted, or a friend mid-Zombie would block every launch — the reason for §3.
+- **You are "you", and first.** Reading your own name in the waiting list makes the bar sound like
+  it is talking about someone else. Alone in the list, it becomes the ask instead: *"Click a game
+  to vote."*
+- **A running countdown is left alone.** By then the room has voted, and the button someone may be
+  reaching for to cancel must stay live.
+- Withdrawing a vote re-locks it, and so does a player joining — which matches the existing rule
+  that a join cancels a countdown.
+
+**Verified** with three clients (three origins: `localhost`, `127.0.0.1`, `[::1]`) on a local
+`server.js`. Alice voted alone: Continue disabled, *"Waiting for Bob and Carol to vote"*, and a
+click on it readied nobody. Carol's own screen read *"Waiting for you and Bob to vote"*. Bob voted:
+*"Waiting for Carol to vote"*. Carol voted Space Tracer — all three in, Zombie leading 2-1,
+Continue enabled at `0/3 ready`, and Carol was asked to continue into the game she did not vote
+for, which is the design. Un-voting re-locked it; re-voting opened it. All three pressed Continue
+and landed in Zombie. Alone in a room, one vote opens it. A second player joining re-locked it on
+the first player's screen. Looked at, 1280×720: the dimmed button reads as *waiting*, not broken.
+
+<!-- doc-sync: 0e946089 | 2026-09-25 -->
