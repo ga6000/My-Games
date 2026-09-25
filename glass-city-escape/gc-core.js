@@ -421,6 +421,9 @@ function loadInkFromCss() {
  * keeps each player's maximum, so it can only express "higher is better".
  * A finish time in ms would rank the SLOWEST player first. Race placings and
  * times already exist in-game via standingsText(); nothing is lost.
+ * (2026-09-20: standingsText() is gone, and finishing a race no longer ends a
+ * run -- the race is per level, on the race board in gc-net.js. A run ends on
+ * a death only, so "a race finish" below is history.)
  *
  * WHY NOT SOLO-ONLY, which is what was originally planned: mp-core's "solo"
  * means THE SERVER IS UNREACHABLE, not "playing by yourself" -- info.solo is
@@ -487,6 +490,7 @@ function showMessage(title, desc, isGameOver = false) {
         // Same choke point, same reason the leaderboard posts from here: it is
         // the one place EVERY ending passes through -- a fall, a drone, a race
         // finish. A telemetry hook anywhere else would miss one of them.
+        // (A race finish stopped being an ending 2026-09-20; see gc-net.js.)
         gcTelemetryEndRun(title);
         submitRunToLeaderboard();
     }

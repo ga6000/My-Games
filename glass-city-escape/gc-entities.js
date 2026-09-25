@@ -171,19 +171,23 @@ class Player {
             let tx = escapeTunnelPos.x * CELL_SIZE + CELL_SIZE/2;
             let ty = escapeTunnelPos.y * CELL_SIZE + CELL_SIZE/2;
             if (Math.hypot(this.x - tx, this.y - ty) < this.radius + 15) {
-                // WITH RIVALS this is the FINISH LINE and the race ends here;
-                // ALONE it is a stage gate into the next level.
+                // A STAGE GATE FOR EVERYONE (2026-09-20).
                 //
-                // The test is racingOthers(), NOT netOnline. netOnline is true
-                // the moment the socket opens, so it was sending every solo
-                // player -- i.e. everyone, since the server is up -- down the
-                // race branch and ending their run at level 1. See gc-net.js.
+                // With rivals in the room this used to be the FINISH LINE:
+                // `if (racingOthers() && !raceFinished) finishRace();` ended the
+                // run with a game-over box whose Restart is a reload -- straight
+                // back to level 1. A hub launch puts the whole group in one
+                // room, so no group could ever reach level 2. The race is per
+                // level now: see THE RACE IS PER LEVEL in gc-net.js.
                 //
-                // The `else` is unconditional now. It used to be
-                // `else if (!netOnline)`, which left a silent third state:
-                // online AND already finished did nothing at all.
-                if (racingOthers() && !raceFinished) finishRace();
-                else triggerNextStage();
+                // The 2026-09-07 note that stood here is the same bug one step
+                // earlier -- the test was `netOnline`, which ended even a lone
+                // player's run. racingOthers() fixed that and left groups stuck.
+                //
+                // noteLevelCleared() FIRST: the placing is counted against the
+                // level being left, and triggerNextStage() increments it.
+                noteLevelCleared(currentStage);
+                triggerNextStage();
             }
         }
 

@@ -730,6 +730,13 @@ identity palette; goals go `--sig-cyan`. **Effort: M.**
 > now drawn as a glass pane on each outward face, and it reads correctly — because the space inside
 > the outline *is* a room you can walk into, since the floor is filled. The objection was about the
 > interior being black, not about the outline.
+>
+> **Race board and clears feed, 2026-09-20.** Multiplayer now carries on past level 1, so the race
+> needed a readout. Both follow this section's own line — *"ghosts use the identity palette"* —
+> rather than §2.2: each racer's name is drawn in their identity colour, the same one their ghost
+> is, so a row on the board and a shape in the street read as one person. The chrome is
+> `--phos-mid` / `--phos-dim`, like the minimap it hangs under. **No signal colour is spent on race
+> information**: a rival getting ahead is not a hazard, a pickup or a goal.
 
 ### 6.9 Desert Robot Blaster — `desert-robot-blaster/desert-robot-blaster.html` · **VECTOR** · anchor: *Battlezone*
 Three.js. A first-person robot shooter in a desert **is** Battlezone. Wireframe materials, black
@@ -938,4 +945,4 @@ this is precisely the kind of cross-cutting root-level plan the 2026-09-02 audit
 - **Whether every game should convert at all.** Desert Robot Blaster and Wasteland Train Sim are
   Unity candidates; spending a session restyling them may be wasted.
 
-<!-- doc-sync: 05f881c2 | 2026-09-21 -->
+<!-- doc-sync: 0e946089 | 2026-09-25 -->

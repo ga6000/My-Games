@@ -61,7 +61,12 @@ function gcDevReport() {
         ["running", gameRunning ? (gcLogOpen ? "yes (PAUSED by this panel)" : "yes") : "no"],
         ["net", (netOnline ? "online" : "solo") +
                 "   ghosts " + Object.keys(ghosts).length +
-                "   seed " + (baseSeed === null ? "local" : baseSeed)]
+                "   seed " + (baseSeed === null ? "local" : baseSeed)],
+        // Every racer's level, the same rows the on-screen board draws. "—" is
+        // in the room but not running.
+        ["race", racingOthers()
+            ? raceBoardRows().map(function (r) { return r.name + " " + (r.stage ? "L" + r.stage : "—"); }).join("   ")
+            : "alone"]
     ];
 
     // The run log, folded in. First line keeps the label, the rest hang under

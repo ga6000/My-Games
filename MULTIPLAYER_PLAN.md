@@ -236,6 +236,15 @@ per-player `keys`. The player model needed for network play already exists — t
 > that hold a laser sight and pursue through stairwells — **but changed nothing on the wire.**
 > The sync model in the table below is untouched: still positions plus one "I finished" event,
 > still nothing shared beyond the seed. See `glass-city-escape/GCE_HUNT_PASS_PLAN.md`.
+>
+> **Superseded again 2026-09-20 — the race no longer ends at the first tunnel.** "First to the
+> tunnel wins" meant exactly that: with anyone else in the room, reaching the tunnel ended the run
+> with a game-over box, and its Restart reloads to level 1 of the same seed. A hub launch puts the
+> whole group in one room, so **no group could ever reach level 2** (reported: *"players can't get
+> past first level and restart button just comes up"*). The tunnel is now a stage gate for
+> everyone; the race is **per level**, read off the level each racer is on. `pos` carries it as
+> `s`, ghosts are drawn only on your own level, and the "I finished" event is gone — a rising `s`
+> says the same thing. See `glass-city-escape/GCE_MP_LEVELS_PLAN.md`.
 
 - **World:** fully seeded, generated identically on join. No ongoing sync.
 - **Players:** own avatar, broadcast position ~10Hz. Lightest of the four.
@@ -492,7 +501,7 @@ Worth noting these did **not** all get the same treatment, because they aren't t
 | Game | Model | Shared state on the wire |
 |---|---|---|
 | Zombie | Host-authoritative world, client-owned players | Zombies, bullets, powerups, deaths — and, since 2026-09-18, guests' bleed-outs and the team wipe |
-| Glass City | Parallel worlds, pure race | Player positions + one "I finished" event |
+| Glass City | Parallel worlds, pure race — per level since 2026-09-20 | Player positions + one "I finished" event. **Since 2026-09-20: positions carrying the level (`s`); no finish event** |
 | boids | Parallel worlds, competitive | Sampled swarm + attractor, for presence only |
 
 Only Zombie needs a host, because only Zombie has a genuinely shared world. Glass City and
@@ -506,6 +515,11 @@ desync, and degrade to solo cleanly.
 - Race finish: first finisher sees "YOU WON", the other sees "Alice ESCAPED #1 — keep going!"
   and **keeps racing** for their own placing rather than being cut off. Second finisher
   correctly placed #2 with sorted standings on both screens.
+  **Superseded 2026-09-20:** that "YOU WON" was a game-over box, which is why no group got past
+  level 1. Re-verified with two live clients and an idle third against a local copy of the real
+  server: both advanced to level 4 with the other in the room, the second out of each level got
+  "2ND OUT OF LEVEL n", identical level-2 city on both (tile hash and core positions), and each
+  drew the other's ghost only once both were on the same level.
 - Per-stage seeding (`baseSeed + stage * 7919`) so solo players still get a fresh city each
   stage while racers stay in agreement.
 
@@ -559,6 +573,11 @@ desync, and degrade to solo cleanly.
   level 1 and could never reach level 2. The test is now `racingOthers()`, which asks
   `MP.peers()`. **Worth generalising to the other games here: `netOnline` answers "did the server
   answer", and nothing in this document should use it to mean "am I in company".**
+  **Superseded 2026-09-20 — stage progression now runs in company too.** The 2026-09-07 fix moved
+  the lone player off the race branch and left every group on it, where the tunnel still ended the
+  run at level 1. It was verified on the branch it moved players *off*; the branch it still sent
+  them *down* was the defect. The tunnel is a stage gate for everyone now, and `racingOthers()`
+  only decides whether the race board and placing are shown.
 
 ### What was verified for Zombie (two live clients, local server)
 - Both clients generated **byte-identical wall geometry** from the shared seed (19 walls,
@@ -652,4 +671,4 @@ Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: 05f881c2 | 2026-09-21 -->
+<!-- doc-sync: 0e946089 | 2026-09-25 -->

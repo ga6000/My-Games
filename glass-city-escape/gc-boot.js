@@ -39,8 +39,6 @@ function initGame() {
     const sp = spawnPoint();
     player.x = sp.x; player.y = sp.y; player.z = 0;
 
-    raceStartTime = performance.now();
-
     updateHealthUI();
     updateFloorUI(0);
     document.getElementById('stage-counter').innerText = 'STAGE: ' + currentStage;
@@ -158,26 +156,16 @@ MP.connect({
         if (!msg || !msg.k) return;
 
         if (msg.k === "pos") {
-            const prev = ghosts[fromId];
-            ghosts[fromId] = {
-                name: fromName || "racer",
-                color: msg.c,
-                z: msg.z,
-                cores: msg.n || 0,
-                // Interpolate between the 15Hz updates rather than
-                // teleporting the ghost every frame.
-                x: prev ? prev.x : msg.x,
-                y: prev ? prev.y : msg.y,
-                tx: msg.x, ty: msg.y,
-                lastSeen: Date.now()
-            };
+            // The ghost update moved into gc-net.js (2026-09-20): it reads the
+            // sender's level now, and a level going up is a clear for the feed.
+            receiveGhostPos(msg, fromId, fromName);
             return;
         }
 
-        if (msg.k === "finish") {
-            recordFinish(fromName || "racer", msg.ms, false);
-            return;
-        }
+        // "finish" is no longer handled (2026-09-20). It ended the run at the
+        // tunnel whenever anyone else was in the room; the level in `pos`
+        // carries the race now. A cached old client that still sends one is
+        // ignored, which is all it needs.
     }
 });
 

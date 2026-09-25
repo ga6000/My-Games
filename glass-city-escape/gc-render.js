@@ -746,6 +746,9 @@ function render() {
     drawExitWash();
     drawMinimap();
     drawWellIndicator();
+    // Under the minimap: every racer's level, and the clears feed. Draws the
+    // board only with company; the feed only has lines when there is a race.
+    drawRaceBoard();
     // Last of all: the wave burst covers everything, including the HUD-side
     // furniture, which is what makes it read as the screen changing rather than
     // as an effect inside the game world.

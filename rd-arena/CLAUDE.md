@@ -255,4 +255,4 @@ camera.
   Out of scope for the columns this session closed, but it is the only active game missing it.
 - `Firebase / Leaderboard Integrated?` remains `No` — round reached would be the obvious score.
 
-<!-- doc-sync: 1b111dfd | 2026-09-21 -->
+<!-- doc-sync: 1b111dfd | 2026-09-25 -->

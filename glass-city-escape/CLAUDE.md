@@ -22,7 +22,7 @@ added `../shared/devtools.js` and `gc-dev.js` (2026-09-07).
 | 5 | `gc-core.js` | One-shot audio, config/globals, `INK`, `showMessage`, **points**, leaderboard submit |
 | 6 | `gc-audio.js` | **The sustained voices** — drone, vertical warning, pursuit loop, laser sight. Uses gc-core's `audioCtx` |
 | 7 | `gc-telemetry.js` | **The run log** — localStorage aggregates and `gcLogSummaryLines()`. It no longer draws a panel; see below |
-| 8 | `gc-net.js` | Ghosts, seed, race finish. **Declares only** |
+| 8 | `gc-net.js` | Ghosts, seed, **the race board and clears feed** (the race *finish* was removed 2026-09-20). **Declares only** |
 | 9 | `gc-entities.js` | Player, Robot Surveyor, laser bolts, **raster sprite/core/pedestal/shard drawing** |
 | 10 | `gc-world.js` | World generation, **the arena + level curve**, the stepwell, **cores/pedestals/blips/drones**, the pursuit field |
 | 11 | `gc-render.js` | Input, top-down rendering, **the minimap** |
@@ -540,6 +540,10 @@ ends: it is what sets `gameRunning = false`, and it is reached by both deaths (a
 Surveyor) and by finishing a race. `gcPostedStage` guards it so a long run posts once per new
 best rather than once per stage.
 
+> **2026-09-20:** finishing a race no longer ends a run (see *Two modes* below), so a run ends
+> on a death only, in company or alone. The choke point is unchanged; one of its three callers
+> is gone.
+
 **Why not the race time.** `leaderboard.html` does `orderBy("score", "desc")` and keeps each
 player's maximum, so it can only express "higher is better" — a finish time in ms would rank the
 *slowest* player first. Race placings and times already exist in-game via `standingsText()`.
@@ -550,6 +554,57 @@ even alone in a room — so a solo-only hook would almost never fire, and would 
 `file://` where `LB` cannot submit anyway.
 
 ## Two modes, and the seam between them
+
+> **SUPERSEDED 2026-09-20 — there is one mode now.** The tunnel is a stage gate for everyone,
+> with rivals or without, and a run ends only on a death. Cause, change and what was left alone:
+> `GCE_MP_LEVELS_PLAN.md`.
+>
+> The report was *"in a multiplayer session from the hub, players can't get past the first
+> level and the Restart button just comes up."* The race branch below was the whole cause, and
+> it is the 2026-09-07 bug one step on. That fix stopped a player **alone** in a room being sent
+> down the race branch; it left every **group** there. A hub launch puts the whole group in one
+> `glass-city-escape:CODE` room, so every racer's run ended at the first tunnel, and Restart is
+> `location.reload()` — the same seed, level 1 again. **The 2026-09-07 fix was verified on the
+> side of the branch it moved players off, not on the side it still sent them down**, and that
+> side was the defect.
+>
+> ### The race is per level (2026-09-20)
+>
+> - **`pos` carries `s`, the sender's level.** A missing `s` reads as 1 — an older client could
+>   never leave level 1 in company, so that is not a guess.
+> - **Ghosts are drawn only on your own level** (`g.stage === currentStage`). Level N is built
+>   from `baseSeed + N * 7919` on every client, so a ghost on your level is in your streets; one
+>   on any other level is in another city and would walk through walls that are not there.
+> - **Race board**, under the minimap, only with company: each racer's level, deepest first,
+>   ties broken by cores picked up. Room members who are not running — start menu, game-over box,
+>   or a ghost gone silent for `REMOTE_TIMEOUT_MS` — are listed dimmed with a dash. It sits at a
+>   fixed `+52` below the minimap so the `(WELL OPEN)` readout never lands on it.
+> - **Feed**, bottom centre, `RACE_FEED_MS` 2.6 s a line, at most three: a rival's `s` going up is
+>   *"ALICE CLEARED LEVEL 2"*; your own clear is *"1ST OUT OF LEVEL 2"*.
+> - **Placing is live standings, not a ledger:** one plus the rivals already on a deeper level,
+>   counted by `noteLevelCleared()` **before** `triggerNextStage()` increments the level. A rival
+>   who died and restarted is back on level 1 and is not ahead of you any more.
+> - **Removed:** the `finish` message and `raceStartTime`, `raceFinished`, `finishOrder`,
+>   `recordFinish()`, `standingsText()`, `finishRace()`. `raceStartTime` was written in three
+>   files and read only by `finishRace()`. The rival *"ESCAPED — keep going!"* box went too — the
+>   HTML message box on a raw `setTimeout(hideMessage, 3000)`, which with levels advancing would
+>   have popped over the game every time anyone cleared anything. Board and feed use no timers.
+> - Death is unchanged: game-over box, Restart reloads, you rejoin the room on level 1.
+>
+> **Verified with two live clients and an idle third** against a local copy of the real server
+> (`gyro-space-server-main/server.js`), in one page as three iframes: both advanced to level 4;
+> identical level-2 city (tile hash and core positions); each drew the other's ghost only once
+> both were on level 4; the second out got *"2ND OUT"*; a death still ended the run with Restart,
+> and the survivor's board moved the dead racer to a dash after the 6 s timeout; the restarted
+> racer reappeared on level 1. `?solo=1` still advances with no board and no feed.
+>
+> **Not fixed here — the late-promotion seed.** `onReady` fires once, and `baseSeed` is taken
+> there. A client whose socket opens after mp-core's 6 s solo timeout keeps its local clock seed
+> and races a different city from everyone else. `PROJECT_MEMORY.md`'s "one-shot `onReady`"
+> entry describes exactly this; Zombie fixed it on `onPeerSync`. Unlikely from the hub, where the
+> server is already awake.
+>
+> What follows is the 2026-09-07 state, kept for the reasoning.
 
 ```js
 if (racingOthers() && !raceFinished) finishRace();
@@ -574,7 +629,8 @@ else triggerNextStage();
 
 **With rivals in the room**, reaching the escape tunnel ends the race and your placing is the
 order everyone got out in. **Alone** — including alone with the server up, which is the normal
-case — it is a stage gate into the endless level curve.
+case — it is a stage gate into the endless level curve. *(Superseded 2026-09-20: it is a stage
+gate in company too — see the note at the top of this section.)*
 
 ## Multiplayer — the lightest sync model in the repo
 
@@ -583,7 +639,12 @@ Everyone runs the **same seeded city** from one server seed; only positions cros
 layout. Robots start identically on every client and then diverge, which is accepted: they are
 hazards, not synchronised entities.
 
+**Since 2026-09-20 "the same city" means the same city per level:** each racer moves through the
+levels on their own clock, `pos` carries the level as `s`, and a ghost is drawn only on the level
+you are on. The wire is still positions only — the `finish` event is gone, because a rising `s`
+says the same thing.
+
 **Level generation uses `MP.random()`, never `Math.random()`** — a stray `Math.random()` in
 `gc-world.js` means two players race different cities.
 
-<!-- doc-sync: 06580fba | 2026-09-21 -->
+<!-- doc-sync: 07babfc3 | 2026-09-25 -->

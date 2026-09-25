@@ -800,7 +800,6 @@ function triggerNextStage() {
     updateHealthUI();
     updateFloorUI(0);
     updateCollectUI();
-    raceStartTime = performance.now();
 
     // Arms the burst. The bonus rides along so it can be shown ON THE CANVAS
     // for a moment instead of in a modal nobody asked to read.
