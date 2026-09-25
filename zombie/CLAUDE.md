@@ -594,7 +594,11 @@ nothing could path into — a free safe spot, and a trap for any zombie that wan
 
 ## Map — nine PAINTED sectors (2026-09-19)
 
-> **Run `node scripts/check-map-features.js` (2026-09-24)** before and after any map change. It
+> **Two scripts to run when the map moves (2026-09-24):**
+> `node scripts/measure-zombie-nav.js` is the unreachable-cell measurement this file has asked
+> for since 2026-09-19 and that was rewritten from scratch every time; it is a script now.
+>
+> **Run `node scripts/check-map-features.js`** before and after any map change. It
 > generates maps in Node through `scripts/zombie-headless.js` -- a vm harness that runs the page's
 > own scripts, so the real generator is what gets measured -- and compares against recorded
 > baselines. Several of those baselines are known-bad; it fails when the map gets *worse*. The
@@ -978,13 +982,22 @@ storm runs, THE KENNELS' pens opening onto the one lane you can run down, THE MO
 three-walled service bays (deliberately the opposite — one way out), and THE YARD's rail spur with
 flatcars and container stacks. `INTERIOR_LANE` is 160 everywhere you are meant to fight.
 
-> **Superseded 2026-09-21 -- this describes the design, not the map.** Measured over 40 seeds
+> **Superseded 2026-09-21 -- this described the design, not the map.** Measured over 40 seeds
 > (`MAP_VISUAL_AUDIT.md` §1.2-1.3): **2.5 of 16 Spillway pipe segments** and **0.6 of ~6 Motor
-> Pool bays** get built. Buildings are placed in `buildZoneContents()` *before* the pipes, so the
-> pipes lose, and the drain floor is still painted under the buildings that took their ground.
-> The pens were replaced by rolling stock on 2026-09-20 (below). The pipe centre line is a tile
-> artifact repeating every 128px, unrelated to where any pipe is. Not fixed; held for the art
-> direction decision and the stamp work (`LEVEL_BUILDER_PLAN.md`).
+> Pool bays** got built. Buildings were placed in `buildZoneContents()` *before* the pipes, so the
+> pipes lost, and the drain floor was painted under the buildings that took their ground.
+>
+> **Fixed 2026-09-24.** `buildSectorInteriors()` now runs BEFORE `buildZoneContents()`, beside
+> the rail spur, the maze and the Kennels -- a sector's signature geometry outranks a generic
+> building. `segmentedWall()` returns which segments it laid, and the invert floor is painted,
+> and the ground reserved, **only where a pipe actually stands**. Pipe segments **2.5 -> 8.1** a
+> map, bays **0.38 -> 1.29**, buildings on a drain **2.08 -> 0**.
+>
+> **The cost, and it is deliberate: buildings a map fell 5.0 -> 3.1**, and THE SPILLWAY and THE
+> MOTOR POOL now get no generic building at all -- their own geometry holds that ground. Nav
+> reachability was re-measured (the rule below) and is **0.0010%, better than the 0.0036%** it
+> replaced. The pens were replaced by rolling stock on 2026-09-20 (below). The pipe centre line
+> is still a tile artifact repeating every 128px, unrelated to where any pipe is.
 
 **`segmentedWall()` leaves deliberate gaps** and it is not cosmetic: an unbroken 1,380px pipe wall
 turns each run into a tube reachable only from its ends, and a reserved rect across an end sealed
@@ -1906,4 +1919,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 23d4e516 | 2026-09-24 -->
+<!-- doc-sync: 221d2739 | 2026-09-24 -->

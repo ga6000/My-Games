@@ -1089,6 +1089,15 @@ function generateLevel() {
     buildRailSpur();
     buildContainerMaze();
     buildKennels();
+    // BEFORE THE GENERIC BUILDINGS (2026-09-24). It used to run after them,
+    // and the audit found what that cost: buildings took the ground first,
+    // so only 2.5 of 16 Spillway pipe segments and 0.6 of ~6 Motor Pool bays
+    // were ever built, while the drain floor was painted under the buildings
+    // that had taken their place -- the "buildings standing in the storm
+    // drains" the user reported. A sector's SIGNATURE geometry outranks a
+    // generic building, the same call already made for the rail spur, the
+    // container maze and the Kennels. See zombie/MAP_VISUAL_AUDIT.md 1.3.
+    buildSectorInteriors();
     buildZoneContents();
     // AFTER the sluice (the south wall has to know where the escape gate is,
     // so it does not put a culvert beside it) and AFTER the zone contents.
@@ -1100,13 +1109,11 @@ function generateLevel() {
     // perimeter built last. Trunks still avoid everything standing, via
     // clashesReserved and blockedAtStatic.
     buildPerimeter();
-    // Before the wall-buys and stations, so those route around the hero
-    // structures rather than the other way round -- a perk station tucked
-    // under the crane's beam is a station nobody finds.
-    // After the landmarks and the buildings, so a pen row or a pipe run
-    // routes around both, and before the wall-buys so those find ground
-    // that is actually still open.
-    buildSectorInteriors();
+    // buildSectorInteriors() is NOT here any more (2026-09-24) -- it is
+    // hoisted above, with the other sector geometry. The note that used to
+    // live here said it ran late "so a pen row or a pipe run routes around
+    // both [landmarks and buildings]". It did route around them, by not
+    // being built.
     placeWallBuys();
     placeCardStations();
     placeChokepointBarrels();
@@ -1574,13 +1581,19 @@ function buildSectorInteriors() {
 // (see "Boundary cover spurs" in CLAUDE.md).
 //
 // They are also better fiction: a cross-drain between two storm runs.
+//
+// RETURNS an array of `n` booleans, one per segment slot, saying which ones
+// actually went down (2026-09-24). The caller needs that to paint the floor
+// only where the structure exists: the Spillway used to paint its drain down
+// the whole run whether or not a single pipe wall had been laid beside it.
 function segmentedWall(x, y, w, h, step, gapEvery) {
     const vertical = h > w;
     const len = vertical ? h : w;
     const n = Math.max(1, Math.round(len / step));
     const each = len / n;
     const every = gapEvery || 3;
-    let laid = 0;
+    const taken = [];
+    for (let i = 0; i < n; i++) taken.push(false);
     for (let i = 0; i < n; i++) {
         // A gap, offset per wall so neighbouring runs do not line theirs up
         // into one long open corridor across the sector.
@@ -1591,9 +1604,9 @@ function segmentedWall(x, y, w, h, step, gapEvery) {
         const pad = { x: seg.x - 24, y: seg.y - 24, w: seg.w + 48, h: seg.h + 48 };
         if (clashesReserved(pad)) continue;
         walls.push(seg);
-        laid++;
+        taken[i] = true;
     }
-    return laid;
+    return taken;
 }
 
 // --- THE SPILLWAY: three storm runs ----------------------------------
@@ -1609,14 +1622,43 @@ function buildSpillwayPipes() {
     const lane = Math.floor((usable - WALL_T * (runs + 1)) / runs);
     const top = 340, bottom = 1720;               // clear of both boundaries
 
+    const taken = [];
     for (let i = 0; i <= runs; i++) {
         const x = x0 + i * (lane + WALL_T);
-        segmentedWall(x, top, WALL_T, bottom - top, 220);
+        taken.push(segmentedWall(x, top, WALL_T, bottom - top, 220));
     }
-    // UNIQUE floor: the invert down each run, and wet concrete either side.
+
+    // UNIQUE floor: the invert down each run -- BUT ONLY WHERE A PIPE WALL
+    // ACTUALLY STANDS BESIDE IT (2026-09-24).
+    //
+    // It used to paint the full 1,380px of every run unconditionally, while
+    // segmentedWall was dropping most of its segments onto reserved ground.
+    // So the drain was painted and the pipe was not, and whatever went in
+    // afterwards -- usually a building -- stood on a painted storm drain.
+    // A floor is a claim about what is there; it has to be made by whatever
+    // built the thing.
+    //
+    // A slot counts if EITHER bounding wall was laid: a run with one side
+    // open is still a run. Consecutive slots merge, so this stays a handful
+    // of rects rather than one per segment -- clashesReserved is linear.
+    const segs = taken[0].length;
+    const each = (bottom - top) / segs;
     for (let i = 0; i < runs; i++) {
         const x = x0 + WALL_T + i * (lane + WALL_T);
-        if (typeof zfPatch === "function") zfPatch(x, top, lane, bottom - top, "invert");
+        let from = -1;
+        for (let k = 0; k <= segs; k++) {
+            const live = k < segs && (taken[i][k] || taken[i + 1][k]);
+            if (live && from < 0) from = k;
+            if (!live && from >= 0) {
+                const y = Math.round(top + from * each);
+                const h = Math.round((k - from) * each);
+                if (typeof zfPatch === "function") zfPatch(x, y, lane, h, "invert");
+                // AND RESERVED, which is the other half of the fix: the run
+                // is a place, so nothing generic may stand in it.
+                reservedRects.push({ x: x, y: y, w: lane, h: h });
+                from = -1;
+            }
+        }
     }
     // The silt trap: the one open room, in the sector's foot.
     if (typeof zfPatch === "function") zfPatch(x0, bottom + 40, usable, 220, "wetconcrete");

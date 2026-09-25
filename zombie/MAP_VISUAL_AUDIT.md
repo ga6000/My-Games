@@ -59,12 +59,36 @@ feature doesn't fit it is skipped **silently**. Nothing counts the misses and no
 a designed feature exists. `assertZoneConnectivity()` checks that the map is traversable, not that
 it is the map that was designed.
 
-### 1.3 The Spillway
+### 1.3 The Spillway — FIXED 2026-09-24
 
 **Build order puts buildings inside the drains.** Buildings are placed in `buildZoneContents()`,
 and the pipes come later, in `buildSectorInteriors()`. So the buildings take the ground first,
 most pipe segments get skipped, and the pipe's **drain floor is painted under the buildings
 anyway**. That is the "buildings in the storm drain" the user saw.
+
+**Fixed 2026-09-24** (approved, knowing it moves every seed's layout):
+
+- **`buildSectorInteriors()` is hoisted above `buildZoneContents()`**, with the rail spur, the
+  container maze and the Kennels. A sector's signature geometry outranks a generic building.
+- **`segmentedWall()` reports which segments it laid**, and the invert floor is painted only
+  where a pipe wall actually stands beside it. A floor is a claim about what is there; it has
+  to be made by whatever built the thing.
+- **Those same spans are reserved**, so nothing generic stands in a storm run.
+
+| | before | after |
+|---|---|---|
+| Spillway pipe segments a map (16 designed) | 2.5 | **8.1** |
+| Motor Pool bays a map (~6 designed) | 0.38 | **1.29** |
+| Buildings standing on a drain | 2.08 | **0** |
+| Buildings a map | 5.0 | **3.1** |
+| Nav reachability, doors open, barricades broken | 0.0036% | **0.0010%** |
+
+**The drop in buildings is the trade, not a regression.** The Spillway and the Motor Pool stop
+getting generic sheds because their own geometry now claims that ground first; the check lists
+them as by-design-empty, separately from the five sectors that are empty because of the defect.
+The answer to "5 buildings against a design of 49" is authored stamps, not giving the ground
+back. Nav was re-measured because the rule in `CLAUDE.md` says to whenever this geometry moves:
+`node scripts/measure-zombie-nav.js`.
 
 The pipe **centre line is a floor-tile artifact** (`invert` in `zombie-floors.js`). It's baked
 into a 64² tile that repeats every 128 world px on the world grid, unrelated to where any pipe
@@ -143,9 +167,8 @@ Two consequences, both carried into `LEVEL_BUILDER_PLAN.md`:
    are **deliberately left for the stamp work** rather than patched in `makeBuilding`: the user
    wants to hand-build buildings, and a patched generator would be thrown away.
 2. **Density shortfall** (§1.2). Same reasoning: authored sectors replace the placer.
-3. **Spillway build order** and the drain floor under buildings. A small fix (pipes before
-   buildings, and paint the drain only where a segment was actually built), but it moves every
-   seed's layout. Hold it until the art direction (below) is settled.
+3. ~~**Spillway build order** and the drain floor under buildings.~~ **Done 2026-09-24** — see
+   §1.3.
 4. **The pipe centre line is a tile artifact.** It could get the same treatment as the rail
    (geometry plus a drawn line), but the new art direction may drop floor textures altogether.
 5. **Window art = barricade art.**

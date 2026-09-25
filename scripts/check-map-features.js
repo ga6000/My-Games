@@ -38,17 +38,27 @@ const VERBOSE = args.indexOf("--verbose") >= 0;
 // must hold on every seed. Tolerances are deliberately loose on the counts
 // that a reseed moves and tight on the ones that are structural.
 const BASELINE = {
-    // KNOWN BAD, all four. They are the 2026-09-20 audit's findings, held
-    // here so a regression is visible; the fix is the stamp work in
-    // zombie/LEVEL_BUILDER_PLAN.md, not a patch to makeBuilding.
+    // KNOWN BAD. The 2026-09-20 audit's findings, held here so a regression
+    // is visible; the fix is the stamp work in zombie/LEVEL_BUILDER_PLAN.md,
+    // not a patch to makeBuilding.
     openCornerPct:      { max: 100, note: "buildings whose bite corner has no wall across it" },
-    decorOnWallPct:     { max: 34,  note: "furniture pieces overlapping a wall" },
-    decorOutsidePct:    { max: 25,  note: "furniture pieces outside the bitten shell" },
-    zeroBuildingSectors: { max: 7.2, note: "sectors with no building, averaged over the sweep" },
-    drainBuildings:     { max: 3,   note: "buildings standing on a painted Spillway drain" },
+    decorOnWallPct:     { max: 30,  note: "furniture pieces overlapping a wall" },
+    decorOutsidePct:    { max: 22,  note: "furniture pieces outside the bitten shell" },
+    zeroBuildingSectors: { max: 8.2, note: "sectors with no building, averaged over the sweep" },
+    // FIXED 2026-09-24 by hoisting buildSectorInteriors above the buildings
+    // and painting the drain only where a pipe stands. Keep it at zero.
+    drainBuildings:     { max: 0,   note: "buildings standing on a painted Spillway drain" },
     // Floors. These are what must not fall further.
-    buildingsPerMap:    { min: 4,   note: "buildings placed a map" },
-    motorBaysPerMap:    { min: 0.2, note: "Motor Pool service bays built" },
+    //
+    // buildingsPerMap fell 5.0 -> 3.1 in the same change, and that is the
+    // TRADE, not a regression: the Spillway's storm runs and the Motor Pool's
+    // bays now claim their ground before a generic building can take it, and
+    // those two sectors stop getting sheds. Pipe segments went 2.5 -> 7.5 a
+    // map and bays 0.38 -> 1.29. The real answer to "5 buildings against a
+    // design of 49" is authored stamps, not loosening this.
+    buildingsPerMap:    { min: 2.8, note: "buildings placed a map" },
+    motorBaysPerMap:    { min: 1.0, note: "Motor Pool service bays built" },
+    pipeSegmentsPerMap: { min: 6.0, note: "Spillway storm-run wall segments laid (16 designed)" },
     landmarks:          { exact: 7 },
     wallBuys:           { exact: 6 },
     stations:           { exact: 9 },
@@ -56,8 +66,14 @@ const BASELINE = {
 };
 
 // Sectors that get no building on any seed today (2026-09-24, 24 seeds).
-// Every name here is a defect, not a setting.
+// Every name here is a DEFECT: the sector has nothing of its own instead.
 const KNOWN_EMPTY = ["centre", "cold", "kennel", "pump", "turbine"];
+
+// Sectors that get no generic building ON PURPOSE, because their own
+// signature geometry fills them: the Spillway's storm runs, the Motor Pool's
+// service bays, the Kennels' rolling stock, the Yard's container maze. A
+// shed in a storm run was the bug, not the fix.
+const BY_DESIGN_EMPTY = ["spill", "motor"];
 
 function rectsOverlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -110,7 +126,7 @@ function inBite(room, r) {
 function run() {
     const totals = {
         buildings: 0, openCorner: 0, decor: 0, decorOnWall: 0, decorOutside: 0,
-        motorBays: 0, drainBuildings: 0, maps: 0, zeroSectors: 0
+        motorBays: 0, drainBuildings: 0, maps: 0, zeroSectors: 0, pipeSegments: 0
     };
     const sectorBuildings = {};
     const invariants = { landmarks: [], wallBuys: [], stations: [], doors: [] };
@@ -168,6 +184,16 @@ function run() {
             }
         }
 
+        // The Spillway's storm runs: WALL_T-wide vertical segments in the
+        // sector's spine, between the runs' own top and bottom. This is the
+        // count that was 2.5 of a designed 16 before the build order moved.
+        for (let i = 0; i < walls.length; i++) {
+            const w = walls[i];
+            if (w.w === 20 && w.h > 100 && w.x < 820 && w.y >= 330 && w.y + w.h <= 1730) {
+                totals.pipeSegments++;
+            }
+        }
+
         // A service bay is the only 210x190 hardstanding on the map.
         for (let i = 0; i < patches.length; i++) {
             const p = patches[i];
@@ -207,7 +233,8 @@ function run() {
         zeroBuildingSectors: totals.zeroSectors / totals.maps,
         buildingsPerMap: totals.buildings / totals.maps,
         motorBaysPerMap: totals.motorBays / totals.maps,
-        drainBuildings: totals.drainBuildings / totals.maps
+        drainBuildings: totals.drainBuildings / totals.maps,
+        pipeSegmentsPerMap: totals.pipeSegments / totals.maps
     };
 
     console.log("Zombie map features, " + totals.maps + " seeds:");
@@ -217,6 +244,7 @@ function run() {
     report("furniture on a wall %", measured.decorOnWallPct, BASELINE.decorOnWallPct, failures);
     report("furniture outside the shell %", measured.decorOutsidePct, BASELINE.decorOutsidePct, failures);
     report("Motor Pool bays a map", measured.motorBaysPerMap, BASELINE.motorBaysPerMap, failures);
+    report("Spillway pipe segments a map", measured.pipeSegmentsPerMap, BASELINE.pipeSegmentsPerMap, failures);
     report("buildings on a drain a map", measured.drainBuildings, BASELINE.drainBuildings, failures);
 
     const names = Object.keys(sectorBuildings).sort();
@@ -229,7 +257,9 @@ function run() {
     // five of them do today. Listing the known ones rather than failing on
     // them keeps this check green-until-it-regresses: a check that fails on
     // every commit is a check nobody reads. THE GOAL IS AN EMPTY LIST.
-    const newEmpties = empties.filter(function (k) { return KNOWN_EMPTY.indexOf(k) < 0; });
+    const newEmpties = empties.filter(function (k) {
+        return KNOWN_EMPTY.indexOf(k) < 0 && BY_DESIGN_EMPTY.indexOf(k) < 0;
+    });
     const fixed = KNOWN_EMPTY.filter(function (k) { return empties.indexOf(k) < 0; });
     if (KNOWN_EMPTY.length) {
         console.log("  KNOWN: no building on any seed in: " + KNOWN_EMPTY.join(", ") +
