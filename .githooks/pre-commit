@@ -33,3 +33,16 @@ node scripts/check-identity-parity.js || true
 echo ""
 echo "Checking whether docs have been reconciled against current code..."
 node scripts/check-doc-sync.js || true
+
+# Added 2026-09-24. Generates Zombie maps headlessly (scripts/zombie-headless.js
+# runs the real game scripts in a vm) and counts what actually got built. The
+# 2026-09-20 audit found designed features missing from every map -- 0 of 12
+# Cold Storage buildings, 95% of buildings with an open corner -- while every
+# existing check passed, because placement skips silently on a clash.
+#
+# It compares against recorded baselines rather than an ideal, so it is green
+# until the map gets WORSE. Several baselines are known-bad; see
+# zombie/MAP_VISUAL_AUDIT.md. Takes a few seconds (12 maps).
+echo ""
+echo "Checking the Zombie map still contains the map that was designed..."
+node scripts/check-map-features.js || true

@@ -746,8 +746,12 @@ function drawBarricades(inView) {
         // Intact: individual planks, so damage reads as boards being torn
         // off rather than a bar quietly shrinking.
         // Above 1 when an ENGINEER's breather re-board left it at 150%: the
-        // planks cap at four (more would be drawn past the window's ends) and
-        // a reinforcing frame shows the extra instead.
+        // planks cap at the opening's own count (more would be drawn past its
+        // ends) and a reinforcing frame shows the extra instead.
+        //
+        // That count follows the opening's LENGTH since 2026-09-24
+        // (barricadePlanks): one board size everywhere, rather than one board
+        // count stretched across a 44px window and a 150px rail gate alike.
         //
         // `planks`/`shown` come from zombie-level.js since 2026-09-19,
         // because BULLETS now read the same geometry (bulletBlockedAt): the
@@ -755,7 +759,7 @@ function drawBarricades(inView) {
         // copy of the arithmetic is what guarantees that stays true.
         const reinforced = b.hp > b.maxHp;
         const frac = Math.min(1, b.hp / b.maxHp);
-        const planks = BARRICADE_PLANKS;
+        const planks = barricadePlanks(b);
         const shown = barricadePlanksShown(b);
         if (reinforced) {
             ctx.strokeStyle = "#C89B5A";

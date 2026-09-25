@@ -489,18 +489,39 @@ function blockedAt(x, y, size, forZombie) {
 // barricade was total cover until hp hit 0 and it left the zombie solid set
 // entirely -- so the only way to shoot through a window was to lose it.
 //
-// The renderer already tells this exact story: four plank slots, filled from
+// The renderer already tells this exact story: N plank slots, filled from
 // the low end of the span upward, `shown` of them left. So the missing
-// planks are ALWAYS slots `shown..3` -- the far end -- and the hole a player
+// planks are ALWAYS the slots at the far end -- and the hole a player
 // can see is the hole a bullet can use. These two helpers are the single
 // source of that geometry; drawBarricades() calls the first one so the
 // picture and the collision can never drift apart.
-const BARRICADE_PLANKS = 4;
+// THE COUNT FOLLOWS THE OPENING (2026-09-24). It was a flat 4, and a flat
+// count makes the PLANK scale with the hole: a 44px building window got
+// 11px boards and a 150px rail gate got 37px ones, from the same art, on
+// the same screen. A plank is a plank. So the pitch is fixed instead and
+// the count is derived, which keeps every barricade on the map reading at
+// one board size.
+//
+// 32 is the standard boundary window's own pitch -- those run 112-151px and
+// were drawn with 4 boards -- so THE COMMON CASE IS UNCHANGED, and only the
+// odd sizes (building windows, the cut fragments a rail gate leaves) move.
+//
+// The floor of 2 is deliberate: at one board the barricade has no damage
+// granularity at all, it is either whole or gone.
+const BARRICADE_PLANK_PITCH = 32;
+const BARRICADE_PLANKS_MIN = 2;
+const BARRICADE_PLANKS_MAX = 6;
+
+function barricadePlanks(b) {
+    const span = (b.w < b.h ? b.h : b.w);
+    const n = Math.round(span / BARRICADE_PLANK_PITCH);
+    return Math.max(BARRICADE_PLANKS_MIN, Math.min(BARRICADE_PLANKS_MAX, n));
+}
 
 function barricadePlanksShown(b) {
     if (!b || b.hp <= 0) return 0;
     const frac = Math.min(1, b.hp / b.maxHp);
-    return Math.max(1, Math.ceil(BARRICADE_PLANKS * frac));
+    return Math.max(1, Math.ceil(barricadePlanks(b) * frac));
 }
 
 // True when the box lies WHOLLY past the last remaining plank. Wholly, not
@@ -508,11 +529,12 @@ function barricadePlanksShown(b) {
 // 112px window a slot is 28px against a bullet of 8-14, which is the
 // difference between a clean shot through the gap and a lucky one.
 function inBarricadeGap(b, x, y, size) {
+    const planks = barricadePlanks(b);
     const shown = barricadePlanksShown(b);
-    if (shown >= BARRICADE_PLANKS) return false;       // still fully boarded
+    if (shown >= planks) return false;                 // still fully boarded
     const vertical = b.w < b.h;
     const span = vertical ? b.h : b.w;
-    const gapStart = (vertical ? b.y : b.x) + shown * (span / BARRICADE_PLANKS);
+    const gapStart = (vertical ? b.y : b.x) + shown * (span / planks);
     return (vertical ? y : x) >= gapStart;
 }
 

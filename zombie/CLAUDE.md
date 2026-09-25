@@ -594,6 +594,12 @@ nothing could path into — a free safe spot, and a trap for any zombie that wan
 
 ## Map — nine PAINTED sectors (2026-09-19)
 
+> **Run `node scripts/check-map-features.js` (2026-09-24)** before and after any map change. It
+> generates maps in Node through `scripts/zombie-headless.js` -- a vm harness that runs the page's
+> own scripts, so the real generator is what gets measured -- and compares against recorded
+> baselines. Several of those baselines are known-bad; it fails when the map gets *worse*. The
+> pre-commit hook runs it warn-only.
+>
 > **Read `MAP_VISUAL_AUDIT.md` first (2026-09-21).** It is the first pass that *looked* at rendered
 > maps, and several numbers below turned out to be targets rather than outputs; each one is marked
 > where it stands. `LEVEL_BUILDER_PLAN.md` is the plan to replace random building placement with
@@ -1900,4 +1906,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 7269919f | 2026-09-21 -->
+<!-- doc-sync: 23d4e516 | 2026-09-24 -->

@@ -37,6 +37,12 @@ repo), then swept 40 seeds in the page for outcome counts.
 - **Windows reuse the zombie-barricade art.** A building window *is* a barricade (players never
   pass, zombies chew through) and it is drawn by `drawBarricades()`. From above, a window looks
   exactly like a boarded boundary door.
+  > **Partly addressed 2026-09-24.** The art is still shared, but the *board size* is not absurd
+  > any more: the plank count was a flat 4 whatever the opening, so a 44px window got 11px boards
+  > and a 150px rail gate got 37px ones. `barricadePlanks()` divides the span by a fixed 32px
+  > pitch (clamped 2-6) instead, so a board is one size everywhere. 32 is the standard boundary
+  > window's own pitch, so the common case is unchanged. The renderer and `bulletBlockedAt` read
+  > the same function, so the visible gap is still the shootable gap.
 
 ### 1.2 Density: target vs what actually gets placed, per map
 
@@ -105,6 +111,16 @@ by array identity, and `generateLevel()` assigns a new `railPaths`, so a reseed 
 
 ---
 
+> **These numbers are now checked automatically (2026-09-24).**
+> `node scripts/check-map-features.js` reproduces this whole section in a few seconds --
+> it generates maps in Node through `scripts/zombie-headless.js`, a vm harness that runs the
+> page's own scripts, so the real generator is what gets measured. It compares against recorded
+> baselines and fails on a regression, rather than failing every run on the known defects. The
+> pre-commit hook runs it warn-only. Its independent 24-seed measurement agrees with the sweep
+> above: 5.0 buildings a map, 100% open corners, 28.8% of furniture on a wall, 18.9% outside the
+> shell, and **five sectors that get no building on any seed** (centre, cold, kennel, pump,
+> turbine).
+
 ## 2. What the findings say about the approach
 
 Every item in §1 is the same failure. A design was written down (in a comment, in `CLAUDE.md`, in
@@ -118,8 +134,8 @@ Two consequences, both carried into `LEVEL_BUILDER_PLAN.md`:
    bays are shapes someone designed. They should be *drawn*, as stamps, and the generator should
    only pick which stamp goes where, plus the loot.
 2. **Assert what was designed.** A check that fails when a building is missing a wall, or when a
-   sector got zero buildings. That is the "feature check" question put to the user (see the reply
-   of 2026-09-21), not yet built.
+   sector got zero buildings. **Built 2026-09-24** at the user's request:
+   `scripts/check-map-features.js`, warn-only in the pre-commit hook.
 
 ## 3. Not fixed, in rough order of how much they hurt
 
@@ -135,6 +151,10 @@ Two consequences, both carried into `LEVEL_BUILDER_PLAN.md`:
 5. **Window art = barricade art.**
 
 ## 4. Art direction — recorded, not implemented (2026-09-21)
+
+> **Decision 2026-09-24: not yet.** The user declined the palette change for now and tabled the
+> ordering question (whether a restyle would come before or after the level builder). Nothing in
+> §4.1 is approved; it stays here as a written proposal. `AESTHETIC_GUIDE.md` is untouched.
 
 The user's call, after seeing this pass: *"visuals are improving, but these things are barely
 moving the needle. I'd like to reconsider overall visual direction before proceeding much

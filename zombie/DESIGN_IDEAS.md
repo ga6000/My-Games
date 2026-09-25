@@ -614,6 +614,26 @@ statement that this is a co-op game. Use sparingly — one or two on the map.
 
 ---
 
+## E. The rail line (2026-09-24)
+
+**58. A rideable railcar, the way Transit uses its bus.** The spur is real geometry now — one
+continuous line from THE KENNELS through THE YARD and down into THE MOTOR POOL, with track art
+that turns the corner (`MAP_VISUAL_AUDIT.md` §1.4). It is scenery. In *Call of Duty: Zombies*,
+Transit's bus is the thing that makes a scattered map feel like one place: it moves on its own
+schedule, you can ride it or chase it, and being caught out when it leaves is a real cost.
+
+Here that would be a flatcar that runs the line slowly and continuously: step on and it carries
+you across three sectors without paying for the doors between them, which has to be balanced
+against the "buy outward" economy — probably by it being **slow, loud, and a spawn magnet**, so
+riding it costs you the fight you would rather have had in a doorway. The rail gates it passes
+through are already barricades.
+
+*Large, and it needs the map-design talk first (the CoD Zombies direction in
+`MAP_VISUAL_AUDIT.md` §4.2). Noted at the user's request 2026-09-24 because the track now
+exists; nothing is planned.*
+
+---
+
 ## Where I would start
 
 1. **50 — the run report.** Almost free, and it immediately makes finished runs worth something.

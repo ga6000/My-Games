@@ -50,9 +50,16 @@ size: 16x11
 
 **One cell is the smallest thing you can draw**, so a stamp can't express a 92px door
 (`BUILD_DOOR`) or a 44px window (`BUILD_WINDOW`). Stamps use **80 or 100** for doors and
-**40 or 60** for windows. Before phase 1 ships, confirm that the nav grid treats a 40px window
-barricade as passable for zombies the way it treats 44 today. If it doesn't, windows are a
-3-cell minimum.
+**40 or 60** for windows (approved 2026-09-24). Before phase 1 ships, confirm that the nav grid
+treats a 40px window barricade as passable for zombies the way it treats 44 today. If it doesn't,
+windows are a 3-cell minimum.
+
+**The number of boards follows the opening's length, so a board is always the same size**
+(the user's condition on those sizes). This is already true in the game as of 2026-09-24:
+`barricadePlanks()` in `zombie-level.js` divides the span by a fixed 32px pitch, clamped to 2-6,
+instead of the flat 4 it used to draw. A 2-cell stamp window gets 2 boards and a 5-cell rail gate
+gets 5, at one board size. The renderer and `bulletBlockedAt` both read that one function, so the
+gap you can see stays the gap you can shoot through.
 
 Rotation is done by the loader (90° steps plus mirror), not by drawing four copies.
 
@@ -68,6 +75,18 @@ Rotation is done by the loader (90° steps plus mirror), not by drawing four cop
 4. **At least one door**, and no room inside the stamp that you can only reach through a window.
 5. **At placement:** the stamp's footprint is fully `inZone` for its sector and clears hard
    reserves. A stamp that fails is **counted and reported**, never silently skipped.
+
+## What already exists
+
+`scripts/check-map-features.js` (2026-09-24) generates maps headlessly and counts what actually
+got built: open-corner buildings, furniture on walls or outside the shell, buildings a sector,
+service bays, buildings standing on a drain, and the landmark/gun/station/door invariants. It
+runs over the **real** generation code through `scripts/zombie-headless.js`, a vm harness that
+loads the page's own scripts.
+
+It is the check the stamp work has to move: today it records 100% open corners, ~29% of furniture
+on a wall and **five sectors that get no building on any seed**. The same script measures whether
+stamps fixed them.
 
 ## Phases and effort
 
