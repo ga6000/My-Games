@@ -11,8 +11,9 @@ scope**, so every top-level name across them must be unique. Run
 `node scripts/check-global-collisions.js` from the repo root after any change here; it reports
 `zombie\Zombie.html (10 local scripts)`.
 
-**Updated 2026-09-18.** The playtest pass (`PLAYTEST_PASS_PLAN.md`) added `zombie-music.js`,
-`zombie-icons.js` and `zombie-floors.js`, so the checker now reports **17** local scripts.
+**Updated 2026-09-26.** The evacuation train added `zombie-train.js`, so the checker now reports
+**18** local scripts. (2026-09-18: the playtest pass added `zombie-music.js`, `zombie-icons.js` and
+`zombie-floors.js`, taking it to 17.)
 (2026-09-07: the dev-tools pass added `../shared/devtools.js` and `zombie-dev.js`, taking it to 14.
 2026-09-04: two shared files were added by the aesthetic pass, taking it to 12.) (The 2026-09-02
 revision of this table fixed an earlier count of 7 that omitted `zombie-audio.js` and
@@ -30,7 +31,8 @@ revision of this table fixed an earlier count of 7 that omitted `zombie-audio.js
 | 4a | `zombie-music.js` | **The score** (2026-09-18): organ bed, soprano, beat-quantized chime cues. Needs `audioCtx`/`audioMaster` from 4; `gameLoop` drives it |
 | 5 | `zombie-level.js` | Seeded geometry, the solid spatial index, `moveWithCollisions`, funnel halls, perk stations |
 | 6 | `zombie-entities.js` | Players, weapons + switching, zombie archetypes, perks, bullets, pickups |
-| 7 | `zombie-endgame.js` | Roles, sluice gate, funnels, silos, pipes, the flood, the escape |
+| 7 | `zombie-endgame.js` | Roles, the sluice levers, funnels, silos, pipes, the flood, the tunnel |
+| 7a | `zombie-train.js` | **The evacuation train** (2026-09-26): the rail line, the cars, 1-D physics, coupling, carriage, the cowcatcher. Declares only; reads `railPaths` (5) and `siloFill` (7) |
 | 8 | `zombie-game.js` | Round curves, simulation, economy, revive / bleed-out / wipe / respawn, perk procs, generator trip |
 | 9 | `zombie-net.js` | MP wiring, snapshots, broadcast |
 | 9a | `zombie-icons.js` | Pixel-bitmap icons for every perk and gun (no emoji) → canvases + data URLs. Declares only |
@@ -1605,12 +1607,20 @@ your magazine. The round does **not** pause — it can't, the host owns the simu
 
 `zombie-endgame.js`. Until this, a run could only end in failure.
 
-    sluice gate (two players, two locks)
-      -> funnel room, kill zombies ON the funnel to fill silo 1  (12)
-      -> throw silo 1's switch to open funnel 2  ->  silo 2 (24)  ->  funnel 3 (36)
-      -> third silo full: THE FLOOD, off every map edge at once
-      -> clear it: the southern heavy gate grinds open over 90s behind a chainlink gate
-      -> the fence flies open: walk out and you have WON
+~~sluice gate (two players, two locks) -> ... -> third silo full: THE FLOOD -> the southern heavy
+gate grinds open over 90s -> walk out and you have WON~~ **Superseded 2026-09-26 — see "The
+evacuation train" below.** The chain is the same shape and most of the code is untouched; three
+links changed. Current:
+
+    sluice LEVERS (N of four, scattered -- solo throws two)
+      -> funnel room, kill zombies ON the funnel to fill TANK 1  (12)
+      -> throw tank 1's switch to open funnel 2  ->  tank 2 (24)  ->  funnel 3 (36)
+      -> all three tanks full: NOTHING HAPPENS YET. The team chooses when.
+      -> shunt three fuel cars into the locomotive; buy the rail crossings
+      -> START THE LOCOMOTIVE: the horn, THE FLOOD, and the tunnel begins opening
+      -> the train HOLDS at the platform for the full 90s -- that is the fight
+      -> the tunnel opens: it runs, reaching ~1,190px/s at the mouth, and you are WON
+      -> the score types over a world that is still running, with the team on the train
 
 **Silo capacity rises: `SILO_CAPACITY = [12, 24, 36]`** (2026-09-19, on request — it was a flat
 12). Always read it through **`siloCapacity(i)`**: there were nine bare reads of the old scalar
@@ -1653,8 +1663,19 @@ Things to keep in mind if you touch it:
 - **The sluice is at fixed world coordinates, not seeded.** It is the one landmark every run
   shares, so "meet at the sluice" has to mean the same place every time. **It is built before the
   zone contents** (2026-09-18) — see "Zones have identity" for the bug that fixed.
-- **The gate needs two players** — two plates 436px apart, and two consecutive holds (the second
-  is 1.6x longer). Releasing a plate drains progress, but slower than it fills.
+- ~~**The gate needs two players** — two plates 436px apart, and two consecutive holds.~~
+  **Superseded 2026-09-26 (idea 69).** The plates are gone: **four levers scattered across the
+  map**, ring-graduated (THE BLOCKHOUSE free, TURBINE HALL and THE MOTOR POOL a door out, THE
+  SPILLWAY two), of which you throw **N**. Solo throws **two, any order, and they stay down**; a
+  team throws **one per standing player, capped at four, all within `SWITCH_WINDOW_MS` (4.5s)**
+  measured on the host's clock. A lapsed window springs them all back.
+
+  This **retires idea 57** deliberately, and it is a trade rather than a repair: the game gives up
+  its one strictly-impossible-alone mechanic and gains a chain a lone player can finish. The five
+  things it has to get right — latching the required count on the first throw, counting only
+  standing non-AWAY players, capping at four, measuring the window on the host's clock on arrival,
+  and not looking like the one-way horde switch — are written out at the top of the switch section
+  in `zombie-endgame.js`.
 - **Only kills inside an active funnel's radius fill its silo.** Every other system in the game
   rewards killing zombies wherever they are; this is the one that asks you to fight in a chosen
   place, which is what makes the funnel room a set piece.
@@ -1667,7 +1688,28 @@ Things to keep in mind if you touch it:
   sluice sits at the far south of its zone and spawn placement favours points near the player.
 - `escapeAt` crosses the wire as a **remaining duration**, like every other timer here.
 
-### The south gate, and the walk out (2026-09-19)
+### ~~The south gate, and the walk out (2026-09-19)~~ — superseded 2026-09-26
+
+> **The gate is a TUNNEL at the south-east rail head now, and nobody walks out — the train
+> drives.** The machinery below is mostly intact and still describes what is drawn (a heavy slab
+> grinding up over `ESCAPE_OPEN_MS`, derived from `escapeAt` alone, nothing new on the wire), so it
+> is kept. What changed:
+>
+> - **`escapeRect` moved from x 2310 (south-centre, "dead south of the sluice") to the rail head at
+>   x 4570.** The line already ended at y 2660, twenty pixels short of the southern perimeter wall,
+>   in the south-east corner — it had always pointed at a way out that was 2,170px away from it.
+>   **Accepted cost:** `PERIM_CORNER_CLEAR` (700px) deliberately keeps culverts away from that
+>   corner, added 2026-09-20 after zombies wedged pathing round it. A gate that opens once is not a
+>   culvert, but the climax fight is now in the one corner the map was closed over.
+> - **The 90s is no longer a wait.** It starts when the locomotive does, together with the flood,
+>   and the train holds at the platform for all of it.
+> - **`updateEscape()` is a no-op.** Nobody wins by walking into the gate; `trainCheckTunnel()`
+>   decides, and only above `TRAIN_WIN_SPEED`. A player on foot at the gate is a player who missed
+>   the train.
+> - **The walk-out and the fade are gone** (`ESCAPE_PULL_MS` / `ESCAPE_FADE_MS` no longer drive
+>   anything; `winPullPx` and `winFade` stay at 0). The world keeps rendering behind the score.
+
+### The south gate, as built 2026-09-19
 
 ~~A yellow loading bar over `escapeRect` and the word SEALED.~~ Replaced with the thing the bar
 was describing, on request:
@@ -1715,6 +1757,139 @@ was describing, on request:
 3. **The sluice gate's price plate read "undefined".** It is a door with no `cost` (it is opened
    by two players on two plates, never bought), and `drawDoors` printed `String(d.cost)`
    unconditionally. Costless doors no longer draw a plate.
+
+## The evacuation train (2026-09-26)
+
+`zombie-train.js`. What the objective chain is now *about*. Design and the alternatives that were
+rejected: `TRAIN_RAIL_PLAN.md`; the decisions: `DESIGN_IDEAS_2.md` §8 and `DESIGN_IDEAS.md` Part 7.
+
+> **Built as `zombie-alt/`, a second hub card, on 2026-09-25 and merged back into `zombie/` on
+> 2026-09-26.** The fork existed for one evening so the train could be played without touching the
+> game the group already had. `ae0f19d` is the last commit before it, if the old ending is ever
+> wanted back.
+
+**A TRAIN ON RAILS HAS ONE DEGREE OF FREEDOM.** Each car is a scalar `s` — arc length along one
+polyline — plus a velocity. Collisions are 1-D, coupling merges two bodies and sums the mass, and
+everything visible (the rect, the angle, a rider's carried delta) is derived from `s`. No physics
+engine, and no second frame of reference.
+
+Four rules, each load-bearing:
+
+1. **NOTHING HERE TOUCHES THE NAV GRID.** Cars are not in `walls[]` and not in either solid grid;
+   the deck is walkable for players and zombies alike. So `rebuildNavGrid`, `refreshNavRegion` and
+   `navDirty` are never involved, a moving car cannot wedge a zombie against geometry, and it
+   cannot crush a player into a wall. The only physical interaction is the cowcatcher, which
+   **throws** rather than blocks. **Do not "fix" this by putting cars in `walls[]`:**
+   `rebuildSolidIndex()` rebuilds both grids from scratch, and `markNavDirty()` costs a full ~17ms
+   nav rebuild plus up to three BFS fields, every frame.
+2. **Position is derived from one broadcast scalar per car** (`tw` on the snapshot), never
+   interpolated — the `escapeGateFrac()` pattern. Not tidiness: a rider adds the car's own delta
+   to its own position, and two clients disagreeing about the car by a pixel would drag two
+   players to different places.
+3. **Riders are carried, not re-pathed.** One rule, shared by players and zombies. Players apply
+   it **client-side to their own player only** — each client owns its position and the host cannot
+   move a guest.
+4. **Shunting is capped at `TRAIN_SHUNT_MAX` (90px/s).** The flow field refreshes every
+   `NAV_REFRESH_MS` (220ms), so a car travelling further than one nav cell (20px) in that window
+   is one zombies steer at where it *was*. 20/220ms is ~90px/s. The cap lifts only once the
+   locomotive is rolling, where being outrun is the point.
+
+### The verbs
+
+- **Push** from a car's **END** — proximity, not a keypress, the same shape as
+  `updateGeneratorRestart`, so it needs no message and no prediction. Which end you stand at
+  decides the direction. **ENGINEER 4x** (`TRAIN_ENGINEER_MULT`): a **time** gate, never a
+  capability gate, because roles are hashed from `netToken` and a lobby can legitimately contain
+  no Engineer.
+- **Rocket:** `trainRocketKick()` projects the blast onto the track, so a rocket fired **across**
+  the rails moves nothing. A shot you aim, not a shot you land nearby.
+- **Couple:** a car reaching the consist merges in, mass-weighted, so a car slammed into a
+  stationary train nudges it rather than vanishing into it.
+
+### Started is not rolling
+
+`trainReady()` needs **three cars coupled**, **three tanks full** (the tanks *are* the silos — no
+second resource) **and every rail crossing bought open**.
+
+Starting powers the locomotive up, sounds the horn, calls the flood and begins grinding the tunnel
+— and the train **holds at the platform for the whole `ESCAPE_OPEN_MS`**. That 90 seconds is the
+fight, and it only works as one if the train is still there to defend. An earlier version rolled
+immediately, sat at a shut tunnel mouth with the throttle open, and won the instant the gate
+finished.
+
+**`TRAIN_RUN_ACCEL` is 520 px/s², sized to the actual run.** It is 1,369px from where the
+locomotive stands to the tunnel, and `v = sqrt(2*a*d)`. At the first value (150) it arrived at
+641px/s — 2.7x walking, not the ~5x the departure is for. At 520 it arrives at **1,190px/s** over
+the same ground.
+
+### The rail crossings are the boundary doors
+
+Where the line crosses a sector boundary, **that pair's existing door MOVES onto the track**
+(`railOpenCrossing`) and the hole it left is walled up. Two openings per wall as before — the
+difference is that buying the door is also what clears the line, which is the point: exploring
+outward *is* opening the rail path, at the expense of your scrap.
+
+Measured over 47 seeds: the rail crosses **KENNELS|YARD** and **YARD|MOTOR POOL**, both of which
+already carried a door and a window, so **no sector's depth and no door price moved** — THE YARD
+is still ring 2 and the rocket still costs 10,350.
+
+**The first attempt was wrong and the mistake is easy to repeat:** making each piece
+`carveOpening` cut into its own door produced a **33px door** on the Yard|Motor crossing (the lane
+there overlaps an opening that already existed, so only 33px of the 120px lane was still wall) and
+left it at the placeholder cost of 900, because `priceDoors()` walks `zonePassages` and a
+hand-pushed door is not in it.
+
+### Who gets the win score
+
+**Only the players standing on the train when it took the tunnel.** `trainAboardIds()` is computed
+by the **host** from positions it already has — not from each client's own `onTrain`, which is
+client-side and is exactly the flag a player would want wrong in their favour — captured into
+`wonAboard` on the frame before `triggerWin()`, and broadcast as `wab`.
+
+`runScoreFor(id)` gates both win terms on it: `SCORE_WIN` and the x2. Everything else (combat, the
+round term, the tanks) is unchanged, because that work was done either way. The card reads **THE
+TRAIN LEFT / YOU WERE NOT ON IT** and the ESCAPED row becomes **MISSED THE TRAIN**. Measured on one
+run: **166,100 aboard against 33,050 left behind.**
+
+### Four bugs that only showed up by playing it
+
+1. **Two renderings of one state contradicting each other on screen** — the objective line read
+   "THROW THE SLUICE LEVERS" while the NEXT strip two rows below read "START THE GENERATOR". Both
+   true, both about the same chain. `endgameObjective()` waits for the generator now.
+2. **A relative shift is the wrong tool for an absolute requirement.** Windows overlapping the lane
+   were nudged by a fixed amount and 4 seeds in 12 were still on it by 15px; a later version moved
+   one east and the world clamp put it straight back onto the track. Now: trim to the lane edge,
+   and if that leaves a stub, try **both** sides and check the result. *Never trust a clamp to
+   preserve an invariant it does not know about.*
+3. **`onTrain` was cleared on any frame the train stood still**, because "am I aboard" and "did it
+   move" were one question. The flag is what grants the grace to stay on a car already over
+   `TRAIN_BOARD_MAX`, so a player standing on a stationary locomotive was treated as boarding
+   afresh the moment it pulled away — and left on the ballast.
+4. **A rider on a moving deck cannot be re-tested for overlap.** At 1,300px/s the deck moves 21px a
+   frame; one frame of `updatePlayers` clamping you to the world edge and you are off it forever.
+   465px of lag over a run, 1,289px after the win. The rider is **parented** to their car above
+   `TRAIN_BOARD_MAX` and once `won`. 465px to **46px**.
+
+### Verified
+
+Two harnesses over the page's own scripts (`scripts/zombie-headless.js`), plus solo play:
+
+- **47-seed map sweep** — 4 levers a map, 4 cars, 2 rail doors, none narrower than the 120px lane,
+  none underpriced, **no barricade left standing on the running line**, no boundary window trimmed
+  under the 78px nav guarantee, every sector still connected, `escapeRect` at the rail head.
+- **The train simulation** — friction stops a rolling car; the shunt cap holds; a rocket out of
+  range does nothing and one along the rails shunts; all three cars couple by shunting; the consist
+  is ordered nose-to-tail; an unfuelled loco will not start; **a loco with a shut crossing ahead of
+  it will not start**; buying the crossings makes it ready; starting it opens the tunnel and calls
+  the flood; it **holds** while the tunnel is shut; it reaches the mouth at 1,190px/s.
+
+### Known limits
+
+- **The Kennels' sidings still go nowhere.** 3.0 sidings a map and **0 of them joined to the line**
+  (measured). A rail **graph** with junctions is `TRAIN_RAIL_PLAN.md` T1 and belongs with authored
+  geometry (`LEVEL_BUILDER_PLAN.md` phase 4). The train lives on the through line.
+- `spurLanes` was never cleared in `generateLevel()` — fixed here. It only mattered because the
+  lanes are pure geometry and identical every seed, which is exactly why nobody noticed.
 
 ## THE SUPER SPLITTER (2026-09-20)
 
@@ -1903,9 +2078,20 @@ the modulo, which measures 187–210 of 800 for each of the four.
   *exactly zero* clearance in a cell the field called passable — any float error at a corner
   clipped). Every opening a zombie must use is wider than `2*NAV_CELL + 2*NAV_PAD` = **78px**. If
   you add a narrower opening, or a bigger zombie, large enemies will quietly stop using it.
-- **A solo player cannot finish a run.** The sluice gate needs two people on two plates, so the
-  whole Blood Silo chain — and the only win state — is unreachable alone. That is the deliberate
-  point of idea 57, but it means solo play is still endless-survival-until-death.
+- ~~**A solo player cannot finish a run.**~~ **Fixed 2026-09-26** by the sluice levers (idea 69):
+  alone you throw two of the four and they stay down. Solo can now reach the ending, which is the
+  whole reason idea 57 was retired.
+- **The levers have never been thrown by a real team.** Everything about the multi-player case —
+  one lever per standing player, capped at four, all within 4.5s on the host's clock — is verified
+  solo and headless only. `SWITCH_WINDOW_MS` is the number most likely to need tuning by feel.
+- **The win does not require anyone aboard, only that the train gets out.** A scattered team still
+  ends the run; what they lose is the win SCORE, which goes only to players standing on the train
+  when it took the tunnel (`wonAboard` / `wonOnTrain`). Their card reads THE TRAIN LEFT and the
+  ESCAPED row becomes MISSED THE TRAIN. Measured: 166,100 aboard against 33,050 left behind on the
+  same run. A hard TRAIN LOST state is deliberately not built.
+- **The rider ends the run about 480px behind the locomotive on screen.** They are parented to
+  their car and moving with it; the offset is from the frames before the parent took hold.
+  Cosmetic, and only on the win card.
 - ~~**No manual weapon switching.** A wall-buy equips what you bought; you can't cycle back to a
   weapon you already own.~~ **Resolved 2026-09-18** — `1`–`7`, the wheel, and a dry gun handing
   over to the next one you own.
@@ -1919,4 +2105,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 221d2739 | 2026-09-24 -->
+<!-- doc-sync: 1fab4aad | 2026-09-26 -->

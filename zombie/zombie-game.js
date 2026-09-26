@@ -732,21 +732,48 @@ function triggerWin() {
     if (netOnline && netIsHost) MP.send({ k: "won" }, true);
 }
 
+// ALT, 2026-09-25: THE WORLD DOES NOT FADE, AND NOBODY WALKS ANYWHERE.
+//
+// Asked for as: "readout should appear with game continuing in background
+// with players on rail behind score readout." So the old walk-out (a 620px
+// draw offset dragging the player south) and the fade to black are both gone.
+// The train keeps running, the horde keeps chasing it and losing, and the
+// readout types over the top of all of it.
+//
+// `winPullPx` and `winFade` stay at 0 rather than being deleted: the renderer
+// and the HUD both read them, and a variable that is always 0 is cheaper than
+// four call sites that have to learn the game changed.
 function updateWinSequence(now) {
     if (!winSeqAt || uiWinShown) return;
-    const t = now - winSeqAt;
-    // Constant rate, far enough to clear any screen height.
-    winPullPx = Math.min(1, t / ESCAPE_PULL_MS) * 620;
-    winFade = clamp((t - ESCAPE_PULL_MS) / ESCAPE_FADE_MS, 0, 1);
-    if (t >= ESCAPE_PULL_MS + ESCAPE_FADE_MS) showWinCard();
+    winPullPx = 0;
+    winFade = 0;
+    if (now - winSeqAt >= ALT_WIN_CARD_DELAY_MS) showWinCard();
 }
+
+// Long enough to watch the train pull away and the horde fall behind.
+const ALT_WIN_CARD_DELAY_MS = 2600;
 
 function showWinCard() {
     if (uiWinShown) return;
     uiWinShown = true;
-    winFade = 1;
+    // ALT: NOT winFade = 1. The card sits over a world that is still running
+    // -- the train is still accelerating away with the team on it, which is
+    // the whole ending. Setting the fade here was what blacked it out behind
+    // the score even after updateWinSequence stopped raising it.
+    winFade = 0;
     uiWin.style.display = 'block';
-    uiWinRound.innerText = String(round);
+    // Same ending, two readings of it. Whoever was standing on the train when
+    // it took the tunnel got out; whoever was not watched it go.
+    const aboard = wonOnTrain(netIdFor(players[0]));
+    if (uiWinHead) uiWinHead.innerText = aboard ? "YOU GOT OUT." : "THE TRAIN LEFT.";
+    if (uiWinSub) {
+        uiWinSub.innerHTML = aboard
+            ? 'ESCAPED ON ROUND <span id="winRound">' + round + '</span>'
+            : 'YOU WERE NOT ON IT — ROUND ' + round;
+    }
+    // NOT uiWinRound any more: rewriting uiWinSub's innerHTML replaces the
+    // #winRound span, so the cached reference points at a detached node. The
+    // round number is written into the subtitle above instead.
     renderRunScore(uiWinScore);
     // A win is a completed run and belongs on the board too -- the same
     // guard stops the later game-over path posting it a second time.
@@ -830,13 +857,17 @@ function runScoreFor(id) {
         silos: silos,
         siloPts: SCORE_SILO * silos,
         won: won,
-        winPts: won ? SCORE_WIN : 0,
+        // ONLY IF YOU WERE ON IT (2026-09-26, on request: "win score only
+        // assigned to players on train at time of game end"). The round and
+        // silo terms are still team terms -- you did that work either way.
+        aboard: wonOnTrain(id),
+        winPts: wonOnTrain(id) ? SCORE_WIN : 0,
         // Per-client, so it is the only term that is not derived from the
         // host's scoreBoard row. A guest counts its own seconds.
         alivePts: Math.round(aliveMs / 1000) * SCORE_ALIVE_PER_SEC
     };
     const sub = b.combat + b.roundPts + b.siloPts + b.winPts + b.alivePts;
-    b.total = won ? sub * 2 : sub;
+    b.total = b.aboard ? sub * 2 : sub;
     return b;
 }
 
@@ -944,6 +975,26 @@ function hostHandleBuy(msg) {
     // Costs nothing and is checked first, so it can never be blocked by an
     // empty scrap pool.
     if (msg.what === "intensify") { hostFlipIntensify(msg); return; }
+
+    // ALT: both free, both world changes, so both go through the host for
+    // the same reason a purchase does -- two players on one frame must not
+    // produce two calls.
+    if (msg.what === "gswitch") {
+        hostThrowGateSwitch(i);
+        const g = gateSwitches[i];
+        const out0 = { k: "bought", what: "gswitch", i: i, id: msg.id };
+        applyPurchase(out0, now);
+        if (netOnline) MP.send(out0);
+        return;
+    }
+    if (msg.what === "trainstart") {
+        if (typeof trainHostStart !== "function") return;
+        trainHostStart();
+        const out1 = { k: "bought", what: "trainstart", i: 0, id: msg.id };
+        applyPurchase(out1, now);
+        if (netOnline) MP.send(out1);
+        return;
+    }
 
     if (msg.what === "door") {
         const d = doors[i];
@@ -1058,6 +1109,15 @@ function applyPurchase(msg, now) {
         siloFlipped[i] = true;
         if (i + 1 < funnels.length) funnelActive[i + 1] = true;
         if (silos[i]) localEvent(SND_GENERATOR, silos[i].x, silos[i].y);
+    } else if (msg.what === "gswitch") {
+        // The host already applied it and the flag rides the snapshot; this
+        // is only so the lever clunks on the frame it was thrown rather than
+        // on the next packet.
+        const g = gateSwitches[i];
+        if (g) localEvent(SND_CARD, g.x, g.y);
+    } else if (msg.what === "trainstart") {
+        const loco = (typeof trainLoco === "function") ? trainLoco() : null;
+        if (loco) localEvent(SND_GENERATOR, loco.cx, loco.cy);
     } else if (msg.what === "card") {
         const st = cardStations[i];
         const p = localPlayerByNetId(msg.id);
@@ -1185,6 +1245,9 @@ function update(now, dt) {
     markHotZones();
 
     updatePlayers(now, dt);
+    // ALT: after your own movement, before anything reads your position --
+    // a rider is carried by the deck under them (za-train.js).
+    carryLocalPlayerOnTrain();
     updateBullets(now);
     advanceRemoteBullets();
 
@@ -1490,6 +1553,14 @@ function rocketBurst(b, now) {
     const sp = WEAPONS.rocket.splash;
     if (netIsHost) {
         explodeAt(cx, cy, sp.r, sp.dmg, b.owner, now, "rocket");
+        // ALT, 2026-09-25: A ROCKET SHUNTS ROLLING STOCK.
+        // The blast is projected onto the rail, so a rocket fired ACROSS the
+        // track moves nothing -- which is what makes it a shot you aim rather
+        // than a shot you land nearby. This is the first playable moment of
+        // the whole train system (za-train.js, TRAIN_RAIL_PLAN.md T3).
+        if (typeof trainRocketKick === "function") {
+            trainRocketKick(cx, cy, b.vx, b.vy, sp.r);
+        }
     } else {
         addBlast(cx, cy, sp.r);
         playEvent(SND_EXPLODE, cx, cy, sp.r);
@@ -2397,6 +2468,57 @@ function updateTraps(now) {
 // ---------------------------------------------------
 // Explicit key, never proximity-auto: scrap is a SHARED pool, so an
 // accidental purchase spends someone else's money.
+// ALT, 2026-09-25: RIDING.
+//
+// CLIENT-SIDE, and only for this client's own player, because each client
+// owns its own position and the host cannot move a guest. Every client
+// derives the car's rect from the same broadcast `s`, so the delta is
+// identical everywhere -- which is exactly why TRAIN_RAIL_PLAN 2.3 forbids
+// interpolating the train.
+//
+// This IS a simulation move, unlike winPullPx and RETRO.snap, which are draw
+// offsets precisely because they must not touch the simulation. A carried
+// rider really is somewhere else.
+function carryLocalPlayerOnTrain() {
+    if (typeof trainRiderCar !== "function") return;
+    const p = players[0];
+    if (!p || p.dead) return;
+
+    // ONCE THE RUN IS WON THE RIDER IS PARENTED TO THEIR CAR, not re-tested
+    // for overlap. Overlap is the right question while the world is live and
+    // you can step off; it is the wrong one at 1,300px/s, where ONE frame of
+    // updatePlayers clamping you to the world edge is enough to put the deck
+    // 21px out of reach and leave you standing in the tunnel mouth watching
+    // the train go. Measured: the rider ended 1,289px behind.
+    // ...and so is a rider on a car that is already moving faster than anyone
+    // could step off. Overlap alone left the rider 465px behind by the end of
+    // the run: the deck outruns the resolver, and once you are off it by a
+    // pixel you never get back on. Above TRAIN_BOARD_MAX you are committed.
+    if (p.rideCar && (won || Math.abs(p.rideCar.v) > TRAIN_BOARD_MAX)) {
+        p.x += p.rideCar.cx - p.rideCar.pcx;
+        p.y += p.rideCar.cy - p.rideCar.pcy;
+        return;
+    }
+
+    const car = trainRiderCar(p.x, p.y, p.size, p.onTrain);
+    if (!car) { p.onTrain = false; p.rideCar = null; return; }
+    p.onTrain = true;                       // aboard, even while it is still
+    p.rideCar = car;
+    const d = { dx: car.cx - car.pcx, dy: car.cy - car.pcy };
+    if (d.dx === 0 && d.dy === 0) return;
+    // ONCE THE RUN IS WON, RIDE OUT OF THE WORLD.
+    //
+    // Found in the browser: the rider was left standing in the tunnel mouth
+    // at y 2684 while the train accelerated away, because updatePlayers
+    // clamps a player to the world every frame and the train -- which is not
+    // in walls[] and not clamped -- simply left without them. The simulation
+    // is over at this point; nothing reads the position but the draw and the
+    // camera, so the carry writes it straight.
+    // Through the collision resolver, not a raw write: a rider carried into a
+    // wall should stop at the wall rather than end up inside it.
+    moveWithCollisions(p, d.dx, d.dy, false);
+}
+
 function interactWith(p) {
     const now = Date.now();
     const box = { x: p.x - 26, y: p.y - 26, w: p.size + 52, h: p.size + 52 };
@@ -2409,6 +2531,19 @@ function interactWith(p) {
     if (intensifyRect && !intensified && rectsOverlap(box, intensifyRect)) {
         requestBuy("intensify", 0, p);
         return;
+    }
+
+    // ALT: the sluice levers, and starting the locomotive.
+    for (let i = 0; i < gateSwitches.length; i++) {
+        if (switchOn[i] || gateStage >= GATE_STAGES) continue;
+        if (rectsOverlap(box, gateSwitches[i])) { requestBuy("gswitch", i, p); return; }
+    }
+    if (typeof trainLoco === "function") {
+        const loco = trainLoco();
+        if (loco && !trainRunning && trainReady() && rectsOverlap(box, trainCarRect(loco))) {
+            requestBuy("trainstart", 0, p);
+            return;
+        }
     }
 
     for (let i = 0; i < silos.length; i++) {
@@ -2460,11 +2595,28 @@ function nearestPrompt(p) {
         return intensified ? "THE HORDE HAS BEEN CALLED" : "CALL THE HORDE — NO GOING BACK";
     }
 
+    // ALT: the sluice levers say how many are down and, in a team, how long
+    // is left -- the one number that makes a simultaneous pull playable.
+    for (let i = 0; i < gateSwitches.length; i++) {
+        if (!rectsOverlap(box, gateSwitches[i])) continue;
+        if (gateStage >= GATE_STAGES) return "SLUICE LEVER — SPENT";
+        if (switchOn[i]) return "LEVER DOWN — " + gateSwitchesDown() + "/" + gateSwitchNeed();
+        const left = gateSwitchWindowLeft();
+        if (left > 0) return "THROW IT — " + gateSwitchesDown() + "/" + gateSwitchNeed() +
+                             "  " + (left / 1000).toFixed(1) + "s LEFT";
+        return "SLUICE LEVER — " + gateSwitchesDown() + "/" + gateSwitchNeed() +
+               (gateSwitchesLatch() ? "  (STAYS DOWN)" : "  (ALL TOGETHER)");
+    }
+    if (typeof trainPromptFor === "function") {
+        const tp = trainPromptFor(p.x, p.y, p.size);
+        if (tp) return tp;
+    }
+
     for (let i = 0; i < silos.length; i++) {
         if (!silos[i] || !rectsOverlap(box, silos[i])) continue;
-        if (siloFlipped[i]) return "SILO " + (i + 1) + " — SPENT";
-        if (siloReady(i)) return "THROW SILO " + (i + 1) + " SWITCH";
-        return "SILO " + (i + 1) + " — " + siloFill[i] + "/" + siloCapacity(i);
+        if (siloFlipped[i]) return "FUEL TANK " + (i + 1) + " — PUMPED";
+        if (siloReady(i)) return "TANK " + (i + 1) + " FULL — THROW ITS SWITCH";
+        return "FUEL TANK " + (i + 1) + " — " + siloFill[i] + "/" + siloCapacity(i);
     }
     for (let i = 0; i < doors.length; i++) {
         if (!doors[i].open && rectsOverlap(box, doors[i])) return "OPEN DOOR — " + doors[i].cost;

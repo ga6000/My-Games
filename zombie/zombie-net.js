@@ -524,9 +524,16 @@ function applyWorldSnapshot(msg, now) {
     if (msg.fa) for (let i = 0; i < msg.fa.length; i++) funnelActive[i] = !!msg.fa[i];
     if (msg.sf) for (let i = 0; i < msg.sf.length; i++) siloFill[i] = msg.sf[i];
     if (msg.sp) for (let i = 0; i < msg.sp.length; i++) siloFlipped[i] = !!msg.sp[i];
+    if (msg.sw) for (let i = 0; i < msg.sw.length; i++) switchOn[i] = !!msg.sw[i];
+    switchWindowUntil = deadlineFrom(msg.swl || 0, now);
+    switchNeed = msg.swn || 0;
+    if (msg.tw && typeof trainApplyWire === "function") trainApplyWire(msg.tw);
     floodActive = !!msg.fl;
     floodRemaining = msg.fr || 0;
     escapeAt = deadlineFrom(msg.esc || 0, now);
+    // Before triggerWin(), so the card this client is about to build already
+    // knows whether this client made it.
+    if (msg.wab) wonAboard = msg.wab;
     if (msg.wn && !won) triggerWin();
     if (gateStage >= GATE_STAGES && sluiceGate && !sluiceGate.open) {
         sluiceGate.open = true;
@@ -742,11 +749,21 @@ function broadcastWorld() {
         gp: +gateProgress.toFixed(2),
         fa: funnelActive.map(function (v) { return v ? 1 : 0; }),
         sf: siloFill.slice(),
+        // ALT: the levers, and the train. `tw` is one scalar per car plus the
+        // coupled flag -- TRAIN_RAIL_PLAN 2.3: a guest DERIVES every rect
+        // from these rather than interpolating a position, so a rider's
+        // carried delta is identical on every screen. `swl` is a REMAINING
+        // duration, like every other clock here.
+        sw: switchOn.map(function (v) { return v ? 1 : 0; }),
+        swl: msLeft(switchWindowUntil, now),
+        swn: switchNeed,
+        tw: (typeof trainWire === "function") ? trainWire() : null,
         sp: siloFlipped.map(function (v) { return v ? 1 : 0; }),
         fl: floodActive ? 1 : 0,
         fr: floodRemaining,
         esc: msLeft(escapeAt, now),
         wn: won ? 1 : 0,
+        wab: wonAboard,
         // Per-zone spawn cooldown, as REMAINING DURATIONS (never
         // timestamps -- clients' clocks are not synchronised). Host-owned,
         // but broadcast so a promoted host doesn't immediately start

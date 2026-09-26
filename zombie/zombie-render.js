@@ -58,6 +58,8 @@ const uiZone = document.getElementById('zonename');
 const uiAudio = document.getElementById('audioState');
 const uiWin = document.getElementById('win');
 const uiWinRound = document.getElementById('winRound');
+const uiWinHead = document.getElementById('winHead');
+const uiWinSub = document.getElementById('winSub');
 const uiWinScore = document.getElementById('winScore');
 const uiOverScore = document.getElementById('overScore');
 const uiObjective = document.getElementById('objective');
@@ -363,12 +365,14 @@ function mapGoals() {
         done: generatorOn
     });
     goals.push({
-        text: "Open the sluice gate",
-        short: "OPEN THE SLUICE GATE",
-        where: zoneAt(sluiceRoom),
-        note: "two players, one on each plate, through two locks",
-        progress: (gateStage < GATE_STAGES && (gateStage > 0 || gateProgress > 0))
-                  ? "lock " + (gateStage + 1) + "/" + GATE_STAGES + "  " + Math.floor(clamp(gateProgress, 0, 1) * 100) + "%" : "",
+        text: "Throw the sluice levers",
+        short: "THROW THE SLUICE LEVERS",
+        where: gateSwitches.length ? zoneName(gateSwitches[0].zone) : zoneAt(sluiceRoom),
+        note: gateSwitchesLatch()
+              ? "alone: any " + gateSwitchNeed() + " of the four, and they stay down"
+              : "one each, all thrown within " + (SWITCH_WINDOW_MS / 1000) + "s",
+        progress: gateStage < GATE_STAGES
+                  ? gateSwitchesDown() + "/" + gateSwitchNeed() : "",
         done: gateStage >= GATE_STAGES
     });
     for (let k = 0; k < 3; k++) {
@@ -376,28 +380,53 @@ function mapGoals() {
                     : (funnelHalls[k] ? zoneName(funnelHalls[k].zone) : (funnels[k] ? zoneName(funnels[k].zone) : ""));
         const full = siloFill[k] >= siloCapacity(k);
         goals.push({
-            text: "Fill silo " + (k + 1) + " and throw its switch",
-            short: full ? "THROW SILO " + (k + 1) + "'S SWITCH" : "FILL SILO " + (k + 1),
+            text: "Charge fuel tank " + (k + 1),
+            short: full ? "PUMP TANK " + (k + 1) : "CHARGE TANK " + (k + 1),
             where: where,
-            note: full ? "full — throw the switch on the silo" : "kill zombies standing ON funnel " + (k + 1),
+            note: full ? "full — throw the switch on the tank" : "kill zombies standing ON funnel " + (k + 1),
             progress: (!siloFlipped[k] && siloFill[k] > 0) ? siloFill[k] + "/" + siloCapacity(k) : "",
             done: !!siloFlipped[k]
         });
     }
+    // ALT, 2026-09-25: the chain ends in a train, not a door. Three new
+    // steps, and they are the whole point of the variant -- the objective is
+    // a machine standing in the world that is visibly not ready yet.
+    const coupled = (typeof trainCoupledCount === "function") ? trainCoupledCount() : 0;
     goals.push({
-        text: "Survive the flood",
-        short: "SURVIVE THE FLOOD",
-        where: "",
-        note: "it comes in off every edge of the map at once",
-        progress: floodActive ? zombies.length + " left" : "",
-        done: escapeAt > 0 || won
+        text: "Couple three fuel cars to the locomotive",
+        short: "COUPLE THE FUEL CARS",
+        where: zoneName(Z_YARD),
+        note: "stand at a car's END to push it — a rocket shunts it hard",
+        progress: coupled + "/3",
+        done: coupled >= 3
+    });
+    const shut = (typeof trainPathBlockedBy === "function") ? trainPathBlockedBy() : null;
+    goals.push({
+        text: "Open the rail crossings",
+        short: "BUY THE RAIL CROSSINGS",
+        where: shut ? zoneName(zoneOf(shut.x + shut.w / 2, shut.y + shut.h / 2)) : "",
+        note: "the line runs through them — a shut crossing is a shut line",
+        progress: "",
+        done: !shut
     });
     goals.push({
-        text: "Reach the south gate",
-        short: "REACH THE SOUTH GATE",
+        text: "Start the locomotive",
+        short: "START THE LOCOMOTIVE",
+        where: zoneName(Z_MOTOR),
+        note: "the tunnel begins opening, and the horde comes with it",
+        progress: "",
+        done: (typeof trainRunning !== "undefined") && trainRunning
+    });
+    goals.push({
+        text: "Get the train up to speed and out",
+        short: "BOARD, AND GET UP TO SPEED",
         where: zoneAt(escapeRect),
-        note: (escapeAt > 0 && !escapeOpen()) ? "grinding open" : "it opens slowly once the flood is over",
-        progress: escapeAt > 0 ? (escapeOpen() ? "OPEN" : Math.ceil((escapeAt - Date.now()) / 1000) + "s") : "",
+        note: (escapeAt > 0 && !escapeOpen()) ? "the tunnel is still grinding open"
+                                              : "outrun them through the tunnel",
+        progress: (typeof trainRunning !== "undefined" && trainRunning)
+                  ? (escapeOpen() ? Math.round(Math.abs(trainLoco() ? trainLoco().v : 0)) + " px/s"
+                                  : Math.ceil((escapeAt - Date.now()) / 1000) + "s")
+                  : "",
         done: won
     });
     return goals;
@@ -514,6 +543,10 @@ function draw() {
     // first so a crane leg standing among them draws over them.
     drawContainers(inView);
     drawRailcars(inView);
+    // ALT: with the rolling stock, and after the walls -- a car crossing a
+    // boundary must not read as being under it.
+    drawTrain(now, inView);
+    drawGateSwitches(now, inView);
     drawLandmarks(now, inView);
     drawDoors(inView);
     drawBarricades(inView);
@@ -532,6 +565,9 @@ function draw() {
     drawLighting();
     drawOffscreenMarkers(now);
     if (hudMapOn) drawMinimap();
+    // ALT (idea 61): the objective chain is on screen ALWAYS now, not only
+    // behind ESC or with the minimap up.
+    drawNextGoal();
     // THE FADE (2026-09-19): after the walk out, everything goes. Last, and
     // over the lighting and the minimap, because it is the screen going
     // dark, not the world going dark -- the DOM HUD is faded with it in
@@ -803,39 +839,26 @@ function drawBarricades(inView) {
 //   THE BLOOD SILO CHAIN
 // ---------------------------------------------------
 function drawEndgame(now, inView) {
-    // --- gate plates ---
-    for (let i = 0; i < gatePlates.length; i++) {
-        const g = gatePlates[i];
-        if (!inView(g.x, g.y, g.w, g.h)) continue;
-        const done = gateStage >= GATE_STAGES;
-        ctx.fillStyle = done ? "#0F2A0F" : "#2A0F1A";
-        ctx.fillRect(g.x, g.y, g.w, g.h);
-        ctx.strokeStyle = done ? COLOR_BUY : "#FF55AA";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(g.x, g.y, g.w, g.h);
-        if (!done) {
-            ctx.fillStyle = "#FF55AA";
-            ctx.font = "9px Courier";
-            ctx.textAlign = "center";
-            ctx.fillText("STAND", g.x + g.w / 2, g.y + g.h / 2 + 3);
-            ctx.textAlign = "left";
-        }
-    }
-
-    // --- gate progress, drawn over the sluice door ---
+    // --- ALT: no standing plates. The levers are drawn by
+    // drawGateSwitches, and the sluice door reports the SET rather than a
+    // two-player hold. ---
     if (sluiceGate && gateStage < GATE_STAGES && inView(sluiceGate.x, sluiceGate.y - 60, sluiceGate.w, 60)) {
         const w = sluiceGate.w;
+        const need = gateSwitchNeed();
+        const down = gateSwitchesDown();
         ctx.fillStyle = "#220011";
         ctx.fillRect(sluiceGate.x, sluiceGate.y - 34, w, 12);
         ctx.fillStyle = "#FF55AA";
-        ctx.fillRect(sluiceGate.x, sluiceGate.y - 34, w * clamp(gateProgress, 0, 1), 12);
+        ctx.fillRect(sluiceGate.x, sluiceGate.y - 34, w * clamp(need ? down / need : 0, 0, 1), 12);
         ctx.strokeStyle = "#FF99CC";
         ctx.lineWidth = 1;
         ctx.strokeRect(sluiceGate.x, sluiceGate.y - 34, w, 12);
         ctx.fillStyle = "#FF99CC";
         ctx.font = "10px Courier";
         ctx.textAlign = "center";
-        ctx.fillText("LOCK " + (gateStage + 1) + " OF " + GATE_STAGES + " — TWO PLAYERS",
+        const left = gateSwitchWindowLeft();
+        ctx.fillText("SLUICE LEVERS " + down + "/" + need +
+                     (left > 0 ? "  " + (left / 1000).toFixed(1) + "s" : ""),
                      sluiceGate.x + w / 2, sluiceGate.y - 40);
         ctx.textAlign = "left";
     }
@@ -2645,30 +2668,190 @@ function drawMinimap() {
     ctx.lineWidth = 1;
     ctx.strokeRect(ox + vr.x * sx, oy + vr.y * sy, vr.w * sx, vr.h * sy);
 
-    drawNextGoal(ox, oy, MAP_W);
 }
 
-// The NEXT goal, sat on the minimap's top edge and right-aligned to it
-// (2026-09-18). Only drawn with the minimap, which is the ask: "above minimap
-// (when minimap is active)". Amber, because it is the thing to act on.
-function drawNextGoal(ox, oy, mapW) {
-    const g = nextGoal();
-    if (!g || won) return;
+// ~~The NEXT goal, sat on the minimap's top edge. Only drawn with the
+// minimap.~~ **ALT, 2026-09-25 — idea 61.** It is drawn ALWAYS, bottom
+// centre, because a chain a player only sees by pressing ESC (or by turning
+// the minimap on) is a chain most players never see at all. That was the
+// actual defect: the game HAS a dependency chain and refuses to say so.
+//
+// One line, and the step after it in dim, so you can see that there is a
+// chain rather than a single errand.
+function drawNextGoal() {
+    if (won || helpOpen || codexOpen) return;
+    const goals = mapGoals();
+    const g = nextGoal(goals);
+    if (!g) return;
+    let after = null;
+    for (let i = goals.indexOf(g) + 1; i < goals.length; i++) {
+        if (!goals[i].done) { after = goals[i]; break; }
+    }
+
     const text = "NEXT: " + g.short + (g.where ? " — " + g.where.replace(" (the sluice room)", "") : "") +
                  (g.progress ? "  " + g.progress : "");
+    const sub = after ? "THEN: " + after.short : "";
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.font = "bold 12px 'Courier New', Courier, monospace";
     const tw = Math.ceil(ctx.measureText(text).width);
-    const bw = tw + 14;
-    const bx = Math.max(4, ox + mapW - bw);
-    const by = oy - 26;
-    ctx.fillStyle = "rgba(0,0,0,0.78)";
-    ctx.fillRect(bx, by, bw, 20);
+    ctx.font = "10px 'Courier New', Courier, monospace";
+    const sw = sub ? Math.ceil(ctx.measureText(sub).width) : 0;
+    const bw = Math.max(tw, sw) + 16;
+    const bh = sub ? 34 : 22;
+    const bx = Math.round((canvas.width - bw) / 2);
+    const by = canvas.height - bh - 10;
+    ctx.fillStyle = "rgba(0,0,0,0.80)";
+    ctx.fillRect(bx, by, bw, bh);
     ctx.strokeStyle = "#FFB000";
     ctx.lineWidth = 1;
-    ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, 19);
-    ctx.fillStyle = "#FFB000";
+    ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
     ctx.textAlign = "left";
-    ctx.fillText(text, bx + 7, by + 14);
+    ctx.fillStyle = "#FFB000";
+    ctx.font = "bold 12px 'Courier New', Courier, monospace";
+    ctx.fillText(text, bx + 8, by + 15);
+    if (sub) {
+        ctx.fillStyle = "#8A6410";
+        ctx.font = "10px 'Courier New', Courier, monospace";
+        ctx.fillText(sub, bx + 8, by + 28);
+    }
+    ctx.restore();
+}
+
+// Cyan, the SYSTEM colour in this project's Signal Three -- amber is
+// reserved for things you buy and these levers are free.
+const ALT_CYAN = "#31C6D6";
+
+// --- ALT: THE SLUICE LEVERS ----------------------------------------
+// The horde switch's own art, in CYAN rather than amber, because amber is
+// reserved for things you buy (AESTHETIC_GUIDE 2.2 -- the Signal Three are
+// semantic) and these are free. Same plate, same pivot, same heavy fall, so
+// a player who has seen one lever knows what this is -- and a DIFFERENT
+// colour and prompt, so nobody mistakes it for the one-way horde switch.
+function drawGateSwitches(now, inView) {
+    if (typeof gateSwitches === "undefined") return;
+    const spent = gateStage >= GATE_STAGES;
+    for (let i = 0; i < gateSwitches.length; i++) {
+        const r = gateSwitches[i];
+        if (!inView(r.x - 8, r.y - 34, r.w + 16, r.h + 42)) continue;
+        const down = spent || switchOn[i];
+
+        ctx.fillStyle = down ? "#10201F" : "#101C20";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = down ? "#2E6E68" : ALT_CYAN;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+        ctx.fillStyle = down ? "#2A5A58" : "#2A6A78";
+        ctx.fillRect(r.x + 4, r.y + 4, 3, 3);
+        ctx.fillRect(r.x + r.w - 7, r.y + 4, 3, 3);
+        ctx.fillRect(r.x + 4, r.y + r.h - 7, 3, 3);
+        ctx.fillRect(r.x + r.w - 7, r.y + r.h - 7, 3, 3);
+
+        const px = r.x + r.w / 2, py = r.y + r.h - 8, len = 30;
+        const a = -Math.PI / 2 + (down ? 1 : 0) * (Math.PI / 2 + 0.22);
+        const ex = px + Math.cos(a) * len, ey = py + Math.sin(a) * len;
+        ctx.strokeStyle = down ? "#3F6E6A" : "#31C6D6";
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+        ctx.fillStyle = down ? "#5A8A86" : "#6FE4F0";
+        ctx.fillRect(Math.round(ex) - 5, Math.round(ey) - 5, 10, 10);
+        ctx.fillStyle = "#1A2A2E";
+        ctx.fillRect(px - 4, py - 4, 8, 8);
+
+        if (!spent) {
+            ctx.fillStyle = down ? "#3F6E6A" : ALT_CYAN;
+            ctx.font = "8px Courier";
+            ctx.textAlign = "center";
+            ctx.fillText("LEVER " + (i + 1), r.x + r.w / 2, r.y + r.h + 12);
+            ctx.textAlign = "left";
+        }
+    }
+}
+
+// --- ALT: THE TRAIN -------------------------------------------------
+// Everything here is DERIVED from each car's `s` (za-train.js), so a guest
+// draws the same train as the host without a position ever crossing the wire.
+//
+// Same two flat fills as the landmarks and the containers -- a cast shadow
+// down-right and a lifted top face up-left, no gradients. A fuel car carries
+// its tank gauge on its roof, which is the whole answer to "why are we
+// filling these": the causal chain is a thing you can look at.
+const TRAIN_LIFT = 7;
+
+function drawTrain(now, inView) {
+    if (typeof trainCars === "undefined" || !trainCars.length) return;
+    for (let i = 0; i < trainCars.length; i++) {
+        const c = trainCars[i];
+        const r = trainCarRect(c);
+        if (!inView(r.x - 10, r.y - 10, r.w + 20, r.h + 20)) continue;
+        const loco = (c.kind === "loco");
+
+        // Cast shadow, then body, then the lifted top face.
+        ctx.fillStyle = "rgba(0,0,0,0.42)";
+        ctx.fillRect(r.x + 5, r.y + 5, r.w, r.h);
+
+        ctx.fillStyle = loco ? "#3A2018" : "#1E2A30";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.fillStyle = loco ? "#5A3226" : "#2C3E46";
+        ctx.fillRect(r.x - TRAIN_LIFT, r.y - TRAIN_LIFT, r.w, r.h);
+        ctx.strokeStyle = loco ? "#8A5438" : "#47646F";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(r.x - TRAIN_LIFT, r.y - TRAIN_LIFT, r.w, r.h);
+
+        const tx = r.x - TRAIN_LIFT, ty = r.y - TRAIN_LIFT;
+        const along = r.w > r.h;
+
+        if (loco) {
+            // A running loco shows its lamp; a dead one does not.
+            const lit = trainRunning;
+            ctx.fillStyle = lit ? "#FFE9A8" : "#4A4030";
+            if (along) ctx.fillRect(tx + r.w - 12, ty + r.h / 2 - 6, 9, 12);
+            else ctx.fillRect(tx + r.w / 2 - 6, ty + r.h - 12, 12, 9);
+            // Three tanks across the boiler, one per fuel silo.
+            for (let k = 0; k < 3; k++) {
+                const f = trainTankFrac(k);
+                const gw = along ? 34 : r.w - 18;
+                const gh = along ? r.h - 18 : 34;
+                const gx = along ? tx + 18 + k * (gw + 7) : tx + 9;
+                const gy = along ? ty + 9 : ty + 18 + k * (gh + 7);
+                ctx.fillStyle = "#140C08";
+                ctx.fillRect(gx, gy, gw, gh);
+                ctx.fillStyle = f >= 1 ? "#C2452A" : "#7A2A1C";
+                if (along) ctx.fillRect(gx, gy + gh * (1 - f), gw, gh * f);
+                else ctx.fillRect(gx, gy, gw * f, gh);
+                ctx.strokeStyle = "#8A5438";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(gx + 0.5, gy + 0.5, gw - 1, gh - 1);
+            }
+        } else {
+            // Ribs, and a coupled car wears a link at its head.
+            ctx.strokeStyle = "#3A525C";
+            ctx.lineWidth = 1;
+            const n = 5;
+            for (let k = 1; k < n; k++) {
+                ctx.beginPath();
+                if (along) { ctx.moveTo(tx + r.w * k / n, ty + 3); ctx.lineTo(tx + r.w * k / n, ty + r.h - 3); }
+                else { ctx.moveTo(tx + 3, ty + r.h * k / n); ctx.lineTo(tx + r.w - 3, ty + r.h * k / n); }
+                ctx.stroke();
+            }
+            ctx.fillStyle = c.coupled ? "#31C6D6" : "#6B4A2A";
+            if (along) ctx.fillRect(tx + r.w - 6, ty + r.h / 2 - 4, 8, 8);
+            else ctx.fillRect(tx + r.w / 2 - 4, ty + r.h - 6, 8, 8);
+        }
+
+        // A moving car says so, because at a glance a train that is rolling
+        // and a train that is parked look identical from above.
+        if (Math.abs(c.v) > 6) {
+            ctx.fillStyle = "rgba(255,176,0,0.75)";
+            ctx.font = "9px Courier";
+            ctx.textAlign = "center";
+            ctx.fillText(Math.round(Math.abs(c.v)) + " px/s", tx + r.w / 2, ty - 5);
+            ctx.textAlign = "left";
+        }
+    }
 }
 
 // ---------------------------------------------------
@@ -3000,9 +3183,14 @@ function renderRunScore(el) {
     // thing: what escaping was worth. The value here is the whole
     // difference the win made -- (sub + SCORE_WIN) * 2 - sub -- so the
     // column still adds up to FINAL SCORE.
-    if (b.won) {
+    if (b.aboard) {
         const sub = b.combat + b.roundPts + b.siloPts + b.alivePts;
         lines.push(["ESCAPED", "+" + fmtScore(b.total - sub), "win"]);
+    } else if (b.won) {
+        // The train left without you. You keep every point you earned getting
+        // it moving -- the rounds and the tanks are team work and you did it
+        // -- and none of what leaving was worth.
+        lines.push(["MISSED THE TRAIN", "+0", ""]);
     }
 
     let html = "<table>";

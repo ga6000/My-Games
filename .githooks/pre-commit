@@ -46,3 +46,8 @@ node scripts/check-doc-sync.js || true
 echo ""
 echo "Checking the Zombie map still contains the map that was designed..."
 node scripts/check-map-features.js || true
+
+# The evacuation train is a physics simulation; a coupling that stops firing
+# or a cap that stops applying is silent until somebody plays a whole run.
+echo "-- zombie train --"
+node scripts/check-zombie-train.js || true

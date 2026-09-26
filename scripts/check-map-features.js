@@ -73,7 +73,16 @@ const KNOWN_EMPTY = ["centre", "cold", "kennel", "pump", "turbine"];
 // signature geometry fills them: the Spillway's storm runs, the Motor Pool's
 // service bays, the Kennels' rolling stock, the Yard's container maze. A
 // shed in a storm run was the bug, not the fix.
-const BY_DESIGN_EMPTY = ["spill", "motor"];
+//
+// **"yard" joined this list 2026-09-26**, with the evacuation train. It was
+// already scraping 0.1 generic buildings a map -- about one in ten seeds --
+// against a container maze, a gantry crane and the rail line, and this
+// comment has named it a by-design case since the list was written. What
+// tipped it to 0.0: the spur's static rolling stock (railStock) was removed
+// so the train has a clear running line, and the Kennels|Yard boundary door
+// moved onto the track. The sector did not lose content; it swapped an
+// occasional shed for a locomotive.
+const BY_DESIGN_EMPTY = ["spill", "motor", "yard"];
 
 function rectsOverlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;

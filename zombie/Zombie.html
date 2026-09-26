@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>DOS Zombie Survival: Co-op Edition</title>
+    <title>Zombie — The Evacuation Train</title>
 
     <!-- The shared token layer (AESTHETIC_GUIDE.md 2 and 3), loaded BEFORE this
          page's own style block so anything below can override a token without
@@ -446,9 +446,12 @@
     <!-- Filled per-letter by showHordeCall() in zombie-render.js. -->
     <div id="hordecall"><span class="wrap"></span></div>
 
+    <!-- The heading and the subtitle are written by showWinCard(): the run
+         ends the same way for everybody, but only the people who were ON the
+         train when it left get the win score. -->
     <div id="win">
-        YOU GOT OUT.<br>
-        <span style="font-size:22px;color:var(--phos-hot);">ESCAPED ON ROUND <span id="winRound">0</span></span><br>
+        <span id="winHead">YOU GOT OUT.</span><br>
+        <span style="font-size:22px;color:var(--phos-hot);" id="winSub">ESCAPED ON ROUND <span id="winRound">0</span></span><br>
         <div class="runscore" id="winScore"></div>
         <span style="font-size:20px;color:var(--sig-cyan);">Click anywhere to run it again</span>
     </div>
@@ -493,6 +496,9 @@
 <script src="zombie-level.js"></script>
 <script src="zombie-entities.js"></script>
 <script src="zombie-endgame.js"></script>
+    <!-- The evacuation train (2026-09-26). Needs the endgame's silo state and
+     the level's railPaths; declares only, so it may sit here. -->
+    <script src="zombie-train.js"></script>
 <script src="zombie-game.js"></script>
 <script src="zombie-net.js"></script>
 <!-- Pixel icons and zone floors. Render-only, so they sit just before

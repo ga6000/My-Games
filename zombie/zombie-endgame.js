@@ -85,7 +85,8 @@ function idHasRole(id, key) {
 // ---------------------------------------------------
 let sluiceRoom = null;    // {x,y,w,h}
 let sluiceGate = null;    // {x,y,w,h} -- the door itself
-let gatePlates = [];      // two {x,y,w,h}, deliberately far apart
+let gatePlates = [];      // ALT: empty. Kept so nothing that reads it throws.
+let gateSwitches = [];    // ALT: four levers around the map -- placeGateSwitches()
 let funnels = [];         // three {x,y,r,zone}
 let silos = [];           // three {x,y,w,h,zone} -- each BESIDE its funnel since 2026-09-18
 let funnelHalls = [];     // [1] and [2]: {x,y,w,h,vertical,zone}; funnel 1 is in the sluice instead
@@ -147,6 +148,9 @@ function escapeChainFrac() {
 
 let gateStage = 0;
 let gateProgress = 0;
+// ALT: which levers are down, and how long a team has to finish the set.
+let switchOn = [false, false, false, false];
+let switchWindowUntil = 0;
 let funnelActive = [false, false, false];
 let siloFill = [0, 0, 0];
 let siloFlipped = [false, false, false];
@@ -154,10 +158,16 @@ let floodActive = false;
 let floodRemaining = 0;
 let escapeAt = 0;                 // when the route finishes opening; 0 = not started
 let won = false;
+// Net ids of everyone standing on the train when it took the tunnel. The
+// win terms of the run score go to these players and to nobody else, so
+// "did you make it" is a real question rather than a cutscene.
+let wonAboard = [];
 
 function resetEndgame() {
     gateStage = 0;
     gateProgress = 0;
+    switchOn = [false, false, false, false];
+    switchWindowUntil = 0;
     funnelActive = [false, false, false];
     siloFill = [0, 0, 0];
     siloFlipped = [false, false, false];
@@ -165,6 +175,13 @@ function resetEndgame() {
     floodRemaining = 0;
     escapeAt = 0;
     won = false;
+    wonAboard = [];
+}
+
+// A win is the team's; the win SCORE is not. Missing the train still ends
+// the run, and you still keep everything you earned getting it moving.
+function wonOnTrain(id) {
+    return won && wonAboard.indexOf(id) !== -1;
 }
 
 function endgameStarted() {
@@ -178,13 +195,31 @@ function escapeOpen() {
 // A short line for the HUD describing what the team should be doing.
 function endgameObjective() {
     if (won) return "";
-    if (escapeAt > 0) {
-        if (escapeOpen()) return "THE SOUTH GATE IS OPEN — GO";
-        const left = Math.ceil((escapeAt - Date.now()) / 1000);
-        return "SOUTH GATE OPENING — " + left + "s";
+    if (typeof trainRunning !== "undefined" && trainRunning) {
+        if (!escapeOpen()) {
+            const left = Math.ceil((escapeAt - Date.now()) / 1000);
+            return "TUNNEL OPENING — " + left + "s — HOLD THE TRAIN";
+        }
+        return "TUNNEL OPEN — GET UP TO SPEED";
+    }
+    if (gateStage >= GATE_STAGES && typeof trainReady === "function" && trainReady()) {
+        return "LOCOMOTIVE READY — START IT";
     }
     if (floodActive) return "SURVIVE THE FLOOD — " + zombies.length + " LEFT";
-    if (gateStage < GATE_STAGES) return "";
+    if (gateStage < GATE_STAGES) {
+        // NOT BEFORE THE GENERATOR. Caught in the browser: this line read
+        // "THROW THE SLUICE LEVERS" while the NEXT strip two rows below it
+        // read "START THE GENERATOR" -- both true statements about the chain,
+        // contradicting each other on screen. mapGoals() is the order; this
+        // line must not jump ahead of it.
+        if (!generatorOn) return "";
+        if (gateSwitches.length) {
+            const left = gateSwitchWindowLeft();
+            return "THROW THE SLUICE LEVERS — " + gateSwitchesDown() + "/" + gateSwitchNeed() +
+                   (left > 0 ? "  " + (left / 1000).toFixed(1) + "s" : "");
+        }
+        return "";
+    }
     for (let i = 0; i < 3; i++) {
         if (funnelActive[i] && siloFill[i] < siloCapacity(i)) {
             return "KILL ON FUNNEL " + (i + 1) + " — SILO " + (i + 1) + " " + siloFill[i] + "/" + siloCapacity(i);
@@ -197,64 +232,129 @@ function endgameObjective() {
 }
 
 // ---------------------------------------------------
-//   THE GATE (idea 57)
+//   ALT: THE SLUICE SWITCHES (2026-09-25, replaces idea 57's plates)
 // ---------------------------------------------------
-// Two plates, far enough apart that one player physically cannot cover
-// both. This is the only mechanic in the game that is strictly
-// impossible alone, which is exactly the point -- and it means a solo
-// player cannot reach the ending.
-function playersOnPlates() {
-    const all = [];
-    for (let i = 0; i < players.length; i++) if (!players[i].downed) all.push(players[i]);
+// The two standing plates are gone. What replaced them, and why:
+//
+// The plates were the one mechanic in this game that was STRICTLY IMPOSSIBLE
+// ALONE -- and since the only win state sits behind them, a solo player could
+// never finish a run. The user's call is to trade that statement for solo
+// play existing at all.
+//
+//   SOLO (one player standing): TWO levers, any order, AND THEY STAY DOWN.
+//   A TEAM: one lever per standing player, capped at four, ALL THROWN INSIDE
+//   SWITCH_WINDOW_MS -- and if the window lapses they all spring back.
+//
+// Five things this has to get right, every one of them an existing scar:
+//
+// 1. THE REQUIRED COUNT IS FIXED WHEN THE FIRST LEVER IS THROWN. teamSize()
+//    moves on joins, leaves and AWAY, and a requirement that changes under a
+//    team mid-sequence is unplayable. `switchNeed` is latched for the window.
+// 2. ONLY STANDING, NON-AWAY PLAYERS COUNT. An AWAY player's last known spot
+//    is not a player, which is why allTargets() excludes them -- the plates
+//    already had to learn this.
+// 3. CAPPED AT FOUR. Eight levers inside a few seconds across 4,800 x 2,700
+//    is about five seconds of running before anybody even arrives.
+// 4. THE WINDOW IS THE HOST'S CLOCK, MEASURED ON ARRIVAL, because that is
+//    the only clock there is (rule 1). 4.5s, not 1s: a guest on 150ms sees
+//    its own throw register late. Note this is the OPPOSITE problem to the
+//    horde switch, where two players on one frame must produce ONE call --
+//    here N distinct calls all have to land.
+// 5. IT IS NOT THE HORDE SWITCH. Same lever art, different prompt, and these
+//    can spring back -- the horde switch is one-way and dead metal after.
+const SWITCH_WINDOW_MS = 4500;
+const SWITCH_MAX = 4;
+let switchNeed = 0;               // latched on the first throw
+
+function standingPlayerCount() {
+    let n = 0;
+    for (let i = 0; i < players.length; i++) if (!players[i].downed) n++;
     for (const id in remotePlayers) {
         if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
-        // An AWAY player's last known spot is not a player on a plate.
-        if (!remotePlayers[id].downed && !remotePlayers[id].away) all.push(remotePlayers[id]);
+        const r = remotePlayers[id];
+        if (!r.downed && !r.away) n++;
     }
-
-    let covered = 0;
-    for (let g = 0; g < gatePlates.length; g++) {
-        const pl = gatePlates[g];
-        for (let i = 0; i < all.length; i++) {
-            const a = all[i];
-            const sz = a.size || 16;
-            if (rectIntersect(a.x, a.y, sz, sz, pl.x, pl.y, pl.w, pl.h)) { covered++; break; }
-        }
-    }
-    return covered;
+    return n;
 }
 
+// Two at minimum even solo, so the gate is never a single button; four at
+// most, so a big room is not asked to sprint the whole map.
+function gateSwitchNeed() {
+    if (switchNeed > 0) return switchNeed;
+    const live = Math.max(1, standingPlayerCount());
+    return Math.min(Math.max(2, live), Math.min(SWITCH_MAX, gateSwitches.length || SWITCH_MAX));
+}
+
+function gateSwitchesDown() {
+    let n = 0;
+    for (let i = 0; i < gateSwitches.length; i++) if (switchOn[i]) n++;
+    return n;
+}
+
+// Solo latches; a team is on the clock.
+function gateSwitchesLatch() {
+    return standingPlayerCount() <= 1;
+}
+
+function gateSwitchWindowLeft() {
+    if (gateSwitchesLatch() || !switchWindowUntil) return 0;
+    return Math.max(0, switchWindowUntil - Date.now());
+}
+
+// HOST. Through the buy seam like every other world change.
+function hostThrowGateSwitch(i) {
+    if (gateStage >= GATE_STAGES) return;
+    if (i < 0 || i >= gateSwitches.length || switchOn[i]) return;
+    const now = Date.now();
+
+    if (!gateSwitchesLatch()) {
+        if (!switchWindowUntil || now >= switchWindowUntil) {
+            // A fresh attempt: clear whatever was half-done and latch the
+            // requirement for this run of the window.
+            for (let k = 0; k < switchOn.length; k++) switchOn[k] = false;
+            switchNeed = 0;
+            switchNeed = gateSwitchNeed();
+            switchWindowUntil = now + SWITCH_WINDOW_MS;
+        }
+    } else if (switchNeed === 0) {
+        switchNeed = gateSwitchNeed();
+    }
+
+    switchOn[i] = true;
+    const g = gateSwitches[i];
+    hostEvent(SND_CARD, g.x, g.y);
+    if (typeof showToast === "function") {
+        showToast("SLUICE LEVER " + gateSwitchesDown() + "/" + gateSwitchNeed(), 1600);
+    }
+    if (gateSwitchesDown() >= gateSwitchNeed()) openSluiceFromSwitches();
+}
+
+function openSluiceFromSwitches() {
+    gateStage = GATE_STAGES;
+    gateProgress = 0;
+    switchWindowUntil = 0;
+    funnelActive[0] = true;
+    if (sluiceGate) {
+        sluiceGate.open = true;
+        rebuildSolidIndex();
+    }
+    hostEvent(SND_GENERATOR, sluiceGate ? sluiceGate.x : WORLD_W / 2,
+                             sluiceGate ? sluiceGate.y : WORLD_H / 2);
+    if (typeof showToast === "function") showToast("THE SLUICE IS OPEN", 2600);
+}
+
+// The window lapsing is the only thing this has left to do per frame.
 function updateGate(dt) {
-    if (gateStage >= GATE_STAGES || !gatePlates.length) return;
-
-    if (playersOnPlates() >= gatePlates.length) {
-        // Second stage is deliberately longer -- by then the horde knows
-        // where you both are.
-        const need = GATE_HOLD_MS * (1 + gateStage * 0.6);
-        gateProgress += dt / need;
-        if (gateProgress >= 1) {
-            gateProgress = 0;
-            gateStage++;
-            if (gateStage >= GATE_STAGES) {
-                funnelActive[0] = true;
-                if (sluiceGate) {
-                    sluiceGate.open = true;
-                    rebuildSolidIndex();
-                }
-                hostEvent(SND_GENERATOR, sluiceGate ? sluiceGate.x : WORLD_W / 2,
-                                          sluiceGate ? sluiceGate.y : WORLD_H / 2);
-            } else {
-                hostEvent(SND_CARD, gatePlates[0].x, gatePlates[0].y);
-            }
-        }
-    } else if (gateProgress > 0) {
-        // Step off and it drains. Slower than it fills, so a brief
-        // stumble doesn't undo a whole hold.
-        gateProgress = Math.max(0, gateProgress - dt / (GATE_HOLD_MS * 2.5));
-    }
+    if (gateStage >= GATE_STAGES) return;
+    if (gateSwitchesLatch() || !switchWindowUntil) return;
+    if (Date.now() < switchWindowUntil) return;
+    switchWindowUntil = 0;
+    switchNeed = 0;
+    let any = false;
+    for (let k = 0; k < switchOn.length; k++) { if (switchOn[k]) any = true; switchOn[k] = false; }
+    if (any && typeof showToast === "function") showToast("THE LEVERS SPRANG BACK", 2000);
 }
 
-// ---------------------------------------------------
 //   FUNNELS AND SILOS
 // ---------------------------------------------------
 // Only kills that happen ON an active funnel count. Everything else in
@@ -297,7 +397,14 @@ function flipSilo(i) {
         funnelActive[i + 1] = true;
         hostEvent(SND_GENERATOR, funnels[i + 1].x, funnels[i + 1].y);
     } else {
-        startFlood();
+        // ALT, 2026-09-25: THE THIRD TANK DOES NOT START THE FLOOD.
+        // The flood and the tunnel are now one event, and the locomotive
+        // starts it -- trainHostStart(). Filling the tanks is preparation;
+        // the team chooses when the fight begins, which is the same shape as
+        // the horde switch and the better one.
+        hostEvent(SND_ROUND_CLEAR, silos[i] ? silos[i].x : WORLD_W / 2,
+                                   silos[i] ? silos[i].y : WORLD_H / 2);
+        if (typeof showToast === "function") showToast("ALL TANKS FUELLED — COUPLE THE CARS", 3000);
     }
     return true;
 }
@@ -338,9 +445,11 @@ function updateFlood(now) {
         }
     }
 
+    // ALT: the tunnel is already opening -- trainHostStart set escapeAt at
+    // the same instant it lit the flood. Clearing the flood is no longer a
+    // gate on anything; it just stops the extra spawns.
     if (floodRemaining === 0 && zombies.length === 0) {
         floodActive = false;
-        escapeAt = now + ESCAPE_OPEN_MS;
         hostEvent(SND_ROUND_CLEAR, WORLD_W / 2, WORLD_H / 2);
     }
 }
@@ -359,23 +468,22 @@ function updateFlood(now) {
 //
 // The chainlink gate also has to be actually open, not merely swinging:
 // you cannot walk out through a fence that is still on its way.
+// ALT, 2026-09-25: NOBODY WINS BY WALKING INTO THE GATE.
+// The run is won when the LOCOMOTIVE takes the tunnel mouth under power --
+// trainCheckTunnel(), in za-train.js. A player on foot at the gate is a
+// player who missed the train.
 function updateEscape() {
-    if (won || !escapeRect || !escapeOpen()) return;
-    if (escapeChainFrac() < 0.5) return;
-    const all = allTargets();
-    for (let i = 0; i < all.length; i++) {
-        const t = all[i];
-        if (t.downed) continue;
-        if (rectIntersect(t.x, t.y, t.size, t.size, escapeRect.x, escapeRect.y, escapeRect.w, escapeRect.h)) {
-            triggerWin();
-            return;
-        }
-    }
+    return;
 }
 
 function updateEndgame(now, dt) {
+    // THE TRAIN KEEPS RUNNING AFTER THE WIN, and that is the whole point of
+    // the ending: "readout should appear with game continuing in background
+    // with players on rail behind score readout." The old `if (won) return`
+    // at the top froze it mid-shot. The gate and the flood do stop -- there
+    // is nothing left for either to decide.
+    if (typeof trainUpdate === "function") trainUpdate(now, dt);
     if (won) return;
     updateGate(dt);
     updateFlood(now);
-    updateEscape();
 }

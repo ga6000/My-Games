@@ -467,6 +467,25 @@ function trainHostStart() {
     if (typeof showToast === "function") showToast("THE LOCOMOTIVE IS RUNNING — BOARD IT", 3200);
 }
 
+// WHO IS ABOARD, decided by the HOST from positions it already has.
+//
+// Not from each client's own `onTrain`: that flag is client-side (a client
+// owns its own position) and it is exactly the thing a player would want to
+// be wrong in their favour. The host tests every target against the decks
+// itself, so there is one answer and everyone gets the same one.
+function trainAboardIds() {
+    const out = [];
+    if (typeof allTargets !== "function") return out;
+    const all = allTargets();
+    for (let i = 0; i < all.length; i++) {
+        const t = all[i];
+        const id = t.id || (typeof netIdFor === "function" ? netIdFor(t) : null);
+        if (!id) continue;
+        if (trainCarUnder(t.x, t.y, t.size || 16)) out.push(id);
+    }
+    return out;
+}
+
 // The run ends when the head of the train takes the tunnel mouth under
 // power. A nudge does not count -- TRAIN_WIN_SPEED is what makes the
 // acceleration the fight rather than the formality.
@@ -477,6 +496,9 @@ function trainCheckTunnel(now) {
     if (loco.s < trainLine.len - 2) return;
     if (loco.v < TRAIN_WIN_SPEED) return;
     if (typeof escapeOpen === "function" && !escapeOpen()) return;
+    // Captured BEFORE the win, because triggerWin() is the last frame anyone
+    // is still standing where they chose to stand.
+    if (typeof wonAboard !== "undefined") wonAboard = trainAboardIds();
     if (typeof triggerWin === "function") triggerWin();
 }
 

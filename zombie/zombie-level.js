@@ -1049,11 +1049,19 @@ function generateLevel() {
     kennelRun = null;
     railcars = [];
     railPaths = [];
+    // ALT: spurLanes was never cleared here, so after a restart onSpurLane()
+    // tested against the PREVIOUS level's lanes as well as this one's. The
+    // lanes are pure geometry and identical every seed, which is exactly why
+    // nobody noticed -- and why it would have bitten the moment the spur's
+    // shape became seed-dependent.
+    spurLanes = [];
     buildingRooms = [];
     yardSpur = null;
     yardContainers = [];
 
     resetEndgame();
+    gateSwitches = [];
+    if (typeof trainReset === "function") trainReset();
     funnels = [];
     silos = [];
     funnelHalls = [];
@@ -1114,6 +1122,7 @@ function generateLevel() {
     // live here said it ran late "so a pen row or a pipe run routes around
     // both [landmarks and buildings]". It did route around them, by not
     // being built.
+    placeGateSwitches();
     placeWallBuys();
     placeCardStations();
     placeChokepointBarrels();
@@ -1155,6 +1164,32 @@ function assertZoneConnectivity() {
                      " unreachable by door, " + unreachableZombies + " unreachable at all");
     }
     return !unreachablePlayers && !unreachableZombies;
+}
+
+// --- ALT: THE SLUICE SWITCHES (2026-09-25) ---------------------------
+// Replaces the two standing plates, and supersedes idea 57 deliberately.
+//
+// The plates were "the only mechanic in the game that is strictly impossible
+// alone", and the cost of that was that A SOLO PLAYER COULD NEVER FINISH A
+// RUN -- the only win state sat behind them. The trade the user chose: four
+// levers scattered across the map, of which you must throw N.
+//
+// PLACEMENT IS A PRICING DECISION, NOT A GEOMETRY ONE, which is the whole
+// point of spreading them: the Blockhouse lever is free, the Spillway lever
+// is behind two doors. Ordered outward by ring so that needing more of them
+// means needing more of the map open.
+const GATE_SWITCH_SECTORS = [Z_BLOCKHOUSE, Z_TURBINE, Z_MOTOR, Z_SPILLWAY];
+const GATE_SWITCH_W = 52, GATE_SWITCH_H = 44;   // the horde switch's own size
+
+function placeGateSwitches() {
+    gateSwitches = [];
+    for (let i = 0; i < GATE_SWITCH_SECTORS.length; i++) {
+        const z = GATE_SWITCH_SECTORS[i];
+        const spot = findOpenSpotSure(zoneBounds(z), Math.max(GATE_SWITCH_W, GATE_SWITCH_H), 8, z);
+        if (!spot) continue;
+        gateSwitches.push({ x: spot.x, y: spot.y, w: GATE_SWITCH_W, h: GATE_SWITCH_H, zone: z });
+        claimFloor(spot.x, spot.y, GATE_SWITCH_W, GATE_SWITCH_H, 10);
+    }
 }
 
 // --- zone boundaries -------------------------------------------------
@@ -1413,6 +1448,7 @@ function emitBoundary(vertical, fixed, start, span, zoneA, zoneB, allowDoor) {
                 : { x: g.at, y: fixed, w: g.size, h: WALL_T };
             d.open = false;
             d.cost = 900;                 // priceDoors() overwrites this
+            d.pairKey = pk;              // ALT: so railSwapDoors() can supersede it
             d.ring = 9;
             doors.push(d);
             zonePassages[pk].door = d;
@@ -1458,6 +1494,17 @@ function pushBoundarySeg(vertical, fixed, at, len) {
 // the claustrophobia a tight-quarters sector is supposed to have. So the
 // Kennels honours hard reserves and takes its own, smaller clearance from the
 // openings themselves -- see kennelSpotOk().
+// The exact inverse of reserveAround, matched on the rect it produced. Only
+// safe because reserveAround derives the rect purely from its arguments.
+function releaseReserve(r, pad) {
+    const x = r.x - pad, y = r.y - pad, w = r.w + pad * 2, h = r.h + pad * 2;
+    for (let i = reservedRects.length - 1; i >= 0; i--) {
+        const q = reservedRects[i];
+        if (q.x === x && q.y === y && q.w === w && q.h === h) { reservedRects.splice(i, 1); return true; }
+    }
+    return false;
+}
+
 function reserveAround(r, pad, soft) {
     reservedRects.push({ x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2,
                          soft: !!soft });
@@ -1936,15 +1983,179 @@ function carveOpening(o) {
 
 // One leg of the line. Lays ballast, reserves the lane so nothing is placed
 // on the track, and boards any boundary it crosses.
+// ALT, 2026-09-25: THE BOUNDARY DOOR MOVES ONTO THE RAIL LANE.
+//
+// The user's call: "keep it at two openings, and shift the door location to
+// where the rail passes through... the door also opens up the rail pathway
+// and brings to attention that just by consequence of exploring the map you
+// are also opening up the rail pathway at the expense of your currency."
+//
+// So a pair the rail crosses does not gain an opening -- its existing door
+// RELOCATES to straddle the track. Two openings per wall, as before; the
+// difference is that buying the door is now also what clears the line.
+//
+// FIRST ATTEMPT, AND WHY IT WAS WRONG (kept because it is an easy mistake to
+// repeat): I made each piece `carveOpening` cut into its own door. Measured,
+// that produced a door **33px wide** on the YARD|MOTOR POOL crossing -- the
+// lane there overlaps an opening that already existed, so only 33px of the
+// 120px lane was still wall, and a 33px door in a 120px gap blocks nothing.
+// It also kept its placeholder cost of 900 instead of the graph-depth price,
+// because `priceDoors()` walks `zonePassages`, which a hand-pushed door is
+// not in. Moving the REAL door fixes both: it is already priced, already
+// registered, and it is full lane width by construction.
 function railLeg(x, y, w, h) {
     if (typeof zfPatch === "function") zfPatch(x, y, w, h, "ballast");
-    const opened = carveOpening({ x: x, y: y, w: w, h: h });
+    const lane = { x: x, y: y, w: w, h: h };
+    const opened = carveOpening(lane);
     for (let i = 0; i < opened.length; i++) {
         const o = opened[i];
-        barricades.push({ x: o.x, y: o.y, w: o.w, h: o.h,
-                          hp: SPUR_GATE_HP, maxHp: SPUR_GATE_HP, chewUntil: 0 });
+        const pair = railCrossingPair(o);
+        if (pair) { railOpenCrossing(pair, lane, o); continue; }
+        // NOT A SECTOR CROSSING -- a clipped interior wall. The base game
+        // boarded these, and in Zombie Alt that is exactly wrong: a board
+        // standing on the running line blocks the locomotive for the whole
+        // run. Measured before this changed: 1-2 boards a map on the line.
+        // A rail line cutting through an interior wall is what a rail line
+        // does, so the gap simply stays a gap.
     }
+    // Sweep any boarded window off the running line, whether or not a door
+    // moved on this leg -- a window created by buildZoneWalls can sit on the
+    // track without overlapping any piece carveOpening just cut.
+    railClearLane(lane, null);
     claimFloor(x, y, w, h, 0);
+}
+
+// Which two sectors a cut opening joins, sampled a stride either side across
+// its short axis -- the same trick the per-sector wall palette uses, and for
+// the same reason: the opening's own top-left can sit in either sector.
+function railCrossingPair(o) {
+    const vertical = o.w < o.h;
+    const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
+    const step = 90;
+    const a = vertical ? zoneOf(cx - step, cy) : zoneOf(cx, cy - step);
+    const b = vertical ? zoneOf(cx + step, cy) : zoneOf(cx, cy + step);
+    if (a < 0 || b < 0 || a === b) return null;
+    return { a: a, b: b };
+}
+
+// Relocate this pair's door so it spans the track, and wall up where it used
+// to be. A pair under BOUNDARY_BOTH_MIN carries a window and no door; that
+// has not happened on any measured seed for either crossing, but if it ever
+// does the crossing gets its own lane-width door rather than a board, because
+// a board on the line is unpassable for the whole run.
+function railOpenCrossing(pair, lane, cut) {
+    const pk = passageKey(pair.a, pair.b);
+    const pass = zonePassages[pk];
+    if (!pass) return;
+    let d = pass.door;
+    if (d && d.rail) return;                 // already moved by the other leg
+    if (!d) {
+        d = { open: false, ring: 9, cost: 900 + 350 * Math.max(zoneDepth[pair.a] || 0, zoneDepth[pair.b] || 0) };
+        doors.push(d);
+        pass.door = d;
+    } else {
+        // Fill the hole the door is leaving, or it becomes a permanent gap.
+        walls.push({ x: d.x, y: d.y, w: d.w, h: d.h });
+        // AND RELEASE THE GROUND IT WAS HOLDING. Every boundary door reserves
+        // 150px inward so nothing is built across its doorway; a door that has
+        // moved is still holding that ground against a doorway that no longer
+        // exists, and the Yard pays for it twice -- once at the old position
+        // and once at the new. Measured: THE YARD went to ZERO buildings on
+        // every seed, which check-map-features caught as a new regression.
+        releaseReserve(d, 150);
+    }
+
+    // The wall runs across the lane, so the door takes the lane's width and
+    // the wall's thickness, centred on the wall it is set into.
+    const vertical = cut.w < cut.h;          // a vertical wall slab
+    if (vertical) {
+        d.x = cut.x; d.w = cut.w;
+        d.y = lane.y; d.h = lane.h;
+    } else {
+        d.y = cut.y; d.h = cut.h;
+        d.x = lane.x; d.w = lane.w;
+    }
+    d.rail = true;
+    // A barricade left standing in the lane would block the train for the
+    // whole run, and a window is meant to be somewhere the horde comes
+    // through, not somewhere the locomotive cannot pass.
+    reserveAround(d, 150, true);
+}
+
+// Keep the running line clear of boarded windows.
+//
+// TRIM FIRST, MOVE ONLY IF TRIMMING WOULD LEAVE A STUB. The first version
+// shifted the window by a fixed amount and left it STILL OVERLAPPING by
+// 15px on 4 seeds in 12 -- a relative shift is the wrong tool when the
+// requirement is an absolute "not on the track". Trimming also keeps the
+// window inside the wall run it belongs to; sliding it far enough can walk
+// it off the end of that run, and a board standing in open ground is worse
+// than a narrow one.
+//
+// A window is never DELETED: it is the horde's way through this boundary,
+// and "zombies pass, players never do" is what makes segmentation safe.
+// 80, not 60: a window's span IS the opening a zombie walks through, so it
+// has to clear the 2*NAV_CELL + 2*NAV_PAD = 78px guarantee or the big bodies
+// quietly stop using it. This is the KENNEL_END_GAP rule again -- a gap must
+// be closed or walkable, never in between.
+const RAIL_WINDOW_MIN = 80;
+const RAIL_WINDOW_CLEAR = 12;    // breathing room either side of the track
+
+function railClearLane(lane, pk) {
+    for (let i = 0; i < barricades.length; i++) {
+        const b = barricades[i];
+        if (!rectsOverlap(b, lane)) continue;
+        // A window lies ALONG its wall, so the axis to work on is its long one.
+        const alongX = b.w >= b.h;
+        const span = alongX ? b.w : b.h;
+        const b0 = alongX ? b.x : b.y;
+        const l0 = alongX ? lane.x : lane.y;
+        const l1 = alongX ? lane.x + lane.w : lane.y + lane.h;
+        const lowKeep = Math.max(0, l0 - b0);
+        const highKeep = Math.max(0, (b0 + span) - l1);
+
+        // 1. TRIM, if either side leaves a usable window. Trimming is
+        //    preferred because it keeps the window inside the wall run it
+        //    belongs to -- a board standing in open ground is worse than a
+        //    narrow one.
+        if (Math.max(lowKeep, highKeep) >= RAIL_WINDOW_MIN) {
+            if (lowKeep >= highKeep) {
+                if (alongX) b.w = lowKeep; else b.h = lowKeep;
+            } else if (alongX) { b.x = l1; b.w = highKeep; }
+            else { b.y = l1; b.h = highKeep; }
+            continue;
+        }
+
+        // 2. MOVE, fully clear. TRY BOTH SIDES AND CHECK THE RESULT.
+        //    The first version moved to the side it started on and clamped to
+        //    the world -- and on the southbound leg (x 4600-4720 of a 4800px
+        //    map) there is no room east, so the clamp put it straight back on
+        //    the track. 4 seeds in 12. Never trust a clamp to preserve an
+        //    invariant it does not know about.
+        const lo = l0 - span - RAIL_WINDOW_CLEAR;
+        const hi = l1 + RAIL_WINDOW_CLEAR;
+        const limit = alongX ? WORLD_W - WALL_T - b.w : WORLD_H - WALL_T - b.h;
+        const startedHigh = (b0 + span / 2) >= (l0 + l1) / 2;
+        const order = startedHigh ? [hi, lo] : [lo, hi];
+        let placed = false;
+        for (let k = 0; k < order.length && !placed; k++) {
+            const t = order[k];
+            if (t < WALL_T || t > limit) continue;
+            if (t + span > l0 && t < l1) continue;       // still on the track
+            if (alongX) b.x = t; else b.y = t;
+            placed = true;
+        }
+        // 3. Neither side fits: trim to whatever is there. A short window
+        //    beats a blocked line, and it beats a floating board.
+        if (!placed) {
+            if (lowKeep >= highKeep && lowKeep > 0) {
+                if (alongX) b.w = lowKeep; else b.h = lowKeep;
+            } else if (highKeep > 0) {
+                if (alongX) { b.x = l1; b.w = highKeep; }
+                else { b.y = l1; b.h = highKeep; }
+            }
+        }
+    }
 }
 
 // Reserved LAST, after the rolling stock is down. Reserving the lane first
@@ -2102,12 +2313,15 @@ function buildRailSpur() {
     railPath([{ x: ax0, y: ay + half }, { x: bx + half, y: ay + half }, { x: bx + half, y: by1 }],
              SPUR_LANE, 90);
 
-    // Stock first, reservation second -- see railReserve.
-    railStock(ax0, ay, ax1 - ax0, SPUR_LANE, false);
-    railStock(bx, ay + SPUR_LANE + 60, SPUR_LANE, by1 - ay - SPUR_LANE - 60, true);
-
+    // ALT, 2026-09-25: NO STATIC STOCK ON THE RUNNING LINE.
+    // railStock() used to stand solid railcars along both legs as cover. The
+    // train needs that line clear -- a car it cannot pass is a car it cannot
+    // pass -- so the rolling stock on the spur IS the train now (za-train.js).
+    // THE KENNELS' own cars, on their own sidings, are untouched scenery.
     railReserve(ax0, ay, ax1 - ax0, SPUR_LANE);
     railReserve(bx, ay, SPUR_LANE, by1 - ay);
+
+    if (typeof trainBuild === "function") trainBuild();
 }
 
 // --- THE CONTAINER MAZE (2026-09-19, sequence step 5) ----------------
@@ -3416,10 +3630,8 @@ function buildSluice() {
     // Two plates, 300px apart. One player cannot cover both -- that is
     // the entire point (idea 57).
     const py = sy - 150;
-    gatePlates = [
-        { x: gx - 190, y: py, w: 64, h: 64 },
-        { x: gx + gap + 126, y: py, w: 64, h: 64 }
-    ];
+    // ALT, 2026-09-25: NO STANDING PLATES. See placeGateSwitches().
+    gatePlates = [];
 
     // Funnel 1 fills most of the room's floor, set left of centre so silo 1
     // can stand against the east wall beside it, piped to it (2026-09-18:
@@ -3438,8 +3650,21 @@ function buildSluice() {
     reservedRects.push(res);
     keepClearRects.push(res);
 
-    // The way out, dead south of the sluice.
-    escapeRect = { x: Math.round(WORLD_W / 2 - 90), y: WORLD_H - 74, w: 180, h: 66 };
+    // ALT, 2026-09-25: THE WAY OUT IS THE TUNNEL AT THE RAIL HEAD.
+    //
+    // It used to be dead south of the sluice, at x = WORLD_W/2. The rail
+    // already ends at y 2660 in the SOUTH-EAST corner -- twenty pixels short
+    // of the southern perimeter wall -- so the line has always pointed at a
+    // way out that was 2,170px away from it. The exit moves to meet the rail
+    // and the track becomes a route sign: wherever you can see rails, they
+    // point at the way out.
+    //
+    // KNOWN COST, accepted: PERIM_CORNER_CLEAR (700px) deliberately keeps
+    // culverts away from this corner, added 2026-09-20 after zombies wedged
+    // pathing round it. A gate that opens once is not a culvert, but the
+    // climax fight is now in the one corner the map was closed over.
+    const railX = 22 * ZONE_CELL_W + 200;      // must match buildRailSpur's bx
+    escapeRect = { x: railX - 30, y: WORLD_H - 74, w: SPUR_LANE + 60, h: 66 };
     const esc = { x: escapeRect.x - 160, y: escapeRect.y - 160, w: escapeRect.w + 320, h: escapeRect.h + 220 };
     reservedRects.push(esc);
     keepClearRects.push(esc);
