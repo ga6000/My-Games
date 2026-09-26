@@ -498,6 +498,8 @@
      places them. zombie/stamp-builder.html is the editor. -->
 <script src="zombie-stamps.js"></script>
 <script src="zombie-stamps-data.js"></script>
+<!-- The authored map: hand-placed buildings, written by the map editor. -->
+<script src="zombie-map-data.js"></script>
 <script src="zombie-level.js"></script>
 <script src="zombie-entities.js"></script>
 <script src="zombie-endgame.js"></script>
@@ -517,6 +519,10 @@
      drawing into the real map. After zombie-dev.js, whose NO ZOMBIES
      flag it sets, and it wraps spawnPlayer rather than editing it. -->
 <script src="zombie-sandbox.js"></script>
+<!-- The map editor (2026-09-26): ?editor=1 takes over the page and
+     lets buildings be placed on the whole map. Last, like the dev
+     panel, because it drives everything above it. -->
+<script src="zombie-mapedit.js"></script>
 <script>
     // After the game scripts, so nothing here races their declarations.
     // configure() also starts the SDK load: a run ending should not then be

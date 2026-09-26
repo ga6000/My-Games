@@ -347,6 +347,39 @@ let zoneDepth = [];
 // halls 240 -- and the nook hole, which was 74 and is now 90 for this.
 const NAV_PAD = 19;
 
+// TWO GRIDS, BY BODY SIZE (2026-09-26, asked for after the stamp work).
+//
+// One grid padded for the LARGEST body was right while every opening on
+// the map was generated and none was under 112px. It is wrong now that
+// buildings are hand-drawn: it made 2*NAV_CELL + 2*NAV_PAD = 78px the
+// narrowest doorway ANY zombie could use, so a drawn building needed
+// 4-cell doors throughout, and any interior wall closer than four cells to
+// another left rooms nothing could path into. Interesting buildings were
+// forced to be enormous.
+//
+// A walker is 16px and looks one cell wide, so it should fit a one-cell
+// door. Only the big bodies genuinely cannot:
+//
+//   walker / runner / screamer / splitter / spawnling   16-20px  TIGHT
+//   brute 26, ULTRA HEAVY and SUPER SPLITTER 34         WIDE
+//
+// NAV_TIGHT_PAD IS 0, AND IT HAS TO BE. Testing is whole-cell: a cell is
+// passable only if nothing solid touches it padded by this. A one-cell
+// doorway is exactly NAV_CELL wide, so ANY padding -- even 1px -- makes
+// the walls beside it overlap the padded box and the door disappears from
+// the grid. At 0 a snapped 20px doorway is exactly one clean cell, which
+// is the other reason stamps snap to the lattice.
+//
+// The big bodies keep NAV_PAD and the 78px guarantee with it: a brute
+// still cannot path through a one-cell door, which is correct, because it
+// cannot fit through one. A drawn building with tight doors becomes a
+// place walkers swarm into and brutes have to come round the front for --
+// a design gain rather than a compromise.
+const NAV_TIGHT_PAD = 0;
+const NAV_TIGHT_MAX_BODY = 20;      // bodies at or under this use the tight grid
+
+function navWantsWide(size) { return (size || 16) > NAV_TIGHT_MAX_BODY; }
+
 const GRID_CELL = 300;
 let solidGridPlayer = {};
 let solidGridZombie = {};
@@ -419,36 +452,23 @@ function refreshNavRegion(r) {
     for (let i = 0; i < doors.length; i++) if (!doors[i].open) rects.push(doors[i]);
     const grid = buildGrid(rects);
 
-    const pad = NAV_PAD;
     const margin = NAV_CELL * 2;
     const cx0 = Math.max(0, Math.floor((r.x - margin) / NAV_CELL));
     const cy0 = Math.max(0, Math.floor((r.y - margin) / NAV_CELL));
     const cx1 = Math.min(navW - 1, Math.floor((r.x + r.w + margin) / NAV_CELL));
     const cy1 = Math.min(navH - 1, Math.floor((r.y + r.h + margin) / NAV_CELL));
 
+    // BOTH GRIDS (2026-09-26). This wrote only the wide one when the grid
+    // split by body size, which would have left a door the team had just
+    // bought still shut to every walker -- the whole horde queueing at an
+    // open door, and nothing in the game to say why. The refresh has to
+    // cover exactly what rebuildNavGrid covers.
     for (let cy = cy0; cy <= cy1; cy++) {
         for (let cx = cx0; cx <= cx1; cx++) {
-            const x = cx * NAV_CELL - pad;
-            const y = cy * NAV_CELL - pad;
-            const w = NAV_CELL + pad * 2;
-            const h = NAV_CELL + pad * 2;
-
-            let blocked = false;
-            const gx0 = Math.floor(x / GRID_CELL);
-            const gy0 = Math.floor(y / GRID_CELL);
-            const gx1 = Math.floor((x + w) / GRID_CELL);
-            const gy1 = Math.floor((y + h) / GRID_CELL);
-            for (let g = gx0; g <= gx1 && !blocked; g++) {
-                for (let k = gy0; k <= gy1 && !blocked; k++) {
-                    const bucket = grid[gridKey(g, k)];
-                    if (!bucket) continue;
-                    for (let i = 0; i < bucket.length; i++) {
-                        const rr = bucket[i];
-                        if (rectIntersect(x, y, w, h, rr.x, rr.y, rr.w, rr.h)) { blocked = true; break; }
-                    }
-                }
-            }
-            navPassable[cy * navW + cx] = blocked ? 0 : 1;
+            const i0 = cy * navW + cx;
+            const tight = navCellClear(grid, cx, cy, NAV_TIGHT_PAD);
+            navPassableTight[i0] = tight ? 1 : 0;
+            navPassable[i0] = (tight && navCellClear(grid, cx, cy, NAV_PAD)) ? 1 : 0;
         }
     }
 }
@@ -647,8 +667,12 @@ function moveWithCollisions(entity, dx, dy, clampToWorld, forZombie) {
 const NAV_CELL = 20;
 let navW = 0;
 let navH = 0;
-let navPassable = null;
+let navPassable = null;        // WIDE: padded for the largest body
+let navPassableTight = null;   // TIGHT: pad 0, for 16-20px bodies
 let navDirty = true;
+
+// The grid a body of this size may use.
+function navGridFor(wide) { return wide ? navPassable : navPassableTight; }
 let navDoorSig = null;   // nav passability depends on doors ONLY
 
 // Barricades are passable in the field whether boarded or not, so a
@@ -669,6 +693,7 @@ function rebuildNavGrid() {
     navW = Math.ceil(WORLD_W / NAV_CELL);
     navH = Math.ceil(WORLD_H / NAV_CELL);
     navPassable = new Uint8Array(navW * navH);
+    navPassableTight = new Uint8Array(navW * navH);
 
     const rects = walls.slice();
     for (let i = 0; i < doors.length; i++) if (!doors[i].open) rects.push(doors[i]);
@@ -682,50 +707,60 @@ function rebuildNavGrid() {
     // geometry -- which sent zombies walking confidently into walls and
     // stopping there. Whole-cell testing is conservative (it slightly
     // over-blocks near corners) but it can never invent a path.
-    const pad = NAV_PAD;
+    // BOTH grids in one sweep. The wide grid is the tight one with more
+    // padding, so a cell the tight test already rejected cannot pass the
+    // wide one and is not tested twice.
     for (let cy = 0; cy < navH; cy++) {
         for (let cx = 0; cx < navW; cx++) {
-            const x = cx * NAV_CELL - pad;
-            const y = cy * NAV_CELL - pad;
-            const w = NAV_CELL + pad * 2;
-            const h = NAV_CELL + pad * 2;
-
-            let blocked = false;
-            const gx0 = Math.floor(x / GRID_CELL);
-            const gy0 = Math.floor(y / GRID_CELL);
-            const gx1 = Math.floor((x + w) / GRID_CELL);
-            const gy1 = Math.floor((y + h) / GRID_CELL);
-            for (let g = gx0; g <= gx1 && !blocked; g++) {
-                for (let k = gy0; k <= gy1 && !blocked; k++) {
-                    const bucket = grid[gridKey(g, k)];
-                    if (!bucket) continue;
-                    for (let i = 0; i < bucket.length; i++) {
-                        const r = bucket[i];
-                        if (rectIntersect(x, y, w, h, r.x, r.y, r.w, r.h)) { blocked = true; break; }
-                    }
-                }
-            }
-            navPassable[cy * navW + cx] = blocked ? 0 : 1;
+            const i0 = cy * navW + cx;
+            const tight = navCellClear(grid, cx, cy, NAV_TIGHT_PAD);
+            navPassableTight[i0] = tight ? 1 : 0;
+            navPassable[i0] = (tight && navCellClear(grid, cx, cy, NAV_PAD)) ? 1 : 0;
         }
     }
     navDoorSig = doorSignature();
     navDirty = false;
 }
 
+// Is a cell clear of every solid, padded by `pad`? Whole-cell, which is
+// conservative near corners and can never invent a path -- see the note in
+// rebuildNavGrid about testing cell centres instead.
+function navCellClear(grid, cx, cy, pad) {
+    const x = cx * NAV_CELL - pad;
+    const y = cy * NAV_CELL - pad;
+    const w = NAV_CELL + pad * 2;
+    const h = NAV_CELL + pad * 2;
+    const gx0 = Math.floor(x / GRID_CELL);
+    const gy0 = Math.floor(y / GRID_CELL);
+    const gx1 = Math.floor((x + w) / GRID_CELL);
+    const gy1 = Math.floor((y + h) / GRID_CELL);
+    for (let g = gx0; g <= gx1; g++) {
+        for (let k = gy0; k <= gy1; k++) {
+            const bucket = grid[gridKey(g, k)];
+            if (!bucket) continue;
+            for (let i = 0; i < bucket.length; i++) {
+                const r = bucket[i];
+                if (rectIntersect(x, y, w, h, r.x, r.y, r.w, r.h)) return false;
+            }
+        }
+    }
+    return true;
+}
+
 // Multi-source BFS. Returns step distance per cell, -1 where unreachable.
-function navFieldFrom(points) {
+function navFieldFrom(points, wide) {
     if (navDirty || !navPassable) rebuildNavGrid();
+    const pass = navGridFor(wide);
     const dist = new Int32Array(navW * navH).fill(-1);
     const q = new Int32Array(navW * navH);
     let tail = 0;
 
     for (let i = 0; i < points.length; i++) {
-        const cx = clamp(Math.floor(points[i].x / NAV_CELL), 0, navW - 1);
-        const cy = clamp(Math.floor(points[i].y / NAV_CELL), 0, navH - 1);
-        const idx = cy * navW + cx;
-        if (dist[idx] === -1) {
-            dist[idx] = 0;
-            q[tail++] = idx;
+        const seed = navNearestPassable(points[i].x, points[i].y, pass);
+        if (seed < 0) continue;
+        if (dist[seed] === -1) {
+            dist[seed] = 0;
+            q[tail++] = seed;
         }
     }
 
@@ -740,12 +775,57 @@ function navFieldFrom(points) {
             const ay = cy + (k === 2 ? 1 : k === 3 ? -1 : 0);
             if (ax < 0 || ay < 0 || ax >= navW || ay >= navH) continue;
             const ai = ay * navW + ax;
-            if (dist[ai] !== -1 || !navPassable[ai]) continue;
+            if (dist[ai] !== -1 || !pass[ai]) continue;
             dist[ai] = nd;
             q[tail++] = ai;
         }
     }
     return dist;
+}
+
+// THE SOURCE MUST BE A CELL THE FIELD CAN FLOW OUT OF (2026-09-26).
+//
+// Reported as: a player pressed against a wall could make the horde change
+// its mind by shuffling a few pixels, and hovering half-in a wall dodged
+// them completely.
+//
+// The source used to be the player's own cell -- and a player touching a
+// wall stands in a cell the grid calls blocked, because cell testing is
+// whole-cell. The BFS then expanded out of a cell no path can reach, so
+// whichever neighbour happened to be open decided the route for the whole
+// horde, and a one-pixel step across a cell boundary swapped which one
+// that was. Every zombie turned round at the next field refresh, and
+// hovering on the boundary kept flipping it.
+//
+// Seeding the nearest PASSABLE cell instead moves the source smoothly as
+// the player slides along a wall: the field changes by a cell at a time
+// and the route holds.
+function navNearestPassable(x, y, pass) {
+    const cx0 = clamp(Math.floor(x / NAV_CELL), 0, navW - 1);
+    const cy0 = clamp(Math.floor(y / NAV_CELL), 0, navH - 1);
+    if (pass[cy0 * navW + cx0]) return cy0 * navW + cx0;
+    // Outward rings, nearest by true distance so the choice is stable as
+    // the body moves rather than dependent on scan order. Six cells is
+    // 120px: further than a body can be from open ground without being
+    // sealed in, and then there is nothing to seed, which is correct.
+    for (let r = 1; r <= 6; r++) {
+        let best = -1, bestD = Infinity;
+        for (let oy = -r; oy <= r; oy++) {
+            for (let ox = -r; ox <= r; ox++) {
+                if (Math.max(Math.abs(ox), Math.abs(oy)) !== r) continue;
+                const ax = cx0 + ox, ay = cy0 + oy;
+                if (ax < 0 || ay < 0 || ax >= navW || ay >= navH) continue;
+                const ai = ay * navW + ax;
+                if (!pass[ai]) continue;
+                const dx = (ax * NAV_CELL + NAV_CELL / 2) - x;
+                const dy = (ay * NAV_CELL + NAV_CELL / 2) - y;
+                const d = dx * dx + dy * dy;
+                if (d < bestD) { bestD = d; best = ai; }
+            }
+        }
+        if (best >= 0) return best;
+    }
+    return -1;
 }
 
 // Is the straight line from (x0,y0) to (x1,y1) walkable by a zombie?
@@ -781,8 +861,9 @@ function navClearLine(x0, y0, x1, y1) {
 // stops flip-flopping.
 const NAV_LOOKAHEAD = 5;
 
-function navStepToward(x, y, field) {
+function navStepToward(x, y, field, wide) {
     if (!field || !navPassable) return null;
+    const pass = navGridFor(wide);
     let cx = clamp(Math.floor(x / NAV_CELL), 0, navW - 1);
     let cy = clamp(Math.floor(y / NAV_CELL), 0, navH - 1);
     const here = field[cy * navW + cx];
@@ -803,7 +884,7 @@ function navStepToward(x, y, field) {
                 const ax = cx + ox, ay = cy + oy;
                 if (ax < 0 || ay < 0 || ax >= navW || ay >= navH) continue;
                 const ai = ay * navW + ax;
-                if (!navPassable[ai]) continue;
+                if (!pass[ai]) continue;
                 const d = field[ai];
                 if (d < 0 || d >= best) continue;
                 best = d; bx = ax; by = ay;
@@ -823,7 +904,7 @@ function navStepToward(x, y, field) {
                 const ax = cx + ox, ay = cy + oy;
                 if (ax < 0 || ay < 0 || ax >= navW || ay >= navH) continue;
                 const ai = ay * navW + ax;
-                if (!navPassable[ai]) continue;
+                if (!pass[ai]) continue;
                 const d = field[ai];
                 if (d < 0 || d >= best) continue;
                 best = d; bx = ax; by = ay;
@@ -1081,6 +1162,17 @@ function generateLevel() {
     // the whole endgame, could not be finished. Building it first puts its
     // reserve in place before anything else asks where it may stand.
     buildSluice();
+    // THE AUTHORED MAP (2026-09-26): hand-placed buildings from
+    // zombie-map-data.js, written by Zombie.html?editor=1.
+    //
+    // FIRST of everything that competes for ground, behind only the keep
+    // and the sluice, which the endgame cannot do without. A building
+    // somebody placed is a decision and the rest of the map should route
+    // around it -- placed after the halls and landmarks instead, two test
+    // placements in COLD STORAGE were both reported blocked by a funnel
+    // hall that had taken the ground first, which is the generator winning
+    // an argument it should not be in.
+    placeAuthoredBuildings();
     planFunnelHalls();
     buildPlannedHalls();
     // Hero structures get first pick of what is left, because a landmark
@@ -3183,6 +3275,62 @@ function stampMiss(z, why) {
 // `force` is the sandbox's: it keeps the sector and the do-not-overlap
 // rules and drops the CLEARANCE ones, so a drawing too big for the ground
 // still gets shown to whoever drew it. The map never passes it.
+// WHY A STAMP WOULD NOT GO DOWN HERE -- asked WITHOUT placing it.
+//
+// Split out of placeStampAt so the map editor can ask the same question
+// under the cursor, every frame, and colour the ghost by the answer. The
+// editor showing its own idea of what fits is how an editor starts
+// disagreeing with the game; there is one predicate and both call it.
+//
+// Returns null when it fits, or { kind, why } where `kind` is the bucket
+// stampMisses counts and `why` is a sentence for a person.
+function stampBlockedReason(stamp, x, y, z, force) {
+    x = Math.round(x / STAMP_CELL) * STAMP_CELL;
+    y = Math.round(y / STAMP_CELL) * STAMP_CELL;
+    const geom = ZS.build(stamp, x, y);
+    const box = { x: geom.x, y: geom.y, w: geom.w, h: geom.h };
+
+    if (box.x < 0 || box.y < 0 || box.x + box.w > WORLD_W || box.y + box.h > WORLD_H) {
+        return { kind: "zone", why: "outside the world" };
+    }
+    // All four corners in the sector, same rule as a generated building:
+    // a building straddling a painted boundary reads as a wall dropped
+    // across the edge of two sectors. An AUTHORED placement passes no
+    // sector and may straddle whatever its author wants.
+    if (z !== undefined) {
+        if (!inZone(box.x, box.y, z) || !inZone(box.x + box.w, box.y, z) ||
+            !inZone(box.x, box.y + box.h, z) || !inZone(box.x + box.w, box.y + box.h, z)) {
+            return { kind: "zone", why: "not all inside one sector" };
+        }
+    }
+    if (!force && !clearOfOpenings(box, STAMP_DOOR_CLEAR)) {
+        return { kind: "boundary", why: "too close to a boundary doorway" };
+    }
+    // Never on the running line: the spur's reserve is soft (so the
+    // Kennels' stock can stand beside it) and would not stop a building.
+    if (!force && typeof onSpurLane === "function" && onSpurLane(box, 20)) {
+        return { kind: "reserved", why: "on the rail line" };
+    }
+    const resPad = force ? 0 : STAMP_CLEAR;
+    if (clashesReservedHard({ x: box.x - resPad, y: box.y - resPad,
+                              w: box.w + resPad * 2, h: box.h + resPad * 2 })) {
+        return { kind: "reserved", why: force ? "overlapping reserved ground"
+                                              : "within " + STAMP_CLEAR + "px of reserved ground" };
+    }
+    // The SAME clearance against anything already solid -- a boundary
+    // wall, a container, a landmark's body. Tested at 8px it left 10-80px
+    // slivers between a stamp and a wall, which is the unwalkable-gap rule
+    // broken again in a second place; it was most of the 136 unreachable
+    // cells left after STAMP_CLEAR went to 90.
+    const solidPad = force ? 4 : STAMP_CLEAR;
+    if (rectBlockedStatic({ x: box.x - solidPad, y: box.y - solidPad,
+                            w: box.w + solidPad * 2, h: box.h + solidPad * 2 })) {
+        return { kind: "solid", why: force ? "overlapping a wall"
+                                           : "within " + STAMP_CLEAR + "px of a wall" };
+    }
+    return null;
+}
+
 function placeStampAt(stamp, x, y, z, kindFallback, force) {
     // SNAPPED TO THE CELL, and this is not tidiness.
     //
@@ -3201,36 +3349,8 @@ function placeStampAt(stamp, x, y, z, kindFallback, force) {
     const geom = ZS.build(stamp, x, y);
     const box = { x: geom.x, y: geom.y, w: geom.w, h: geom.h };
 
-    // All four corners in the sector, same rule as a generated building:
-    // a building straddling a painted boundary reads as a wall dropped
-    // across the edge of two sectors.
-    if (z !== undefined) {
-        if (!inZone(box.x, box.y, z) || !inZone(box.x + box.w, box.y, z) ||
-            !inZone(box.x, box.y + box.h, z) || !inZone(box.x + box.w, box.y + box.h, z)) {
-            stampMiss(z, "zone"); return false;
-        }
-    }
-    if (!force && !clearOfOpenings(box, STAMP_DOOR_CLEAR)) { stampMiss(z, "boundary"); return false; }
-    // Never on the running line: the spur's reserve is soft (so the
-    // Kennels' stock can stand beside it) and would not stop a building.
-    if (!force && typeof onSpurLane === "function" && onSpurLane(box, 20)) {
-        stampMiss(z, "reserved"); return false;
-    }
-    const resPad = force ? 0 : STAMP_CLEAR;
-    if (clashesReservedHard({ x: box.x - resPad, y: box.y - resPad,
-                              w: box.w + resPad * 2, h: box.h + resPad * 2 })) {
-        stampMiss(z, "reserved"); return false;
-    }
-    // The SAME clearance against anything already solid -- a boundary
-    // wall, a container, a landmark's body. Tested at 8px it left 10-80px
-    // slivers between a stamp and a wall, which is the unwalkable-gap rule
-    // broken again in a second place; it was most of the 136 unreachable
-    // cells left after STAMP_CLEAR went to 90.
-    const solidPad = force ? 4 : STAMP_CLEAR;
-    if (rectBlockedStatic({ x: box.x - solidPad, y: box.y - solidPad,
-                            w: box.w + solidPad * 2, h: box.h + solidPad * 2 })) {
-        stampMiss(z, "solid"); return false;
-    }
+    const why = stampBlockedReason(stamp, x, y, z, force);
+    if (why) { stampMiss(z, why.kind); return false; }
     stampMiss(z, "placed");
 
     for (let i = 0; i < geom.walls.length; i++) walls.push(geom.walls[i]);
@@ -3265,7 +3385,49 @@ function placeStampAt(stamp, x, y, z, kindFallback, force) {
     return true;
 }
 
+// AUTHORED PLACEMENTS ARE NOT NEGOTIABLE, and that is the point of them.
+//
+// A seeded building asks permission -- sector, boundary, clearance -- and
+// is skipped when the answer is no, which is the silent-skip habit the
+// 2026-09-20 audit was about. A building someone PUT somewhere is a
+// decision, so it is placed with the clearance rules off (`force`), and
+// the only thing that can stop it is overlapping something already solid.
+// When that happens it is RECORDED IN ZMAP.report.missing and warned
+// about, never dropped quietly.
+function placeAuthoredBuildings() {
+    if (typeof ZMAP === "undefined" || !ZMAP.placements.length) return;
+    ZMAP.report = { placed: 0, missing: [] };
+
+    for (let i = 0; i < ZMAP.placements.length; i++) {
+        const p = ZMAP.placements[i];
+        let stamp = null;
+        for (let k = 0; k < ZS.LIBRARY.length; k++) {
+            if (ZS.LIBRARY[k].name === p.stamp) { stamp = ZS.LIBRARY[k]; break; }
+        }
+        if (!stamp) {
+            ZMAP.report.missing.push(p.stamp + " @" + p.x + "," + p.y + " (no such stamp)");
+            continue;
+        }
+        if (p.rot || p.mirror) stamp = ZS.rotate(stamp, p.rot || 0, !!p.mirror);
+        // No sector argument: an authored building may straddle whatever
+        // its author wanted it to straddle.
+        if (placeStampAt(stamp, p.x, p.y, undefined, stamp.kind, true)) {
+            ZMAP.report.placed++;
+        } else {
+            const why = stampBlockedReason(stamp, p.x, p.y, undefined, true);
+            ZMAP.report.missing.push(p.stamp + " @" + p.x + "," + p.y +
+                                     " (" + (why ? why.why : "blocked") + ")");
+        }
+    }
+    if (ZMAP.report.missing.length && typeof console !== "undefined") {
+        console.warn("authored map: " + ZMAP.report.missing.length + " placement(s) did not build: " +
+                     ZMAP.report.missing.join("; "));
+    }
+}
+
 function buildZoneBuildings(b, count, z) {
+    // The seeded placer is off entirely once the map is authored.
+    if (typeof ZMAP !== "undefined" && ZMAP.authoredOnly) return;
     const key = (zoneInfo[z] && zoneInfo[z].tpl) ? zoneInfo[z].tpl.key : "centre";
     const kind = SECTOR_BUILDING[key] || "office";
     const stamps = (typeof ZS !== "undefined") ? ZS.forSector(key) : [];

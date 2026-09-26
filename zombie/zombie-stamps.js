@@ -61,11 +61,25 @@ const ZS = (function () {
         " ": { what: "outside" }
     };
 
-    // Minimum opening widths, in CELLS. A door must clear the nav
-    // guarantee; a window is a barricade, which only zombies use, and
-    // matches the 44px the generator has always used.
-    const DOOR_MIN = 4;
-    const WINDOW_MIN = 2;
+    // Minimum opening widths, in CELLS.
+    //
+    // ONE CELL (2026-09-26). It was 4, because the flow field had a single
+    // grid padded for the largest body and so could only guarantee a 78px
+    // opening -- which forced every drawn building to have 80px doors and
+    // no interior wall within four cells of another, and that made small
+    // interesting buildings impossible to draw.
+    //
+    // The grid is split by body size now (NAV_TIGHT_PAD in zombie-level.js):
+    // a walker is 16px and paths through a one-cell door, a brute is 26px
+    // and does not. So a one-cell door is legal, and what it MEANS is that
+    // only the small bodies can use it. Draw a building out of one-cell
+    // doors and the brutes will queue at whatever wide entrance you left
+    // them -- which is a design decision you now get to make, per building.
+    const DOOR_MIN = 1;
+    const WINDOW_MIN = 1;
+    // Wide enough for every body. Reported, not enforced: a stamp with no
+    // opening this wide is legal and deliberate.
+    const DOOR_WIDE = 4;
 
     function isFloor(ch) { return !!(LEGEND[ch] && LEGEND[ch].floor); }
     function isSolid(ch) { return ch === "#" || ch === "W"; }
@@ -178,10 +192,12 @@ const ZS = (function () {
         //    IN BETWEEN (the KENNEL_END_GAP rule from zombie/CLAUDE.md).
         const runs = openingRuns(stamp);
         let doors = 0;
+        let wideDoors = 0;
         for (let i = 0; i < runs.length; i++) {
             const run = runs[i];
             if (run.ch === "D") {
                 doors++;
+                if (run.len >= DOOR_WIDE) wideDoors++;
                 if (run.len < DOOR_MIN) {
                     problems.push("a door of " + run.len + " cell(s) at " + run.x + "," + run.y +
                                   " -- a door is at least " + DOOR_MIN + " (" + (DOOR_MIN * STAMP_CELL) + "px)");
@@ -192,6 +208,10 @@ const ZS = (function () {
             }
         }
         if (!doors) problems.push("no door: nothing can get in on foot");
+        else if (!wideDoors) {
+            warnings.push("no door " + DOOR_WIDE + " cells or wider: the big bodies (brute, " +
+                          "ULTRA HEAVY, SUPER SPLITTER) cannot path in at all. Deliberate is fine.");
+        }
 
         // 4. The inside is one place. Flood the floor from the first floor
         //    cell beside a doorway; anything it misses is a room you can

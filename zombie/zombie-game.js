@@ -1978,9 +1978,17 @@ function mostIsolated(targets) {
 // Flow fields, refreshed on a timer rather than per frame -- players
 // move a few px between rebuilds, and a BFS over 120x68 cells is far too
 // cheap to bother caching more cleverly than this.
+// ONE FIELD PER GRID (2026-09-26). The nav grid split in two by body size
+// -- tight for the 16-20px bodies, wide for brute and up -- so each field
+// exists twice, because a field is a flood over a particular grid and a
+// walker may use doors a brute cannot. Six BFS passes over 32,400 cells on
+// a refresh instead of three; the flood is not what costs anything here.
 let navFieldAll = null;
+let navFieldAllWide = null;
 let navFieldIsolated = null;
+let navFieldIsolatedWide = null;
 let navFieldDecoy = null;      // PERK: DECOY -- a field flowing to the live lures
+let navFieldDecoyWide = null;
 let navFieldAt = 0;
 const NAV_REFRESH_MS = 220;
 
@@ -2066,13 +2074,18 @@ function updateZombies(now, dt) {
     for (let d = decoys.length - 1; d >= 0; d--) if (now >= decoys[d].until) decoys.splice(d, 1);
 
     if (!navFieldAll || now - navFieldAt > NAV_REFRESH_MS || navDirty) {
-        navFieldAll = navFieldFrom(targets.map(function (t) {
+        const seeds = targets.map(function (t) {
             return { x: t.x + (t.size || 16) / 2, y: t.y + (t.size || 16) / 2 };
-        }));
-        navFieldIsolated = isolated
-            ? navFieldFrom([{ x: isolated.x + (isolated.size || 16) / 2, y: isolated.y + (isolated.size || 16) / 2 }])
+        });
+        navFieldAll = navFieldFrom(seeds, false);
+        navFieldAllWide = navFieldFrom(seeds, true);
+        const lone = isolated
+            ? [{ x: isolated.x + (isolated.size || 16) / 2, y: isolated.y + (isolated.size || 16) / 2 }]
             : null;
-        navFieldDecoy = decoys.length ? navFieldFrom(decoys) : null;
+        navFieldIsolated = lone ? navFieldFrom(lone, false) : null;
+        navFieldIsolatedWide = lone ? navFieldFrom(lone, true) : null;
+        navFieldDecoy = decoys.length ? navFieldFrom(decoys, false) : null;
+        navFieldDecoyWide = decoys.length ? navFieldFrom(decoys, true) : null;
         navFieldAt = now;
     }
 
@@ -2136,9 +2149,14 @@ function updateZombies(now, dt) {
         // against a real player, so a lured zombie walking through you still
         // downs you.
         const lure = navFieldDecoy ? lureFor(zcx, zcy) : null;
-        const field = lure ? navFieldDecoy
-                    : (z.isolationSeeker && navFieldIsolated) ? navFieldIsolated : navFieldAll;
-        const step = navStepToward(zcx, zcy, field);
+        // Which grid this body may use: a brute cannot path through the
+        // one-cell doors a walker can, so it gets the padded field.
+        const wide = navWantsWide(z.size);
+        const field = lure ? (wide ? navFieldDecoyWide : navFieldDecoy)
+                    : (z.isolationSeeker && navFieldIsolated)
+                        ? (wide ? navFieldIsolatedWide : navFieldIsolated)
+                        : (wide ? navFieldAllWide : navFieldAll);
+        const step = navStepToward(zcx, zcy, field, wide);
 
         // CENTRE SPACE ON BOTH SIDES. navStepToward is handed a centre and
         // returns a nav-cell CENTRE, but this used to subtract z.x -- the

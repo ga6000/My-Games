@@ -1,6 +1,30 @@
 # Zombie — level builder plan (2026-09-21)
 
-> ## PHASES 1-3 ARE BUILT (2026-09-26). Start here.
+> ## THE MAP EDITOR (2026-09-26). Open `Zombie.html?editor=1&solo=1`.
+>
+> Authoring moved onto the map itself, which is where it belongs: a building is only right or
+> wrong in the place it stands.
+>
+> | | |
+> |---|---|
+> | **SPACE** | flip between PLAN (schematic: floors, solids, sector edges, the 20px grid) and DRAWN (the game's own renderer, with the light pocket off) |
+> | **click** | place the selected stamp, snapped to the cell |
+> | **right click** | delete the placement under the cursor |
+> | **middle-drag** | pan. **wheel** zooms about the cursor |
+> | **`[` `]`** | change stamp. **R** rotate, **M** mirror |
+> | **G** | regenerate — every placement goes through the real generator |
+> | **A** | authored-only: turn the seeded building placer off |
+> | **E** | export every placement to the clipboard, to paste into `zombie-map-data.js` |
+>
+> The ghost under the cursor is **red when the placement would be refused, and says why** — it
+> asks `stampBlockedReason()`, the same predicate the level places with.
+>
+> **The margin band outside the map is drawn, not built.** The world is still 4800x2700 and a
+> placement out there is refused. Enlarging it is a real change (`ZONE_CELL_W` is `WORLD_W/24`, so
+> every sector shape stretches with the world) and wants its own pass — see the question at the
+> end of the 2026-09-26 reply.
+>
+> ## PHASES 1-3 ARE BUILT (2026-09-26).
 >
 > **To hand-author a building:**
 >
@@ -181,7 +205,15 @@ Estimates are in sessions of this kind of work, including verification by render
   drawing, in seconds.
 - The hash, not the query string, carries the stamp, so it never reaches a server log.
 
-### Phase 4 — full sector authoring · **L, 3+ sessions, and it depends on the design talk**
+### Phase 4 — full sector authoring · **STARTED 2026-09-26**
+
+Buildings are authored map-wide now (`zombie-map-data.js` + the editor above), and
+`ZMAP.authoredOnly` already retires the seeded building placer. What is still seeded: sector
+shapes, floors, boundary doors and prices, landmarks, the container maze, the Kennels' stock, the
+Spillway's runs, crates, barrels, wall-buys, perk stations. The rest of this section is what is
+left.
+
+### Phase 4 (original) — **L, 3+ sessions, and it depends on the design talk**
 - Sectors are authored as larger stamps, or as a sector layout that places named stamps. This
   covers pipe runs, motor bays and the container maze as well as buildings.
 - **The generator shrinks to "pick variants and loot"**: which of N authored variants each sector

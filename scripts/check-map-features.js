@@ -48,7 +48,14 @@ const BASELINE = {
     openCornerPct:      { max: 5,   note: "buildings whose bite corner has no wall across it" },
     decorOnWallPct:     { max: 5,   note: "furniture pieces overlapping a wall" },
     decorOutsidePct:    { max: 5,   note: "furniture pieces outside the bitten shell" },
-    zeroBuildingSectors: { max: 3.6, note: "sectors with no building, averaged over the sweep" },
+    // Counts only sectors NOT in BY_DESIGN_EMPTY (2026-09-26), so this is
+    // "empty by ACCIDENT". Measured at 2.0 a map: TURBINE HALL gets a
+    // building on about one seed in ten and PUMP HOUSE on three, because
+    // nothing in the library is shaped for what is left of them. THE
+    // TARGET IS 0 and the way there is drawing stamps that fit those two,
+    // or placing buildings there by hand in the map editor -- not raising
+    // this number.
+    zeroBuildingSectors: { max: 2.2, note: "sectors with no building by accident, per map" },
     // FIXED 2026-09-24 by hoisting buildSectorInteriors above the buildings
     // and painting the drain only where a pipe stands. Keep it at zero.
     drainBuildings:     { max: 0,   note: "buildings standing on a painted Spillway drain" },
@@ -227,8 +234,17 @@ function run() {
             }
         }
 
+        // BY-DESIGN-EMPTY SECTORS DO NOT COUNT (2026-09-26). Four of the
+        // nine are meant to hold no generic building -- their own geometry
+        // fills them -- so counting them made this metric mostly a count of
+        // decisions already taken, and it drifted up whenever one more
+        // sector was correctly recognised as by-design. What it is for is
+        // sectors that are empty by ACCIDENT.
         let zero = 0;
-        for (const k in perSector) if (perSector[k] === 0) zero++;
+        for (const k in perSector) {
+            if (BY_DESIGN_EMPTY.indexOf(k) >= 0) continue;
+            if (perSector[k] === 0) zero++;
+        }
         totals.zeroSectors += zero;
         for (const k in perSector) {
             sectorBuildings[k] = (sectorBuildings[k] || 0) + perSector[k];
@@ -259,7 +275,7 @@ function run() {
 
     console.log("Zombie map features, " + totals.maps + " seeds:");
     report("buildings a map", measured.buildingsPerMap, BASELINE.buildingsPerMap, failures);
-    report("sectors with no building", measured.zeroBuildingSectors, BASELINE.zeroBuildingSectors, failures);
+    report("sectors empty by accident", measured.zeroBuildingSectors, BASELINE.zeroBuildingSectors, failures);
     report("open-corner buildings %", measured.openCornerPct, BASELINE.openCornerPct, failures);
     report("furniture on a wall %", measured.decorOnWallPct, BASELINE.decorOnWallPct, failures);
     report("furniture outside the shell %", measured.decorOutsidePct, BASELINE.decorOutsidePct, failures);

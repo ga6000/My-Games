@@ -37,15 +37,15 @@ weight: 1
 
 ################
 #ss....#.......#
-#ss....#..rrr..#
-#......#.......#
-D......D..rrr..W
+#ss....D..rrr..#
+#......D.......#
+D......D..###..W
 D......D.......W
 D......D..rrr..#
-D......D.......#
-#..dd..#..rrr..#
+D......#.......#
+#..dd..#..###..#
 #..cc..#.......#
-#####DDDD#######
+##########DDDD##
 `);
 
 // COLD STORAGE — the small chiller. Same idiom, half the footprint, for
@@ -90,7 +90,7 @@ D......DD..rrrr..#
 #......##........#
 #......##..rrrr..#
 #......##........#
-####DDDD##DDDD####
+##DDDD####DDDD####
 `);
 
 // ANY SECTOR — a utility hut. Deliberately small (180x160), because the
@@ -112,4 +112,71 @@ D.......#
 D..bb...#
 D.......#
 #########
+`);
+
+
+// ONE-CELL DOORS (2026-09-26). The demonstration of the split nav grid:
+// every interior door here is a single 20px cell, so walkers, runners,
+// screamers and spawnlings pour through them -- and a brute, ULTRA HEAVY
+// or SUPER SPLITTER cannot, because it does not fit. They have to use the
+// 4-cell door on the south face, which reaches the left hall ONLY.
+//
+// So the two right-hand rooms are small-bodies-only ground. That is a
+// decision this format now lets you make per building, and it is what the
+// builder's "no door 4 cells or wider" warning is about.
+ZS.add(`
+name: warren-a
+sector: any
+kind: office
+rotate: any
+weight: 1
+
+#############
+#s....#.rr..#
+#.....#.....W
+#.....D.....W
+#.....#.....#
+#.....####D##
+#.....#.....#
+#.....#..bb.#
+#.....#.....#
+##DDDD#######
+`);
+
+
+// --- drawn by the user, 2026-09-26 -------------------------------------
+ZS.add(`
+name: Storage Shed
+sector: cold
+kind: store
+rotate: any
+weight: 1
+
+#DDDD######
+#....rrrr.#
+#r.......r#
+#r.......r#
+#r.......r#
+#.rrrr....#
+######DDDD#
+`);
+
+
+ZS.add(`
+name: hut-b
+sector: any
+kind: office
+rotate: any
+weight: 1
+
+ #####DDDD#
+#rr.......#
+#r.......r#
+D...#....r#
+D..b#bdc.##
+D..b#bd...D
+D..b#bdc..D
+#r........D
+#rr.......D
+ ##########
 `);

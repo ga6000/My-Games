@@ -32,6 +32,7 @@ revision of this table fixed an earlier count of 7 that omitted `zombie-audio.js
 | 4 | `zombie-audio.js` | Procedural Web Audio, positional mix, `N` mute, event playback |
 | 4a | `zombie-music.js` | **The score** (2026-09-18): organ bed, soprano, beat-quantized chime cues. Needs `audioCtx`/`audioMaster` from 4; `gameLoop` drives it |
 | 4b | `zombie-stamps.js` | **Hand-authored building stamps** (2026-09-26): the text format, the checks, rotate/mirror, `ZS.build()`. Declares only. **Before the level**, which places them |
+| 4b2 | `zombie-map-data.js` | **The authored map**: hard-wired building placements, written by the map editor. Declares `ZMAP` |
 | 4c | `zombie-stamps-data.js` | The stamp library — **the file drawings are pasted into**. `ZS.add()` checks each one and drops a failing stamp with a console warning |
 | 5 | `zombie-level.js` | Seeded geometry, the solid spatial index, `moveWithCollisions`, funnel halls, perk stations |
 | 6 | `zombie-entities.js` | Players, weapons + switching, zombie archetypes, perks, bullets, pickups |
@@ -44,6 +45,7 @@ revision of this table fixed an earlier count of 7 that omitted `zombie-audio.js
 | 10 | `zombie-render.js` | Draw, HUD, minimap, input, **boots the loop** |
 | 11 | `zombie-dev.js` | Dev-panel registration: the state readout and the playtest buttons. **Last** — it reads names every file above declares, registers, and (since 2026-09-18) wraps `hostHandleBuy`/`spawnZombie`/`spawnZombieAt`/`nearestPrompt` for the FREE BUYS / NO ZOMBIES toggles — see "Controls" |
 
+| 13 | `zombie-mapedit.js` | **The map editor** (2026-09-26): `?editor=1` takes the page over — the whole map, SPACE to flip between a schematic PLAN and the game's own `draw()`, click to place a building, E to export. Last, because it drives everything above it |
 | 12 | `zombie-sandbox.js` | **The stamp sandbox** (2026-09-26): `?sandbox=1&solo=1#stamp=...` drops a drawing into the real map and stands the player at its door. **After `zombie-dev.js`**, whose NO ZOMBIES flag `&zombies=0` sets, and it wraps `spawnPlayer` rather than editing it. Regenerates the level once at boot, because `zombie-game.js` has already built one by the time this file runs |
 
 *(A duplicate `zombie-endgame.js` tag on line 258 was removed 2026-09-02. It threw
@@ -312,8 +314,31 @@ Three rules for adding a sound:
    independently from one server-issued seed. A stray `Math.random()` in `zombie-level.js` means
    two players collide with walls the other cannot see. `Math.random()` is correct for
    host-only rolls (zombie spawn placement, weapon spread) and per-client cosmetics.
-3. **Nav resolution must exceed the smallest opening.** A gap is only *guaranteed* to contain a
-   nav cell at `2*NAV_CELL + 2*NAV_PAD` px — cell size, plus the padding on each side, plus up to
+3. **Nav resolution must exceed the smallest opening — FOR THE BODY USING IT.**
+
+   > **THE GRID SPLIT IN TWO ON 2026-09-26 and this rule now has two answers.** There is a TIGHT
+   > grid at `NAV_TIGHT_PAD = 0` for bodies of 20px and under (walker, runner, screamer, splitter,
+   > spawnling) and the old WIDE grid at `NAV_PAD = 19` for brute 26 and the 34px ULTRA HEAVY /
+   > SUPER SPLITTER. A walker paths through a **one-cell, 20px** door; a brute still needs **78px**.
+   >
+   > **`NAV_TIGHT_PAD` HAS TO BE 0, not 1.** Cell testing is whole-cell, so a one-cell doorway is
+   > exactly `NAV_CELL` wide and *any* padding makes the walls beside it overlap the padded box —
+   > the door disappears from the grid entirely. This is also why stamps snap to the 20px lattice:
+   > an 80px door 11px off the lattice loses its clear column to alignment, which sealed an entire
+   > hand-drawn building to the flow field while it stayed perfectly walkable to a player.
+   >
+   > Why: the single wide grid made 78px the narrowest opening ANY zombie could use, so every
+   > hand-drawn building needed 4-cell doors and no interior wall within four cells of another.
+   > Interesting buildings were forced to be enormous. **A tight door is now a design tool** — it
+   > is a room walkers swarm and brutes cannot enter, and the stamp builder warns when a stamp has
+   > no 4-cell door at all so that choice is made on purpose.
+   >
+   > **Anything that writes the grid must write BOTH.** `refreshNavRegion()` (the door-purchase
+   > fast path) wrote only the wide one at first, which would have left a door the team had just
+   > bought still shut to every walker, with nothing on screen to say why.
+
+   The old rule, which is still exactly right per grid: a gap is only *guaranteed* to contain a
+   nav cell at `2*NAV_CELL + 2*that grid's pad` px — cell size, plus the padding on each side, plus up to
    a whole cell lost to grid alignment. At `NAV_CELL = 40` that threshold was 106px, which silently
    made nook holes, outpost doorways and narrow windows **invisible to the pathfinder**: walkable
    in fact, sealed as far as the flow field was concerned. **Check this before shrinking any
@@ -345,6 +370,14 @@ Three rules for adding a sound:
    possible moment for a stutter. `rebuildSolidIndex` diffs the door signature and calls
    `refreshNavRegion()` on just the doors that changed (1.3ms, and bit-identical to a full
    rebuild). A full rebuild is still used when the level itself is regenerated.
+4a. **Seed the flow field from a cell the field can flow out of.** `navFieldFrom()` snaps every
+   source to the nearest **passable** cell (`navNearestPassable`). It used to seed the player's own
+   cell — and a player touching a wall stands in a cell the grid calls blocked, so the BFS expanded
+   out of a cell no path could reach and whichever neighbour happened to be open decided the route
+   for the whole horde. A one-pixel step across a cell boundary swapped which one that was, so
+   **hovering against a wall flipped every zombie's direction at each field refresh and dodged them
+   entirely** (reported 2026-09-26; measured at 120 of 120 positions along one wall giving the
+   zombie no field route at all).
 5. **The nav grid must be invalidated whenever geometry changes.** `generateLevel()` calls
    `markNavDirty()` explicitly, and it has to: `rebuildSolidIndex()` only re-checks the *door*
    pattern, and a freshly generated level has the same all-closed pattern as the old one — so
@@ -618,6 +651,22 @@ nothing could path into — a free safe spot, and a trap for any zombie that wan
 > neither closed nor walkable and took nav reachability 0.0010% -> 0.3263%; and stamps measure
 > clearance **from the openings themselves**, not `nearZoneBoundary`'s blanket 150px, which is
 > the whole arm in a three-row sector -- the identical finding THE KENNELS made in 2026-09-20.
+>
+> **THE MAP IS BEING HAND-AUTHORED (2026-09-26).** `zombie-map-data.js` holds absolute
+> `{stamp, x, y, rot, mirror}` placements, written by `Zombie.html?editor=1`, and
+> `placeAuthoredBuildings()` puts them down **immediately after the keep and the sluice** — ahead
+> of the funnel halls, the landmarks and everything seeded, because a building somebody placed is
+> a decision the rest of the map should route around. Placed earlier than that it cannot be, and
+> placed later two test placements were both reported blocked by a hall that had taken the ground.
+>
+> An authored placement ignores the clearance rules (`force`) and can only be stopped by
+> overlapping something solid; when that happens it goes in `ZMAP.report.missing` **with the
+> reason**, is warned about in the console, and draws red in the editor. `ZMAP.authoredOnly`
+> turns the seeded building placer off entirely, for when the authored map IS the map.
+>
+> `stampBlockedReason()` is the one predicate behind all of it — the level places with it, and the
+> editor asks it under the cursor every frame to colour the ghost. An editor with its own idea of
+> what fits is an editor that starts disagreeing with the game.
 >
 > **Two scripts to run when the map moves (2026-09-24):**
 > `node scripts/measure-zombie-nav.js` is the unreachable-cell measurement this file has asked
@@ -2128,4 +2177,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 72a99f55 | 2026-09-26 -->
+<!-- doc-sync: bd16d574 | 2026-09-26 -->
