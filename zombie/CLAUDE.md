@@ -11,8 +11,10 @@ scope**, so every top-level name across them must be unique. Run
 `node scripts/check-global-collisions.js` from the repo root after any change here; it reports
 `zombie\Zombie.html (10 local scripts)`.
 
-**Updated 2026-09-26.** The evacuation train added `zombie-train.js`, so the checker now reports
-**18** local scripts. (2026-09-18: the playtest pass added `zombie-music.js`, `zombie-icons.js` and
+**Updated 2026-09-26.** The evacuation train added `zombie-train.js` (18 local scripts), then the
+stamp work added `zombie-stamps.js`, `zombie-stamps-data.js` and `zombie-sandbox.js`, so the
+checker now reports **21**. (`stamp-builder.html` is a separate page, not part of the game's load
+order, and the checker reports it on its own at 2 local scripts.) (2026-09-18: the playtest pass added `zombie-music.js`, `zombie-icons.js` and
 `zombie-floors.js`, taking it to 17.)
 (2026-09-07: the dev-tools pass added `../shared/devtools.js` and `zombie-dev.js`, taking it to 14.
 2026-09-04: two shared files were added by the aesthetic pass, taking it to 12.) (The 2026-09-02
@@ -29,6 +31,8 @@ revision of this table fixed an earlier count of 7 that omitted `zombie-audio.js
 | 3 | `zombie-core.js` | World size, camera, teardown plumbing, geometry + wire-time helpers, `WEAPON_KEYS` |
 | 4 | `zombie-audio.js` | Procedural Web Audio, positional mix, `N` mute, event playback |
 | 4a | `zombie-music.js` | **The score** (2026-09-18): organ bed, soprano, beat-quantized chime cues. Needs `audioCtx`/`audioMaster` from 4; `gameLoop` drives it |
+| 4b | `zombie-stamps.js` | **Hand-authored building stamps** (2026-09-26): the text format, the checks, rotate/mirror, `ZS.build()`. Declares only. **Before the level**, which places them |
+| 4c | `zombie-stamps-data.js` | The stamp library — **the file drawings are pasted into**. `ZS.add()` checks each one and drops a failing stamp with a console warning |
 | 5 | `zombie-level.js` | Seeded geometry, the solid spatial index, `moveWithCollisions`, funnel halls, perk stations |
 | 6 | `zombie-entities.js` | Players, weapons + switching, zombie archetypes, perks, bullets, pickups |
 | 7 | `zombie-endgame.js` | Roles, the sluice levers, funnels, silos, pipes, the flood, the tunnel |
@@ -39,6 +43,8 @@ revision of this table fixed an earlier count of 7 that omitted `zombie-audio.js
 | 9b | `zombie-floors.js` | Per-zone floor textures + grime noise map. Declares only; builds lazily on first draw |
 | 10 | `zombie-render.js` | Draw, HUD, minimap, input, **boots the loop** |
 | 11 | `zombie-dev.js` | Dev-panel registration: the state readout and the playtest buttons. **Last** — it reads names every file above declares, registers, and (since 2026-09-18) wraps `hostHandleBuy`/`spawnZombie`/`spawnZombieAt`/`nearestPrompt` for the FREE BUYS / NO ZOMBIES toggles — see "Controls" |
+
+| 12 | `zombie-sandbox.js` | **The stamp sandbox** (2026-09-26): `?sandbox=1&solo=1#stamp=...` drops a drawing into the real map and stands the player at its door. **After `zombie-dev.js`**, whose NO ZOMBIES flag `&zombies=0` sets, and it wraps `spawnPlayer` rather than editing it. Regenerates the level once at boot, because `zombie-game.js` has already built one by the time this file runs |
 
 *(A duplicate `zombie-endgame.js` tag on line 258 was removed 2026-09-02. It threw
 `SyntaxError: Identifier 'ROLES' has already been declared` on every load without breaking play.
@@ -596,6 +602,23 @@ nothing could path into — a free safe spot, and a trap for any zombie that wan
 
 ## Map — nine PAINTED sectors (2026-09-19)
 
+> **BUILDINGS ARE HAND-DRAWN NOW (2026-09-26).** `zombie-stamps.js` + `zombie-stamps-data.js`
+> hold stamps -- buildings drawn as text on the 20px cell -- and `placeStampAt()` puts them
+> down ahead of `makeBuilding`, which survives only as the fallback. Drawn in
+> `zombie/stamp-builder.html`, playtested with `Zombie.html?sandbox=1&solo=1#stamp=...`
+> (`zombie-sandbox.js`). See `LEVEL_BUILDER_PLAN.md`, whose top block is the how-to.
+>
+> Measured over 24 seeds the day it landed: buildings a map **3.1 -> 16.3**, open-corner
+> buildings **100% -> 0%**, furniture on a wall **29% -> 0%**, and the five sectors that got
+> nothing on any seed (centre, cold, kennel, pump, turbine) all get buildings.
+>
+> **Three rules it had to learn, all of them ones this file already states in other words:**
+> stamps are **snapped to the 20px lattice** (an 80px door 11px off the nav grid sealed a
+> whole building to the flow field); `STAMP_CLEAR` is **90, not 40**, because a 40px gap is
+> neither closed nor walkable and took nav reachability 0.0010% -> 0.3263%; and stamps measure
+> clearance **from the openings themselves**, not `nearZoneBoundary`'s blanket 150px, which is
+> the whole arm in a three-row sector -- the identical finding THE KENNELS made in 2026-09-20.
+>
 > **Two scripts to run when the map moves (2026-09-24):**
 > `node scripts/measure-zombie-nav.js` is the unreachable-cell measurement this file has asked
 > for since 2026-09-19 and that was rewritten from scratch every time; it is a script now.
@@ -2056,12 +2079,12 @@ the modulo, which measures 187–210 of 800 for each of the four.
 
 ## Known gaps
 
-- **Buildings are broken on most maps (audit 2026-09-21, `MAP_VISUAL_AUDIT.md` §1.1).** 95% have
-  an open corner: `makeBuilding`'s "bite" removes shell spans but never walls the bite's inner
-  edges. 26% of furniture overlaps walls and 23% of stairs stand outside the building, because
-  decor is placed against the full rect. Building windows use the barricade art. **Deliberately
-  not patched.** Buildings are to be hand-authored as stamps (`LEVEL_BUILDER_PLAN.md`), and the
-  visual direction is being reconsidered first (`MAP_VISUAL_AUDIT.md` §4).
+- ~~**Buildings are broken on most maps (audit 2026-09-21, `MAP_VISUAL_AUDIT.md` §1.1).** 95%
+  have an open corner; 26% of furniture overlaps walls; 23% of stairs stand outside.~~
+  **Answered 2026-09-26 by hand-authored stamps** -- all three measure 0% now. `makeBuilding`
+  still has every one of those defects and is still the fallback in a sector with no stamp
+  that fits, so the way to finish this is to draw stamps until it is never reached, not to
+  patch it. Building windows still use the barricade art.
 
 - ~~**A solo player cannot be revived.** Downed needs another *alive* player in the room, which is
   now necessarily a networked teammate. Playing alone, going down is a 25-second crawl that ends
@@ -2105,4 +2128,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 1fab4aad | 2026-09-26 -->
+<!-- doc-sync: 72a99f55 | 2026-09-26 -->

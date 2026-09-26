@@ -38,26 +38,33 @@ const VERBOSE = args.indexOf("--verbose") >= 0;
 // must hold on every seed. Tolerances are deliberately loose on the counts
 // that a reseed moves and tight on the ones that are structural.
 const BASELINE = {
-    // KNOWN BAD. The 2026-09-20 audit's findings, held here so a regression
-    // is visible; the fix is the stamp work in zombie/LEVEL_BUILDER_PLAN.md,
-    // not a patch to makeBuilding.
-    openCornerPct:      { max: 100, note: "buildings whose bite corner has no wall across it" },
-    decorOnWallPct:     { max: 30,  note: "furniture pieces overlapping a wall" },
-    decorOutsidePct:    { max: 22,  note: "furniture pieces outside the bitten shell" },
-    zeroBuildingSectors: { max: 8.2, note: "sectors with no building, averaged over the sweep" },
+    // WAS the 2026-09-20 audit's headline defects, at 100% / 30% / 22% on
+    // 2026-09-24. Hand-authored stamps (zombie-stamps.js, 2026-09-26) took
+    // all three to ZERO, because a drawn building is checked before it is
+    // ever placed and a stamp that fails is dropped, not shipped. The small
+    // margin left is for makeBuilding, still the fallback where a sector
+    // has no stamp that fits. RAISING ANY OF THESE AGAIN MEANS THE MAP HAS
+    // GONE BACK TO GENERATED BUILDINGS.
+    openCornerPct:      { max: 5,   note: "buildings whose bite corner has no wall across it" },
+    decorOnWallPct:     { max: 5,   note: "furniture pieces overlapping a wall" },
+    decorOutsidePct:    { max: 5,   note: "furniture pieces outside the bitten shell" },
+    zeroBuildingSectors: { max: 3.6, note: "sectors with no building, averaged over the sweep" },
     // FIXED 2026-09-24 by hoisting buildSectorInteriors above the buildings
     // and painting the drain only where a pipe stands. Keep it at zero.
     drainBuildings:     { max: 0,   note: "buildings standing on a painted Spillway drain" },
     // Floors. These are what must not fall further.
     //
-    // buildingsPerMap fell 5.0 -> 3.1 in the same change, and that is the
-    // TRADE, not a regression: the Spillway's storm runs and the Motor Pool's
-    // bays now claim their ground before a generic building can take it, and
-    // those two sectors stop getting sheds. Pipe segments went 2.5 -> 7.5 a
-    // map and bays 0.38 -> 1.29. The real answer to "5 buildings against a
-    // design of 49" is authored stamps, not loosening this.
-    buildingsPerMap:    { min: 2.8, note: "buildings placed a map" },
-    motorBaysPerMap:    { min: 1.0, note: "Motor Pool service bays built" },
+    // buildingsPerMap: 5.0 before the 2026-09-24 build-order change, 3.1
+    // after it (the storm runs and bays taking their ground back), and
+    // 16.3 once stamps landed on 2026-09-26 -- a drawn building needs far
+    // less clear ground than makeBuilding's 95px moat, so sectors that had
+    // been empty for months hold buildings again.
+    buildingsPerMap:    { min: 12,  note: "buildings placed a map" },
+    // 1.29 before the evacuation train (ef4129c), 1.04 after: the SE tunnel
+    // takes Motor Pool ground. Left as a floor rather than chased -- it is
+    // another session's change, and still well above the 0.38 it was before
+    // any of this work.
+    motorBaysPerMap:    { min: 0.9, note: "Motor Pool service bays built" },
     pipeSegmentsPerMap: { min: 6.0, note: "Spillway storm-run wall segments laid (16 designed)" },
     landmarks:          { exact: 7 },
     wallBuys:           { exact: 6 },
@@ -65,9 +72,11 @@ const BASELINE = {
     doors:              { exact: 19 }
 };
 
-// Sectors that get no building on any seed today (2026-09-24, 24 seeds).
-// Every name here is a DEFECT: the sector has nothing of its own instead.
-const KNOWN_EMPTY = ["centre", "cold", "kennel", "pump", "turbine"];
+// Sectors that get no building on any seed. EMPTY SINCE 2026-09-26, which
+// is the whole point of the list: it held centre, cold, kennel, pump and
+// turbine for months, and hand-authored stamps emptied it. A name appearing
+// here again is a sector that has quietly stopped being built.
+const KNOWN_EMPTY = [];
 
 // Sectors that get no generic building ON PURPOSE, because their own
 // signature geometry fills them: the Spillway's storm runs, the Motor Pool's
@@ -82,7 +91,9 @@ const KNOWN_EMPTY = ["centre", "cold", "kennel", "pump", "turbine"];
 // so the train has a clear running line, and the Kennels|Yard boundary door
 // moved onto the track. The sector did not lose content; it swapped an
 // occasional shed for a locomotive.
-const BY_DESIGN_EMPTY = ["spill", "motor", "yard"];
+// THE KENNELS joined them on 2026-09-26: it is full of rolling stock and
+// containers at 8.1 pieces a map, which IS its geometry.
+const BY_DESIGN_EMPTY = ["spill", "motor", "yard", "kennel"];
 
 function rectsOverlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;

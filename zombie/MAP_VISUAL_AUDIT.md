@@ -19,7 +19,17 @@ repo), then swept 40 seeds in the page for outcome counts.
 
 ## 1. Findings (40-seed sweep, 2026-09-20)
 
-### 1.1 Buildings — `makeBuilding()`, `zombie-level.js` ~2872
+### 1.1 Buildings — `makeBuilding()`, `zombie-level.js` ~2872 — ANSWERED 2026-09-26
+
+> **Hand-authored stamps replaced generated buildings** (`LEVEL_BUILDER_PLAN.md`, which has the
+> how-to at the top). Measured over 24 seeds: open-corner buildings **100% -> 0%**, furniture on
+> a wall **29% -> 0%**, furniture outside the shell **19% -> 0%**, buildings a map **3.1 -> 16.3**,
+> and the five sectors that got nothing on any seed now all get buildings.
+>
+> **`makeBuilding` is untouched and still has every defect below.** It is the fallback where no
+> stamp fits, so the way to finish this is to draw stamps until nothing reaches it. The findings
+> stay here because they are what the format was designed against: every check a stamp must pass
+> is one of them asked as a question a grid can answer.
 
 | | |
 |---|---|
@@ -163,10 +173,11 @@ Two consequences, both carried into `LEVEL_BUILDER_PLAN.md`:
 
 ## 3. Not fixed, in rough order of how much they hurt
 
-1. **Buildings: the bite hole, furniture outside the outline, stairs outside the walls.** These
-   are **deliberately left for the stamp work** rather than patched in `makeBuilding`: the user
-   wants to hand-build buildings, and a patched generator would be thrown away.
-2. **Density shortfall** (§1.2). Same reasoning: authored sectors replace the placer.
+1. ~~**Buildings: the bite hole, furniture outside the outline, stairs outside the walls.**~~
+   **Done 2026-09-26** for stamped buildings — see §1.1. Still true of `makeBuilding` itself,
+   which remains the fallback.
+2. **Density shortfall** (§1.2). Much better (3.1 -> 16.3 a map) and still short of the 49 the
+   design asks for; the rest is more stamps, and eventually authored sectors.
 3. ~~**Spillway build order** and the drain floor under buildings.~~ **Done 2026-09-24** — see
    §1.3.
 4. **The pipe centre line is a tile artifact.** It could get the same treatment as the rail

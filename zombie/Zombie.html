@@ -493,6 +493,11 @@
 <!-- The score: needs audioCtx / audioMaster from zombie-audio.js above.
      Declares only; gameLoop drives it. -->
 <script src="zombie-music.js"></script>
+<!-- Hand-authored building stamps (2026-09-26): the format and checks,
+     then the library you paste drawings into. Before the level, which
+     places them. zombie/stamp-builder.html is the editor. -->
+<script src="zombie-stamps.js"></script>
+<script src="zombie-stamps-data.js"></script>
 <script src="zombie-level.js"></script>
 <script src="zombie-entities.js"></script>
 <script src="zombie-endgame.js"></script>
@@ -508,6 +513,10 @@
 <script src="zombie-render.js"></script>
 <!-- LAST: it reads names every file above declares, and registers only. -->
 <script src="zombie-dev.js"></script>
+<!-- The stamp sandbox (2026-09-26): ?sandbox=1#stamp=... drops a
+     drawing into the real map. After zombie-dev.js, whose NO ZOMBIES
+     flag it sets, and it wraps spawnPlayer rather than editing it. -->
+<script src="zombie-sandbox.js"></script>
 <script>
     // After the game scripts, so nothing here races their declarations.
     // configure() also starts the SDK load: a run ending should not then be

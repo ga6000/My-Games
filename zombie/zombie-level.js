@@ -1049,6 +1049,7 @@ function generateLevel() {
     kennelRun = null;
     railcars = [];
     railPaths = [];
+    stampMisses = {};
     // ALT: spurLanes was never cleared here, so after a restart onSpurLane()
     // tested against the PREVIOUS level's lanes as well as this one's. The
     // lanes are pure geometry and identical every seed, which is exactly why
@@ -1106,6 +1107,12 @@ function generateLevel() {
     // generic building, the same call already made for the rail spur, the
     // container maze and the Kennels. See zombie/MAP_VISUAL_AUDIT.md 1.3.
     buildSectorInteriors();
+    // THE STAMP UNDER TEST GETS FIRST PICK (zombie-sandbox.js), ahead of
+    // the generic buildings and behind the sector's own geometry. Placed
+    // at the end of generation instead, an 18x12 block found nowhere left
+    // in COLD STORAGE to stand -- which is true of the map and useless as
+    // a way to look at a drawing.
+    if (typeof ZSANDBOX !== "undefined") ZSANDBOX.place();
     buildZoneContents();
     // AFTER the sluice (the south wall has to know where the escape gate is,
     // so it does not put a culvert beside it) and AFTER the zone contents.
@@ -3121,11 +3128,166 @@ const SECTOR_BUILDING = {
     centre:  "office"
 };
 
+// HAND-AUTHORED STAMPS COME FIRST (2026-09-26).
+//
+// A stamp is a building somebody DREW (zombie-stamps.js, drawn in
+// zombie/stamp-builder.html). Where one exists for this sector it is used
+// instead of makeBuilding, which is the generator that ships 95% of its
+// buildings with an open corner and a quarter of its furniture on a wall.
+//
+// The generator is still the fallback, not deleted: a sector with no
+// stamps yet must still get buildings, and the point of the stamp work is
+// to retire makeBuilding sector by sector rather than in one jump.
+//
+// THE CLEARANCE IS SMALLER FOR A STAMP. makeBuilding demands 95px clear of
+// reserved ground on every side, which is most of why COLD STORAGE got
+// zero buildings on every seed -- its bounding box is mostly boundary
+// reserve and hall. A drawn building is a known shape with known doors;
+// it needs room to stand, not a moat.
+// A GAP IS EITHER CLOSED OR WALKABLE, NEVER IN BETWEEN -- the rule that
+// KENNEL_END_GAP, segmentedWall and the boundary-spur clipping all exist
+// to keep. 40 broke it and the measurement said so immediately: stamps
+// landed 40px apart, which is half the 78px nav guarantee, and map-wide
+// unreachable nav cells went 0.0010% -> 0.3263% (575 cells, 123 on one
+// seed) -- a free safe spot for a player and a trap for any zombie.
+//
+// 90 is the same figure as the lane between two Kennels pieces: over the
+// guarantee, so two buildings standing side by side leave an alley you
+// can actually run down.
+const STAMP_CLEAR = 90;
+// Clear of a DOORWAY, measured from the opening itself -- not the blanket
+// 150px inward margin nearZoneBoundary applies along every boundary.
+//
+// This is the Kennels' finding applied again (see KENNEL_DOOR_CLEAR in
+// this file): that margin reserves 150px inward from every boundary,
+// which in a sector built of three-row arms is the whole arm. Measured
+// here over 8 maps before the change, `boundary` was the single biggest
+// rejection reason in five sectors of nine -- 3,012 rejections in COLD
+// STORAGE alone, which is why it got 0.3 buildings a map.
+//
+// 90 is over the 78px nav guarantee, so a doorway keeps a walkable
+// approach; what it stops being is a moat.
+const STAMP_DOOR_CLEAR = 90;
+
+// WHY A STAMP DID NOT GO DOWN, counted per sector. The whole audit was
+// about placement failing silently; a system built to answer that has no
+// business being silent itself. scripts/check-map-features.js prints it.
+let stampMisses = {};
+
+function stampMiss(z, why) {
+    const key = (zoneInfo[z] && zoneInfo[z].tpl) ? zoneInfo[z].tpl.key : "?";
+    if (!stampMisses[key]) stampMisses[key] = { placed: 0, zone: 0, boundary: 0, reserved: 0, solid: 0 };
+    stampMisses[key][why]++;
+}
+
+// `force` is the sandbox's: it keeps the sector and the do-not-overlap
+// rules and drops the CLEARANCE ones, so a drawing too big for the ground
+// still gets shown to whoever drew it. The map never passes it.
+function placeStampAt(stamp, x, y, z, kindFallback, force) {
+    // SNAPPED TO THE CELL, and this is not tidiness.
+    //
+    // The nav grid is NAV_CELL (20) anchored at world 0, and a cell is
+    // passable only if nothing solid touches it padded by NAV_PAD -- so an
+    // 80px door sitting 11px off the lattice can lose its whole clear
+    // column to grid alignment, and the flow field then cannot enter the
+    // building at all. Measured: 16 unreachable cells on seed 1137 were
+    // the entire inside of one hut, sealed to the pathfinder while being
+    // perfectly walkable to a player.
+    //
+    // Snapping makes a 4-cell door exactly 4 nav cells, which is the
+    // arithmetic the 78px guarantee was written against.
+    x = Math.round(x / STAMP_CELL) * STAMP_CELL;
+    y = Math.round(y / STAMP_CELL) * STAMP_CELL;
+    const geom = ZS.build(stamp, x, y);
+    const box = { x: geom.x, y: geom.y, w: geom.w, h: geom.h };
+
+    // All four corners in the sector, same rule as a generated building:
+    // a building straddling a painted boundary reads as a wall dropped
+    // across the edge of two sectors.
+    if (z !== undefined) {
+        if (!inZone(box.x, box.y, z) || !inZone(box.x + box.w, box.y, z) ||
+            !inZone(box.x, box.y + box.h, z) || !inZone(box.x + box.w, box.y + box.h, z)) {
+            stampMiss(z, "zone"); return false;
+        }
+    }
+    if (!force && !clearOfOpenings(box, STAMP_DOOR_CLEAR)) { stampMiss(z, "boundary"); return false; }
+    // Never on the running line: the spur's reserve is soft (so the
+    // Kennels' stock can stand beside it) and would not stop a building.
+    if (!force && typeof onSpurLane === "function" && onSpurLane(box, 20)) {
+        stampMiss(z, "reserved"); return false;
+    }
+    const resPad = force ? 0 : STAMP_CLEAR;
+    if (clashesReservedHard({ x: box.x - resPad, y: box.y - resPad,
+                              w: box.w + resPad * 2, h: box.h + resPad * 2 })) {
+        stampMiss(z, "reserved"); return false;
+    }
+    // The SAME clearance against anything already solid -- a boundary
+    // wall, a container, a landmark's body. Tested at 8px it left 10-80px
+    // slivers between a stamp and a wall, which is the unwalkable-gap rule
+    // broken again in a second place; it was most of the 136 unreachable
+    // cells left after STAMP_CLEAR went to 90.
+    const solidPad = force ? 4 : STAMP_CLEAR;
+    if (rectBlockedStatic({ x: box.x - solidPad, y: box.y - solidPad,
+                            w: box.w + solidPad * 2, h: box.h + solidPad * 2 })) {
+        stampMiss(z, "solid"); return false;
+    }
+    stampMiss(z, "placed");
+
+    for (let i = 0; i < geom.walls.length; i++) walls.push(geom.walls[i]);
+    for (let i = 0; i < geom.windows.length; i++) {
+        const win = geom.windows[i];
+        barricades.push({ x: win.x, y: win.y, w: win.w, h: win.h,
+                          hp: 60, maxHp: 60, chewUntil: 0 });
+    }
+    // Floors: the stamp's own cells only, so an L-shaped stamp does not
+    // paint the ground it does not stand on.
+    if (typeof zfPatch === "function") {
+        const tile = zfInteriorAt(box.x + box.w / 2, box.y + box.h / 2);
+        for (let i = 0; i < geom.floors.length; i++) {
+            const f = geom.floors[i];
+            zfPatch(f.x, f.y, f.w, f.h, tile);
+        }
+    }
+    // A loot slot is a crate, now. Wall-buy and perk slots are recorded
+    // and not yet used -- placeWallBuys and placeCardStations still run
+    // their own search, and handing them the slots is phase 4.
+    for (let i = 0; i < geom.slots.length; i++) {
+        const slot = geom.slots[i];
+        if (slot.kind !== "loot") continue;
+        ammoCrates.push({ x: Math.round(slot.x + slot.w / 2 - 16),
+                          y: Math.round(slot.y + slot.h / 2 - 16), size: 32, uses: 3 });
+    }
+
+    buildingRooms.push({ x: box.x, y: box.y, w: box.w, h: box.h,
+                         kind: geom.kind || kindFallback || "office",
+                         decor: geom.decor, stamp: stamp.name, bite: null });
+    reservedRects.push(box);
+    return true;
+}
+
 function buildZoneBuildings(b, count, z) {
     const key = (zoneInfo[z] && zoneInfo[z].tpl) ? zoneInfo[z].tpl.key : "centre";
     const kind = SECTOR_BUILDING[key] || "office";
+    const stamps = (typeof ZS !== "undefined") ? ZS.forSector(key) : [];
     let made = 0;
     let attempts = 0;
+
+    // Stamps first, then whatever count is left falls to the generator.
+    if (stamps.length) {
+        let tries = 0;
+        while (made < count && tries < count * 60) {
+            tries++;
+            let stamp = stamps[Math.floor(MP.random() * stamps.length)];
+            if (stamp.rotate !== "none") {
+                stamp = ZS.rotate(stamp, Math.floor(MP.random() * 4), MP.random() < 0.5);
+            }
+            const sw = stamp.w * STAMP_CELL, sh = stamp.h * STAMP_CELL;
+            const x = Math.round(b.x + 60 + MP.random() * Math.max(1, b.w - 120 - sw));
+            const y = Math.round(b.y + 60 + MP.random() * Math.max(1, b.h - 120 - sh));
+            if (placeStampAt(stamp, x, y, z, kind)) made++;
+        }
+    }
+
     while (made < count && attempts < count * 40) {
         attempts++;
         const bw = 190 + MP.random() * 150;

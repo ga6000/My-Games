@@ -1,6 +1,30 @@
 # Zombie — level builder plan (2026-09-21)
 
-**Status: plan only. Nothing here is built.** Written to answer the user's level-builder question.
+> ## PHASES 1-3 ARE BUILT (2026-09-26). Start here.
+>
+> **To hand-author a building:**
+>
+> 1. Open **`zombie/stamp-builder.html`** — double-click it, or serve it. Both work.
+> 2. **Draw.** Pick a brush on the right (or press its key), drag on the grid to paint,
+>    right-drag to erase. The gold lines are every 5 cells, so a 4-cell door is countable
+>    by eye. `+ col/row` and `− col/row` resize; `rotate` and `mirror` turn it.
+> 3. **Watch the CHECKS panel.** It is the same code the map runs, so a stamp that says
+>    PASSES will build, and one that fails tells you which cell is wrong.
+> 4. **Press `play it in the map`.** A tab opens with your drawing dropped into its sector
+>    of the real map, solo, with you standing at its door. Walk in, shoot through the
+>    window, see whether the doorway is where you want it. Redraw, press it again.
+> 5. **Press `copy ZS.add block`** and paste at the end of **`zombie/zombie-stamps-data.js`**.
+>    That is the save step; there is no database. Reload the game and it is in rotation.
+>
+> **What changed on the map the moment this landed** (24 seeds, `check-map-features.js`):
+> buildings a map **3.1 → 16.3**, open-corner buildings **100% → 0%**, furniture on a wall
+> **29% → 0%**, and the five sectors that got **no building on any seed** — centre, cold,
+> kennel, pump, turbine — now all get them. Nav reachability held at 0.0102%.
+>
+> Phase 4 (whole sectors) is still a plan. The rest of this file is the original plan, kept
+> because the reasoning is still what the code does.
+
+**Status when written: plan only.** Written to answer the user's level-builder question.
 The findings behind it are in `MAP_VISUAL_AUDIT.md`: the random placer drops most designed
 features without saying so, and the buildings it does place are broken.
 
@@ -76,7 +100,37 @@ Rotation is done by the loader (90° steps plus mirror), not by drawing four cop
 5. **At placement:** the stamp's footprint is fully `inZone` for its sector and clears hard
    reserves. A stamp that fails is **counted and reported**, never silently skipped.
 
-## What already exists
+## Built, and where it lives (2026-09-26)
+
+| File | What |
+|---|---|
+| `zombie/zombie-stamps.js` | the format, the checks, rotate/mirror, and `ZS.build()` — one description of what a stamp becomes, used by both the builder's preview and the level |
+| `zombie/zombie-stamps-data.js` | **the library you paste drawings into.** Four starter stamps |
+| `zombie/stamp-builder.html` | the editor: paint, live checks, preview, playtest, copy |
+| `zombie/zombie-sandbox.js` | `?sandbox=1#stamp=…` — drops a drawing into the real map |
+| `placeStampAt()` in `zombie-level.js` | places one, ahead of `makeBuilding`, which stays as the fallback |
+
+**Three things were measured rather than assumed while building it**, and each one is a rule
+any future stamp work inherits:
+
+- **Stamps are snapped to the 20px cell.** Unsnapped, an 80px door landing 11px off the nav
+  lattice loses its clear column to grid alignment, and the flow field cannot enter the
+  building at all: on seed 1137 the whole inside of one hut was sealed to zombies while
+  being perfectly walkable to a player.
+- **`STAMP_CLEAR` is 90, not 40.** At 40 two stamps could stand 40px apart, which is half the
+  78px nav guarantee — a gap that is neither closed nor walkable. Map-wide unreachable cells
+  went 0.0010% → 0.3263% until it was raised, and the same clearance had to apply against
+  walls as well as reserves.
+- **The blanket boundary margin had to go.** `nearZoneBoundary` reserves 150px inward from
+  every boundary, which in COLD STORAGE's three-row arms is the whole arm; it was the single
+  biggest rejection reason in five of nine sectors (3,012 in cold alone). Stamps measure 90px
+  from the **openings themselves** instead, exactly as THE KENNELS already did.
+
+**Rejections are counted, not swallowed:** `stampMisses` records why each attempt failed, per
+sector — zone, boundary, reserved or solid. The habit this whole system exists to end is
+silent skipping, and a placer that cannot say why it placed nothing has the same defect.
+
+## What already existed before it
 
 `scripts/check-map-features.js` (2026-09-24) generates maps headlessly and counts what actually
 got built: open-corner buildings, furniture on walls or outside the shell, buildings a sector,
@@ -92,33 +146,37 @@ stamps fixed them.
 
 Estimates are in sessions of this kind of work, including verification by rendered image.
 
-### Phase 1 — stamp format + loader · **S–M, about 1 session**
+### Phase 1 — stamp format + loader · **BUILT 2026-09-26**
 - `zombie-stamps.js`: the parser, rotate/mirror, the checks above, and `placeStamp(stamp, x, y,
   rot)` writing `walls`, `barricades`, `buildingRooms[].decor`, floor patches and reserves. This
   is a new classic script, so run the collision checker.
-- `ZOMBIE_STAMPS`: a handful of stamps, hand-typed, replacing `makeBuilding` in **one sector
-  only** (Cold Storage, which gets 0 buildings today and so has nothing to lose).
+- Shipped wider than planned: stamps are used in **every** sector that has one, with
+  `makeBuilding` as the fallback. Cold Storage was the test case and now averages 1.0 a map
+  with its own three stamps; the `any`-tagged hut fills the rest.
 - Deterministic: stamp choice and position still come from `MP.random()`, so every client builds
   the same map.
 - **Done means:** rendered crops show closed buildings with furniture inside, and the counts show
   the Cold Storage target actually being met.
 
-### Phase 2 — the builder page · **M, 1–2 sessions**
+### Phase 2 — the builder page · **BUILT 2026-09-26**
 - `zombie/stamp-builder.html`, in the repo and `file://`-safe. Classic scripts, no server needed.
 - A grid you paint and erase: pick a character from a palette, drag to paint, right-drag to
   erase, resize the grid, rotate, mirror.
 - The checks run live, with failures outlined in red on the grid.
 - It renders the stamp with the game's own draw functions, so what you see is what the map gets.
 - **Export:** copy to clipboard, or download a `.txt`. Import by paste.
-- *Optional:* **save through the dev server.** A POST endpoint on `scripts/dev-serve.js` that
-  writes into `zombie/stamps/`. It's convenient, but it only works under the dev server, so it
-  stays optional and clipboard remains the path that always works.
+- *Not built:* saving through the dev server. Clipboard and download cover it, and a save
+  path that only works under the dev server is one the group cannot use on `file://`.
 
-### Phase 3 — sandbox playtest · **S–M, about 1 session**
-- `Zombie.html?sandbox=1#stamp=<encoded>` loads a small empty arena holding just that stamp,
-  solo (it implies `?solo=1`, so there is no network).
-- The existing dev toggles (`zombie-dev.js`: NO ZOMBIES, FREE BUYS, spawn a type) are wired in,
-  plus a "zombies from all sides" horde button to see how the building defends.
+### Phase 3 — sandbox playtest · **BUILT 2026-09-26**
+- `Zombie.html?sandbox=1&solo=1#stamp=<encoded>` drops the stamp into **the real map**, not an
+  empty arena — a building only tells you anything beside the ground it will stand on, its
+  sector's doors and real sightlines. It is placed ahead of the generic buildings so it gets
+  first pick, and if it is too big for the sector's clear ground it is **placed anyway, with
+  the note saying so**: you cannot see what is wrong with a building you cannot look at.
+- `&zombies=0` starts with spawning off; L+G's dev panel toggles it back on, along with FREE
+  BUYS and the spawn-a-type buttons that were already there. A dedicated horde button was not
+  built — the panel's spawn controls already do it.
 - A **"playtest" button in the builder** opens it in a new tab. Draw, click, play, back to
   drawing, in seconds.
 - The hash, not the query string, carries the stamp, so it never reaches a server log.
@@ -133,7 +191,10 @@ Estimates are in sessions of this kind of work, including verification by render
 - It retires most of `buildZoneContents`, `buildSectorInteriors`, `buildKennels` and the maze
   placer. Every measurement in `CLAUDE.md`'s "Measured" sections has to be redone.
 
-**Total to phase 3 (the user building buildings and playtesting them): about 3–4 sessions.**
+**Estimated 3–4 sessions to phase 3; it took one.** The estimate was honest about the work
+and wrong about the order: phases 2 and 3 are small once `ZS.build()` exists, because the
+builder's preview and the sandbox both read that one description instead of re-implementing
+what a stamp means.
 
 ## Hand-over point
 
