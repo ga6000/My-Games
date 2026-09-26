@@ -47,6 +47,13 @@ shooters. Adding four games' worth of message types to it would turn it into a j
 | Server generates a **room seed** | Sent to everyone on join. This is what makes all clients generate the *same world*. See §2 — it's the thing that's actually missing today. |
 | Server computes **color from name** | Resolves the long-standing debt where `CLAUDE.md` claims identity is server-side but it's actually duplicated client-side. Server is now authoritative; clients use what they're given. |
 
+> **A VARIANT IS A DIFFERENT `game` ID, 2026-09-25.** `zombie-alt/` (the evacuation-train
+> playtest, a fork of `zombie/` — see `zombie-alt/CLAUDE.md`) connects as **`game: "zombie-alt"`**
+> and keys its tab token on `zombiealt_tab_token`. That is not tidiness: the two build **different
+> worlds from the same seed**, so a mixed room would desync on the first frame. **Any future
+> variant of an existing game needs its own id for the same reason** — the room namespace is the
+> only thing standing between two incompatible level generators and one shared seed.
+
 **Backwards compatibility is mandatory** — the deployed hub and Gyro Space talk to this server
 right now. Any client that sends no `game` field lands in a legacy namespace and the existing
 `update` / `score-update` / `kill-credit` handlers keep working untouched. Nothing that works

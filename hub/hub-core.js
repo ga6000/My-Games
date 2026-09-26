@@ -54,10 +54,18 @@ const PAGE_SIZE = 6;
 // FIVE board games now play together and nothing on the board carries the
 // MULTIPLAYER SOON stamp any more. The stamp machinery below stays wired up --
 // it is what the shelf will come back through.
-// All 5 fit on one page at PAGE_SIZE = 6, so paging is currently a no-op
+// 2026-09-25: a SIXTH card, Zombie Alt. All 6 fit on one page at
+// PAGE_SIZE = 6, so paging is still a no-op
 // that stays wired up for when the list grows back.
 const GAMES = [
     { id: "zombie",               icon: "🧟",  title: "Zombie",               desc: "Co-op Survival",                 href: "zombie/Zombie.html", isNew: true, mp: true },
+    // A SECOND ZOMBIE CARD, 2026-09-25. Zombie Alt is the evacuation-train
+    // variant (zombie-alt/, zombie/TRAIN_RAIL_PLAN.md): the same map, but the
+    // objective chain ends in a locomotive you fuel, couple, start and drive
+    // out through a tunnel. It is a SEPARATE FOLDER and a separate MP game id
+    // ("zombie-alt"), so the two never share a room -- they build different
+    // worlds from the same seed and a mixed room would desync instantly.
+    { id: "zombie-alt",           icon: "🚂",  title: "Zombie Alt",           desc: "Evacuation Train (playtest)",    href: "zombie-alt/ZombieAlt.html", isNew: true, mp: true },
     { id: "space-tracer",         icon: "🚀",  title: "Space Tracer",         desc: "Multiplayer Ship Combat",        href: "gyro-space/space-tracer.html", isNew: true, mp: true },
     { id: "glass-city-escape",    icon: "🏙️",  title: "Glass City Escape",    desc: "Building-Hopping Race",          href: "glass-city-escape/glass_city_escape.html", isNew: true, mp: true },
     { id: "rd-arena",             icon: "🧫",  title: "RD Arena",             desc: "Reaction-Diffusion Arena",       href: "rd-arena/RDArena.html", isNew: true, mp: true },

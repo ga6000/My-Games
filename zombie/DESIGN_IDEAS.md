@@ -612,6 +612,14 @@ mechanic in the list that is strictly impossible alone, which makes it the stron
 statement that this is a co-op game. Use sparingly — one or two on the map.
 *Small, but it changes what the group is for.*
 
+> **SUPERSEDED 2026-09-25 by idea 69.** Built as the sluice gate, and it did exactly what this
+> entry promised — including the part that was always the cost: **a solo player could never finish
+> a run**, because the only win state sat behind it. The user's call is to replace the two standing
+> plates with **switches scattered around the map** (solo: two, any order, they stay down; team:
+> one per player within a few seconds). A deliberate trade, not a repair — the game gives up its
+> strongest co-op statement to gain a chain one person can finish. The reasoning and the five
+> things to get right are in `DESIGN_IDEAS_2.md` §8.5.
+
 ---
 
 ## E. The rail line (2026-09-24)
@@ -632,6 +640,14 @@ through are already barricades.
 `MAP_VISUAL_AUDIT.md` §4.2). Noted at the user's request 2026-09-24 because the track now
 exists; nothing is planned.*
 
+> **Superseded the same day (2026-09-24) by Part 7.** A vehicle that runs continuously on its own
+> schedule needs a **moving solid**, and this engine cannot have one cheaply: `rebuildNavGrid`
+> re-tests 240×135 nav cells and a rebuild was measured at **~14ms** — which is why barricades were
+> made permanently passable in the flow field, so a window breaking never dirties nav. A railcar
+> sliding along the track dirties it every frame, on the host, which also owns `broadcastWorld`.
+> Part 7 keeps the train **static for the whole run** and moves it only inside a scripted departure
+> sequence that owns the frame. The reasoning is in `DESIGN_IDEAS_2.md` §3.1.
+
 ---
 
 ## Where I would start
@@ -643,3 +659,218 @@ exists; nothing is planned.*
 5. **49 — the boss round**, then **51/52** for the between-sessions layer.
 
 Items 1 and 3 are a weekend. Item 2 is the real project.
+
+---
+
+# Part 7 — The evacuation train and the sector campaign (2026-09-24)
+
+From the user's second design pass, written the same day as idea 58. The proposal: reorganise the
+game around a long-horizon causal chain — *prepare → activate → transport → assemble → depart →
+reach the next sector* — with an **evacuation train** as the physical object that chain is about,
+and the current map demoted from "the map" to **SECTOR 01**.
+
+> **The full analysis is `zombie/DESIGN_IDEAS_2.md`** — what the proposal is right about, the eight
+> places it collides with code that is already built and already playtested, what I would build
+> instead, and in what order. This section is only the idea list. **Nothing below is built.**
+>
+> **SETTLED 2026-09-25, and it reorders everything here.** The user took the counter-argument in
+> `DESIGN_IDEAS_2.md` §2: **map quality and delivery come before any of this** — *"these are the
+> bones of everything future."* So `LEVEL_BUILDER_PLAN.md`, the art-direction decision and the
+> `MAP_VISUAL_AUDIT.md` §3 defect list go first. **61 is the one item that survives at the front**,
+> because it is delivery rather than content.
+>
+> The decisions taken the same day are recorded in `DESIGN_IDEAS_2.md` §8, and the train's
+> architecture — the 1-D physics model, the evaluation of the "gated hybrid" flow-field proposal,
+> and the measured per-frame costs — is **`zombie/TRAIN_RAIL_PLAN.md`**, tabled, to be built on its
+> own branch.
+
+**The finding that reframes all of it:** the chain the proposal asks for **already exists** —
+generator → sluice gate → silo 1 → silo 2 → silo 3 → flood → south gate, with hard dependencies,
+live progress, a ticked checklist in the ESC dialog and a `NEXT:` label above the minimap. What it
+lacks is not structure. It lacks a **referent** — a thing in the world the chain is visibly about.
+The generator needs no checklist because you can see the lights come on; the silos need one and are
+still opaque, because a full silo's only effect is another silo opening elsewhere.
+
+**The rule this pass is measured against**, taken from the proposal's own §17:
+
+> An objective must change what players are doing to each other, or change the world visibly. A
+> counter that goes up is neither.
+
+---
+
+## I. Give the chain a subject
+
+**59. The evacuation train, at the rail head in the south-east.** A locomotive and three cars,
+standing dark at the rail head.
+
+> **Revised 2026-09-25: the train does NOT replace the south gate.** The gate becomes a **tunnel
+> mouth** that grinds open once the locomotive is started, with the horde running concurrently —
+> so `ESCAPE_OPEN_MS` (90s) stops being a wait and becomes the clock on a fight. And the train is
+> **not static for the whole run**: it is static only until the departure, and shunting it around
+> under normal play is the point of the whole system (see 68). It exists from minute one so the chain has something
+to be about. The spur is already real geometry and it already **dead-ends at y 2660, twenty pixels
+short of the southern perimeter wall, in the south-east corner** — nobody planned that as an exit,
+it fell out of running leg B deep enough into THE MOTOR POOL for a flatcar to stand on. The exit
+moves there and the track becomes a route sign: anywhere you can see rails, the rails point at the
+way out. *Knock-ons: `buildEscapeOpening`, the culvert exclusion, and `PERIM_CORNER_CLEAR` — that
+corner was deliberately sealed on 2026-09-20 after wedging reports. Small–medium, and it moves
+every seed, so measure with `scripts/check-map-features.js` either side.*
+
+**60. The departure is a playable event, not a cut.** Today the flood clears, a slab grinds up for
+90s, you walk into it and a 2.6s sequence plays. Instead: the engine turns over, the lights come
+on, the horn sounds (non-positional, like the siren), the gate grinds — and then a **boarding
+window**, where everyone has to reach the rail head while the horde is still running and the train
+leaves on a timer. Then a scripted departure with the camera locked to the train and zombies coming
+off the flanks. *This reproduces Transit's real tension — being caught out when it leaves — without
+a vehicle that moves during play. It is `triggerWin()` grown up, and inherits its discipline: local
+per client, driven from `gameLoop` not `update()`, input and gameplay sound dead for the duration.
+Medium, and the highest-value item in this part.*
+
+**61. Name the chain, and put it on screen without ESC.** `FILL SILO 2 AND THROW ITS SWITCH` becomes
+`CHARGE TANK 2`, the dialog head becomes `SECTOR 01 — EVACUATION TRAIN — NOT READY`, and the
+current step plus the next one show on the HUD rather than only behind ESC. Plus one card on round
+1: **RESTORE THE EVACUATION TRAIN.** *This is a strings-and-one-overlay change. No new state, no
+new wire fields, no nav change — and it is most of the proposal's P0. Small.*
+
+**62. The train's tanks are the gauge; the causal link is signalled, not piped.** Three tanks on
+the locomotive, one per silo, each filling as its silo does. **Do not run a pipe from silo to
+train** — it would be a 2,000px run across four sectors, through the funnel halls, the maze, the
+keep and the sluice reserve, and the map has no notion of a decorative solid that placement
+respects. A short stub into the floor at each end, plus a lit line on the minimap, buys the same
+read for a fraction of the cost. *Note that silo and funnel were put **side by side** by a
+2026-09-18 playtest request, after the separated version proved unreadable; this must not quietly
+undo that. Small.*
+
+## II. Make the steps into situations
+
+**63. Three silos, three different spatial problems.** Silo 1 stays the tutorial in the sluice
+room. Silo 2 moves to a hall behind a bought door with a local horde on activation. Silo 3 goes to
+a **ring-2** sector, its hall's ends barricaded shut, and summons a named heavy when it starts.
+*Buy the variation from placement rules, not new mechanics: funnel halls are uniform by
+construction — 560×280, both ends pinched to exactly 140px, swept over 200 seeds — and that
+uniformity is what guarantees the nav clearance. `planFunnelHalls` already chooses zones; give each
+index a different rule. Medium.*
+
+**64. Objective verbs for the ENGINEER, the rocket and the flamethrower.** Every role is currently
+a passive multiplier, which is why nobody has ever said *"we need an Engineer for this."* Give the
+chain two or three steps the loadout interacts with: a **coupling** an Engineer closes in 4s and
+anyone else in 12; a **seized rail switch** a rocket clears in one shot; **infected growth** on the
+track that only fire touches. *The `F` seam and the host-validated buy seam already carry the
+generator, the silo switches, the manual and the horde switch, so this needs no new plumbing.
+Aim for "faster / possible at all", not "only the Engineer" — roles are **hashed from `netToken`,
+not chosen**, so a lobby can legitimately contain none. Medium, and the best value after 60.*
+
+> **Settled 2026-09-25: it is a TIME gate at 4x, never a capability gate.** ENGINEER 4s, anybody
+> else **16s**. No step is ever impossible for a team that rolled no Engineer, and 16s under a
+> horde is a real cost. **Reuse the same 4x shape** for the rocket and the flamethrower rather than
+> inventing a different gate per step.
+
+## III. The campaign — take carefully
+
+**65. SECTOR 01 → SECTOR 02.** `YOU GOT OUT` becomes `SECTOR 01 CLEARED`, and the train arrives
+somewhere new. **Try the cheap version first:** the same sector skeleton, reseeded, harder, renamed,
+carrying your loadout, round and scrap. `MP.reseed()` makes that nearly free and it tests whether
+"reach the next place" is actually motivating *before* anyone authors a second map. An authored
+Sector 02 sits behind `LEVEL_BUILDER_PLAN.md` phases 1–4 and the undecided art direction — four-plus
+sessions in front of it. *Large. Last.*
+
+> **Settled 2026-09-25: NOT YET — not even the cheap version.** It follows from the map-first
+> decision: a reseeded variant of a map whose buildings are 95% open-cornered tests nothing about
+> whether "reach the next place" is motivating. Revisit after the level builder.
+
+**66. What carries over.** Three railcars, 85% fuel, the Engineer alive, one player dead. *Needs 65,
+and three things first: `generateLevel()` clears the whole world (the 2026-09-07 mid-game map wipe
+is the scar), carry-over must ride the **snapshot** because any client can be promoted to host, and
+it must key to **`netToken`**, because socket ids are re-rolled on every reconnect — the same reason
+roles moved off them on 2026-09-19. Defer.*
+
+**67. Rounds escalate against the chain rather than becoming it.** The weak version only: the
+chain's own steps escalate, and the round curve keeps doing what it does. *Hard-coding "round 8 is
+the train event" re-times `budgetForRound`, the special-round divisors and `ultraOwed`, all of which
+are measured. Free, as a framing.*
+
+---
+
+## Rejected, and why
+
+| Proposal item | Why not |
+|---|---|
+| **Fuel as a second currency** | The game has one currency. A second one spent on one thing is a counter in a costume — call the silo count "fuel" and move on. |
+| **Nine sectors as nine train jobs** | Deletes the ring economy. Sectors are priced outward from spawn and their **stock** is the reason to travel (THE YARD's rocket is a 10,350-scrap trip; three placements were moved on 2026-09-20 off a measured east/west asymmetry). Conscripting all nine makes the objective route and the shopping route either disagree — doubling traversal — or agree, which deletes the door choice. Let the chain **pass through** two or three named sectors instead. |
+| **Physically assembling the train from scattered cars** | Needs moving solids. A filling gauge gives the same "we're getting closer" read for a tenth of the cost. |
+| **A branching world map** | Two maps do not need a map screen. Revisit at four. |
+| **Rounds as scripted story beats** | See 67. |
+| **"Two generators on opposite sides, simultaneously"** | **Already built** — that is the sluice gate's two plates, two locks. Don't build a second one. |
+
+## The thing to fix in the same pass, if the chain gets longer
+
+**A solo player already cannot finish a run** — the sluice gate needs two people, so the only win
+state is unreachable alone. Every step this part adds is another step a solo player will never see.
+If the chain grows, solo needs an answer alongside it (the cheapest: a flag that makes the gate a
+single long hold, the way `?solo=1` already keeps MP off the live server).
+
+## IV. Added 2026-09-25
+
+**68. The rail graph, and a train with ONE degree of freedom.** The long-term intent, recorded the
+same day: railcars on the line and on spurs, **the rocket bumps a car or the locomotive along the
+track**, a car rolling into the locomotive **couples** to it, coupled cars are fuel cars, and
+eventually **an open world connected by rail** where the tank sets how far the group reaches before
+refuelling. **Fuel therefore does become a second currency** — but one the player only ever touches
+*as railcar fuel*, never as a number to spend, which narrows the objection in "Rejected" above
+rather than answering it. Sector 1 stays at **three tanks**.
+
+The architecture is `zombie/TRAIN_RAIL_PLAN.md`, tabled, on its own branch when it happens. Two
+things from it worth having here:
+
+- **A train on rails has one degree of freedom.** Each car is a scalar — arc length along a path —
+  plus a velocity. Collisions are 1-D, coupling is "merge and sum the mass", and everything visible
+  is derived from that scalar. That is the whole of the "quasi-physics" ask, and it needs no
+  physics engine and no second frame of reference except for riders.
+- **The blocker is not pathfinding, it is that `railPaths` is a list, not a graph.** Measured over
+  10 seeds on 2026-09-25: **4.0 railPaths a map — one main line plus 3.0 sidings — and 0.0 of the
+  sidings touch the main line.** Of 7.0 railcars a map only **4.0** stand on the through line.
+  So "bump a car along the track" is meaningless for three cars in seven until junctions and points
+  exist. A rail graph is authored geometry, which puts it with `LEVEL_BUILDER_PLAN.md` phase 4.
+
+*Also corrected on 2026-09-25, because it changes the whole feasibility question: a moving solid
+costs **under 1ms a frame in the browser**, not the ~14ms `DESIGN_IDEAS_2.md` §3.1 first claimed.
+`refreshNavRegion()` already exists for door purchases and patches only the cells around one rect.
+The real constraints are a **~90px/s cap under normal play** (so the train stays inside one nav cell
+per 220ms field refresh), keeping the cars out of `walls[]`, and **never calling `markNavDirty()`**
+— which would trigger a full rebuild and up to three BFS fields every frame.*
+
+**69. Switches replace the sluice's standing plates.** The solo fix, and the user's design:
+two plates held simultaneously becomes **N switches scattered around the map**, placed with the ring
+economy in mind so reaching one is a cost. **Solo: two switches, any order, they stay down.
+Team: one switch per player, all thrown within X seconds.** Reuses the horde switch's lever art.
+
+This **supersedes idea 57** — the two-player gate, "the only mechanic in the list that is strictly
+impossible alone" — deliberately, in trade for solo play existing at all. Record it as a trade: the
+game loses its strongest statement that it is co-op and gains a chain a lone player can finish.
+
+*Five things to settle first, all of them existing scars — `DESIGN_IDEAS_2.md` §8.5 has the detail:
+fix the required count when the **first** switch is thrown and count only standing, non-AWAY
+players; **cap the count at 3 or 4**, because eight switches within X seconds across 4,800 × 2,700
+is ~5s of running before anyone arrives; measure X on the **host's clock on arrival** (3–5s, not 1)
+since that is the only clock there is; give the lever a visibly different state and prompt from the
+one-way horde switch; and treat placement as a **pricing** decision rather than a geometry one.*
+
+---
+
+## Where I would start — revised 2026-09-25
+
+**Zero. The map.** `LEVEL_BUILDER_PLAN.md` phases 1–3, the art-direction decision it depends on,
+and the `MAP_VISUAL_AUDIT.md` §3 defect list. The user's call, and the argument for it is
+`DESIGN_IDEAS_2.md` §2: the failure modes this game has actually shown are legibility, map quality
+and solo dead-ends, and a longer objective chain fixes none of them while making one worse.
+
+Then:
+
+1. **61 — name the chain, and put it on screen without ESC.** The one item that jumps the queue,
+   because it is delivery rather than content: strings, one overlay, one static solid, and it
+   pre-empts neither the art decision nor the builder.
+2. **69 — the switches**, which is the solo fix and is independent of everything else here.
+3. **60 — the departure event**, with 59's tunnel mouth. The climax is currently a door.
+4. **63 and 64** — depth, once the chain is legible.
+5. **68** — the rail graph and the 1-D train, on a branch, when the map is worth driving through.
+6. **65 / 66** — not yet.
