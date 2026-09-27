@@ -517,7 +517,7 @@ const ZMAPEDIT = (function () {
                 "   ( [ ] to change, R rotate " + (rot * 90) + "°, M mirror" + (mirror ? " ON" : "") + " )",
             "placed: " + ZMAP.placements.length + " buildings, " + ZMAP.props.length + " props" +
                 (ZMAP.report.missing.length ? "   BLOCKED: " + ZMAP.report.missing.length : ""),
-            "click place   right-click delete   middle-drag pan   wheel zoom" +
+            "click place   right-click delete   drag to move   arrows/middle-drag pan   +/-/0 zoom" +
                 (ghostWhy ? "     HERE: " + ghostWhy : ""),
             "E export   G regenerate   F freeze perimeter",
             "A buildings: " + (ZMAP.authoredOnly ? "ON" : "off") +
@@ -597,6 +597,21 @@ const ZMAPEDIT = (function () {
 
         window.addEventListener("keydown", function (ev) {
             const k = ev.key.toLowerCase();
+            // ARROW KEYS PAN, because middle-drag assumes a middle button
+            // and a trackpad does not have one. A screenful at a time with
+            // shift, a quarter otherwise.
+            // Fall back to a fixed world distance when the canvas has no
+            // size yet: a step computed from a 0-wide canvas is 0, and the
+            // key silently does nothing.
+            const stepX = (canvas.width ? canvas.width / zoom : 1200) * (ev.shiftKey ? 0.9 : 0.25);
+            const stepY = (canvas.height ? canvas.height / zoom : 800) * (ev.shiftKey ? 0.9 : 0.25);
+            if (ev.key === "ArrowLeft") { pan.x -= stepX; ev.preventDefault(); return; }
+            if (ev.key === "ArrowRight") { pan.x += stepX; ev.preventDefault(); return; }
+            if (ev.key === "ArrowUp") { pan.y -= stepY; ev.preventDefault(); return; }
+            if (ev.key === "ArrowDown") { pan.y += stepY; ev.preventDefault(); return; }
+            if (ev.key === "+" || ev.key === "=") { zoom = Math.min(MAX_ZOOM, zoom * 1.25); return; }
+            if (ev.key === "-" || ev.key === "_") { zoom = Math.max(MIN_ZOOM, zoom / 1.25); return; }
+            if (ev.key === "0") { fitZoom(); pan.x = WORLD_W / 2; pan.y = WORLD_H / 2; return; }
             if (ev.code === "Space") { mode = mode === "plan" ? "drawn" : "plan"; ev.preventDefault(); }
             else if (k === "[" || k === "]") {
                 const step = k === "]" ? 1 : -1;

@@ -45,7 +45,7 @@ revision of this table fixed an earlier count of 7 that omitted `zombie-audio.js
 | 10 | `zombie-render.js` | Draw, HUD, minimap, input, **boots the loop** |
 | 11 | `zombie-dev.js` | Dev-panel registration: the state readout and the playtest buttons. **Last** — it reads names every file above declares, registers, and (since 2026-09-18) wraps `hostHandleBuy`/`spawnZombie`/`spawnZombieAt`/`nearestPrompt` for the FREE BUYS / NO ZOMBIES toggles — see "Controls" |
 
-| 13 | `zombie-mapedit.js` | **The map editor** (2026-09-26): `?editor=1` takes the page over — the whole map, SPACE to flip between a schematic PLAN and the game's own `draw()`, click to place a building, E to export. Last, because it drives everything above it |
+| 13 | `zombie-mapedit.js` | **The map editor** (2026-09-26), opened by double-clicking `map-editor.html`, which redirects to `Zombie.html?editor=1&solo=1`: it takes the page over — the whole map, SPACE to flip between a schematic PLAN and the game's own `draw()`, click to place a building, E to export. Last, because it drives everything above it |
 | 12 | `zombie-sandbox.js` | **The stamp sandbox** (2026-09-26): `?sandbox=1&solo=1#stamp=...` drops a drawing into the real map and stands the player at its door. **After `zombie-dev.js`**, whose NO ZOMBIES flag `&zombies=0` sets, and it wraps `spawnPlayer` rather than editing it. Regenerates the level once at boot, because `zombie-game.js` has already built one by the time this file runs |
 
 *(A duplicate `zombie-endgame.js` tag on line 258 was removed 2026-09-02. It threw
@@ -2221,4 +2221,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 470921d5 | 2026-09-26 -->
+<!-- doc-sync: 8a755bf4 | 2026-09-26 -->

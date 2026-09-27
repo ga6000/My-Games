@@ -1,6 +1,11 @@
 # Zombie — level builder plan (2026-09-21)
 
-> ## THE MAP EDITOR (2026-09-26). Open `Zombie.html?editor=1&solo=1`.
+> ## THE MAP EDITOR (2026-09-26). **Double-click `zombie/map-editor.html`.**
+>
+> That file is a door: it redirects to `Zombie.html?editor=1&solo=1`, which is the editor. It
+> exists because the editor is the game in a mode — the DRAWN view is the game's own renderer over
+> a real level, and a separate editor page would be a second drawing free to disagree with the
+> first — and that left it reachable only by typing a query string nobody should have to know.
 >
 > Authoring moved onto the map itself, which is where it belongs: a building is only right or
 > wrong in the place it stands.
@@ -10,7 +15,7 @@
 > | **SPACE** | flip between PLAN (schematic: floors, solids, sector edges, the 20px grid) and DRAWN (the game's own renderer, with the light pocket off) |
 > | **click** | place the selected stamp, snapped to the cell |
 > | **right click** | delete the placement under the cursor |
-> | **middle-drag** | pan. **wheel** zooms about the cursor |
+> | **middle-drag** or **arrow keys** | pan (shift = a screenful). **wheel** or **+ / −** zooms; **0** re-fits the map |
 > | **`[` `]`** | change stamp. **R** rotate, **M** mirror |
 > | **G** | regenerate — every placement goes through the real generator |
 > | **A** | authored-only: turn the seeded building placer off |

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Zombie — Map Editor</title>
+<!--
+  A DOOR, not a page.
+
+  The map editor is Zombie itself in a mode (`zombie-mapedit.js`), because
+  the DRAWN view has to be the game's own renderer over a real generated
+  level -- a separate editor page would need its own copy of the floors,
+  the walls and the landmarks, and the day those two drawings disagreed is
+  the day the editor started lying.
+
+  That left the editor reachable only by typing ?editor=1&solo=1 onto the
+  end of the game's URL, which is a thing nobody should have to know. This
+  file exists so it can be double-clicked like everything else in the repo.
+-->
+<style>
+    body {
+        margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
+        background: #07090a; color: #C8D2D4;
+        font: 14px/1.7 "Courier New", Courier, monospace; text-align: center;
+    }
+    a { color: #FFB000; }
+    .box { max-width: 460px; }
+    h1 { font-size: 15px; color: #FFB000; letter-spacing: 2px; margin: 0 0 14px; }
+    .dim { color: #6D7B7E; }
+</style>
+</head>
+<body>
+<div class="box">
+    <h1>ZOMBIE — MAP EDITOR</h1>
+    <p>Opening the editor…</p>
+    <p><a id="go" href="Zombie.html?editor=1&amp;solo=1">Click here if it does not open by itself</a></p>
+    <p class="dim">SPACE flips plan / drawn &nbsp;·&nbsp; T changes tool &nbsp;·&nbsp; middle-drag or
+       arrow keys pan &nbsp;·&nbsp; E exports</p>
+</div>
+<script>
+    // Replace rather than assign, so Back goes where the user came from
+    // instead of bouncing through this page again.
+    window.location.replace("Zombie.html?editor=1&solo=1");
+</script>
+</body>
+</html>
