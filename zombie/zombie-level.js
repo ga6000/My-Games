@@ -2893,14 +2893,36 @@ function buildPerimeter() {
     buildEscapeOpening();
 
     // --- NORTH and WEST: forest ---
+    // Hand-planted instead, when the perimeter is authored: the authored
+    // trees go down in placeAuthoredProps with everything else.
     // Trunks are solid, so they break sightlines by being solid -- no third
     // notion of solidity, the same reasoning that keeps the strip curtains
     // in COLD STORAGE decorative and the container maze made of containers.
-    plantForest(0, 0, WORLD_W, FOREST_BAND);                    // north
-    plantForest(0, FOREST_BAND, FOREST_BAND, WORLD_H - FOREST_BAND); // west
+    if (typeof ZMAP === "undefined" || !ZMAP.authoredPerimeter) {
+        plantForest(0, 0, WORLD_W, FOREST_BAND);                    // north
+        plantForest(0, FOREST_BAND, FOREST_BAND, WORLD_H - FOREST_BAND); // west
+    }
 }
 
 function buildPerimeterWall(vertical, fixed, start, span, side) {
+    // AUTHORED MOUTHS REPLACE THE SEEDED ONES ENTIRELY when the perimeter
+    // is authored. Not "as well as": a hand-placed perimeter that also got
+    // seven random holes in it would not be a hand-placed perimeter.
+    if (typeof ZMAP !== "undefined" && ZMAP.authoredPerimeter) {
+        const hand = authoredMouthsFor(vertical, fixed, start, span, side);
+        let at0 = start;
+        for (let i = 0; i < hand.length; i++) {
+            const m = hand[i];
+            if (m > at0) pushPerimSeg(vertical, fixed, at0, m - at0);
+            culverts.push(vertical
+                ? { x: fixed, y: Math.round(m), w: WALL_T, h: PERIM_CULVERT, side: side }
+                : { x: Math.round(m), y: fixed, w: PERIM_CULVERT, h: WALL_T, side: side });
+            at0 = m + PERIM_CULVERT;
+        }
+        if (at0 < start + span) pushPerimSeg(vertical, fixed, at0, start + span - at0);
+        return;
+    }
+
     // Mouths first, then the wall between them.
     const mouths = [];
     const n = Math.max(2, Math.round(span / PERIM_CULVERT_GAP));
@@ -3460,12 +3482,41 @@ function placeAuthoredBuildings() {
 // The authored props that are simply objects: a crate is a crate wherever
 // it is put. Wall-buys and stations are not here -- they are consumed by
 // addWallBuy and placeCardStations, which know what a sector sells.
+// Authored culverts: a mouth through the hard wall, cut where it was put.
+// Runs INSIDE buildPerimeterWall, which is the only place that knows where
+// the wall segments are.
+function authoredMouthsFor(vertical, fixed, start, span, side) {
+    const out = [];
+    if (typeof ZMAP === "undefined") return out;
+    for (let i = 0; i < ZMAP.props.length; i++) {
+        const p = ZMAP.props[i];
+        if (p.kind !== "culvert") continue;
+        // A mouth belongs to the wall it is nearest, along the axis it runs.
+        const along = vertical ? p.y : p.x;
+        const across = vertical ? p.x : p.y;
+        if (Math.abs(across - fixed) > 120) continue;
+        if (along < start || along > start + span) continue;
+        out.push(along);
+    }
+    out.sort(function (a, b) { return a - b; });
+    return out;
+}
+
 function placeAuthoredProps() {
     if (typeof ZMAP === "undefined" || !ZMAP.props.length) return;
     for (let i = 0; i < authoredPropsLeft.length; i++) {
         const p = authoredPropsLeft[i];
         if (p.used) continue;
-        if (p.kind === "crate") {
+        if (p.kind === "tree") {
+            p.used = true;
+            const t = { x: p.x, y: p.y, w: FOREST_TRUNK, h: FOREST_TRUNK, trunk: true };
+            walls.push(t);
+            forestRects.push(t);
+            // Same self-reservation a seeded trunk takes: clumped trunks
+            // against a boundary make a pocket nothing can path into.
+            reservedRects.push({ x: p.x - 86, y: p.y - 86,
+                                 w: FOREST_TRUNK + 172, h: FOREST_TRUNK + 172 });
+        } else if (p.kind === "crate") {
             p.used = true;
             ammoCrates.push({ x: p.x, y: p.y, size: 32, uses: 3 });
             claimFloor(p.x, p.y, 32, 32, 30);

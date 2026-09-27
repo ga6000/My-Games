@@ -704,6 +704,9 @@ moved.
 > `placeCardStations` take the next unused authored spot **in that sector** and otherwise fall
 > back to their own search, so a half-authored map still works and what a sector *sells* stays a
 > balance decision (`SECTORS[].guns`, `PERK_SECTOR_HOMES`) rather than a placement one.
+> **The editor labels each spot with what actually landed there** — "wallbuy: RIFLE 1500" — read
+> off the built map after each regenerate rather than guessed, so the sector still decides and you
+> can still see what you placed.
 >
 > `stampBlockedReason()` is the one predicate behind all of it — the level places with it, and the
 > editor asks it under the cursor every frame to colour the ghost. An editor with its own idea of
@@ -2218,4 +2221,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: a1b3d028 | 2026-09-26 -->
+<!-- doc-sync: 470921d5 | 2026-09-26 -->

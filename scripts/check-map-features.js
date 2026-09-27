@@ -66,12 +66,14 @@ const BASELINE = {
     drainBuildings:     { max: 0,   note: "buildings standing on a painted Spillway drain" },
     // Floors. These are what must not fall further.
     //
-    // buildingsPerMap: 5.0 before the 2026-09-24 build-order change, 3.1
-    // after it (the storm runs and bays taking their ground back), and
-    // 16.3 once stamps landed on 2026-09-26 -- a drawn building needs far
-    // less clear ground than makeBuilding's 95px moat, so sectors that had
-    // been empty for months hold buildings again.
-    buildingsPerMap:    { min: 12,  note: "buildings placed a map" },
+    // buildingsPerMap has changed meaning (2026-09-26, ZMAP.authoredOnly).
+    // It was a quality number while the generator placed buildings: 5.0,
+    // then 3.1 after the build-order fix, then 16.3 once stamps landed.
+    // With the seeded placer OFF it is simply how many buildings have been
+    // authored, and it is the same on every seed. It rises as the map is
+    // drawn; the thing worth failing on is authoredMissing below, which
+    // says whether what was authored actually got built.
+    buildingsPerMap:    { min: 10,  note: "buildings placed a map (= authored, while authoredOnly)" },
     // 1.29 before the evacuation train (ef4129c), 1.04 after: the SE tunnel
     // takes Motor Pool ground. Left as a floor rather than chased -- it is
     // another session's change, and still well above the 0.38 it was before
@@ -178,6 +180,7 @@ function run() {
     const sectorBuildings = {};
     const invariants = { landmarks: [], wallBuys: [], stations: [], doors: [] };
     const failures = [];
+    let authoredOnly = false;
 
     for (let s = 0; s < SEEDS; s++) {
         const seed = 1000 + s * 137;
@@ -203,6 +206,7 @@ function run() {
         invariants.stations.push(read("cardStations.length"));
         invariants.doors.push(read("doors.length"));
         totals.authoredMissing += read("ZMAP.report.missing.length");
+        authoredOnly = !!read("ZMAP.authoredOnly");
 
         const perSector = {};
         for (let i = 0; i < keys.length; i++) perSector[keys[i]] = 0;
@@ -332,7 +336,18 @@ function run() {
                     "  (audit 2026-09-20; target is none)");
     }
     if (newEmpties.length) {
-        failures.push("sectors that NEWLY get zero buildings on every seed: " + newEmpties.join(", "));
+        // WITH THE MAP AUTHORED, an empty sector is a TO-DO, not a defect.
+        // ZMAP.authoredOnly means the buildings on the map are exactly the
+        // ones somebody placed, so a sector with none has not been drawn
+        // yet -- failing on that would fail on every commit until the whole
+        // map is hand-built, and a check that always fails is a check
+        // nobody reads. What still fails is a placement that was authored
+        // and did not build: authoredMissing, above.
+        if (authoredOnly) {
+            console.log("  NOT AUTHORED YET (the map is hand-built now): " + newEmpties.join(", "));
+        } else {
+            failures.push("sectors that NEWLY get zero buildings on every seed: " + newEmpties.join(", "));
+        }
     }
     if (fixed.length) {
         console.log("  " + fixed.join(", ") + " now gets buildings -- remove it from KNOWN_EMPTY.");

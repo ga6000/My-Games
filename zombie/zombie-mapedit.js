@@ -44,14 +44,21 @@ const ZMAPEDIT = (function () {
     // What a click puts down: a building, or one of the small things.
     // Wall-buy and station spots say WHERE, not what is sold -- see
     // ZMAP.addProp.
-    const TOOLS = ["stamp", "crate", "barrel", "wallbuy", "station"];
+    const TOOLS = ["stamp", "crate", "barrel", "wallbuy", "station", "tree", "culvert"];
     const TOOL_COLOR = { crate: "#8FA89C", barrel: "#C24A2A",
-                         wallbuy: "#FFB000", station: "#00E5FF" };
-    const TOOL_SIZE = { crate: 32, barrel: 24, wallbuy: 110, station: 60 };
+                         wallbuy: "#FFB000", station: "#00E5FF",
+                         tree: "#4E7A3E", culvert: "#9AA6A9" };
+    const TOOL_SIZE = { crate: 32, barrel: 24, wallbuy: 110, station: 60,
+                        tree: 26, culvert: 120 };
+    // A trunk reserves 86px around itself in the level, so two hand-planted
+    // trees closer than this simply reject each other -- the brush spaces
+    // them rather than letting you paint a line that half builds.
+    const TREE_SPACING = 190;
     let tool = 0;
     let rot = 0, mirror = false;
     let hover = null;                // {x, y} snapped world cell
-    let dragging = null;             // middle-drag pan origin
+    let dragging = null;             // middle-drag pan
+    let painting = false;            // left button held, for the tree brush origin
     let message = "";
 
     function stamp() {
@@ -90,6 +97,21 @@ const ZMAPEDIT = (function () {
 
     // --- editing ----------------------------------------------------
     function place(wx, wy) {
+        if (TOOLS[tool] === "culvert") {
+            // A mouth belongs to the hard wall, so it snaps to whichever of
+            // the two is nearer. The north and west edges are forest, not
+            // wall, and a culvert through a tree line means nothing.
+            const dEast = Math.abs(wx - (WORLD_W - WALL_T));
+            const dSouth = Math.abs(wy - (WORLD_H - WALL_T));
+            const p = dEast < dSouth
+                ? { kind: "culvert", x: WORLD_W - WALL_T, y: snap(wy - PERIM_CULVERT / 2) }
+                : { kind: "culvert", x: snap(wx - PERIM_CULVERT / 2), y: WORLD_H - WALL_T };
+            ZMAP.addProp(p);
+            message = "culvert on the " + (dEast < dSouth ? "east" : "south") + " wall" +
+                      (ZMAP.authoredPerimeter ? "" : "  (authoredPerimeter is off -- press P)");
+            rebuild();
+            return;
+        }
         if (TOOLS[tool] !== "stamp") {
             const kind = TOOLS[tool];
             const x = snap(wx - TOOL_SIZE[kind] / 2), y = snap(wy - 12);
@@ -97,8 +119,19 @@ const ZMAPEDIT = (function () {
                 message = "outside the world";
                 return;
             }
+            if (kind === "tree") {
+                // Painted, not clicked one at a time: a tree line is fifty
+                // trunks and nobody is clicking fifty times.
+                for (let i = 0; i < ZMAP.props.length; i++) {
+                    const q = ZMAP.props[i];
+                    if (q.kind !== "tree") continue;
+                    if (Math.hypot(q.x - x, q.y - y) < TREE_SPACING) return;
+                }
+            }
             ZMAP.addProp({ kind: kind, x: x, y: y });
-            message = "placed a " + kind + " at " + x + "," + y;
+            message = "placed a " + kind + " at " + x + "," + y +
+                      (kind === "tree" && !ZMAP.authoredPerimeter
+                          ? "  (authoredPerimeter is off -- press P)" : "");
             rebuild();
             return;
         }
@@ -153,7 +186,12 @@ const ZMAPEDIT = (function () {
         const props = ZMAP.props.map(function (p) {
             return "ZMAP.addProp({ kind: \"" + p.kind + "\", x: " + p.x + ", y: " + p.y + " });";
         });
-        return lines.concat(props.length ? [""].concat(props) : []).join("\n") + "\n";
+        // The flags travel with the placements: paste the block and the map
+        // is in the state it was on screen.
+        const flags = ["ZMAP.authoredOnly = " + (ZMAP.authoredOnly ? "true" : "false") + ";",
+                       "ZMAP.authoredPerimeter = " + (ZMAP.authoredPerimeter ? "true" : "false") + ";",
+                       ""];
+        return flags.concat(lines).concat(props.length ? [""].concat(props) : []).join("\n") + "\n";
     }
 
     // --- drawing ----------------------------------------------------
@@ -240,17 +278,48 @@ const ZMAPEDIT = (function () {
         }
     }
 
+    // WHAT A SPOT SELLS, read off the built map rather than guessed.
+    //
+    // The sector decides -- that stays true -- but a spot that will not
+    // tell you what it turned into is a spot you have to go and find in
+    // game. So after every rebuild the label is the weapon or card of the
+    // wall-buy or station that actually landed there.
+    function soldAt(p) {
+        if (p.kind === "wallbuy" && typeof wallBuys !== "undefined") {
+            for (let i = 0; i < wallBuys.length; i++) {
+                if (Math.abs(wallBuys[i].x - p.x) < 2 && Math.abs(wallBuys[i].y - p.y) < 2) {
+                    return String(wallBuys[i].weapon).toUpperCase() + " " + wallBuys[i].cost;
+                }
+            }
+            return "unused by this sector";
+        }
+        if (p.kind === "station" && typeof cardStations !== "undefined") {
+            for (let i = 0; i < cardStations.length; i++) {
+                if (Math.abs(cardStations[i].x - p.x) < 2 && Math.abs(cardStations[i].y - p.y) < 2) {
+                    return String(cardStations[i].card).toUpperCase() + " " + cardStations[i].cost;
+                }
+            }
+            return "unused by this sector";
+        }
+        return "";
+    }
+
     function drawProps() {
         for (let i = 0; i < ZMAP.props.length; i++) {
             const p = ZMAP.props[i];
             const sz = TOOL_SIZE[p.kind] || 32;
+            const h = p.kind === "wallbuy" ? 28 : p.kind === "station" ? 44
+                    : p.kind === "culvert" ? (p.x > WORLD_W - 200 ? PERIM_CULVERT : WALL_T)
+                    : sz;
+            const w = p.kind === "culvert" && p.x > WORLD_W - 200 ? WALL_T : sz;
             ctx.strokeStyle = TOOL_COLOR[p.kind] || "#FFFFFF";
             ctx.lineWidth = 2 / zoom;
-            ctx.strokeRect(p.x, p.y, sz, p.kind === "wallbuy" ? 28 : p.kind === "station" ? 44 : sz);
+            ctx.strokeRect(p.x, p.y, w, h);
             if (zoom > 0.5) {
                 ctx.fillStyle = TOOL_COLOR[p.kind] || "#FFFFFF";
                 ctx.font = (10 / zoom) + "px Courier New";
-                ctx.fillText(p.kind, p.x, p.y - 4 / zoom);
+                const sold = soldAt(p);
+                ctx.fillText(p.kind + (sold ? ": " + sold : ""), p.x, p.y - 4 / zoom);
             }
         }
     }
@@ -378,7 +447,9 @@ const ZMAPEDIT = (function () {
                 (ZMAP.report.missing.length ? "   BLOCKED: " + ZMAP.report.missing.length : ""),
             "click place   right-click delete   middle-drag pan   wheel zoom" +
                 (ghostWhy ? "     HERE: " + ghostWhy : ""),
-            "E export to clipboard    G regenerate    A authored-only: " + (ZMAP.authoredOnly ? "ON" : "off"),
+            "E export   G regenerate   F freeze perimeter",
+            "A authored-only: " + (ZMAP.authoredOnly ? "ON" : "off") +
+                "   P authored-perimeter: " + (ZMAP.authoredPerimeter ? "ON" : "off"),
             message
         ];
         ctx.font = "13px Courier New";
@@ -401,19 +472,20 @@ const ZMAPEDIT = (function () {
             const w = screenToWorld(ev.offsetX, ev.offsetY);
             if (ev.button === 1) { dragging = { sx: ev.clientX, sy: ev.clientY, px: pan.x, py: pan.y }; }
             else if (ev.button === 2) remove(w.x, w.y);
-            else place(w.x, w.y);
+            else { painting = true; place(w.x, w.y); }
             ev.preventDefault();
         }, sig);
 
         canvas.addEventListener("mousemove", function (ev) {
             hover = screenToWorld(ev.offsetX, ev.offsetY);
+            if (painting && TOOLS[tool] === "tree") place(hover.x, hover.y);
             if (dragging) {
                 pan.x = dragging.px - (ev.clientX - dragging.sx) / zoom;
                 pan.y = dragging.py - (ev.clientY - dragging.sy) / zoom;
             }
         }, sig);
 
-        window.addEventListener("mouseup", function () { dragging = null; }, sig);
+        window.addEventListener("mouseup", function () { dragging = null; painting = false; }, sig);
         canvas.addEventListener("contextmenu", function (ev) { ev.preventDefault(); }, sig);
 
         canvas.addEventListener("wheel", function (ev) {
@@ -435,6 +507,36 @@ const ZMAPEDIT = (function () {
             else if (k === "r") { rot = (rot + 1) % 4; }
             else if (k === "m") { mirror = !mirror; }
             else if (k === "g") { rebuild(); message = "regenerated"; }
+            else if (k === "f") {
+                // FREEZE the perimeter this seed happens to have into
+                // authored props, as a starting point to edit. Hand-placing
+                // ~90 trunks from nothing is not authoring, it is typing;
+                // what you actually want to hand-author is the SHAPE of a
+                // tree line you already know.
+                let trees = 0, mouths = 0;
+                ZMAP.props = ZMAP.props.filter(function (q) {
+                    return q.kind !== "tree" && q.kind !== "culvert";
+                });
+                for (let i = 0; i < forestRects.length; i++) {
+                    ZMAP.addProp({ kind: "tree", x: forestRects[i].x, y: forestRects[i].y });
+                    trees++;
+                }
+                for (let i = 0; i < culverts.length; i++) {
+                    ZMAP.addProp({ kind: "culvert", x: culverts[i].x, y: culverts[i].y });
+                    mouths++;
+                }
+                ZMAP.authoredPerimeter = true;
+                rebuild();
+                message = "froze the perimeter: " + trees + " trees, " + mouths +
+                          " culverts -- now edit them, then E to export";
+            }
+            else if (k === "p") {
+                ZMAP.authoredPerimeter = !ZMAP.authoredPerimeter;
+                rebuild();
+                message = "authored perimeter " + (ZMAP.authoredPerimeter
+                    ? "ON -- only hand-placed trees and culverts exist"
+                    : "off -- the forest and culverts are seeded again");
+            }
             else if (k === "a") {
                 ZMAP.authoredOnly = !ZMAP.authoredOnly;
                 rebuild();

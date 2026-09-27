@@ -24,9 +24,28 @@
 "use strict";
 
 const ZMAP = {
-    // false: authored buildings, then the generator fills the gaps.
-    // true:  authored buildings only.
-    authoredOnly: false,
+    // ON SINCE 2026-09-26: the buildings on the map are the ones below and
+    // nothing else. The seeded placer is off.
+    //
+    // What this means while the map is half-authored: a sector with no
+    // authored building has NO buildings. That is the intended state -- the
+    // empty ones are a to-do list, not a defect -- and it is why
+    // check-map-features.js reads this flag before deciding whether an
+    // empty sector is worth failing over.
+    authoredOnly: true,
+
+    // The perimeter -- the forest and the culverts through the hard wall --
+    // is still seeded until this goes true. Turn it on once enough trees
+    // and mouths have been placed by hand that the seeded ones are not
+    // wanted; with it on, ONLY authored trees and culverts exist, and a
+    // wall with no mouths in it is a wall with no mouths in it.
+    //
+    // Culverts are not decoration: walling two sides of the map halves the
+    // spawn frontier, and the measurement that justified them is in
+    // zombie/CLAUDE.md under "The perimeter". If you author them, keep
+    // roughly seven, spread, and none within ~700px of the south-east
+    // corner or beside the escape.
+    authoredPerimeter: false,
 
     placements: [],
 

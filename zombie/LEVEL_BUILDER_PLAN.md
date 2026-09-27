@@ -14,7 +14,10 @@
 > | **`[` `]`** | change stamp. **R** rotate, **M** mirror |
 > | **G** | regenerate — every placement goes through the real generator |
 > | **A** | authored-only: turn the seeded building placer off |
-> | **T** | change tool: **stamp**, crate, barrel, wall-buy spot, perk-station spot |
+> | **T** | change tool: **stamp**, crate, barrel, wall-buy spot, perk-station spot, tree, culvert |
+> | **A** | authored-only — **ON**: the map's buildings are the ones you placed |
+> | **P** | authored-perimeter — with it on, only hand-placed trees and culverts exist |
+> | **F** | freeze this seed's forest and culverts into authored props, to edit |
 > | **E** | export every placement to the clipboard, to paste into `zombie-map-data.js` |
 >
 > The ghost under the cursor is **red when the placement would be refused, and says why** — it
@@ -27,6 +30,10 @@
 > `zombie/CLAUDE.md`, "THE WORLD IS BIGGER THAN THE SECTORS".
 >
 > ## THE MAP HAS A STARTING SET OF HAND-WIRED BUILDINGS (2026-09-26)
+>
+> **The seeded building placer is off** (`ZMAP.authoredOnly = true`), so the map's buildings are
+> exactly these, the same on every seed. Sectors with none are a to-do list: the Pump House, plus
+> the four that own their middles with their own geometry.
 >
 > `zombie-map-data.js` holds **ten** authored buildings — Cold Storage 2, the Blockhouse 3,
 > Turbine Hall 2, the Sluice Yard 3 — and every one of them builds on every seed, checked by
