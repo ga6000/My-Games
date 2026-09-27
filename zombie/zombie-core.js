@@ -16,8 +16,30 @@
 // is what forces the minimap, the off-screen teammate markers, the draw
 // culling, and player-relative zombie spawning: at this size, spawning
 // at a world edge would mean a 30-second walk to reach anybody.
-const WORLD_W = 4800;
-const WORLD_H = 2700;
+// THE SECTORS AND THE WORLD ARE NO LONGER THE SAME RECTANGLE (2026-09-26).
+//
+// The nine painted sectors still occupy exactly the 4800x2700 they always
+// did, at exactly the cell size they always did -- nothing about their
+// shapes moved. The WORLD is that rectangle plus a band all round, so
+// there is ground outside the sectors to author a perimeter against: the
+// forest, the hard wall and its culverts, and the approach to the escape.
+//
+// Asked for as "stretch exterior perimeter band without stretching sector
+// shapes", and that is the whole trick -- ZONE_CELL_W is MAP_INNER_W/24,
+// not WORLD_W/24, so growing the world cannot stretch a sector. What it
+// costs instead is an ORIGIN: every cell<->world conversion goes through
+// zoneX/zoneY/zoneCol/zoneRow in zombie-level.js, and a raw
+// `c * ZONE_CELL_W` is now a bug.
+//
+// The band is symmetric, so WORLD_W/2 is still the middle of the sectors
+// and the keep has not moved.
+const MAP_INNER_W = 4800;
+const MAP_INNER_H = 2700;
+const MAP_BAND = 400;
+const MAP_X0 = MAP_BAND;
+const MAP_Y0 = MAP_BAND;
+const WORLD_W = MAP_INNER_W + MAP_BAND * 2;
+const WORLD_H = MAP_INNER_H + MAP_BAND * 2;
 
 // How much world a player sees at rest, in world units. Tightened from
 // 1600x900 to 960x540 (2.8x less area on screen) -- at the old framing

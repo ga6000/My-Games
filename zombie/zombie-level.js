@@ -106,8 +106,23 @@ const ZONE_COUNT = 9;
 // below cost 41. Two runs bought every silhouette on the map.
 const ZONE_COLS_FINE = 24;
 const ZONE_ROWS_FINE = 18;
-const ZONE_CELL_W = WORLD_W / ZONE_COLS_FINE;   // 200
-const ZONE_CELL_H = WORLD_H / ZONE_ROWS_FINE;   // 150
+// FROM THE INNER RECTANGLE, NOT THE WORLD (2026-09-26). The world gained a
+// perimeter band; the sectors did not change size. See zombie-core.js.
+const ZONE_CELL_W = MAP_INNER_W / ZONE_COLS_FINE;   // 200, unchanged
+const ZONE_CELL_H = MAP_INNER_H / ZONE_ROWS_FINE;   // 150, unchanged
+
+// EVERY cell <-> world conversion goes through these four. A bare
+// `c * ZONE_CELL_W` is off by the band and lands a whole sector's worth of
+// geometry in the wrong place.
+function zoneX(c) { return MAP_X0 + c * ZONE_CELL_W; }
+function zoneY(r) { return MAP_Y0 + r * ZONE_CELL_H; }
+function zoneCol(x) { return clamp(Math.floor((x - MAP_X0) / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1); }
+function zoneRow(y) { return clamp(Math.floor((y - MAP_Y0) / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1); }
+
+// True for a point in the band -- outside every sector, inside the world.
+function inPerimeterBand(x, y) {
+    return x < MAP_X0 || y < MAP_Y0 || x > MAP_X0 + MAP_INNER_W || y > MAP_Y0 + MAP_INNER_H;
+}
 
 // Sector ids. 4 stays the centre and 7 stays the sluice's, because plenty
 // of code already reads `i !== 4` and `SLUICE_ZONE`.
@@ -150,10 +165,10 @@ const zoneBoxes = [];
             const z = ZONE_PAINT[r * ZONE_COLS_FINE + c];
             zoneCellList[z].push(c, r);
             const b = zoneBoxes[z];
-            b.x = Math.min(b.x, c * ZONE_CELL_W);
-            b.y = Math.min(b.y, r * ZONE_CELL_H);
-            b.x2 = Math.max(b.x2, (c + 1) * ZONE_CELL_W);
-            b.y2 = Math.max(b.y2, (r + 1) * ZONE_CELL_H);
+            b.x = Math.min(b.x, zoneX(c));
+            b.y = Math.min(b.y, zoneY(r));
+            b.x2 = Math.max(b.x2, zoneX(c + 1));
+            b.y2 = Math.max(b.y2, zoneY(r + 1));
         }
     }
     for (let i = 0; i < ZONE_COUNT; i++) {
@@ -235,8 +250,8 @@ function zoneCentre(i) {
     if (!cl || !cl.length) return { x: WORLD_W / 2, y: WORLD_H / 2 };
     let sx = 0, sy = 0;
     for (let k = 0; k < cl.length; k += 2) {
-        sx += (cl[k] + 0.5) * ZONE_CELL_W;
-        sy += (cl[k + 1] + 0.5) * ZONE_CELL_H;
+        sx += zoneX(cl[k]) + ZONE_CELL_W * 0.5;
+        sy += zoneY(cl[k + 1]) + ZONE_CELL_H * 0.5;
     }
     const n = cl.length / 2;
     return { x: sx / n, y: sy / n };
@@ -272,8 +287,12 @@ function zoneWaypoint(fromZone, toZone) {
 // One array read. Cheap enough to call per zombie per frame, which is
 // exactly what it is used for.
 function zoneOf(x, y) {
-    const c = clamp(Math.floor(x / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
-    const r = clamp(Math.floor(y / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
+    // A point in the perimeter band belongs to the sector it is nearest,
+    // because zoneCol/zoneRow clamp. Everything that asks "which sector is
+    // this?" -- spawn cooldowns, wall colours, floor tints, zone doors --
+    // then keeps working out there without a tenth sector existing.
+    const c = zoneCol(x);
+    const r = zoneRow(y);
     return ZONE_PAINT[r * ZONE_COLS_FINE + c];
 }
 
@@ -289,10 +308,10 @@ function inZone(x, y, zone) {
 // Does a rect touch any cell of this sector? Used by markHotZones, which
 // used to test the bbox and would now mark a cross's whole 2400x1200 box.
 function rectTouchesZone(r, zone) {
-    const c0 = clamp(Math.floor(r.x / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
-    const c1 = clamp(Math.floor((r.x + r.w) / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
-    const r0 = clamp(Math.floor(r.y / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
-    const r1 = clamp(Math.floor((r.y + r.h) / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
+    const c0 = zoneCol(r.x);
+    const c1 = zoneCol(r.x + r.w);
+    const r0 = zoneRow(r.y);
+    const r1 = zoneRow(r.y + r.h);
     for (let rr = r0; rr <= r1; rr++) {
         for (let cc = c0; cc <= c1; cc++) {
             if (ZONE_PAINT[rr * ZONE_COLS_FINE + cc] === zone) return true;
@@ -1131,6 +1150,7 @@ function generateLevel() {
     railcars = [];
     railPaths = [];
     stampMisses = {};
+    resetAuthoredProps();
     // ALT: spurLanes was never cleared here, so after a restart onSpurLane()
     // tested against the PREVIOUS level's lanes as well as this one's. The
     // lanes are pure geometry and identical every seed, which is exactly why
@@ -1216,6 +1236,9 @@ function generateLevel() {
     // perimeter built last. Trunks still avoid everything standing, via
     // clashesReserved and blockedAtStatic.
     buildPerimeter();
+    // Authored crates and barrels, after the seeded contents so they sit
+    // on top of the map rather than being routed around by it.
+    placeAuthoredProps();
     // buildSectorInteriors() is NOT here any more (2026-09-24) -- it is
     // hoisted above, with the other sector geometry. The note that used to
     // live here said it ran late "so a pen row or a pipe run routes around
@@ -1318,8 +1341,8 @@ function zoneBoundaryRuns() {
             while (r + n < ZONE_ROWS_FINE &&
                    ZONE_PAINT[(r + n) * ZONE_COLS_FINE + c] === a &&
                    ZONE_PAINT[(r + n) * ZONE_COLS_FINE + c + 1] === b) n++;
-            runs.push({ vertical: true, fixed: (c + 1) * ZONE_CELL_W - WALL_T / 2,
-                        start: r * ZONE_CELL_H, span: n * ZONE_CELL_H, a: a, b: b });
+            runs.push({ vertical: true, fixed: zoneX(c + 1) - WALL_T / 2,
+                        start: zoneY(r), span: n * ZONE_CELL_H, a: a, b: b });
             r += n;
         }
     }
@@ -1334,8 +1357,8 @@ function zoneBoundaryRuns() {
             while (c + n < ZONE_COLS_FINE &&
                    ZONE_PAINT[r * ZONE_COLS_FINE + c + n] === a &&
                    ZONE_PAINT[(r + 1) * ZONE_COLS_FINE + c + n] === b) n++;
-            runs.push({ vertical: false, fixed: (r + 1) * ZONE_CELL_H - WALL_T / 2,
-                        start: c * ZONE_CELL_W, span: n * ZONE_CELL_W, a: a, b: b });
+            runs.push({ vertical: false, fixed: zoneY(r + 1) - WALL_T / 2,
+                        start: zoneX(c), span: n * ZONE_CELL_W, a: a, b: b });
             c += n;
         }
     }
@@ -1418,8 +1441,8 @@ function buildBoundaryPosts() {
             const e = ZONE_PAINT[r * ZONE_COLS_FINE + c];
             if (a === b && b === d && d === e) continue;
 
-            const x = c * ZONE_CELL_W - WALL_T / 2;
-            const y = r * ZONE_CELL_H - WALL_T / 2;
+            const x = zoneX(c) - WALL_T / 2;
+            const y = zoneY(r) - WALL_T / 2;
             // Never across an opening: a post is cosmetic and a door or
             // window it narrows is not.
             if (rectBlockedByOpening({ x: x, y: y, w: WALL_T, h: WALL_T })) continue;
@@ -1762,11 +1785,20 @@ function segmentedWall(x, y, w, h, step, gapEvery) {
 // to the spine.
 function buildSpillwayPipes() {
     const b = zoneBounds(Z_SPILLWAY);
-    const x0 = FOREST_BAND;                       // start where the trees stop
-    const usable = 800 - FOREST_BAND;             // the spine, minus forest
+    // Relative to the sector, not the world (2026-09-26). These were
+    // absolute back when the sectors started at 0,0; the band moved the
+    // sectors, and the runs have to move with them or they cut across the
+    // Spillway's western wall.
+    //
+    // The 240 is no longer "where the trees stop" -- the forest lives in
+    // the band now -- but it is kept so the runs sit exactly where they
+    // did inside the sector. What the sector gains is 240px of open ground
+    // on its west, which is perimeter to author against.
+    const x0 = MAP_X0 + FOREST_BAND;
+    const usable = 800 - FOREST_BAND;             // the spine, as before
     const runs = 3;
     const lane = Math.floor((usable - WALL_T * (runs + 1)) / runs);
-    const top = 340, bottom = 1720;               // clear of both boundaries
+    const top = MAP_Y0 + 340, bottom = MAP_Y0 + 1720;   // clear of both boundaries
 
     const taken = [];
     for (let i = 0; i <= runs; i++) {
@@ -2384,9 +2416,9 @@ function buildRailSpur() {
     // its door, and the Kennels/Pump boundary below row 7 therefore reserves
     // y 1050-1200 -- so a lane straddling rows 6 and 7 sat inside it and most
     // of the rolling stock on this leg was silently dropped.
-    const ay = 6 * ZONE_CELL_H + 20;
-    const ax0 = 16 * ZONE_CELL_W + 10;            // just inside the Kennels
-    const ax1 = 23 * ZONE_CELL_W + 10;
+    const ay = zoneY(6) + 20;
+    const ax0 = zoneX(16) + 10;                   // just inside the Kennels
+    const ax1 = zoneX(23) + 10;
 
     // Leg B turns south down THE YARD's two-cell tail (cols 22-23) and runs
     // into THE MOTOR POOL.
@@ -2395,12 +2427,12 @@ function buildRailSpur() {
     // inside that, which rejected every piece of stock on the leg. Sit in the
     // band that is actually free, between that reserve and the east
     // perimeter wall.
-    const bx = 22 * ZONE_CELL_W + 200;
+    const bx = zoneX(22) + 200;
     // Deep into THE MOTOR POOL, not just over its boundary. At 16 rows the
     // only southbound piece of stock landed within the rail gate's 40px
     // clearance and was dropped, so the Motor Pool -- half the point of the
     // line -- had none of it.
-    const by1 = 17 * ZONE_CELL_H + 110;
+    const by1 = zoneY(17) + 110;
 
     railLeg(ax0, ay, ax1 - ax0, SPUR_LANE);
     railLeg(bx, ay, SPUR_LANE, by1 - ay);
@@ -3425,6 +3457,26 @@ function placeAuthoredBuildings() {
     }
 }
 
+// The authored props that are simply objects: a crate is a crate wherever
+// it is put. Wall-buys and stations are not here -- they are consumed by
+// addWallBuy and placeCardStations, which know what a sector sells.
+function placeAuthoredProps() {
+    if (typeof ZMAP === "undefined" || !ZMAP.props.length) return;
+    for (let i = 0; i < authoredPropsLeft.length; i++) {
+        const p = authoredPropsLeft[i];
+        if (p.used) continue;
+        if (p.kind === "crate") {
+            p.used = true;
+            ammoCrates.push({ x: p.x, y: p.y, size: 32, uses: 3 });
+            claimFloor(p.x, p.y, 32, 32, 30);
+        } else if (p.kind === "barrel") {
+            p.used = true;
+            barrels.push({ x: p.x, y: p.y, size: 24, alive: true });
+            claimFloor(p.x, p.y, 24, 24, 16);
+        }
+    }
+}
+
 function buildZoneBuildings(b, count, z) {
     // The seeded placer is off entirely once the map is authored.
     if (typeof ZMAP !== "undefined" && ZMAP.authoredOnly) return;
@@ -3647,9 +3699,9 @@ function pierceWall(sides, index) {
 // the rect by the margin and see whether it covers more than one sector.
 function nearZoneBoundary(x, y, w, h) {
     const margin = 150;
-    const c0 = clamp(Math.floor((x - margin) / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
-    const c1 = clamp(Math.floor((x + w + margin) / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1);
-    const r0 = clamp(Math.floor((y - margin) / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
+    const c0 = zoneCol(x - margin);
+    const c1 = zoneCol(x + w + margin);
+    const r0 = zoneRow(y - margin);
     const r1 = clamp(Math.floor((y + h + margin) / ZONE_CELL_H), 0, ZONE_ROWS_FINE - 1);
     const first = ZONE_PAINT[r0 * ZONE_COLS_FINE + c0];
     for (let rr = r0; rr <= r1; rr++) {
@@ -3794,11 +3846,37 @@ const GUN_COSTS = {
     rifle: 1500, shotgun: 2600, smg: 3400, sniper: 4200, flamer: 5800, rocket: 7500
 };
 
+// AN AUTHORED SPOT FOR THIS KIND, IN THIS SECTOR, IF THERE IS ONE LEFT.
+//
+// Authored props are consumed in the order they were placed, and each one
+// is used once: a sector with two authored station spots and two stations
+// gets both, a sector with one gets one and the other falls back to the
+// seeded search. Half an authored map has to be playable or nobody can
+// author it in halves.
+let authoredPropsLeft = [];
+
+function resetAuthoredProps() {
+    authoredPropsLeft = (typeof ZMAP !== "undefined" && ZMAP.props)
+        ? ZMAP.props.map(function (p) { return { kind: p.kind, x: p.x, y: p.y, used: false }; })
+        : [];
+}
+
+function takeAuthoredSpot(kind, zone) {
+    for (let i = 0; i < authoredPropsLeft.length; i++) {
+        const p = authoredPropsLeft[i];
+        if (p.used || p.kind !== kind) continue;
+        if (zone !== undefined && zoneOf(p.x, p.y) !== zone) continue;
+        p.used = true;
+        return { x: p.x, y: p.y };
+    }
+    return null;
+}
+
 function addWallBuy(zone, weapon, cost) {
     const b = zoneBounds(zone);
     // The sure finder: the old `|| { x: b.x + 200, ... }` fallback could put
     // a wall-buy inside a wall.
-    const spot = findOpenSpotSure(b, 110, 0, zone);
+    const spot = takeAuthoredSpot("wallbuy", zone) || findOpenSpotSure(b, 110, 0, zone);
     wallBuys.push({ x: spot.x, y: spot.y, w: 110, h: 28, weapon: weapon, cost: cost, zone: zone });
     reservedRects.push({ x: spot.x - 70, y: spot.y - 70, w: 250, h: 170 });
     claimFloor(spot.x, spot.y, 110, 28, 40);
@@ -3881,7 +3959,8 @@ function placeCardStations() {
 
     for (let i = 0; i < plan.length; i++) {
         if (!plan[i].card) continue;
-        const spot = findOpenSpotSure(zoneBounds(plan[i].zone), 60, 0, plan[i].zone);
+        const spot = takeAuthoredSpot("station", plan[i].zone) ||
+                     findOpenSpotSure(zoneBounds(plan[i].zone), 60, 0, plan[i].zone);
         cardStations.push({
             x: spot.x, y: spot.y, w: 60, h: 44,
             card: plan[i].card,

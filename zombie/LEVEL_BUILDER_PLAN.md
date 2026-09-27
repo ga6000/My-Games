@@ -14,15 +14,35 @@
 > | **`[` `]`** | change stamp. **R** rotate, **M** mirror |
 > | **G** | regenerate — every placement goes through the real generator |
 > | **A** | authored-only: turn the seeded building placer off |
+> | **T** | change tool: **stamp**, crate, barrel, wall-buy spot, perk-station spot |
 > | **E** | export every placement to the clipboard, to paste into `zombie-map-data.js` |
 >
 > The ghost under the cursor is **red when the placement would be refused, and says why** — it
 > asks `stampBlockedReason()`, the same predicate the level places with.
 >
-> **The margin band outside the map is drawn, not built.** The world is still 4800x2700 and a
-> placement out there is refused. Enlarging it is a real change (`ZONE_CELL_W` is `WORLD_W/24`, so
-> every sector shape stretches with the world) and wants its own pass — see the question at the
-> end of the 2026-09-26 reply.
+> **The perimeter band is real ground now (2026-09-26).** The world is **5600x3500**, with the
+> nine sectors occupying the same 4800x2700 they always did, at the same cell size, starting at
+> (400,400). Buildings and props can be placed out there. `ZONE_CELL_W` comes from `MAP_INNER_W`
+> rather than `WORLD_W`, which is what stops a bigger world stretching a sector — see
+> `zombie/CLAUDE.md`, "THE WORLD IS BIGGER THAN THE SECTORS".
+>
+> ## THE MAP HAS A STARTING SET OF HAND-WIRED BUILDINGS (2026-09-26)
+>
+> `zombie-map-data.js` holds **ten** authored buildings — Cold Storage 2, the Blockhouse 3,
+> Turbine Hall 2, the Sluice Yard 3 — and every one of them builds on every seed, checked by
+> running the real generator over eight of them. Open the editor and move them, delete them,
+> replace them with your own stamps. The seeded placer still fills the gaps until you press **A**
+> (or set `ZMAP.authoredOnly = true`).
+>
+> What it did to the map, over 12 seeds: buildings **13.8 → 17.5** a map, sectors empty by
+> accident **2.0 → 0.83**, TURBINE HALL **0.1 → 2.0** buildings a map, COLD STORAGE **0.8 → 2.4**.
+>
+> **Four sectors have none on purpose** — the Spillway, the Motor Pool, the Kennels and the Yard
+> own their middles with storm runs, service bays, rolling stock and the container maze. A first
+> draft that put three in the Spillway and one in the Motor Pool cost service bays (1.17 → 0.83)
+> and put buildings back on painted drains, which is the defect the 2026-09-24 build-order fix had
+> just removed. **THE PUMP HOUSE has none and that is not on purpose**: nothing in the library
+> fits what is left of it. It wants a stamp drawn for it.
 >
 > ## PHASES 1-3 ARE BUILT (2026-09-26).
 >

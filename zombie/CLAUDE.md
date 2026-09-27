@@ -633,6 +633,40 @@ of the new code is clean on all of it (`PLAYTEST_PASS_PLAN.md` → Verify).
 from one wall and a spur from the perpendicular wall formed an L that boxed in a corner pocket
 nothing could path into — a free safe spot, and a trap for any zombie that wandered in.
 
+## THE WORLD IS BIGGER THAN THE SECTORS (2026-09-26)
+
+Asked for as *"stretch exterior perimeter band without stretching sector shapes"*, and that is
+exactly what it does.
+
+| | |
+|---|---|
+| `MAP_INNER_W` x `MAP_INNER_H` | **4800 x 2700** — the nine sectors, unchanged |
+| `MAP_BAND` | **400** all round |
+| `WORLD_W` x `WORLD_H` | **5600 x 3500** |
+| `MAP_X0`, `MAP_Y0` | **400, 400** — where the sector grid starts |
+| `ZONE_CELL_W/H` | **200 x 150**, unchanged, and now derived from `MAP_INNER_*` |
+
+**The trick is that the cell size comes from the inner rectangle, not the world**, so growing the
+world cannot stretch a sector. What it costs is an ORIGIN: every cell-to-world conversion goes
+through **`zoneX` / `zoneY` / `zoneCol` / `zoneRow`**, and **a bare `c * ZONE_CELL_W` is now a
+bug** — it lands a whole sector's worth of geometry 400px out. The sites that had to change were
+`zoneBoxes`, `randomPointInZone`, `zoneOf`, `zoneCellsNear`, `zoneBoundaryRuns`, the boundary
+grid, the rail spur's cell literals, the Spillway's runs, and the floor painter.
+
+**The band is real ground**: the forest, the hard wall and its culverts now sit out there, so the
+sectors keep their whole area and there is somewhere to author a perimeter. `zoneOf` clamps, so a
+point in the band belongs to the sector it is nearest and everything that asks "which sector is
+this?" keeps working without a tenth sector existing. `inPerimeterBand()` says when a point is out
+there. The floor painter fills the whole world with one flat exterior tile (`BAND_EXTERIOR`,
+dirt) before painting sectors over it.
+
+**The band is symmetric, so `WORLD_W/2` is still the middle of the sectors** and the keep has not
+moved.
+
+> **A check written in world coordinates measures the origin as much as the thing it checks.**
+> `check-map-features.js` counted Spillway pipe segments by absolute x/y and reported 8.0 -> 1.75
+> the moment the band landed. Nothing was wrong with the map. It reads `MAP_X0`/`MAP_Y0` now.
+
 ## Map — nine PAINTED sectors (2026-09-19)
 
 > **BUILDINGS ARE HAND-DRAWN NOW (2026-09-26).** `zombie-stamps.js` + `zombie-stamps-data.js`
@@ -663,6 +697,13 @@ nothing could path into — a free safe spot, and a trap for any zombie that wan
 > overlapping something solid; when that happens it goes in `ZMAP.report.missing` **with the
 > reason**, is warned about in the console, and draws red in the editor. `ZMAP.authoredOnly`
 > turns the seeded building placer off entirely, for when the authored map IS the map.
+>
+> **Crates, barrels, wall-buys and perk stations are authored too (2026-09-26)**, as
+> `ZMAP.props` — `{kind, x, y}`. Crates and barrels are placed outright by
+> `placeAuthoredProps()`. A wall-buy or station spot says **where, not what**: `addWallBuy` and
+> `placeCardStations` take the next unused authored spot **in that sector** and otherwise fall
+> back to their own search, so a half-authored map still works and what a sector *sells* stays a
+> balance decision (`SECTORS[].guns`, `PERK_SECTOR_HOMES`) rather than a placement one.
 >
 > `stampBlockedReason()` is the one predicate behind all of it — the level places with it, and the
 > editor asks it under the cursor every frame to colour the ghost. An editor with its own idea of
@@ -2177,4 +2218,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: bd16d574 | 2026-09-26 -->
+<!-- doc-sync: d82c131d | 2026-09-26 -->

@@ -41,6 +41,14 @@ const ZMAPEDIT = (function () {
     let pan = { x: 0, y: 0 };        // world point at screen centre
     let zoom = 0.2;
     let stampIndex = 0;
+    // What a click puts down: a building, or one of the small things.
+    // Wall-buy and station spots say WHERE, not what is sold -- see
+    // ZMAP.addProp.
+    const TOOLS = ["stamp", "crate", "barrel", "wallbuy", "station"];
+    const TOOL_COLOR = { crate: "#8FA89C", barrel: "#C24A2A",
+                         wallbuy: "#FFB000", station: "#00E5FF" };
+    const TOOL_SIZE = { crate: 32, barrel: 24, wallbuy: 110, station: 60 };
+    let tool = 0;
     let rot = 0, mirror = false;
     let hover = null;                // {x, y} snapped world cell
     let dragging = null;             // middle-drag pan origin
@@ -82,6 +90,18 @@ const ZMAPEDIT = (function () {
 
     // --- editing ----------------------------------------------------
     function place(wx, wy) {
+        if (TOOLS[tool] !== "stamp") {
+            const kind = TOOLS[tool];
+            const x = snap(wx - TOOL_SIZE[kind] / 2), y = snap(wy - 12);
+            if (x < 0 || y < 0 || x > WORLD_W || y > WORLD_H) {
+                message = "outside the world";
+                return;
+            }
+            ZMAP.addProp({ kind: kind, x: x, y: y });
+            message = "placed a " + kind + " at " + x + "," + y;
+            rebuild();
+            return;
+        }
         const s = stamp();
         if (!s) { message = "no stamps in the library"; return; }
         const x = snap(wx - (s.w * STAMP_CELL) / 2);
@@ -96,6 +116,17 @@ const ZMAPEDIT = (function () {
     }
 
     function remove(wx, wy) {
+        // Props first: they are small and sit on top of buildings.
+        for (let i = ZMAP.props.length - 1; i >= 0; i--) {
+            const p = ZMAP.props[i];
+            const sz = TOOL_SIZE[p.kind] || 32;
+            if (wx >= p.x - 8 && wx <= p.x + sz + 8 && wy >= p.y - 8 && wy <= p.y + 40) {
+                message = "removed a " + p.kind;
+                ZMAP.props.splice(i, 1);
+                rebuild();
+                return;
+            }
+        }
         const i = placementAt(wx, wy);
         if (i < 0) { message = "nothing there"; return; }
         message = "removed " + ZMAP.placements[i].stamp;
@@ -119,7 +150,10 @@ const ZMAPEDIT = (function () {
             return "ZMAP.add({ stamp: \"" + p.stamp + "\", x: " + p.x + ", y: " + p.y +
                    ", rot: " + (p.rot || 0) + ", mirror: " + (p.mirror ? "true" : "false") + " });";
         });
-        return lines.join("\n") + "\n";
+        const props = ZMAP.props.map(function (p) {
+            return "ZMAP.addProp({ kind: \"" + p.kind + "\", x: " + p.x + ", y: " + p.y + " });";
+        });
+        return lines.concat(props.length ? [""].concat(props) : []).join("\n") + "\n";
     }
 
     // --- drawing ----------------------------------------------------
@@ -206,6 +240,21 @@ const ZMAPEDIT = (function () {
         }
     }
 
+    function drawProps() {
+        for (let i = 0; i < ZMAP.props.length; i++) {
+            const p = ZMAP.props[i];
+            const sz = TOOL_SIZE[p.kind] || 32;
+            ctx.strokeStyle = TOOL_COLOR[p.kind] || "#FFFFFF";
+            ctx.lineWidth = 2 / zoom;
+            ctx.strokeRect(p.x, p.y, sz, p.kind === "wallbuy" ? 28 : p.kind === "station" ? 44 : sz);
+            if (zoom > 0.5) {
+                ctx.fillStyle = TOOL_COLOR[p.kind] || "#FFFFFF";
+                ctx.font = (10 / zoom) + "px Courier New";
+                ctx.fillText(p.kind, p.x, p.y - 4 / zoom);
+            }
+        }
+    }
+
     function drawPlacements() {
         for (let i = 0; i < ZMAP.placements.length; i++) {
             const p = ZMAP.placements[i];
@@ -230,6 +279,16 @@ const ZMAPEDIT = (function () {
     let ghostWhy = "";
 
     function drawGhost() {
+        if (TOOLS[tool] !== "stamp") {
+            if (!hover) return;
+            const kind = TOOLS[tool];
+            const sz = TOOL_SIZE[kind];
+            ctx.strokeStyle = TOOL_COLOR[kind];
+            ctx.lineWidth = 2 / zoom;
+            ctx.strokeRect(snap(hover.x - sz / 2), snap(hover.y - 12), sz,
+                           kind === "wallbuy" ? 28 : kind === "station" ? 44 : sz);
+            return;
+        }
         const s = stamp();
         if (!s || !hover) return;
         const w = s.w * STAMP_CELL, h = s.h * STAMP_CELL;
@@ -296,9 +355,11 @@ const ZMAPEDIT = (function () {
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             applyView();
             drawPlacements();
+            drawProps();
         } else {
             drawPlan();
             drawPlacements();
+            drawProps();
             drawGhost();
         }
 
@@ -310,9 +371,10 @@ const ZMAPEDIT = (function () {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         const lines = [
             "MAP EDITOR   " + (mode === "plan" ? "[PLAN]" : "[DRAWN]") + "   SPACE to flip",
+            "tool:   " + TOOLS[tool].toUpperCase() + "   ( T to change tool )",
             "stamp:  " + (ZS.LIBRARY[stampIndex] ? ZS.LIBRARY[stampIndex].name : "none") +
                 "   ( [ ] to change, R rotate " + (rot * 90) + "°, M mirror" + (mirror ? " ON" : "") + " )",
-            "placed: " + ZMAP.placements.length +
+            "placed: " + ZMAP.placements.length + " buildings, " + ZMAP.props.length + " props" +
                 (ZMAP.report.missing.length ? "   BLOCKED: " + ZMAP.report.missing.length : ""),
             "click place   right-click delete   middle-drag pan   wheel zoom" +
                 (ghostWhy ? "     HERE: " + ghostWhy : ""),
@@ -369,6 +431,7 @@ const ZMAPEDIT = (function () {
             if (ev.code === "Space") { mode = mode === "plan" ? "drawn" : "plan"; ev.preventDefault(); }
             else if (k === "[") { stampIndex = (stampIndex + ZS.LIBRARY.length - 1) % ZS.LIBRARY.length; }
             else if (k === "]") { stampIndex = (stampIndex + 1) % ZS.LIBRARY.length; }
+            else if (k === "t") { tool = (tool + 1) % TOOLS.length; }
             else if (k === "r") { rot = (rot + 1) % 4; }
             else if (k === "m") { mirror = !mirror; }
             else if (k === "g") { rebuild(); message = "regenerated"; }

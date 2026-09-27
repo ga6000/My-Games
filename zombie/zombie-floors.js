@@ -94,6 +94,9 @@ const ZONE_EXTERIOR = {
     centre: "concrete",   turbine: "concrete", pump: "wetconcrete",
     sluice: "drain",      motor: "asphalt"
 };
+// The band outside the sectors: dirt, the plainest ground in the set.
+const BAND_EXTERIOR = "dirt";
+
 const ZONE_INTERIOR = {
     spill: "spill", cold: "cold", kennel: "kennel", yard: "motor",
     centre: "centre", turbine: "turbine", pump: "pump", sluice: "centre",
@@ -604,9 +607,20 @@ function drawZoneFloors(vr) {
     // a 12x9 grid now and most of them are not rectangles, so filling
     // zoneBounds() would paint a cross's whole box -- 58% of which belongs
     // to two other sectors -- and whichever drew last would win.
+    // THE PERIMETER BAND FIRST (2026-09-26). The sectors cover the inner
+    // rectangle only, so without this the band outside them drew as bare
+    // black -- the world would simply stop before its own wall. One flat
+    // exterior tile under everything is enough: it is approach ground, and
+    // whatever is authored out there paints over it.
+    const band = zfClip(0, 0, WORLD_W, WORLD_H, vr);
+    if (band) {
+        ctx.fillStyle = zfPatterns[BAND_EXTERIOR] || zfPatterns.centre;
+        ctx.fillRect(band.x, band.y, band.w, band.h);
+    }
+
     for (let cr = 0; cr < ZONE_ROWS_FINE; cr++) {
         for (let cc = 0; cc < ZONE_COLS_FINE; cc++) {
-            const r = zfClip(cc * ZONE_CELL_W, cr * ZONE_CELL_H,
+            const r = zfClip(zoneX(cc), zoneY(cr),
                              ZONE_CELL_W, ZONE_CELL_H, vr);
             if (!r) continue;
             const z = ZONE_PAINT[cr * ZONE_COLS_FINE + cc];

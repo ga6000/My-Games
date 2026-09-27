@@ -55,7 +55,12 @@ const BASELINE = {
     // TARGET IS 0 and the way there is drawing stamps that fit those two,
     // or placing buildings there by hand in the map editor -- not raising
     // this number.
-    zeroBuildingSectors: { max: 2.2, note: "sectors with no building by accident, per map" },
+    // 2.0 a map before the authored starter set, 0.83 after it -- TURBINE
+    // HALL went 0.1 buildings a map to 2.0 and COLD STORAGE 0.8 to 2.4.
+    // Tightened to match, because a baseline left slack is a baseline that
+    // stops catching anything. THE PUMP HOUSE is what is left: nothing in
+    // the stamp library fits it.
+    zeroBuildingSectors: { max: 1.0, note: "sectors with no building by accident, per map" },
     // FIXED 2026-09-24 by hoisting buildSectorInteriors above the buildings
     // and painting the drain only where a pipe stands. Keep it at zero.
     drainBuildings:     { max: 0,   note: "buildings standing on a painted Spillway drain" },
@@ -73,6 +78,12 @@ const BASELINE = {
     // any of this work.
     motorBaysPerMap:    { min: 0.9, note: "Motor Pool service bays built" },
     pipeSegmentsPerMap: { min: 6.0, note: "Spillway storm-run wall segments laid (16 designed)" },
+    // AUTHORED BUILDINGS THAT DID NOT BUILD (2026-09-26). A placement is
+    // somebody's decision, so one that silently does not appear is the
+    // original defect wearing a new hat. The map's skeleton -- the keep,
+    // the sluice, the boundary doors -- is still seeded, so a placement can
+    // legitimately clash on some seeds; the number is what must not drift.
+    authoredMissing:    { max: 0, note: "authored placements that failed to build, per map" },
     landmarks:          { exact: 7 },
     wallBuys:           { exact: 6 },
     stations:           { exact: 9 },
@@ -153,7 +164,8 @@ function inBite(room, r) {
 function run() {
     const totals = {
         buildings: 0, openCorner: 0, decor: 0, decorOnWall: 0, decorOutside: 0,
-        motorBays: 0, drainBuildings: 0, maps: 0, zeroSectors: 0, pipeSegments: 0
+        motorBays: 0, drainBuildings: 0, maps: 0, zeroSectors: 0, pipeSegments: 0,
+        authoredMissing: 0
     };
     const sectorBuildings = {};
     const invariants = { landmarks: [], wallBuys: [], stations: [], doors: [] };
@@ -182,6 +194,7 @@ function run() {
         invariants.wallBuys.push(read("wallBuys.length"));
         invariants.stations.push(read("cardStations.length"));
         invariants.doors.push(read("doors.length"));
+        totals.authoredMissing += read("ZMAP.report.missing.length");
 
         const perSector = {};
         for (let i = 0; i < keys.length; i++) perSector[keys[i]] = 0;
@@ -214,9 +227,16 @@ function run() {
         // The Spillway's storm runs: WALL_T-wide vertical segments in the
         // sector's spine, between the runs' own top and bottom. This is the
         // count that was 2.5 of a designed 16 before the build order moved.
+        // RELATIVE TO THE SECTOR ORIGIN (2026-09-26). These were absolute,
+        // and the perimeter band moved the sectors by MAP_X0/MAP_Y0 -- the
+        // count fell 8.0 -> 1.75 and nothing was wrong with the map. A
+        // check written in world coordinates measures the origin as much as
+        // the thing it is checking.
+        const ox = read("MAP_X0"), oy = read("MAP_Y0");
         for (let i = 0; i < walls.length; i++) {
             const w = walls[i];
-            if (w.w === 20 && w.h > 100 && w.x < 820 && w.y >= 330 && w.y + w.h <= 1730) {
+            if (w.w === 20 && w.h > 100 &&
+                w.x < ox + 820 && w.y >= oy + 330 && w.y + w.h <= oy + 1730) {
                 totals.pipeSegments++;
             }
         }
@@ -270,7 +290,8 @@ function run() {
         buildingsPerMap: totals.buildings / totals.maps,
         motorBaysPerMap: totals.motorBays / totals.maps,
         drainBuildings: totals.drainBuildings / totals.maps,
-        pipeSegmentsPerMap: totals.pipeSegments / totals.maps
+        pipeSegmentsPerMap: totals.pipeSegments / totals.maps,
+        authoredMissing: totals.authoredMissing / totals.maps
     };
 
     console.log("Zombie map features, " + totals.maps + " seeds:");
@@ -282,6 +303,7 @@ function run() {
     report("Motor Pool bays a map", measured.motorBaysPerMap, BASELINE.motorBaysPerMap, failures);
     report("Spillway pipe segments a map", measured.pipeSegmentsPerMap, BASELINE.pipeSegmentsPerMap, failures);
     report("buildings on a drain a map", measured.drainBuildings, BASELINE.drainBuildings, failures);
+    report("authored buildings missing", measured.authoredMissing, BASELINE.authoredMissing, failures);
 
     const names = Object.keys(sectorBuildings).sort();
     const empties = names.filter(function (k) { return sectorBuildings[k] === 0; });
