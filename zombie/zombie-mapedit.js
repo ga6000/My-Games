@@ -25,7 +25,7 @@
    perimeter is a thing you want to author against and until now it ran off
    the edge of a black screen. It is DRAWN ONLY: the world is still
    4800x2700 and a placement out there is refused. Enlarging the world is a
-   real change -- ZONE_CELL_W is WORLD_W/24, so every sector shape stretches
+   real change -- ZONE_CELL_W came from WORLD_W/24, so every sector shape stretched
    with it -- and it needs its own pass.
    =================================================================== */
 "use strict";
@@ -50,10 +50,22 @@ const ZMAPEDIT = (function () {
                             standpipe: [96, 96] };
     let landmarkIndex = 0;
 
-    const TOOLS = ["stamp", "crate", "barrel", "wallbuy", "station", "tree", "culvert", "landmark"];
+    // CELL TOOLS paint the map's own geometry one 20px cell at a time
+    // (ZMAP.cells). A stamp is "this kind of building, here"; a cell is
+    // "a wall here" -- and an exploded stamp becomes cells, which is how a
+    // building stops being an instance of anything and joins the base map.
+    const CELL_TOOLS = { block: "#", window: "W", floor: ".", furniture: null };
+    const FURNITURE = ["s", "d", "b", "r", "c"];
+    const FURNITURE_NAME = { s: "stairs", d: "desk", b: "bench", r: "rack", c: "chair" };
+    let furnitureIndex = 0;
+
+    const TOOLS = ["stamp", "block", "window", "floor", "furniture",
+                   "crate", "barrel", "wallbuy", "station", "tree", "culvert", "landmark"];
     const TOOL_COLOR = { crate: "#8FA89C", barrel: "#C24A2A",
                          wallbuy: "#FFB000", station: "#00E5FF",
-                         tree: "#4E7A3E", culvert: "#9AA6A9", landmark: "#C8A2FF" };
+                         tree: "#4E7A3E", culvert: "#9AA6A9", landmark: "#C8A2FF",
+                         block: "#B9C2C4", window: "#C98A3A", floor: "#3A4446",
+                         furniture: "#7A6B4F" };
     const TOOL_SIZE = { crate: 32, barrel: 24, wallbuy: 110, station: 60,
                         tree: 26, culvert: 120 };
     // A trunk reserves 86px around itself in the level, so two hand-planted
@@ -129,6 +141,16 @@ const ZMAPEDIT = (function () {
 
     // --- editing ----------------------------------------------------
     function place(wx, wy) {
+        const cellTool = TOOLS[tool];
+        if (cellTool in CELL_TOOLS) {
+            const ch = cellTool === "furniture" ? FURNITURE[furnitureIndex] : CELL_TOOLS[cellTool];
+            const cx = snap(wx - STAMP_CELL / 2), cy = snap(wy - STAMP_CELL / 2);
+            if (cx < 0 || cy < 0 || cx >= WORLD_W || cy >= WORLD_H) { message = "outside the world"; return; }
+            ZMAP.cell(cx, cy, ch);
+            message = cellTool + " at " + cx + "," + cy;
+            rebuild();
+            return;
+        }
         if (TOOLS[tool] === "landmark") {
             const what = LANDMARK_KINDS[landmarkIndex];
             const size = LANDMARK_SIZE[what];
@@ -198,7 +220,20 @@ const ZMAPEDIT = (function () {
     }
 
     function remove(wx, wy) {
-        // Props first: they are small and sit on top of buildings.
+        // A painted cell first, when a cell tool is up: the right button
+        // is the eraser for whatever the left button is drawing.
+        if (TOOLS[tool] in CELL_TOOLS) {
+            const cx = snap(wx - STAMP_CELL / 2), cy = snap(wy - STAMP_CELL / 2);
+            for (let i = 0; i < ZMAP.cells.length; i++) {
+                if (ZMAP.cells[i].x === cx && ZMAP.cells[i].y === cy) {
+                    ZMAP.cells.splice(i, 1);
+                    message = "erased " + cx + "," + cy;
+                    rebuild();
+                    return;
+                }
+            }
+        }
+        // Props next: they are small and sit on top of buildings.
         for (let i = ZMAP.props.length - 1; i >= 0; i--) {
             const p = ZMAP.props[i];
             const sz = TOOL_SIZE[p.kind] || 32;
@@ -222,15 +257,99 @@ const ZMAPEDIT = (function () {
     // not be built at all.
     function rebuild() {
         generateLevel();
+        if (panel) trackTimeout(syncPanel, 0);
         if (ZMAP.report.missing.length) {
             message += "  |  " + ZMAP.report.missing.length + " placement(s) blocked";
         }
+    }
+
+    // EXPLODE: a placed stamp becomes loose cells and stops being a stamp.
+    //
+    // Asked for so a building can become a permanent fixture of the base
+    // map rather than an instance that changes whenever its stamp is
+    // redrawn. A doorway becomes floor, not nothing, so the ground under it
+    // still paints; a space in the stamp was never part of it and stays
+    // untouched.
+    function explode(index) {
+        const p = ZMAP.placements[index];
+        if (!p) return 0;
+        let base = byName(p.stamp);
+        if (!base) return 0;
+        if (p.rot || p.mirror) base = ZS.rotate(base, p.rot || 0, !!p.mirror);
+        let n = 0;
+        for (let r = 0; r < base.h; r++) {
+            for (let c = 0; c < base.w; c++) {
+                let ch = base.rows[r][c];
+                if (ch === " ") continue;
+                if (ch === "D") ch = ".";
+                ZMAP.cell(p.x + c * STAMP_CELL, p.y + r * STAMP_CELL, ch);
+                n++;
+            }
+        }
+        ZMAP.placements.splice(index, 1);
+        return n;
+    }
+
+    function doExport() {
+        const text = exportText();
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function () {
+                message = "exported to the clipboard -- paste it into zombie-map-data.js";
+                syncPanel();
+            }, function () {
+                console.log(text);
+                message = "clipboard refused (file://) -- the block is in the console";
+                syncPanel();
+            });
+        } else {
+            console.log(text);
+            message = "the block is in the console";
+        }
+    }
+
+    // FREEZE: what this seed happens to have becomes authored data.
+    function freeze() {
+        let trees = 0, mouths = 0, loose = 0, marks = 0;
+        ZMAP.props = ZMAP.props.filter(function (q) {
+            return q.kind !== "tree" && q.kind !== "culvert" &&
+                   q.kind !== "crate" && q.kind !== "barrel" && q.kind !== "landmark";
+        });
+        for (let i = 0; i < forestRects.length; i++) {
+            ZMAP.addProp({ kind: "tree", x: forestRects[i].x, y: forestRects[i].y });
+            trees++;
+        }
+        for (let i = 0; i < culverts.length; i++) {
+            ZMAP.addProp({ kind: "culvert", x: culverts[i].x, y: culverts[i].y });
+            mouths++;
+        }
+        for (let i = 0; i < ammoCrates.length; i++) {
+            if (ammoCrates[i].fromStamp) continue;
+            ZMAP.addProp({ kind: "crate", x: ammoCrates[i].x, y: ammoCrates[i].y });
+            loose++;
+        }
+        for (let i = 0; i < barrels.length; i++) {
+            ZMAP.addProp({ kind: "barrel", x: barrels[i].x, y: barrels[i].y });
+            loose++;
+        }
+        for (let i = 0; i < landmarks.length; i++) {
+            ZMAP.addProp({ kind: "landmark", what: landmarks[i].kind, rot: 0,
+                           x: landmarks[i].x, y: landmarks[i].y });
+            marks++;
+        }
+        ZMAP.authoredPerimeter = true;
+        ZMAP.authoredLoose = true;
+        rebuild();
+        message = "froze this map: " + trees + " trees, " + mouths + " culverts, " +
+                  loose + " crates/barrels, " + marks + " landmarks -- edit, then export";
     }
 
     function exportText() {
         const lines = ZMAP.placements.map(function (p) {
             return "ZMAP.add({ stamp: \"" + p.stamp + "\", x: " + p.x + ", y: " + p.y +
                    ", rot: " + (p.rot || 0) + ", mirror: " + (p.mirror ? "true" : "false") + " });";
+        });
+        const cells = ZMAP.cells.map(function (c) {
+            return "ZMAP.cell(" + c.x + ", " + c.y + ", \"" + c.ch + "\");";
         });
         const props = ZMAP.props.map(function (p) {
             return "ZMAP.addProp({ kind: \"" + p.kind + "\", x: " + p.x + ", y: " + p.y +
@@ -243,7 +362,10 @@ const ZMAPEDIT = (function () {
                        "ZMAP.authoredPerimeter = " + (ZMAP.authoredPerimeter ? "true" : "false") + ";",
                        "ZMAP.authoredLoose = " + (ZMAP.authoredLoose ? "true" : "false") + ";",
                        ""];
-        return flags.concat(lines).concat(props.length ? [""].concat(props) : []).join("\n") + "\n";
+        return flags.concat(lines)
+                    .concat(props.length ? [""].concat(props) : [])
+                    .concat(cells.length ? [""].concat(cells) : [])
+                    .join("\n") + "\n";
     }
 
     // --- drawing ----------------------------------------------------
@@ -285,7 +407,12 @@ const ZMAPEDIT = (function () {
         for (let cr = 0; cr < ZONE_ROWS_FINE; cr++) {
             for (let cc = 0; cc < ZONE_COLS_FINE; cc++) {
                 const z = ZONE_PAINT[cr * ZONE_COLS_FINE + cc];
-                const x = cc * ZONE_CELL_W, y = cr * ZONE_CELL_H;
+                // zoneX/zoneY, NOT cc * ZONE_CELL_W: the sectors start at
+                // MAP_X0,MAP_Y0 since the perimeter band, so the raw product
+                // drew every sector edge 400px up and left of the wall it was
+                // supposed to trace. This file wrote down that exact rule and
+                // then broke it here.
+                const x = zoneX(cc), y = zoneY(cr);
                 if (cc + 1 < ZONE_COLS_FINE && ZONE_PAINT[cr * ZONE_COLS_FINE + cc + 1] !== z) {
                     ctx.beginPath(); ctx.moveTo(x + ZONE_CELL_W, y);
                     ctx.lineTo(x + ZONE_CELL_W, y + ZONE_CELL_H); ctx.stroke();
@@ -381,6 +508,27 @@ const ZMAPEDIT = (function () {
         }
     }
 
+    // Painted cells, in PLAN. In DRAWN they are simply part of the map --
+    // which is the point of them -- so they are outlined only here.
+    function drawCells() {
+        if (!ZMAP.cells.length) return;
+        ctx.lineWidth = 1 / zoom;
+        for (let i = 0; i < ZMAP.cells.length; i++) {
+            const c = ZMAP.cells[i];
+            const ch = c.ch;
+            ctx.fillStyle = ch === "#" ? "rgba(185,194,196,0.9)"
+                          : ch === "W" ? "rgba(201,138,58,0.9)"
+                          : ch === "." ? "rgba(58,68,70,0.7)"
+                          : "rgba(122,107,79,0.9)";
+            ctx.fillRect(c.x, c.y, STAMP_CELL, STAMP_CELL);
+            if (zoom > 0.8 && ch !== "#" && ch !== ".") {
+                ctx.fillStyle = "#0b0e0f";
+                ctx.font = (11 / zoom) + "px Courier New";
+                ctx.fillText(ch, c.x + 5, c.y + 14);
+            }
+        }
+    }
+
     function drawPlacements() {
         for (let i = 0; i < ZMAP.placements.length; i++) {
             const p = ZMAP.placements[i];
@@ -405,6 +553,14 @@ const ZMAPEDIT = (function () {
     let ghostWhy = "";
 
     function drawGhost() {
+        if (TOOLS[tool] in CELL_TOOLS) {
+            if (!hover) return;
+            const cx = snap(hover.x - STAMP_CELL / 2), cy = snap(hover.y - STAMP_CELL / 2);
+            ctx.strokeStyle = TOOL_COLOR[TOOLS[tool]] || "#FFB000";
+            ctx.lineWidth = 2 / zoom;
+            ctx.strokeRect(cx, cy, STAMP_CELL, STAMP_CELL);
+            return;
+        }
         if (TOOLS[tool] === "landmark") {
             if (!hover) return;
             const size = LANDMARK_SIZE[LANDMARK_KINDS[landmarkIndex]];
@@ -499,6 +655,7 @@ const ZMAPEDIT = (function () {
             drawProps();
         } else {
             drawPlan();
+            drawCells();
             drawPlacements();
             drawProps();
             drawGhost();
@@ -567,7 +724,9 @@ const ZMAPEDIT = (function () {
                 moving.it.x = snap(hover.x + moving.ox);
                 moving.it.y = snap(hover.y + moving.oy);
             }
-            if (painting && TOOLS[tool] === "tree") place(hover.x, hover.y);
+            if (painting && (TOOLS[tool] === "tree" || TOOLS[tool] in CELL_TOOLS)) {
+                place(hover.x, hover.y);
+            }
             if (dragging) {
                 pan.x = dragging.px - (ev.clientX - dragging.sx) / zoom;
                 pan.y = dragging.py - (ev.clientY - dragging.sy) / zoom;
@@ -615,64 +774,37 @@ const ZMAPEDIT = (function () {
             if (ev.code === "Space") { mode = mode === "plan" ? "drawn" : "plan"; ev.preventDefault(); }
             else if (k === "[" || k === "]") {
                 const step = k === "]" ? 1 : -1;
-                if (TOOLS[tool] === "landmark") {
+                if (TOOLS[tool] === "furniture") {
+                    furnitureIndex = (furnitureIndex + step + FURNITURE.length) % FURNITURE.length;
+                    syncPanel();
+                } else if (TOOLS[tool] === "landmark") {
                     landmarkIndex = (landmarkIndex + step + LANDMARK_KINDS.length) % LANDMARK_KINDS.length;
                 } else {
                     stampIndex = (stampIndex + step + ZS.LIBRARY.length) % ZS.LIBRARY.length;
                 }
+                syncPanel();
             }
-            else if (k === "t") { tool = (tool + 1) % TOOLS.length; }
+            else if (k === "t") { tool = (tool + 1) % TOOLS.length; syncPanel(); }
+            else if (k === "x") {
+                // Explode what is under the cursor; with shift, all of them.
+                let cells = 0, n = 0;
+                if (ev.shiftKey) {
+                    for (let i = ZMAP.placements.length - 1; i >= 0; i--) { cells += explode(i); n++; }
+                } else if (hover) {
+                    const i = placementAt(hover.x, hover.y);
+                    if (i >= 0) { cells = explode(i); n = 1; }
+                }
+                if (!n) { message = "no building under the cursor to explode"; }
+                else {
+                    rebuild();
+                    message = "exploded " + n + " building(s) into " + cells +
+                              " cells -- they are part of the base map now";
+                }
+            }
             else if (k === "r") { rot = (rot + 1) % 4; }
             else if (k === "m") { mirror = !mirror; }
             else if (k === "g") { rebuild(); message = "regenerated"; }
-            else if (k === "f") {
-                // FREEZE the perimeter this seed happens to have into
-                // authored props, as a starting point to edit. Hand-placing
-                // ~90 trunks from nothing is not authoring, it is typing;
-                // what you actually want to hand-author is the SHAPE of a
-                // tree line you already know.
-                let trees = 0, mouths = 0, loose = 0, marks = 0;
-                ZMAP.props = ZMAP.props.filter(function (q) {
-                    return q.kind !== "tree" && q.kind !== "culvert" &&
-                           q.kind !== "crate" && q.kind !== "barrel" && q.kind !== "landmark";
-                });
-                for (let i = 0; i < forestRects.length; i++) {
-                    ZMAP.addProp({ kind: "tree", x: forestRects[i].x, y: forestRects[i].y });
-                    trees++;
-                }
-                for (let i = 0; i < culverts.length; i++) {
-                    ZMAP.addProp({ kind: "culvert", x: culverts[i].x, y: culverts[i].y });
-                    mouths++;
-                }
-                for (let i = 0; i < ammoCrates.length; i++) {
-                    // A crate that belongs to a stamp comes back with the
-                    // building; capturing it here would duplicate it.
-                    if (ammoCrates[i].fromStamp) continue;
-                    ZMAP.addProp({ kind: "crate", x: ammoCrates[i].x, y: ammoCrates[i].y });
-                    loose++;
-                }
-                for (let i = 0; i < barrels.length; i++) {
-                    ZMAP.addProp({ kind: "barrel", x: barrels[i].x, y: barrels[i].y });
-                    loose++;
-                }
-                for (let i = 0; i < landmarks.length; i++) {
-                    ZMAP.addProp({ kind: "landmark", what: landmarks[i].kind, rot: 0,
-                                   x: landmarks[i].x, y: landmarks[i].y });
-                    marks++;
-                }
-                ZMAP.authoredPerimeter = true;
-                ZMAP.authoredLoose = true;
-                rebuild();
-                message = "froze this map: " + trees + " trees, " + mouths + " culverts, " +
-                          loose + " crates/barrels, " + marks + " landmarks -- edit, then E";
-            }
-            else if (k === "l") {
-                ZMAP.authoredLoose = !ZMAP.authoredLoose;
-                rebuild();
-                message = "loose layer " + (ZMAP.authoredLoose
-                    ? "ON -- only hand-placed crates and barrels"
-                    : "off -- crates and barrels are scattered again");
-            }
+            else if (k === "f") { freeze(); }
             else if (k === "p") {
                 ZMAP.authoredPerimeter = !ZMAP.authoredPerimeter;
                 rebuild();
@@ -685,20 +817,7 @@ const ZMAPEDIT = (function () {
                 rebuild();
                 message = "authored-only " + (ZMAP.authoredOnly ? "ON -- the generator places no buildings" : "off");
             }
-            else if (k === "e") {
-                const text = exportText();
-                if (navigator.clipboard) {
-                    navigator.clipboard.writeText(text).then(function () {
-                        message = "exported " + ZMAP.placements.length + " placements to the clipboard";
-                    }, function () {
-                        console.log(text);
-                        message = "clipboard refused (file://) -- the block is in the console";
-                    });
-                } else {
-                    console.log(text);
-                    message = "the block is in the console";
-                }
-            }
+            else if (k === "e") { doExport(); }
         }, sig);
     }
 
@@ -711,16 +830,120 @@ const ZMAPEDIT = (function () {
                      canvas.height / (WORLD_H + MARGIN * 2))));
     }
 
+    // ---------------------------------------------------
+    //   THE SIDE PANEL
+    // ---------------------------------------------------
+    // The keys still do everything -- they are faster once known -- but a
+    // tool you cannot see is a tool you have to remember, and the stamp
+    // builder already proved the palette is how you pick one. Built in the
+    // DOM over the canvas rather than drawn into it, so it is a real list
+    // of buttons and not a hit-test.
+    let panel = null;
+
+    function el(tag, css, text) {
+        const e = document.createElement(tag);
+        if (css) e.setAttribute("style", css);
+        if (text !== undefined) e.textContent = text;
+        return e;
+    }
+
+    const PANEL_CSS = "position:fixed;top:0;right:0;width:214px;height:100%;overflow-y:auto;" +
+        "background:#0d1113;border-left:1px solid #232b2e;color:#C8D2D4;" +
+        "font:12px/1.5 'Courier New',Courier,monospace;padding:10px;z-index:9999;";
+    const BTN = "display:block;width:100%;text-align:left;margin:2px 0;padding:3px 6px;" +
+        "background:#161d1f;color:#C8D2D4;border:1px solid #232b2e;font:inherit;cursor:pointer;";
+    const BTN_ON = BTN + "border-color:#FFB000;color:#FFB000;background:#1d2528;";
+    const H = "color:#6D7B7E;letter-spacing:1px;margin:12px 0 3px;border-bottom:1px solid #232b2e;";
+
+    function button(label, on, fn) {
+        const b = el("button", on ? BTN_ON : BTN, label);
+        b.onclick = function () { fn(); syncPanel(); };
+        return b;
+    }
+
+    function syncPanel() {
+        if (!panel) return;
+        panel.innerHTML = "";
+        panel.appendChild(el("div", "color:#FFB000;letter-spacing:2px;", "MAP EDITOR"));
+        panel.appendChild(el("div", "color:#6D7B7E;", "SPACE: " + (mode === "plan" ? "plan" : "drawn")));
+
+        panel.appendChild(el("div", H, "TOOL"));
+        TOOLS.forEach(function (name, i) {
+            panel.appendChild(button(name, i === tool, function () { tool = i; }));
+        });
+
+        if (TOOLS[tool] === "stamp") {
+            panel.appendChild(el("div", H, "STAMP"));
+            ZS.LIBRARY.forEach(function (st, i) {
+                panel.appendChild(button(st.name + "  " + st.w + "x" + st.h, i === stampIndex,
+                                         function () { stampIndex = i; }));
+            });
+            panel.appendChild(button("rotate  (R) " + (rot * 90) + "\u00B0", false,
+                                     function () { rot = (rot + 1) % 4; }));
+            panel.appendChild(button("mirror  (M) " + (mirror ? "on" : "off"), mirror,
+                                     function () { mirror = !mirror; }));
+        } else if (TOOLS[tool] === "landmark") {
+            panel.appendChild(el("div", H, "LANDMARK"));
+            LANDMARK_KINDS.forEach(function (what, i) {
+                panel.appendChild(button(what, i === landmarkIndex, function () { landmarkIndex = i; }));
+            });
+            panel.appendChild(button("turn  (R) " + (rot % 2 ? "on" : "off"), rot % 2 === 1,
+                                     function () { rot = (rot + 1) % 4; }));
+        } else if (TOOLS[tool] === "furniture") {
+            panel.appendChild(el("div", H, "FURNITURE"));
+            FURNITURE.forEach(function (ch, i) {
+                panel.appendChild(button(FURNITURE_NAME[ch], i === furnitureIndex,
+                                         function () { furnitureIndex = i; }));
+            });
+        }
+
+        panel.appendChild(el("div", H, "THE MAP IS"));
+        panel.appendChild(button("buildings: " + (ZMAP.authoredOnly ? "authored" : "seeded"),
+            ZMAP.authoredOnly, function () { ZMAP.authoredOnly = !ZMAP.authoredOnly; rebuild(); }));
+        panel.appendChild(button("perimeter: " + (ZMAP.authoredPerimeter ? "authored" : "seeded"),
+            ZMAP.authoredPerimeter, function () { ZMAP.authoredPerimeter = !ZMAP.authoredPerimeter; rebuild(); }));
+        panel.appendChild(button("loose: " + (ZMAP.authoredLoose ? "authored" : "seeded"),
+            ZMAP.authoredLoose, function () { ZMAP.authoredLoose = !ZMAP.authoredLoose; rebuild(); }));
+
+        panel.appendChild(el("div", H, "DO"));
+        panel.appendChild(button("regenerate  (G)", false, function () { rebuild(); message = "regenerated"; }));
+        panel.appendChild(button("freeze this map  (F)", false, function () { freeze(); }));
+        panel.appendChild(button("explode all stamps  (shift X)", false, function () {
+            let cells = 0, n = 0;
+            for (let i = ZMAP.placements.length - 1; i >= 0; i--) { cells += explode(i); n++; }
+            rebuild();
+            message = "exploded " + n + " building(s) into " + cells + " cells";
+        }));
+        panel.appendChild(button("export  (E)", false, function () { doExport(); }));
+        panel.appendChild(button("stamp builder \u2192", false, function () {
+            window.open("stamp-builder.html", "zombie-stamp-builder");
+        }));
+
+        panel.appendChild(el("div", H, "COUNTS"));
+        panel.appendChild(el("div", "color:#6D7B7E;",
+            ZMAP.placements.length + " buildings, " + ZMAP.cells.length + " cells, " +
+            ZMAP.props.length + " props" +
+            (ZMAP.report.missing.length ? "  |  " + ZMAP.report.missing.length + " BLOCKED" : "")));
+        panel.appendChild(el("div", "color:#6FD08C;margin-top:8px;word-wrap:break-word;", message));
+    }
+
     function start() {
         // The game must not run under the editor: no rounds, no spawning,
         // no camera of its own.
         if (typeof zRafHandle !== "undefined" && zRafHandle) cancelAnimationFrame(zRafHandle);
         if (typeof zDevNoZombies !== "undefined") zDevNoZombies = true;
         if (typeof zombies !== "undefined") zombies.length = 0;
-        const start = document.getElementById("start");
-        if (start) start.style.display = "none";
-        const ui = document.getElementById("ui");
-        if (ui) ui.style.display = "none";
+        // Every HUD element the game puts over the world. There is no run
+        // here, so all of it is noise on top of the map -- and `start` was
+        // the wrong id, so the JOIN prompt sat over the middle of the
+        // editor until somebody looked at a screenshot.
+        const hide = ["ui", "loadout", "startprompt", "zonename", "audioState",
+                      "objective", "prompt", "toast", "roundcard", "scores",
+                      "spectate", "netlost", "netwarn", "hordecall"];
+        for (let i = 0; i < hide.length; i++) {
+            const e = document.getElementById(hide[i]);
+            if (e) e.style.display = "none";
+        }
 
         pan.x = WORLD_W / 2;
         pan.y = WORLD_H / 2;
@@ -733,7 +956,11 @@ const ZMAPEDIT = (function () {
                                 (typeof zSignal === "function") ? { signal: zSignal() } : undefined);
         rebuild();
         wire();
+        panel = document.createElement("div");
+        panel.setAttribute("style", PANEL_CSS);
+        document.body.appendChild(panel);
         message = "ready -- " + ZS.LIBRARY.length + " stamps in the library";
+        syncPanel();
         render();
     }
 

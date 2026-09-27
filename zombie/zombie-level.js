@@ -1193,6 +1193,7 @@ function generateLevel() {
     // hall that had taken the ground first, which is the generator winning
     // an argument it should not be in.
     placeAuthoredBuildings();
+    placeAuthoredCells();
     planFunnelHalls();
     buildPlannedHalls();
     // Hero structures get first pick of what is left, because a landmark
@@ -3474,6 +3475,91 @@ function placeStampAt(stamp, x, y, z, kindFallback, force) {
 // the only thing that can stop it is overlapping something already solid.
 // When that happens it is RECORDED IN ZMAP.report.missing and warned
 // about, never dropped quietly.
+// The loose cells: walls, windows, floor and furniture painted straight
+// onto the map, outside any stamp.
+//
+// RUNS COALESCE. A hand-painted wall is drawn one cell at a time and would
+// otherwise become one rect per cell -- every solid on this map is tested
+// linearly by clashesReserved and swept by the nav rebuild, so a 40-cell
+// wall must not cost 40 rects. Horizontal runs first, then identical runs
+// merge downward, which is the same greedy decomposition ZS.rects uses.
+function placeAuthoredCells() {
+    if (typeof ZMAP === "undefined" || !ZMAP.cells.length) return;
+
+    const byKey = {};
+    for (let i = 0; i < ZMAP.cells.length; i++) {
+        const c = ZMAP.cells[i];
+        byKey[c.x + "," + c.y] = c.ch;
+    }
+    const used = {};
+    const out = { "#": [], "W": [], ".": [] };
+    const decor = [];
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+
+    for (let i = 0; i < ZMAP.cells.length; i++) {
+        const c = ZMAP.cells[i];
+        bx0 = Math.min(bx0, c.x); by0 = Math.min(by0, c.y);
+        bx1 = Math.max(bx1, c.x + STAMP_CELL); by1 = Math.max(by1, c.y + STAMP_CELL);
+
+        const key = c.x + "," + c.y;
+        if (used[key]) continue;
+        if (c.ch !== "#" && c.ch !== "W" && c.ch !== ".") continue;
+
+        let w = 1;
+        while (byKey[(c.x + w * STAMP_CELL) + "," + c.y] === c.ch &&
+               !used[(c.x + w * STAMP_CELL) + "," + c.y]) w++;
+        let h = 1;
+        for (;;) {
+            let ok = true;
+            for (let k = 0; k < w && ok; k++) {
+                const kk = (c.x + k * STAMP_CELL) + "," + (c.y + h * STAMP_CELL);
+                if (byKey[kk] !== c.ch || used[kk]) ok = false;
+            }
+            if (!ok) break;
+            h++;
+        }
+        for (let yy = 0; yy < h; yy++) {
+            for (let xx = 0; xx < w; xx++) {
+                used[(c.x + xx * STAMP_CELL) + "," + (c.y + yy * STAMP_CELL)] = true;
+            }
+        }
+        out[c.ch].push({ x: c.x, y: c.y, w: w * STAMP_CELL, h: h * STAMP_CELL });
+    }
+
+    for (let i = 0; i < out["#"].length; i++) {
+        walls.push(out["#"][i]);
+        reservedRects.push(out["#"][i]);
+    }
+    for (let i = 0; i < out["W"].length; i++) {
+        const r = out["W"][i];
+        barricades.push({ x: r.x, y: r.y, w: r.w, h: r.h, hp: 60, maxHp: 60, chewUntil: 0 });
+    }
+    if (typeof zfPatch === "function") {
+        for (let i = 0; i < out["."].length; i++) {
+            const r = out["."][i];
+            zfPatch(r.x, r.y, r.w, r.h, zfInteriorAt(r.x + r.w / 2, r.y + r.h / 2));
+        }
+    }
+
+    // Furniture cells. They are drawn, never solid -- the same rule a
+    // stamp's furniture follows, and for the same reason: a table in a room
+    // reached through a narrow door is how nav pockets are made.
+    const LETTERS = { s: "stairs", d: "desk", b: "bench", r: "rack", c: "chair" };
+    for (let i = 0; i < ZMAP.cells.length; i++) {
+        const c = ZMAP.cells[i];
+        const type = LETTERS[c.ch];
+        if (!type) continue;
+        decor.push({ type: type, x: c.x + 3, y: c.y + 3,
+                     w: STAMP_CELL - 6, h: STAMP_CELL - 6, down: false });
+    }
+    if (decor.length) {
+        // ONE room for all of it, whose rect is only used to cull the draw.
+        // Loose furniture has no building to belong to by definition.
+        buildingRooms.push({ x: bx0, y: by0, w: bx1 - bx0, h: by1 - by0,
+                             kind: "office", decor: decor, stamp: "(loose cells)", bite: null });
+    }
+}
+
 function placeAuthoredBuildings() {
     if (typeof ZMAP === "undefined" || !ZMAP.placements.length) return;
     ZMAP.report = { placed: 0, missing: [] };

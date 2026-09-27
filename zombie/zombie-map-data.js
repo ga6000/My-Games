@@ -74,6 +74,33 @@ const ZMAP = {
     // seeded search, so a half-authored map still works.
     props: [],
 
+    // LOOSE CELLS -- the map's own geometry, one 20px cell at a time.
+    //
+    // A stamp is a building you can re-edit everywhere it appears; a cell
+    // is a decision about THIS spot. Both exist because they answer
+    // different questions: "this kind of shed" versus "a wall here".
+    //
+    // The editor can EXPLODE a placed stamp into cells, which is how a
+    // building stops being an instance of a stamp and becomes part of the
+    // base map -- editable cell by cell, and no longer changed by redrawing
+    // the stamp it came from.
+    //
+    // `ch` is a stamp legend character: # wall, W window, . floor, and the
+    // furniture letters s d b r c.
+    cells: [],
+
+    cell: function (x, y, ch) {
+        // One character per cell: painting over a cell replaces it.
+        for (let i = 0; i < this.cells.length; i++) {
+            if (this.cells[i].x === x && this.cells[i].y === y) {
+                if (ch) this.cells[i].ch = ch;
+                else this.cells.splice(i, 1);
+                return;
+            }
+        }
+        if (ch) this.cells.push({ x: x, y: y, ch: ch });
+    },
+
     add: function (o) {
         this.placements.push({
             stamp: o.stamp, x: o.x, y: o.y,

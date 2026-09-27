@@ -97,6 +97,7 @@
     <h2>PLAYTEST</h2>
     <div class="row">
         <button class="go" id="bPlay">play it in the map</button>
+        <button id="bMapEdit">map editor →</button>
         <label><input type="checkbox" id="fNoZ"> no zombies</label>
     </div>
     <div class="hint">Opens Zombie.html with this stamp dropped into its sector,
@@ -378,6 +379,11 @@ document.getElementById("bPlay").onclick = function () {
     url += "&sector=" + encodeURIComponent(key);
     url += "#stamp=" + encodeURIComponent(ZS.toText(stamp));
     window.open(url, "zombie-sandbox");
+};
+
+document.getElementById("bMapEdit").onclick = function () {
+    // The other half of the loop: draw a building here, place it there.
+    window.open("map-editor.html", "zombie-map-editor");
 };
 
 document.getElementById("bImport").onclick = function () {

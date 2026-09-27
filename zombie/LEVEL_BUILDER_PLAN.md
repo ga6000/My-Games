@@ -19,11 +19,20 @@
 > | **`[` `]`** | change stamp. **R** rotate, **M** mirror |
 > | **G** | regenerate — every placement goes through the real generator |
 > | **A** | authored-only: turn the seeded building placer off |
-> | **T** | change tool: **stamp**, crate, barrel, wall-buy spot, perk-station spot, tree, culvert |
+> | **side panel** | every tool, stamp, landmark and flag as a button — the keys still work |
+> | **T** | change tool: stamp, **block**, **window**, **floor**, **furniture**, crate, barrel, wall-buy, perk-station, tree, culvert, landmark |
+> | **X** / **shift-X** | explode the building under the cursor / all of them into loose cells |
 > | **A** | authored-only — **ON**: the map's buildings are the ones you placed |
 > | **P** | authored-perimeter — with it on, only hand-placed trees and culverts exist |
 > | **F** | freeze this seed's forest and culverts into authored props, to edit |
-> | **E** | export every placement to the clipboard, to paste into `zombie-map-data.js` |
+> | **E** | export every placement, prop and cell to the clipboard, to paste into `zombie-map-data.js` |
+>
+> **Cells are the map's own geometry**, painted one 20px cell at a time and dragged like a brush:
+> a stamp is "this kind of building, here", a cell is "a wall here". **Exploding** a placed stamp
+> turns it into cells, which is how a building stops being an instance of a stamp — it becomes part
+> of the base map and redrawing that stamp no longer changes it. Cells can go anywhere in the
+> world, **including the perimeter band**, so walls at the map edge are drawn with the block tool.
+> The stamp builder and the map editor link to each other.
 >
 > The ghost under the cursor is **red when the placement would be refused, and says why** — it
 > asks `stampBlockedReason()`, the same predicate the level places with.

@@ -708,6 +708,13 @@ moved.
 > off the built map after each regenerate rather than guessed, so the sector still decides and you
 > can still see what you placed.
 >
+> **`ZMAP.cells` is the map's own geometry** (2026-09-26), one 20px cell at a time: `#` wall,
+> `W` window, `.` floor, and the furniture letters. `placeAuthoredCells()` coalesces them into
+> rects the same greedy way `ZS.rects` does — a hand-painted 40-cell wall must not become 40 rects,
+> because every solid here is tested linearly by `clashesReserved` and swept by the nav rebuild.
+> The editor can **explode** a placed stamp into cells, which is how a building stops being an
+> instance of a stamp and joins the base map.
+>
 > `stampBlockedReason()` is the one predicate behind all of it — the level places with it, and the
 > editor asks it under the cursor every frame to colour the ghost. An editor with its own idea of
 > what fits is an editor that starts disagreeing with the game.
@@ -2221,4 +2228,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 8a755bf4 | 2026-09-26 -->
+<!-- doc-sync: fbb275df | 2026-09-26 -->
