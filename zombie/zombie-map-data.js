@@ -179,4 +179,3 @@ ZMAP.add({ stamp: "cold-block-c", x: 1140, y: 2780, rot: 0, mirror: false });
 ZMAP.addProp({ kind: "crate",   x: 1780, y: 640 });
 ZMAP.addProp({ kind: "barrel",  x: 1860, y: 640 });
 ZMAP.addProp({ kind: "wallbuy", x: 1720, y: 700 });
-

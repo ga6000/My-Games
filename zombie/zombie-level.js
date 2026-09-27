@@ -1342,7 +1342,16 @@ function zoneBoundaryRuns() {
             while (r + n < ZONE_ROWS_FINE &&
                    ZONE_PAINT[(r + n) * ZONE_COLS_FINE + c] === a &&
                    ZONE_PAINT[(r + n) * ZONE_COLS_FINE + c + 1] === b) n++;
-            runs.push({ vertical: true, fixed: zoneX(c + 1) - WALL_T / 2,
+            // ON THE LATTICE, NOT CENTRED ON THE LINE (2026-09-26).
+            //
+            // `- WALL_T / 2` put every boundary wall half a cell off the
+            // 20px grid that hand-painted cells snap to, so a wall drawn
+            // against a sector edge could never line up with it -- reported
+            // as geometry that "appears slightly misaligned from the rest of
+            // the cells I've placed". The wall now occupies the cell on the
+            // low side of the line. It moves by 10px and everything shares
+            // one grid.
+            runs.push({ vertical: true, fixed: zoneX(c + 1) - WALL_T,
                         start: zoneY(r), span: n * ZONE_CELL_H, a: a, b: b });
             r += n;
         }
@@ -1358,7 +1367,7 @@ function zoneBoundaryRuns() {
             while (c + n < ZONE_COLS_FINE &&
                    ZONE_PAINT[r * ZONE_COLS_FINE + c + n] === a &&
                    ZONE_PAINT[(r + 1) * ZONE_COLS_FINE + c + n] === b) n++;
-            runs.push({ vertical: false, fixed: zoneY(r + 1) - WALL_T / 2,
+            runs.push({ vertical: false, fixed: zoneY(r + 1) - WALL_T,
                         start: zoneX(c), span: n * ZONE_CELL_W, a: a, b: b });
             c += n;
         }
@@ -1442,8 +1451,8 @@ function buildBoundaryPosts() {
             const e = ZONE_PAINT[r * ZONE_COLS_FINE + c];
             if (a === b && b === d && d === e) continue;
 
-            const x = zoneX(c) - WALL_T / 2;
-            const y = zoneY(r) - WALL_T / 2;
+            const x = zoneX(c) - WALL_T;
+            const y = zoneY(r) - WALL_T;
             // Never across an opening: a post is cosmetic and a door or
             // window it narrows is not.
             if (rectBlockedByOpening({ x: x, y: y, w: WALL_T, h: WALL_T })) continue;
@@ -1543,12 +1552,18 @@ function emitBoundary(vertical, fixed, start, span, zoneA, zoneB, allowDoor) {
         // Every opening clears the nav grid's guaranteed-navigable width
         // (2*NAV_CELL + 2*NAV_PAD = 106px). Windows used to start at 72,
         // which a walker could be routed through but a brute could not.
-        const size = isDoor
+        // SNAPPED TO THE CELL, both the size and the offset. A doorway at
+        // x=1495.12 cannot be met by a hand-painted wall, which is the same
+        // alignment problem as the wall itself; and a whole number of cells
+        // is also what the nav grid wants (see NAV_TIGHT_PAD). Sizes stay
+        // in the 120-160 band they were already in.
+        const rawSize = isDoor
             ? 124 + Math.floor(MP.random() * 36)
             : 112 + Math.floor(MP.random() * 40);
+        const size = Math.max(120, Math.round(rawSize / STAMP_CELL) * STAMP_CELL);
         const free = Math.max(0, slot - size - margin * 2);
         gaps.push({
-            at: start + i * slot + margin + MP.random() * free,
+            at: Math.round((start + i * slot + margin + MP.random() * free) / STAMP_CELL) * STAMP_CELL,
             size: size,
             kind: isDoor ? "door" : "window"
         });
