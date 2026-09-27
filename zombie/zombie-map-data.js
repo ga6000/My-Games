@@ -103,7 +103,7 @@ ZMAP.add({ stamp: "warren-a", x: 1540, y: 1360, rot: 0, mirror: false });
 ZMAP.add({ stamp: "hut-a", x: 1620, y: 1880, rot: 1, mirror: false });
 
 // SLUICE
-ZMAP.add({ stamp: "cold-block-c", x: 2540, y: 2260, rot: 0, mirror: false });
+ZMAP.add({ stamp: "cold-block-c", x: 2580, y: 2260, rot: 0, mirror: false });
 ZMAP.add({ stamp: "cold-block-c", x: 460, y: 2700, rot: 0, mirror: false });
 ZMAP.add({ stamp: "cold-block-c", x: 1140, y: 2780, rot: 0, mirror: false });
 

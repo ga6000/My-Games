@@ -83,7 +83,15 @@ const BASELINE = {
     // original defect wearing a new hat. The map's skeleton -- the keep,
     // the sluice, the boundary doors -- is still seeded, so a placement can
     // legitimately clash on some seeds; the number is what must not drift.
-    authoredMissing:    { max: 0, note: "authored placements that failed to build, per map" },
+    // 0 over the 12 seeds this script uses, but NOT zero in general: the
+    // sluice room is still seeded, and on about one map in thirty it lands
+    // across the Sluice Yard placement at 2580,2260 -- measured over 70
+    // seeds from three different families, and a smaller stamp in the same
+    // place fails on the same seeds, so it is the ground and not the
+    // building. The tolerance is that reality rather than the seeds this
+    // script happens to draw; tuning it to 0 on the test family would be
+    // measuring the test family.
+    authoredMissing:    { max: 0.1, note: "authored placements that failed to build, per map" },
     landmarks:          { exact: 7 },
     wallBuys:           { exact: 6 },
     stations:           { exact: 9 },
