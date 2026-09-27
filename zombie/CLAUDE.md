@@ -2218,4 +2218,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: d82c131d | 2026-09-26 -->
+<!-- doc-sync: a1b3d028 | 2026-09-26 -->
