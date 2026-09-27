@@ -47,6 +47,19 @@ const ZMAP = {
     // corner or beside the escape.
     authoredPerimeter: false,
 
+    // Crates and barrels. With this on, the seeded scatter and the
+    // chokepoint barrels are both skipped, and the loose layer is exactly
+    // what was placed by hand.
+    //
+    // KNOWN DEFECT (2026-09-26): pressing F (freeze) repeatedly adds ONE
+    // crate each time. Barrels, trees, culverts and landmarks are stable --
+    // measured over three consecutive freezes -- but one live crate comes
+    // from a source that is neither the seeded scatter nor a stamp's loot
+    // slot (those are tagged `fromStamp` and skipped), so freeze captures it
+    // and the next generation makes another. Freeze once, or delete the
+    // stray crate after a second freeze, until it is found.
+    authoredLoose: false,
+
     placements: [],
 
     // Crates, barrels, wall-buys and perk stations (2026-09-26). Same
@@ -68,8 +81,13 @@ const ZMAP = {
         });
     },
 
+    // `what` names a landmark's kind (crane, bus, turbine, pumps, chiller,
+    // silo, standpipe); `rot` of 1 turns it a quarter, which for a landmark
+    // means swapping its width and height -- a crane is 420x150 lying down
+    // and 150x420 standing up.
     addProp: function (o) {
-        this.props.push({ kind: o.kind, x: o.x, y: o.y });
+        this.props.push({ kind: o.kind, x: o.x, y: o.y,
+                          what: o.what, rot: o.rot || 0 });
     },
 
     // Placement outcomes from the last generateLevel(), so a building that

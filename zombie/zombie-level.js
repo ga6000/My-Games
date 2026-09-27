@@ -2751,6 +2751,25 @@ function reserveSightline(eye, x, y, w, h) {
 
 function addLandmark(zone, kind, w, h, lift) {
     const b = zoneBounds(zone);
+
+    // HAND-PLACED WINS, and skips the whole search below. A landmark put
+    // somewhere is a decision about what you see from where, which is the
+    // entire job of a landmark -- there is nothing for the sightline
+    // preference to improve on. `rot` swaps the footprint.
+    const hand = authoredLandmark(kind);
+    if (hand) {
+        const lw = hand.rot ? h : w, lh = hand.rot ? w : h;
+        const lm0 = { x: hand.x, y: hand.y, w: lw, h: lh,
+                      kind: kind, zone: zoneOf(hand.x + lw / 2, hand.y + lh / 2), lift: lift };
+        landmarks.push(lm0);
+        if (kind !== "crane") walls.push({ x: lm0.x, y: lm0.y, w: lw, h: lh });
+        reservedRects.push({ x: lm0.x - 130, y: lm0.y - 130, w: lw + 260, h: lh + 260 });
+        claimFloor(lm0.x, lm0.y, lw, lh, 40);
+        if (typeof zfPatch === "function") {
+            zfPatch(lm0.x - 40, lm0.y - 40, lw + 80, lh + 80, "hardstand");
+        }
+        return;
+    }
     // NOT findOpenSpotSure: that relaxes the reserved-ground rule on its
     // later passes, which is right for a wall-buy (it must exist somewhere)
     // and wrong for a 420px solid -- it put the crane on top of a silo on
@@ -3120,6 +3139,9 @@ function buildZoneContents() {
         // Every loose item now passes the sector id, so an irregular sector
         // stops donating its crates and barrels to whoever owns the rest of
         // its bounding box.
+        // Hand-placed crates and barrels replace the scattered ones.
+        if (typeof ZMAP !== "undefined" && ZMAP.authoredLoose) continue;
+
         for (let i = 0; i < tpl.crates; i++) {
             const spot = findOpenSpot(b, 32, 0, z);
             if (!spot) continue;
@@ -3428,8 +3450,12 @@ function placeStampAt(stamp, x, y, z, kindFallback, force) {
     for (let i = 0; i < geom.slots.length; i++) {
         const slot = geom.slots[i];
         if (slot.kind !== "loot") continue;
+        // `fromStamp` marks a crate that belongs to a BUILDING rather than
+        // to the loose layer: the editor's freeze skips these, or they would
+        // be captured as authored props and then placed again by the stamp.
         ammoCrates.push({ x: Math.round(slot.x + slot.w / 2 - 16),
-                          y: Math.round(slot.y + slot.h / 2 - 16), size: 32, uses: 3 });
+                          y: Math.round(slot.y + slot.h / 2 - 16), size: 32, uses: 3,
+                          fromStamp: true });
     }
 
     buildingRooms.push({ x: box.x, y: box.y, w: box.w, h: box.h,
@@ -3912,6 +3938,19 @@ function resetAuthoredProps() {
         : [];
 }
 
+// An authored landmark of this kind, if one was placed. Landmarks are
+// keyed by WHAT they are rather than by sector, because there is exactly
+// one crane and moving it to another sector is a thing somebody might
+// legitimately want to do.
+function authoredLandmark(what) {
+    if (typeof ZMAP === "undefined") return null;
+    for (let i = 0; i < ZMAP.props.length; i++) {
+        const p = ZMAP.props[i];
+        if (p.kind === "landmark" && p.what === what) return p;
+    }
+    return null;
+}
+
 function takeAuthoredSpot(kind, zone) {
     for (let i = 0; i < authoredPropsLeft.length; i++) {
         const p = authoredPropsLeft[i];
@@ -4035,6 +4074,13 @@ function absentCardKeys() {
 // outpost mouths, where a shot into one actually swings a defence. v2
 // scattered them uniformly, so most exploded where nobody was fighting.
 function placeChokepointBarrels() {
+    // With the loose layer authored, barrels are exactly the ones placed by
+    // hand. Leaving these in as well made FREEZE non-idempotent: it captured
+    // the 13 chokepoint barrels as authored props and then the next
+    // generation added 13 more, so the count grew every time the map was
+    // frozen. The frozen map keeps copies of them at the same spots, which
+    // is the point of freezing -- they become yours to move.
+    if (typeof ZMAP !== "undefined" && ZMAP.authoredLoose) return;
     const spots = [];
     for (let i = 0; i < doors.length; i++) spots.push(doors[i]);
     for (let i = 0; i < barricades.length; i++) spots.push(barricades[i]);

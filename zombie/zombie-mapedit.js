@@ -44,10 +44,16 @@ const ZMAPEDIT = (function () {
     // What a click puts down: a building, or one of the small things.
     // Wall-buy and station spots say WHERE, not what is sold -- see
     // ZMAP.addProp.
-    const TOOLS = ["stamp", "crate", "barrel", "wallbuy", "station", "tree", "culvert"];
+    const LANDMARK_KINDS = ["crane", "bus", "turbine", "pumps", "chiller", "silo", "standpipe"];
+    const LANDMARK_SIZE = { crane: [420, 150], bus: [240, 62], turbine: [190, 120],
+                            pumps: [210, 90], chiller: [130, 130], silo: [110, 110],
+                            standpipe: [96, 96] };
+    let landmarkIndex = 0;
+
+    const TOOLS = ["stamp", "crate", "barrel", "wallbuy", "station", "tree", "culvert", "landmark"];
     const TOOL_COLOR = { crate: "#8FA89C", barrel: "#C24A2A",
                          wallbuy: "#FFB000", station: "#00E5FF",
-                         tree: "#4E7A3E", culvert: "#9AA6A9" };
+                         tree: "#4E7A3E", culvert: "#9AA6A9", landmark: "#C8A2FF" };
     const TOOL_SIZE = { crate: 32, barrel: 24, wallbuy: 110, station: 60,
                         tree: 26, culvert: 120 };
     // A trunk reserves 86px around itself in the level, so two hand-planted
@@ -58,7 +64,8 @@ const ZMAPEDIT = (function () {
     let rot = 0, mirror = false;
     let hover = null;                // {x, y} snapped world cell
     let dragging = null;             // middle-drag pan
-    let painting = false;            // left button held, for the tree brush origin
+    let painting = false;            // left button held, for the tree brush
+    let moving = null;               // an existing placement or prop being dragged origin
     let message = "";
 
     function stamp() {
@@ -75,6 +82,31 @@ const ZMAPEDIT = (function () {
                  y: pan.y + (sy - canvas.height / 2) / zoom };
     }
     function snap(v) { return Math.round(v / STAMP_CELL) * STAMP_CELL; }
+
+    // What is under the cursor: a building placement or a prop. Used to
+    // DRAG an existing thing rather than place a new one on top of it,
+    // which is what "shift it a bit" actually means when authoring.
+    function itemAt(wx, wy) {
+        for (let i = ZMAP.props.length - 1; i >= 0; i--) {
+            const p = ZMAP.props[i];
+            let w = TOOL_SIZE[p.kind] || 32, h = w;
+            if (p.kind === "wallbuy") h = 28;
+            else if (p.kind === "station") { w = 60; h = 44; }
+            else if (p.kind === "culvert") {
+                if (p.x > WORLD_W - 200) { w = WALL_T; h = PERIM_CULVERT; }
+                else { w = PERIM_CULVERT; h = WALL_T; }
+            } else if (p.kind === "landmark") {
+                const size = LANDMARK_SIZE[p.what] || [100, 100];
+                w = p.rot ? size[1] : size[0];
+                h = p.rot ? size[0] : size[1];
+            }
+            if (wx >= p.x && wx <= p.x + w && wy >= p.y && wy <= p.y + h) {
+                return { prop: p };
+            }
+        }
+        const i = placementAt(wx, wy);
+        return i >= 0 ? { placement: ZMAP.placements[i] } : null;
+    }
 
     function placementAt(wx, wy) {
         for (let i = ZMAP.placements.length - 1; i >= 0; i--) {
@@ -97,6 +129,23 @@ const ZMAPEDIT = (function () {
 
     // --- editing ----------------------------------------------------
     function place(wx, wy) {
+        if (TOOLS[tool] === "landmark") {
+            const what = LANDMARK_KINDS[landmarkIndex];
+            const size = LANDMARK_SIZE[what];
+            const lw = rot % 2 ? size[1] : size[0], lh = rot % 2 ? size[0] : size[1];
+            // One of each: placing a second crane would mean the first is
+            // simply ignored, which is worse than moving the one there is.
+            for (let i = ZMAP.props.length - 1; i >= 0; i--) {
+                if (ZMAP.props[i].kind === "landmark" && ZMAP.props[i].what === what) {
+                    ZMAP.props.splice(i, 1);
+                }
+            }
+            ZMAP.addProp({ kind: "landmark", what: what, rot: rot % 2,
+                           x: snap(wx - lw / 2), y: snap(wy - lh / 2) });
+            message = "the " + what + " now stands at " + snap(wx - lw / 2) + "," + snap(wy - lh / 2);
+            rebuild();
+            return;
+        }
         if (TOOLS[tool] === "culvert") {
             // A mouth belongs to the hard wall, so it snaps to whichever of
             // the two is nearer. The north and west edges are forest, not
@@ -184,12 +233,15 @@ const ZMAPEDIT = (function () {
                    ", rot: " + (p.rot || 0) + ", mirror: " + (p.mirror ? "true" : "false") + " });";
         });
         const props = ZMAP.props.map(function (p) {
-            return "ZMAP.addProp({ kind: \"" + p.kind + "\", x: " + p.x + ", y: " + p.y + " });";
+            return "ZMAP.addProp({ kind: \"" + p.kind + "\", x: " + p.x + ", y: " + p.y +
+                   (p.what ? ", what: \"" + p.what + "\"" : "") +
+                   (p.rot ? ", rot: " + p.rot : "") + " });";
         });
         // The flags travel with the placements: paste the block and the map
         // is in the state it was on screen.
         const flags = ["ZMAP.authoredOnly = " + (ZMAP.authoredOnly ? "true" : "false") + ";",
                        "ZMAP.authoredPerimeter = " + (ZMAP.authoredPerimeter ? "true" : "false") + ";",
+                       "ZMAP.authoredLoose = " + (ZMAP.authoredLoose ? "true" : "false") + ";",
                        ""];
         return flags.concat(lines).concat(props.length ? [""].concat(props) : []).join("\n") + "\n";
     }
@@ -308,10 +360,14 @@ const ZMAPEDIT = (function () {
         for (let i = 0; i < ZMAP.props.length; i++) {
             const p = ZMAP.props[i];
             const sz = TOOL_SIZE[p.kind] || 32;
+            const lsize = p.kind === "landmark" ? (LANDMARK_SIZE[p.what] || [100, 100]) : null;
             const h = p.kind === "wallbuy" ? 28 : p.kind === "station" ? 44
                     : p.kind === "culvert" ? (p.x > WORLD_W - 200 ? PERIM_CULVERT : WALL_T)
+                    : lsize ? (p.rot ? lsize[0] : lsize[1])
                     : sz;
-            const w = p.kind === "culvert" && p.x > WORLD_W - 200 ? WALL_T : sz;
+            const w = p.kind === "culvert" && p.x > WORLD_W - 200 ? WALL_T
+                    : lsize ? (p.rot ? lsize[1] : lsize[0])
+                    : sz;
             ctx.strokeStyle = TOOL_COLOR[p.kind] || "#FFFFFF";
             ctx.lineWidth = 2 / zoom;
             ctx.strokeRect(p.x, p.y, w, h);
@@ -319,7 +375,8 @@ const ZMAPEDIT = (function () {
                 ctx.fillStyle = TOOL_COLOR[p.kind] || "#FFFFFF";
                 ctx.font = (10 / zoom) + "px Courier New";
                 const sold = soldAt(p);
-                ctx.fillText(p.kind + (sold ? ": " + sold : ""), p.x, p.y - 4 / zoom);
+                ctx.fillText(p.what ? p.what : p.kind + (sold ? ": " + sold : ""),
+                             p.x, p.y - 4 / zoom);
             }
         }
     }
@@ -348,6 +405,21 @@ const ZMAPEDIT = (function () {
     let ghostWhy = "";
 
     function drawGhost() {
+        if (TOOLS[tool] === "landmark") {
+            if (!hover) return;
+            const size = LANDMARK_SIZE[LANDMARK_KINDS[landmarkIndex]];
+            const lw = rot % 2 ? size[1] : size[0], lh = rot % 2 ? size[0] : size[1];
+            ctx.strokeStyle = TOOL_COLOR.landmark;
+            ctx.lineWidth = 2 / zoom;
+            ctx.strokeRect(snap(hover.x - lw / 2), snap(hover.y - lh / 2), lw, lh);
+            if (zoom > 0.3) {
+                ctx.fillStyle = TOOL_COLOR.landmark;
+                ctx.font = (11 / zoom) + "px Courier New";
+                ctx.fillText(LANDMARK_KINDS[landmarkIndex] + (rot % 2 ? " (turned)" : ""),
+                             snap(hover.x - lw / 2), snap(hover.y - lh / 2) - 6 / zoom);
+            }
+            return;
+        }
         if (TOOLS[tool] !== "stamp") {
             if (!hover) return;
             const kind = TOOLS[tool];
@@ -448,8 +520,10 @@ const ZMAPEDIT = (function () {
             "click place   right-click delete   middle-drag pan   wheel zoom" +
                 (ghostWhy ? "     HERE: " + ghostWhy : ""),
             "E export   G regenerate   F freeze perimeter",
-            "A authored-only: " + (ZMAP.authoredOnly ? "ON" : "off") +
-                "   P authored-perimeter: " + (ZMAP.authoredPerimeter ? "ON" : "off"),
+            "A buildings: " + (ZMAP.authoredOnly ? "ON" : "off") +
+                "   P perimeter: " + (ZMAP.authoredPerimeter ? "ON" : "off") +
+                "   L loose: " + (ZMAP.authoredLoose ? "ON" : "off") +
+                (TOOLS[tool] === "landmark" ? "   landmark: " + LANDMARK_KINDS[landmarkIndex] : ""),
             message
         ];
         ctx.font = "13px Courier New";
@@ -472,12 +546,27 @@ const ZMAPEDIT = (function () {
             const w = screenToWorld(ev.offsetX, ev.offsetY);
             if (ev.button === 1) { dragging = { sx: ev.clientX, sy: ev.clientY, px: pan.x, py: pan.y }; }
             else if (ev.button === 2) remove(w.x, w.y);
-            else { painting = true; place(w.x, w.y); }
+            else {
+                // On top of something already placed? Move that instead of
+                // stacking a new one on it.
+                const hit = (TOOLS[tool] === "tree") ? null : itemAt(w.x, w.y);
+                if (hit) {
+                    const it = hit.prop || hit.placement;
+                    moving = { it: it, ox: it.x - w.x, oy: it.y - w.y };
+                } else {
+                    painting = true;
+                    place(w.x, w.y);
+                }
+            }
             ev.preventDefault();
         }, sig);
 
         canvas.addEventListener("mousemove", function (ev) {
             hover = screenToWorld(ev.offsetX, ev.offsetY);
+            if (moving) {
+                moving.it.x = snap(hover.x + moving.ox);
+                moving.it.y = snap(hover.y + moving.oy);
+            }
             if (painting && TOOLS[tool] === "tree") place(hover.x, hover.y);
             if (dragging) {
                 pan.x = dragging.px - (ev.clientX - dragging.sx) / zoom;
@@ -485,7 +574,15 @@ const ZMAPEDIT = (function () {
             }
         }, sig);
 
-        window.addEventListener("mouseup", function () { dragging = null; painting = false; }, sig);
+        window.addEventListener("mouseup", function () {
+            dragging = null;
+            painting = false;
+            if (moving) {
+                moving = null;
+                rebuild();               // a moved thing is only moved once it rebuilds
+                message = "moved";
+            }
+        }, sig);
         canvas.addEventListener("contextmenu", function (ev) { ev.preventDefault(); }, sig);
 
         canvas.addEventListener("wheel", function (ev) {
@@ -501,8 +598,14 @@ const ZMAPEDIT = (function () {
         window.addEventListener("keydown", function (ev) {
             const k = ev.key.toLowerCase();
             if (ev.code === "Space") { mode = mode === "plan" ? "drawn" : "plan"; ev.preventDefault(); }
-            else if (k === "[") { stampIndex = (stampIndex + ZS.LIBRARY.length - 1) % ZS.LIBRARY.length; }
-            else if (k === "]") { stampIndex = (stampIndex + 1) % ZS.LIBRARY.length; }
+            else if (k === "[" || k === "]") {
+                const step = k === "]" ? 1 : -1;
+                if (TOOLS[tool] === "landmark") {
+                    landmarkIndex = (landmarkIndex + step + LANDMARK_KINDS.length) % LANDMARK_KINDS.length;
+                } else {
+                    stampIndex = (stampIndex + step + ZS.LIBRARY.length) % ZS.LIBRARY.length;
+                }
+            }
             else if (k === "t") { tool = (tool + 1) % TOOLS.length; }
             else if (k === "r") { rot = (rot + 1) % 4; }
             else if (k === "m") { mirror = !mirror; }
@@ -513,9 +616,10 @@ const ZMAPEDIT = (function () {
                 // ~90 trunks from nothing is not authoring, it is typing;
                 // what you actually want to hand-author is the SHAPE of a
                 // tree line you already know.
-                let trees = 0, mouths = 0;
+                let trees = 0, mouths = 0, loose = 0, marks = 0;
                 ZMAP.props = ZMAP.props.filter(function (q) {
-                    return q.kind !== "tree" && q.kind !== "culvert";
+                    return q.kind !== "tree" && q.kind !== "culvert" &&
+                           q.kind !== "crate" && q.kind !== "barrel" && q.kind !== "landmark";
                 });
                 for (let i = 0; i < forestRects.length; i++) {
                     ZMAP.addProp({ kind: "tree", x: forestRects[i].x, y: forestRects[i].y });
@@ -525,10 +629,34 @@ const ZMAPEDIT = (function () {
                     ZMAP.addProp({ kind: "culvert", x: culverts[i].x, y: culverts[i].y });
                     mouths++;
                 }
+                for (let i = 0; i < ammoCrates.length; i++) {
+                    // A crate that belongs to a stamp comes back with the
+                    // building; capturing it here would duplicate it.
+                    if (ammoCrates[i].fromStamp) continue;
+                    ZMAP.addProp({ kind: "crate", x: ammoCrates[i].x, y: ammoCrates[i].y });
+                    loose++;
+                }
+                for (let i = 0; i < barrels.length; i++) {
+                    ZMAP.addProp({ kind: "barrel", x: barrels[i].x, y: barrels[i].y });
+                    loose++;
+                }
+                for (let i = 0; i < landmarks.length; i++) {
+                    ZMAP.addProp({ kind: "landmark", what: landmarks[i].kind, rot: 0,
+                                   x: landmarks[i].x, y: landmarks[i].y });
+                    marks++;
+                }
                 ZMAP.authoredPerimeter = true;
+                ZMAP.authoredLoose = true;
                 rebuild();
-                message = "froze the perimeter: " + trees + " trees, " + mouths +
-                          " culverts -- now edit them, then E to export";
+                message = "froze this map: " + trees + " trees, " + mouths + " culverts, " +
+                          loose + " crates/barrels, " + marks + " landmarks -- edit, then E";
+            }
+            else if (k === "l") {
+                ZMAP.authoredLoose = !ZMAP.authoredLoose;
+                rebuild();
+                message = "loose layer " + (ZMAP.authoredLoose
+                    ? "ON -- only hand-placed crates and barrels"
+                    : "off -- crates and barrels are scattered again");
             }
             else if (k === "p") {
                 ZMAP.authoredPerimeter = !ZMAP.authoredPerimeter;
