@@ -715,6 +715,17 @@ moved.
 > The editor can **explode** a placed stamp into cells, which is how a building stops being an
 > instance of a stamp and joins the base map.
 >
+> **SECTOR SHAPES ARE EDITABLE (2026-09-26).** `ZMAP.paint` records `{c, r, z}` edits applied over
+> `ZONE_PAINT` by `applyAuthoredPaint()` before anything reads it — so boundary walls, the door
+> pairs and their prices, floors and every placement bound follow with no other code involved. It
+> stores EDITS, not a re-dumped grid: a four-line diff is readable, 432 characters are not.
+> `repaintRefusal()` enforces the rule that makes this safe — **a cell may only join a sector it
+> already touches**, and a paint that would split a sector (`paintConnected`) or take its last cell
+> is refused. Islands are impossible by construction rather than caught by
+> `assertZoneConnectivity` at the end of generation, which is far too late to tell somebody
+> painting. Verified by eating COLD STORAGE's one-row waist: the last connecting cell refuses with
+> "it would split COLD STORAGE in two".
+>
 > `stampBlockedReason()` is the one predicate behind all of it — the level places with it, and the
 > editor asks it under the cursor every frame to colour the ghost. An editor with its own idea of
 > what fits is an editor that starts disagreeing with the game.
@@ -2228,4 +2239,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: fbb275df | 2026-09-26 -->
+<!-- doc-sync: 3d539b89 | 2026-09-26 -->

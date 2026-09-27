@@ -25,7 +25,8 @@
 > | **A** | authored-only — **ON**: the map's buildings are the ones you placed |
 > | **P** | authored-perimeter — with it on, only hand-placed trees and culverts exist |
 > | **F** | freeze this seed's forest and culverts into authored props, to edit |
-> | **E** | export every placement, prop and cell to the clipboard, to paste into `zombie-map-data.js` |
+> | **sector tool** | repaint a sector cell. A cell may only join a sector it **already touches**, and a paint that would split a sector or take its last cell is refused — with the reason drawn under the cell, the way a blocked stamp explains itself |
+> | **E** | export — **writes `zombie-map-data.js` directly** under the dev server and says how many lines it wrote. Everything above the `=== AUTHORED DATA` marker is kept, so prose belongs up there. On `file://` nothing can write, so it falls back to the clipboard and says which happened |
 >
 > **Cells are the map's own geometry**, painted one 20px cell at a time and dragged like a brush:
 > a stamp is "this kind of building, here", a cell is "a wall here". **Exploding** a placed stamp

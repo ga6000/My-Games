@@ -114,6 +114,86 @@ const ZONE_CELL_H = MAP_INNER_H / ZONE_ROWS_FINE;   // 150, unchanged
 // EVERY cell <-> world conversion goes through these four. A bare
 // `c * ZONE_CELL_W` is off by the band and lands a whole sector's worth of
 // geometry in the wrong place.
+// THE AUTHORED SECTOR PAINT, applied over ZONE_PAINT before anything reads
+// it. Everything downstream -- boundary walls, the door pairs and their
+// prices, floors, every placement bound -- is derived from the paint, so
+// repainting a cell moves all of it with no other code involved.
+//
+// WHY EDITS RATHER THAN A NEW GRID: a repainted map is a handful of cells
+// different from the designed one, and a diff of four lines is something a
+// person can read. A re-dumped 432-character grid is not.
+function applyAuthoredPaint() {
+    if (typeof ZMAP === "undefined" || !ZMAP.paint.length) return;
+    for (let i = 0; i < ZMAP.paint.length; i++) {
+        const e = ZMAP.paint[i];
+        if (e.c < 0 || e.r < 0 || e.c >= ZONE_COLS_FINE || e.r >= ZONE_ROWS_FINE) continue;
+        if (e.z < 0 || e.z >= ZONE_COUNT) continue;
+        ZONE_PAINT[e.r * ZONE_COLS_FINE + e.c] = e.z;
+    }
+}
+
+// Could this cell legally become sector z? The rule the user asked for:
+// A CELL MAY ONLY JOIN A SECTOR IT ALREADY TOUCHES, so a sector grows and
+// shrinks by nudging its own edge and can never teleport a piece of itself
+// across the map. Islands are ruled out by construction rather than caught
+// afterwards, and every refusal has a sentence to show.
+//
+// Returns null when it is allowed, or a reason.
+function repaintRefusal(c, r, z) {
+    if (c < 0 || r < 0 || c >= ZONE_COLS_FINE || r >= ZONE_ROWS_FINE) return "outside the sector grid";
+    const from = ZONE_PAINT[r * ZONE_COLS_FINE + c];
+    if (from === z) return "already " + (zoneInfo[z] ? zoneInfo[z].tpl.name : z);
+
+    let touches = false;
+    const n = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let k = 0; k < 4; k++) {
+        const ac = c + n[k][0], ar = r + n[k][1];
+        if (ac < 0 || ar < 0 || ac >= ZONE_COLS_FINE || ar >= ZONE_ROWS_FINE) continue;
+        if (ZONE_PAINT[ar * ZONE_COLS_FINE + ac] === z) { touches = true; break; }
+    }
+    if (!touches) return "not next to that sector -- boundaries move a cell at a time";
+
+    // The sector losing the cell must not be cut in two, and must not
+    // vanish: assertZoneConnectivity would catch an islanded sector at the
+    // end of generation, which is far too late to tell somebody painting.
+    const saved = ZONE_PAINT[r * ZONE_COLS_FINE + c];
+    ZONE_PAINT[r * ZONE_COLS_FINE + c] = z;
+    const left = paintConnected(from);
+    ZONE_PAINT[r * ZONE_COLS_FINE + c] = saved;
+    if (left === 0) return "that is the last cell of " + (zoneInfo[from] ? zoneInfo[from].tpl.name : from);
+    if (left < 0) return "it would split " + (zoneInfo[from] ? zoneInfo[from].tpl.name : from) + " in two";
+    return null;
+}
+
+// Cells in sector z if they form ONE connected region; -1 if they form
+// more than one; 0 if there are none.
+function paintConnected(z) {
+    const cells = [];
+    for (let r = 0; r < ZONE_ROWS_FINE; r++) {
+        for (let c = 0; c < ZONE_COLS_FINE; c++) {
+            if (ZONE_PAINT[r * ZONE_COLS_FINE + c] === z) cells.push(r * ZONE_COLS_FINE + c);
+        }
+    }
+    if (!cells.length) return 0;
+    const seen = {};
+    const q = [cells[0]];
+    seen[cells[0]] = true;
+    let head = 0, n = 1;
+    while (head < q.length) {
+        const i = q[head++];
+        const c = i % ZONE_COLS_FINE, r = (i - c) / ZONE_COLS_FINE;
+        const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        for (let k = 0; k < 4; k++) {
+            const ac = c + nb[k][0], ar = r + nb[k][1];
+            if (ac < 0 || ar < 0 || ac >= ZONE_COLS_FINE || ar >= ZONE_ROWS_FINE) continue;
+            const j = ar * ZONE_COLS_FINE + ac;
+            if (seen[j] || ZONE_PAINT[j] !== z) continue;
+            seen[j] = true; q.push(j); n++;
+        }
+    }
+    return n === cells.length ? n : -1;
+}
+
 function zoneX(c) { return MAP_X0 + c * ZONE_CELL_W; }
 function zoneY(r) { return MAP_Y0 + r * ZONE_CELL_H; }
 function zoneCol(x) { return clamp(Math.floor((x - MAP_X0) / ZONE_CELL_W), 0, ZONE_COLS_FINE - 1); }
@@ -1169,6 +1249,8 @@ function generateLevel() {
     funnelHalls = [];
     siloPipes = [];
 
+    // The authored paint first: everything below reads ZONE_PAINT.
+    applyAuthoredPaint();
     assignZones();
     buildZoneWalls();
     // The next-hop table the horde navigates the sectors by. It reads the

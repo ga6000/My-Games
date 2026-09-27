@@ -60,12 +60,14 @@ const ZMAPEDIT = (function () {
     let furnitureIndex = 0;
 
     const TOOLS = ["stamp", "block", "window", "floor", "furniture",
-                   "crate", "barrel", "wallbuy", "station", "tree", "culvert", "landmark"];
+                   "crate", "barrel", "wallbuy", "station", "tree", "culvert", "landmark",
+                   "sector"];
+    let sectorIndex = 0;
     const TOOL_COLOR = { crate: "#8FA89C", barrel: "#C24A2A",
                          wallbuy: "#FFB000", station: "#00E5FF",
                          tree: "#4E7A3E", culvert: "#9AA6A9", landmark: "#C8A2FF",
                          block: "#B9C2C4", window: "#C98A3A", floor: "#3A4446",
-                         furniture: "#7A6B4F" };
+                         furniture: "#7A6B4F", sector: "#FFB000" };
     const TOOL_SIZE = { crate: 32, barrel: 24, wallbuy: 110, station: 60,
                         tree: 26, culvert: 120 };
     // A trunk reserves 86px around itself in the level, so two hand-planted
@@ -141,6 +143,15 @@ const ZMAPEDIT = (function () {
 
     // --- editing ----------------------------------------------------
     function place(wx, wy) {
+        if (TOOLS[tool] === "sector") {
+            const c = zoneCol(wx), r = zoneRow(wy);
+            const why = repaintRefusal(c, r, sectorIndex);
+            if (why) { message = "no: " + why; syncPanel(); return; }
+            ZMAP.repaint(c, r, sectorIndex);
+            rebuild();
+            message = "cell " + c + "," + r + " is now " + zoneInfo[sectorIndex].tpl.name;
+            return;
+        }
         const cellTool = TOOLS[tool];
         if (cellTool in CELL_TOOLS) {
             const ch = cellTool === "furniture" ? FURNITURE[furnitureIndex] : CELL_TOOLS[cellTool];
@@ -290,20 +301,70 @@ const ZMAPEDIT = (function () {
         return n;
     }
 
+    // EXPORT WRITES THE FILE (2026-09-26). Under the dev server it fetches
+    // zombie-map-data.js, keeps everything above the AUTHORED DATA marker --
+    // the explanation of what the file is, which no generator should be
+    // rewriting -- replaces what is below it, and POSTs the result back.
+    // The confirmation is the server's own reply, so "saved" means the file
+    // on disk changed rather than that a request was sent.
+    //
+    // On file:// nothing can write, so it falls back to the clipboard and
+    // says which one happened.
+    const MAP_DATA_PATH = "/zombie/zombie-map-data.js";
+    const MARKER = "// === AUTHORED DATA";
+
     function doExport() {
         const text = exportText();
+        const onServer = window.location.protocol === "http:" || window.location.protocol === "https:";
+        if (!onServer) {
+            copyOut(text, "opened from a file, so nothing can be written -- ");
+            return;
+        }
+        message = "writing zombie-map-data.js ...";
+        syncPanel();
+        fetch(MAP_DATA_PATH + "?t=" + Date.now())
+            .then(function (r) { return r.text(); })
+            .then(function (file) {
+                const at = file.indexOf(MARKER);
+                if (at < 0) throw new Error("no AUTHORED DATA marker in the file");
+                const head = file.slice(0, file.indexOf("\n", at) + 1);
+                return fetch(MAP_DATA_PATH, { method: "POST", body: head + "\n" + text });
+            })
+            .then(function (r) { return r.text().then(function (t) {
+                if (!r.ok) throw new Error(t);
+                // A 200 IS NOT A WRITE. An older dev server -- or any plain
+                // static server -- answers POST by serving the file, which
+                // looks exactly like success and silently saves nothing.
+                // The reply has to be the one handleWrite sends.
+                if (t.indexOf("wrote ") !== 0) {
+                    throw new Error("the server served the file instead of writing it -- " +
+                                    "restart dev-serve.js to pick up the write route");
+                }
+                return t;
+            }); })
+            .then(function (t) {
+                message = "SAVED — " + t + ". Reload the game to play it.";
+                syncPanel();
+            })
+            .catch(function (e) {
+                copyOut(text, "could not write (" + e.message + ") -- ");
+            });
+    }
+
+    function copyOut(text, why) {
         if (navigator.clipboard) {
             navigator.clipboard.writeText(text).then(function () {
-                message = "exported to the clipboard -- paste it into zombie-map-data.js";
+                message = why + "copied to the clipboard instead; paste it into zombie-map-data.js";
                 syncPanel();
             }, function () {
                 console.log(text);
-                message = "clipboard refused (file://) -- the block is in the console";
+                message = why + "and the clipboard refused; the block is in the console";
                 syncPanel();
             });
         } else {
             console.log(text);
-            message = "the block is in the console";
+            message = why + "the block is in the console";
+            syncPanel();
         }
     }
 
@@ -348,6 +409,10 @@ const ZMAPEDIT = (function () {
             return "ZMAP.add({ stamp: \"" + p.stamp + "\", x: " + p.x + ", y: " + p.y +
                    ", rot: " + (p.rot || 0) + ", mirror: " + (p.mirror ? "true" : "false") + " });";
         });
+        const paint = ZMAP.paint.map(function (e) {
+            return "ZMAP.repaint(" + e.c + ", " + e.r + ", " + e.z + ");   // " +
+                   (zoneInfo[e.z] ? zoneInfo[e.z].tpl.name : e.z);
+        });
         const cells = ZMAP.cells.map(function (c) {
             return "ZMAP.cell(" + c.x + ", " + c.y + ", \"" + c.ch + "\");";
         });
@@ -362,7 +427,8 @@ const ZMAPEDIT = (function () {
                        "ZMAP.authoredPerimeter = " + (ZMAP.authoredPerimeter ? "true" : "false") + ";",
                        "ZMAP.authoredLoose = " + (ZMAP.authoredLoose ? "true" : "false") + ";",
                        ""];
-        return flags.concat(lines)
+        return flags.concat(paint.length ? [""].concat(paint) : [])
+                    .concat(lines)
                     .concat(props.length ? [""].concat(props) : [])
                     .concat(cells.length ? [""].concat(cells) : [])
                     .join("\n") + "\n";
@@ -553,6 +619,29 @@ const ZMAPEDIT = (function () {
     let ghostWhy = "";
 
     function drawGhost() {
+        if (TOOLS[tool] === "sector") {
+            if (!hover) return;
+            const c = zoneCol(hover.x), r = zoneRow(hover.y);
+            const why = repaintRefusal(c, r, sectorIndex);
+            const x = zoneX(c), y = zoneY(r);
+            ctx.globalAlpha = 0.35;
+            ctx.fillStyle = why ? "#FF5555" : "#6FD08C";
+            ctx.fillRect(x, y, ZONE_CELL_W, ZONE_CELL_H);
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = why ? "#FF5555" : "#6FD08C";
+            ctx.lineWidth = 2 / zoom;
+            ctx.strokeRect(x, y, ZONE_CELL_W, ZONE_CELL_H);
+            if (zoom > 0.22) {
+                // The reason goes UNDER the cell, the way a blocked stamp
+                // explains itself: a refusal you cannot read is just a
+                // tool that does not work.
+                ctx.fillStyle = why ? "#FF5555" : "#6FD08C";
+                ctx.font = (12 / zoom) + "px Courier New";
+                ctx.fillText(why ? why : ("-> " + zoneInfo[sectorIndex].tpl.name),
+                             x + 4, y + ZONE_CELL_H + 16 / zoom);
+            }
+            return;
+        }
         if (TOOLS[tool] in CELL_TOOLS) {
             if (!hover) return;
             const cx = snap(hover.x - STAMP_CELL / 2), cy = snap(hover.y - STAMP_CELL / 2);
@@ -706,7 +795,8 @@ const ZMAPEDIT = (function () {
             else {
                 // On top of something already placed? Move that instead of
                 // stacking a new one on it.
-                const hit = (TOOLS[tool] === "tree") ? null : itemAt(w.x, w.y);
+                const hit = (TOOLS[tool] === "tree" || TOOLS[tool] === "sector")
+                    ? null : itemAt(w.x, w.y);
                 if (hit) {
                     const it = hit.prop || hit.placement;
                     moving = { it: it, ox: it.x - w.x, oy: it.y - w.y };
@@ -724,7 +814,8 @@ const ZMAPEDIT = (function () {
                 moving.it.x = snap(hover.x + moving.ox);
                 moving.it.y = snap(hover.y + moving.oy);
             }
-            if (painting && (TOOLS[tool] === "tree" || TOOLS[tool] in CELL_TOOLS)) {
+            if (painting && (TOOLS[tool] === "tree" || TOOLS[tool] === "sector" ||
+                             TOOLS[tool] in CELL_TOOLS)) {
                 place(hover.x, hover.y);
             }
             if (dragging) {
@@ -774,7 +865,10 @@ const ZMAPEDIT = (function () {
             if (ev.code === "Space") { mode = mode === "plan" ? "drawn" : "plan"; ev.preventDefault(); }
             else if (k === "[" || k === "]") {
                 const step = k === "]" ? 1 : -1;
-                if (TOOLS[tool] === "furniture") {
+                if (TOOLS[tool] === "sector") {
+                    sectorIndex = (sectorIndex + step + zoneInfo.length) % zoneInfo.length;
+                    syncPanel();
+                } else if (TOOLS[tool] === "furniture") {
                     furnitureIndex = (furnitureIndex + step + FURNITURE.length) % FURNITURE.length;
                     syncPanel();
                 } else if (TOOLS[tool] === "landmark") {
@@ -889,6 +983,17 @@ const ZMAPEDIT = (function () {
             });
             panel.appendChild(button("turn  (R) " + (rot % 2 ? "on" : "off"), rot % 2 === 1,
                                      function () { rot = (rot + 1) % 4; }));
+        } else if (TOOLS[tool] === "sector") {
+            panel.appendChild(el("div", H, "PAINT AS"));
+            for (let i = 0; i < zoneInfo.length; i++) {
+                (function (idx) {
+                    panel.appendChild(button(zoneInfo[idx].tpl.name, idx === sectorIndex,
+                                             function () { sectorIndex = idx; }));
+                })(i);
+            }
+            panel.appendChild(el("div", "color:#6D7B7E;margin-top:6px;",
+                "a cell can only join a sector it already touches, so boundaries move " +
+                "one cell at a time and nothing can island"));
         } else if (TOOLS[tool] === "furniture") {
             panel.appendChild(el("div", H, "FURNITURE"));
             FURNITURE.forEach(function (ch, i) {
@@ -922,7 +1027,7 @@ const ZMAPEDIT = (function () {
         panel.appendChild(el("div", H, "COUNTS"));
         panel.appendChild(el("div", "color:#6D7B7E;",
             ZMAP.placements.length + " buildings, " + ZMAP.cells.length + " cells, " +
-            ZMAP.props.length + " props" +
+            ZMAP.props.length + " props, " + ZMAP.paint.length + " repainted" +
             (ZMAP.report.missing.length ? "  |  " + ZMAP.report.missing.length + " BLOCKED" : "")));
         panel.appendChild(el("div", "color:#6FD08C;margin-top:8px;word-wrap:break-word;", message));
     }
