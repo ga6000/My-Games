@@ -3,6 +3,16 @@
 **Status: the separation is the user's decision (2026-09-27). The fork mechanics in §4 are a
 proposal and nothing in §4 is done yet.** Open questions are listed in §5.
 
+> **Updated 2026-10-04: three builds now, not two.**
+> - `zombie/` is **ZOMBIE ARCADE**: an open map with the same perimeter, aimed at a **2–4 minute**
+>   run (the hub goal is 2–5 minute sessions). The ~30-minute target in §1 and §5 is superseded.
+> - `under-development/zombie-rail/` is the walled, train-ending build as it stood at tag
+>   `zombie-rail-fork`. It is parked off the hub.
+> - The long game is unchanged, and still meant to start outside this repo.
+>
+> The arcade keeps its rail until the first open-map playtest, then loses it. See
+> `../HUB_1_0_PLAN.md`.
+
 Read this before starting any Zombie work. The first question for every Zombie change is now
 **which of the two games it belongs to**.
 

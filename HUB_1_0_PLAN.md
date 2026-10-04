@@ -59,16 +59,60 @@ the rest is re-sorted below. That file is kept as the record of what the playtes
 
   RD Arena is Phase 4 work: fix it when it gets its game night.
 
-## Phase 2 — ZOMBIE arcade v1 fixes · §5 item 2
+## Phase 2 — ZOMBIE ARCADE: a 2–4 minute run · §5 item 2
 
-**Waiting on the scope decision below.** If the rail goes, most of `PLAYTEST_2_PLAN` Phase 2/3/4
-goes with it, and this phase becomes "remove the rail and the walls, put a new win condition in
-its place".
+**Decided 2026-10-04 (user).** The hub's goal is now *"minify games, simplify their content until
+they can be completed & enjoyable within short 2-5 minute sessions before being rerouted to the
+games hub page"* (`SCOPE_RULES.md` rule 0). For ZOMBIE that means:
 
-- The goal list must not jam when steps are finished out of order (`PLAYTEST_2_PLAN` §6.3).
-- Map-editor leftovers that are cheap: the Pump House stamp, the freeze-adds-a-crate bug.
+- **The walled build is parked, not cut:** `under-development/zombie-rail/`, tag
+  `zombie-rail-fork`. Rail stays there, untouched.
+- **`zombie/` is ZOMBIE ARCADE**, *"almost none"* of the walls (an open arena), and a new economy
+  to come.
 
-→ **Game night 1:** ZOMBIE, with a timed winning run.
+| Step | What | State |
+|---|---|---|
+| 2a | Fork the rail build out; the hub card reads "Open-Map Arcade" | **done 2026-10-04** |
+| 2b | **Open map, same perimeter**: every wall except the hard wall, escape columns, forest, landmarks and rolling stock is removed, along with every door, window and orphaned room floor. Items stay. `zombie-level.js` → `openTheArena()`, behind `ARCADE_OPEN_MAP` | **done 2026-10-04** |
+| → | **Playtest the open map** (user's next step) | |
+| 2c | **Cut the rail from the arcade**, "immediately after playtesting" (user). The ending falls back to the south gate walk-out (`ae0f19d`'s), which the user accepted "for now" | after the playtest |
+| 2d | **The 2–4 minute loop**: the balance proposal below | waiting on the user's go |
+| 2e | Trim the remaining items the loop doesn't use (the user expects "trimming all others off") | after 2d |
+
+### 2d — balance proposal: a swarm that escalates too fast to hold (not built)
+
+The user's direction: *"ramp up zombie spawning tremendously so this becomes more of a swarm &
+enemy management that escalates way too quickly."* What the numbers are today, all measured in
+**rounds**:
+
+- round 1 = 7 zombies at one per 1.4s, then ×1.16 per round, with 7s breaks
+- a generator for 2,500 scrap, four levers, tanks of 12/24/36 funnel kills, and a 90s gate
+- a winning run is well over 30 minutes and has never been timed
+
+Proposed, on a **clock** rather than rounds:
+
+| | today | proposed |
+|---|---|---|
+| Pacing unit | rounds + 7s breaks | **one continuous wave**, with no breaks, driven by elapsed time `T` |
+| Spawn rate | 1 per 1.4s, flattening to 1 per 0.18s around round 18 | **0.8/s at 0:00, doubling every ~50s**: ~2/s at 1:00, ~5/s at 2:00, ~13/s at 3:00. Past 3:30 it outruns any loadout. That's the "escalates way too quickly" |
+| Alive cap | budget-limited | **60 + 30 per player** (solo 90, four players 180). The 90-zombie flood is the most this map has ever run, so 180 needs a frame-time check |
+| Mix | by round number | by `T`: walkers → runners at 0:30 → brutes and splitters at 1:30 → SUPER SPLITTER at 2:30 |
+| Speed / HP | per round | per `T`, so the same curve the spawn rate follows |
+| Objective | generator → levers → 3 tanks → (train) → 90s gate | **power on from the start** (no generator); **no levers**; **three tanks at 8/12/16 funnel kills**, which is about 20s each at the 1:00–2:30 kill rate; then **the gate opens over 30s** (not 90) |
+| Win | escape | **escape inside ~2:30–3:30**. Getting out is a race against the curve |
+| Loss | team wipe | the same. A death at ~3:30 should feel like the swarm won, not like a mistake |
+| Economy | doors are the big sink; perks 9–12.5k ×3 stacks; guns 1.5–7.5k | **no doors exist now**. Option A: same wall-buys and stations, prices ÷~5, **one stack per perk**. Option B (more arcade): **guns and perks drop from kills** as timed pickups, and the stations go |
+| Score | combat + round² + tanks + win ×2 | combat + **seconds survived** + tanks + escape bonus. Short runs post often, which suits the leaderboard |
+
+**Swarm reading needs separation.** At 100+ alive, the reported stacking ("100+ zombies can be
+within the same square") stops being cosmetic, because a swarm reads as a blob. The soft
+separation in `PLAYTEST_2_PLAN` Phase 5 moves up with this, and it has to be measured first
+(bodies per 20px cell under the cap).
+
+**How to check it:** time-to-death for an idle player and for a moving player with a pistol, and
+time-to-escape with the chain advanced at the intended kill rate. All three come from the
+headless harness. Then the group plays it, because a curve that measures right can still feel
+wrong.
 
 ## Phase 3 — ZOMBIE fixes from game night 1 · §5 item 2
 
@@ -91,8 +135,8 @@ Name and home, then engine, then a test of the level representation, in that ord
 
 ---
 
-## Open: the arcade scope cut (raised 2026-10-03)
+## ~~Open: the arcade scope cut (raised 2026-10-03)~~ — decided 2026-10-04
 
-The user proposes that arcade ZOMBIE **loses all rail elements and most walls**. This is being
-discussed and is **not decided**. Once it is, it gets recorded here, in `zombie/THE_SPLIT.md` §3,
-and in `PROJECT_MEMORY.md`.
+The user proposed that arcade ZOMBIE loses all rail elements and most walls. **Decided 2026-10-04**: see
+Phase 2. Recorded here, in `zombie/THE_SPLIT.md`, `SCOPE_RULES.md` rule 0, `HUB_RETROSPECTIVE.md` §5
+and `PROJECT_MEMORY.md`.

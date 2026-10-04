@@ -171,7 +171,44 @@ function inBite(room, r) {
     return rectsOverlap(r, { x: bx, y: by, w: b.w, h: b.h });
 }
 
+// ZOMBIE ARCADE IS AN OPEN MAP (2026-10-04, zombie-level.js openTheArena).
+// Every baseline above describes the WALLED map -- buildings, pipes, bays,
+// 19 doors -- which the arcade removed on purpose and which now lives in
+// under-development/zombie-rail (tag zombie-rail-fork). Moving those
+// baselines to zero would make them guard nothing, so while the flag is on
+// this checks what the open map promises instead: no solid but the tagged
+// survivors, no door or window, and the items still all there.
+function runOpenMap() {
+    const failures = [];
+    const counts = { landmarks: [], wallBuys: [], stations: [], interior: [], openings: [] };
+    for (let s = 0; s < SEEDS; s++) {
+        const sandbox = harness.generate(1000 + s * 137);
+        const read = function (expr) { return harness.snapshot(sandbox, expr); };
+        counts.landmarks.push(read("landmarks.length"));
+        counts.wallBuys.push(read("wallBuys.length"));
+        counts.stations.push(read("cardStations.length"));
+        counts.interior.push(read("walls.filter(function (w) { return !(w.perim || w.column || w.trunk || w.landmark || w.railcar); }).length"));
+        counts.openings.push(read("doors.length + barricades.length"));
+    }
+    console.log("Zombie ARCADE, open map (" + SEEDS + " seeds) -- the walled-map baselines are skipped;");
+    console.log("they describe under-development/zombie-rail now.");
+    checkExact("landmarks", counts.landmarks, BASELINE.landmarks.exact, failures);
+    checkExact("wall-buys", counts.wallBuys, BASELINE.wallBuys.exact, failures);
+    checkExact("stations", counts.stations, BASELINE.stations.exact, failures);
+    checkExact("untagged interior walls", counts.interior, 0, failures);
+    checkExact("doors + windows", counts.openings, 0, failures);
+    if (failures.length) {
+        for (let i = 0; i < failures.length; i++) console.log("FAIL  " + failures[i]);
+        return 1;
+    }
+    console.log("OK    open map: no interior walls or openings; every item still placed");
+    return 0;
+}
+
 function run() {
+    if (harness.snapshot(harness.generate(1000), "typeof ARCADE_OPEN_MAP !== 'undefined' && ARCADE_OPEN_MAP")) {
+        return runOpenMap();
+    }
     const totals = {
         buildings: 0, openCorner: 0, decor: 0, decorOnWall: 0, decorOutside: 0,
         motorBays: 0, drainBuildings: 0, maps: 0, zeroSectors: 0, pipeSegments: 0,

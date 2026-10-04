@@ -1194,6 +1194,67 @@ function randomPointInZone(i, pad) {
     };
 }
 
+// ---------------------------------------------------
+//   ZOMBIE ARCADE: THE OPEN MAP (2026-10-04)
+// ---------------------------------------------------
+// The user's call, with the goal it serves: the hub's games should be
+// "completed & enjoyable within short 2-5 minute sessions", and arcade
+// ZOMBIE becomes an open map with the same perimeter -- "almost none" of the
+// walls, a new economy to follow. The full walled build is parked at
+// under-development/zombie-rail (tag zombie-rail-fork).
+//
+// DONE AS A PASS OVER THE FINISHED MAP, not by skipping builders. Every
+// placer below still runs, in the same order and off the same random
+// stream, so items land where they always did; then the walls come out from
+// under them. It is reversible with one flag, and it keeps this commit to
+// removal -- the trimming of the items themselves comes next and is the
+// user's to call.
+//
+// WHAT SURVIVES, by tag rather than by guess:
+//   perim     the south and east hard wall, its culverts' jambs (pushPerimSeg)
+//   column    the escape gate's two columns
+//   trunk     the north/west forest
+//   landmark  the hero structures (items, for now)
+//   railcar   rolling stock on the rail (the rail stays until after the
+//             first open-map playtest, by request)
+// Everything else in walls[] goes, and with it every door, window and rail
+// gate, the floors and decor of rooms that no longer exist, and the
+// thresholds (none are painted: there are no openings left).
+const ARCADE_OPEN_MAP = true;
+
+function openTheArena() {
+    const keep = [];
+    for (let i = 0; i < walls.length; i++) {
+        const w = walls[i];
+        if (w.perim || w.column || w.trunk || w.landmark || w.railcar) keep.push(w);
+    }
+    walls = keep;
+    doors = [];
+    barricades = [];
+    zonePassages = {};
+    buildingRooms = [];
+    yardContainers = [];
+    spillwayRuns = null;
+
+    // Floors: keep the rail bed, and the hardstanding under anything still
+    // standing (landmarks, the generator's plinth). An interior tile with no
+    // room around it reads as a ghost building.
+    if (typeof zfKeepPatches === "function") {
+        const solids = keep.filter(function (w) { return w.landmark || w.railcar; });
+        if (generatorRect) solids.push(generatorRect);
+        for (let i = 0; i < landmarks.length; i++) solids.push(landmarks[i]);   // the crane is not a wall
+        zfKeepPatches(function (p) {
+            if (p.kind === "ballast") return true;
+            if (p.kind !== "hardstand") return false;
+            for (let i = 0; i < solids.length; i++) {
+                const s = solids[i];
+                if (p.x < s.x + s.w && p.x + p.w > s.x && p.y < s.y + s.h && p.y + p.h > s.y) return true;
+            }
+            return false;
+        });
+    }
+}
+
 function generateLevel() {
     // Rewind to the start of the shared stream first, so a mid-session
     // restart regenerates the SAME level rather than continuing a stream
@@ -1339,7 +1400,9 @@ function generateLevel() {
     // signature matches and the grid silently survives from the previous
     // layout -- zombies then path against walls that no longer exist.
     navDoorSig = null;
+    if (ARCADE_OPEN_MAP) openTheArena();
     // Every opening on the map exists by now, which is what this pass needs.
+    // (On the open map there are none, so it paints nothing.)
     paintThresholds();
 
     markNavDirty();
@@ -2434,7 +2497,7 @@ function railStock(x, y, w, h, vertical) {
         // funnel halls, the keep. The spur's own lane is not reserved yet,
         // which is the point of the ordering.
         if (clashesReserved({ x: cx - 24, y: cy - 24, w: cw + 48, h: ch + 48 })) continue;
-        walls.push({ x: cx, y: cy, w: cw, h: ch });
+        walls.push({ x: cx, y: cy, w: cw, h: ch, railcar: true });
         railcars.push({ x: cx, y: cy, w: cw, h: ch, vertical: vertical });
     }
 }
@@ -2860,7 +2923,7 @@ function addLandmark(zone, kind, w, h, lift) {
         const lm0 = { x: hand.x, y: hand.y, w: lw, h: lh,
                       kind: kind, zone: zoneOf(hand.x + lw / 2, hand.y + lh / 2), lift: lift };
         landmarks.push(lm0);
-        if (kind !== "crane") walls.push({ x: lm0.x, y: lm0.y, w: lw, h: lh });
+        if (kind !== "crane") walls.push({ x: lm0.x, y: lm0.y, w: lw, h: lh, landmark: true });
         reservedRects.push({ x: lm0.x - 130, y: lm0.y - 130, w: lw + 260, h: lh + 260 });
         claimFloor(lm0.x, lm0.y, lw, lh, 40);
         if (typeof zfPatch === "function") {
@@ -2917,7 +2980,7 @@ function addLandmark(zone, kind, w, h, lift) {
     // Nothing else changes: it still reserves ground so other things route
     // around it, and it still draws over the boundary wall.
     if (kind !== "crane") {
-        walls.push({ x: lm.x, y: lm.y, w: w, h: h });
+        walls.push({ x: lm.x, y: lm.y, w: w, h: h, landmark: true });
     }
 
     // 130, not 80. A landmark is a solid block, and a solid block parked
@@ -3104,8 +3167,8 @@ function buildEscapeOpening() {
         const rightStart = x1;
         const rightLen = (w.x + w.w) - x1;
         walls.splice(i, 1);
-        if (leftLen > 4) walls.push({ x: w.x, y: y, w: Math.round(leftLen), h: WALL_T });
-        if (rightLen > 4) walls.push({ x: Math.round(rightStart), y: y, w: Math.round(rightLen), h: WALL_T });
+        if (leftLen > 4) walls.push({ x: w.x, y: y, w: Math.round(leftLen), h: WALL_T, perim: true });
+        if (rightLen > 4) walls.push({ x: Math.round(rightStart), y: y, w: Math.round(rightLen), h: WALL_T, perim: true });
     }
 
     // A column each side, standing proud of the wall line so they read as
@@ -3119,8 +3182,8 @@ let escapeOpening = null;
 function pushPerimSeg(vertical, fixed, at, len) {
     if (len < 4) return;
     walls.push(vertical
-        ? { x: fixed, y: Math.round(at), w: WALL_T, h: Math.round(len) }
-        : { x: Math.round(at), y: fixed, w: Math.round(len), h: WALL_T });
+        ? { x: fixed, y: Math.round(at), w: WALL_T, h: Math.round(len), perim: true }
+        : { x: Math.round(at), y: fixed, w: Math.round(len), h: WALL_T, perim: true });
 }
 
 // Scattered trunks at low density. Never near a boundary opening, the

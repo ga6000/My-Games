@@ -83,11 +83,18 @@ ev("for (var i=0;i<3;i++){ siloFill[i] = siloCapacity(i); siloFlipped[i] = true;
 check("tanks read full once the silos are", ev("trainTanksFull()")===true);
 // A shut rail crossing is a shut line -- the train drives through a closed
 // door but a RIDER does not, so this is a rule, not a nicety.
-ev("trainHostStart()");
-check("it will not start while a rail crossing is shut",
-      ev("trainRunning")===false, "blocked at "+ev("JSON.stringify(trainPathBlockedBy()&&{x:trainPathBlockedBy().x,cost:trainPathBlockedBy().cost})"));
-ev("doors.forEach(function(d){ if (d.rail) d.open = true; }); rebuildSolidIndex();");
-check("buying the crossings makes it ready", ev("trainReady()")===true);
+// The open-map arcade (2026-10-04) has no doors at all, so no crossings:
+// these two only mean something on a walled map (under-development/zombie-rail).
+if (ev("doors.some(function(d){ return d.rail; })")) {
+    ev("trainHostStart()");
+    check("it will not start while a rail crossing is shut",
+          ev("trainRunning")===false, "blocked at "+ev("JSON.stringify(trainPathBlockedBy()&&{x:trainPathBlockedBy().x,cost:trainPathBlockedBy().cost})"));
+    ev("doors.forEach(function(d){ if (d.rail) d.open = true; }); rebuildSolidIndex();");
+    check("buying the crossings makes it ready", ev("trainReady()")===true);
+} else {
+    console.log("  SKIP  rail crossings: this map has no doors (the open-map arcade)");
+    check("with no crossings it is ready", ev("trainReady()")===true);
+}
 ev("trainHostStart()");
 check("a fuelled, coupled locomotive starts", ev("trainRunning")===true);
 check("starting it opens the tunnel and calls the flood",

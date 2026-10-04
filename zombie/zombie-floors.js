@@ -112,6 +112,14 @@ function zfClearPatches() {
     zfFloorPatches = [];
 }
 
+// Keep only the patches `keep(patch)` accepts. The open-map pass
+// (zombie-level.js, openTheArena) uses it to drop the floors of rooms that
+// no longer have walls. The array is reassigned here, in the file that
+// declares it, the same way zfClearPatches does it.
+function zfKeepPatches(keep) {
+    zfFloorPatches = zfFloorPatches.filter(keep);
+}
+
 // `kind` is a ZF_PAINTERS key. A sector's own interior tile is
 // ZONE_INTERIOR[sectorKey]; pass that rather than guessing.
 function zfPatch(x, y, w, h, kind) {

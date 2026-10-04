@@ -14,6 +14,10 @@ rules keep lists finite.
 
 ## The rules
 
+0. **A hub game is a 2–5 minute session** (user, 2026-10-04). It ends in a win or a loss inside
+   that window, and then the player goes back to the board. Content that a short session can't
+   reach is trimmed, not kept "for later". Anything longer is long-game material (rule 7).
+
 1. **Every project is in one of two modes: building toward a written finish line, or
    maintenance.** The hub's finish line is `HUB_RETROSPECTIVE.md` §5. When it's met, the hub goes
    to maintenance: fixes, balance and playtest follow-ups only.

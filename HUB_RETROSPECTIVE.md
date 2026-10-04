@@ -84,6 +84,12 @@ describes:
 
 ## 5. What "complete" looks like — proposed Hub 1.0
 
+> **The hub's goal, set by the user 2026-10-04:** *"minify games, simplify their content until
+> they can be completed & enjoyable within short 2-5 minute sessions before being rerouted to the
+> games hub page."* This sharpens item 2 below (ZOMBIE's run is now **2–4 minutes**, not ~30) and
+> applies to every card: a game that can't be finished in one short session is trimmed until it
+> can. Arcade ZOMBIE is the first to go through it (`HUB_1_0_PLAN.md`).
+
 The hub is complete when all of these are true:
 
 1. **Every card has been played by the group, together, launched from the board**, in its current

@@ -62,7 +62,7 @@ const GAMES = [
     // touching the game the group already played; it was merged back and the
     // folder deleted the same evening, on the user's call. The pre-merge
     // Zombie is `ae0f19d` if it is ever wanted back.
-    { id: "zombie",               icon: "🚂",  title: "Zombie",               desc: "Escape By Rail",                 href: "zombie/Zombie.html", isNew: true, mp: true },
+    { id: "zombie",               icon: "🧟",  title: "Zombie",               desc: "Open-Map Arcade",                href: "zombie/Zombie.html", isNew: true, mp: true },
     { id: "space-tracer",         icon: "🚀",  title: "Space Tracer",         desc: "Multiplayer Ship Combat",        href: "gyro-space/space-tracer.html", isNew: true, mp: true },
     { id: "glass-city-escape",    icon: "🏙️",  title: "Glass City Escape",    desc: "Building-Hopping Race",          href: "glass-city-escape/glass_city_escape.html", isNew: true, mp: true },
     { id: "rd-arena",             icon: "🧫",  title: "RD Arena",             desc: "Reaction-Diffusion Arena",       href: "rd-arena/RDArena.html", isNew: true, mp: true },

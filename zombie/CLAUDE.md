@@ -5,6 +5,26 @@
 > campaign, survival-sim and roguelite ideas belong to a separate *long game* and must not be
 > prototyped here. Route them to `../IDEAS_INBOX.md` instead.
 
+> **2026-10-04: this folder is ZOMBIE ARCADE, an open map.** The hub's goal is now 2–5 minute
+> sessions (`../SCOPE_RULES.md` rule 0), and this game is heading for a **2–4 minute** run
+> (`../HUB_1_0_PLAN.md` Phase 2).
+> - **The walled build with the train is parked at `../under-development/zombie-rail/`**
+>   (tag `zombie-rail-fork`). Everything below about sectors, boundary doors, windows, buildings,
+>   stamps, pipes, bays, the maze and rail crossings describes **that** build. Here,
+>   `openTheArena()` (`zombie-level.js`, flag `ARCADE_OPEN_MAP`) removes it all after generation.
+> - **What survives**, by tag: `perim` (the south/east hard wall), `column` (the escape gate),
+>   `trunk` (forest), `landmark`, and `railcar`. There are no doors, windows or thresholds, and no
+>   room floors without a room.
+> - **Every placer still runs**, in order and off the same random stream, so items stand where
+>   they always did. Then the walls come out from under them.
+> - **The rail stays until the first open-map playtest** (user), then goes.
+> - Measured: round 1 reaches an idle player in **13.0s** (11.3s through windows on the walled
+>   map), with no errors. `check-map-features.js` checks the open-map invariants while the flag is
+>   on; its walled baselines describe zombie-rail. `check-zombie-train.js` skips the two crossing
+>   checks when a map has no doors.
+> - The sector paint, the map editor and the stamps still run, and on this map they now edit
+>   ground nobody sees as walls. Trimming them is step 2e.
+
 Co-op survival. **The first game in this repo split into classic-script files** rather than one
 monolithic HTML — the structure `GAME_PROTOTYPE_INSTRUCTIONS.md` §2 describes but no game had
 adopted. Rebuilt 2026-09-01 from a 1040-line single file.
@@ -2285,4 +2305,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 7dd04d42 | 2026-10-03 -->
+<!-- doc-sync: 7d382cda | 2026-10-04 -->
