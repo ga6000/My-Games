@@ -61,6 +61,37 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Walk-out win, the tunnel, full collisions (2026-10-04, fourth playtest)
+
+- **Winning means walking out** (`arcadeUpdateEscape`, `arcadeExitControl`, `isOut`).
+  - Once the gate is FULLY open (`escapeChainFrac() >= 1`), a standing player who passes `arcOutY`
+    (100px past the gate) is OUT. Their own client takes the controls and walks them down the
+    middle of the tunnel and off the screen; the camera stays in the arena.
+  - The run is won when every standing player is out, and the card follows 2.6s later.
+  - It replaced "win as soon as everyone stands in front of the gate", which read as *"just 'you
+    win' as soon as you survive the end horde"*.
+- **The exit is one continuous tunnel** to the bottom of the world.
+  - The gate is `ARC_GATE_W` (212) wide, the tunnel's full inside width, so the fence has no
+    side gaps.
+  - It sits **flush with the south wall** (`escapeRect.y` = the wall line).
+  - It is **solid over everything it draws** (`gateBar` = the whole gate rect) until fully open.
+    The old pocket is gone.
+- **Tanks are solid over their whole drawn shape** (footprint + `SILO_LIFT`), so you can't stand on
+  one. **F works only at the base** (`siloUseRect`: a strip along the bottom edge).
+- **Trees are solid over their whole drawn shape** (`treeFullHeight()`: trunk, canopy and crown),
+  so no zombie can hide behind one. `TREE_GAP` dropped 110 → 90 to keep the count up (still over
+  the 78px a brute needs). 15 trees at fewest over 12 seeds.
+- **The funnel grate is round and dark.** **Tanks take 10/15/20** kills (was 8/12/16, "+25%").
+  **Drops +25%**: 7.5% a kill, guaranteed within 20, up to 8 live.
+- **The start card** is just a blinking "CLICK TO START", with no box.
+- **Verified in the page:**
+  - Walking down onto a tank stops at its drawn top.
+  - No prompt from above the tank; the prompt appears at its base.
+  - Canopies block from the side.
+  - The gate blocks while opening. After it opens, the player is walked out, ends 700px down the
+    tunnel, and the run is won.
+  - Frames captured of the gate and a tank. No console errors.
+
 ### Intro, gate bar, spawns, tall tanks and trees, the cabinet panel (2026-10-04, third playtest)
 
 - **The intro** (`arcadeBeginIntro`, `arcadeIntroCamera`, `arcadeDrawIntroText`): 11.4s on every
@@ -2441,4 +2472,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 6d6bb0be | 2026-10-04 -->
+<!-- doc-sync: 38a04157 | 2026-10-04 -->

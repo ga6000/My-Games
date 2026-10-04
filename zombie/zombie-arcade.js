@@ -37,7 +37,9 @@ const ARC_RING_MAX = 900;         // past the edge of a 960x540 view
 const ARC_SEEN_HALF_W = VIEW_W * 0.62;
 const ARC_SEEN_HALF_H = VIEW_H * 0.62;
 const ARC_RESPAWN_MS = 15000;
-const ARC_ESCAPE_REACH = 170;     // how far around the gate counts as "at the gate"
+const ARC_GATE_W = 212;           // the tunnel's inside width; the gate spans all of it
+const ARC_GATE_H = 66;
+const ARC_OUT_PAST = 100;         // px down the tunnel past the gate that counts as OUT
 
 let arcSpawnDebt = 0;             // HOST: fractional spawns owed
 let arcDiedAt = 0;                // this client: when its player bled out
@@ -151,40 +153,48 @@ function arcadeSpawnPoint(size) {
 // ends when every player still on their feet is there. A downed teammate is
 // a choice -- revive them, or leave them -- and whoever is left behind gets
 // no escape bonus (wonAboard, the train's own rule, reused).
-function arcadeExitZone() {
-    if (!escapeRect) return null;
-    const r = ARC_ESCAPE_REACH;
-    const top = escapeRect.y - r * 1.6;
-    // Down into the pocket behind the gate, so walking through still counts.
-    const bottom = Math.max(escapeRect.y + escapeRect.h, arcExitBottom);
-    return { x: escapeRect.x - r, y: top, w: escapeRect.w + r * 2, h: bottom - top };
+// WALK OUT TO WIN (2026-10-04, fourth playtest note: "the win state should
+// end with walking out through the bottom after the gate is fully open and
+// you are pulled off screen. not just 'you win' as soon as you survive the
+// end horde"). Past `arcOutY`, a player is OUT: their own client takes the
+// controls and walks them down the tunnel (arcadeExitControl), the camera
+// stays inside the arena, and they leave the screen. The run is won when
+// every player still on their feet is out -- a downed teammate must be
+// revived or left behind (`wonAboard`).
+let arcOutY = 0;
+
+function isOut(t) {
+    return arcOutY > 0 && t.y > arcOutY;
 }
 
 function arcadeUpdateEscape() {
-    if (won || !escapeOpen() || escapeChainFrac() < 0.5) return;
-    const zone = arcadeExitZone();
-    if (!zone) return;
-    const all = allTargets();
-    const standing = all.filter(function (t) { return !t.downed; });
+    if (won || !escapeOpen() || escapeChainFrac() < 1) return;
+    const standing = allTargets().filter(function (t) { return !t.downed; });
     if (!standing.length) return;
-    for (let i = 0; i < standing.length; i++) {
-        const t = standing[i];
-        if (!rectIntersect(t.x, t.y, t.size || 16, t.size || 16, zone.x, zone.y, zone.w, zone.h)) return;
-    }
+    for (let i = 0; i < standing.length; i++) if (!isOut(standing[i])) return;
     wonAboard = standing.map(function (t) { return t.id; });
     triggerWin();
 }
 
-// How many standing players are at the gate, for the HUD line.
+// Every client, for its own player, from updatePlayers: once out, keep
+// walking -- down the middle of the tunnel and off the bottom of the screen.
+function arcadeExitControl(p, now) {
+    if (!p.exited && isOut(p) && escapeOpen()) p.exited = true;
+    if (!p.exited) return false;
+    const mid = escapeRect ? escapeRect.x + escapeRect.w / 2 - p.size / 2 : p.x;
+    p.keys = { up: false, down: true, left: p.x > mid + 3, right: p.x < mid - 3, shoot: false };
+    p.invulnUntil = now + 60000;
+    return true;
+}
+
+// How many standing players are out, for the HUD line.
 function arcadeAtGate() {
-    const zone = arcadeExitZone();
     let at = 0, of = 0;
     const all = allTargets();
     for (let i = 0; i < all.length; i++) {
         if (all[i].downed) continue;
         of++;
-        if (zone && rectIntersect(all[i].x, all[i].y, all[i].size || 16, all[i].size || 16,
-                                  zone.x, zone.y, zone.w, zone.h)) at++;
+        if (isOut(all[i])) at++;
     }
     return { at: at, of: of };
 }
@@ -244,9 +254,9 @@ function arcadePlaceRespawn(p, now) {
 const DROP_SIZE = 24;
 const DROP_LIFE_MS = 25000;
 const DROP_BLINK_MS = 5000;       // blinks for its last 5s
-const DROP_MAX_LIVE = 6;
-const DROP_CHANCE = 0.06;
-const DROP_PITY_KILLS = 25;       // never longer than this between drops
+const DROP_MAX_LIVE = 8;
+const DROP_CHANCE = 0.075;        // +25% (2026-10-04), was 0.06
+const DROP_PITY_KILLS = 20;       // never longer than this between drops (was 25)
 const DROP_FUEL = 4;              // FUEL: kills added to the live tank
 const SHOCK_RADIUS = 300;
 const OVERCLOCK_MS = 6000;
@@ -552,7 +562,10 @@ function buildArcadeArena() {
     }
     const wallY = A.y + A.h - WALL_T;
     const gx = cx + ARENA_GATE_DX;
-    escapeRect = { x: Math.round(gx - 90), y: wallY - 54, w: 180, h: 66 };
+    // FLUSH WITH THE SOUTH WALL and as wide as the tunnel behind it (2026-10-04:
+    // "inset lower ... so that it's flush with south wall"; "extend the
+    // sealed fence to the full width ... there are visually gaps").
+    escapeRect = { x: Math.round(gx - ARC_GATE_W / 2), y: wallY, w: ARC_GATE_W, h: ARC_GATE_H };
 
     const clear = [{ x: cx - 160, y: cy - 160, w: 320, h: 320 },
                    { x: escapeRect.x - ARENA_CLEAR, y: escapeRect.y - ARENA_CLEAR,
@@ -586,7 +599,7 @@ function buildArcadeArena() {
     // The fence: four walls, the gate cut into the south one between two
     // columns -- the shape buildEscapeOpening() cuts into the world's.
     const T = WALL_T;
-    const x0 = escapeRect.x - 16, x1 = escapeRect.x + escapeRect.w + 16;
+    const x0 = escapeRect.x, x1 = escapeRect.x + escapeRect.w;
     keepWalls.push(
         { x: A.x, y: A.y, w: A.w, h: T, perim: true },
         { x: A.x, y: A.y, w: T, h: A.h, perim: true },
@@ -595,21 +608,23 @@ function buildArcadeArena() {
         { x: x1, y: wallY, w: A.x + A.w - x1, h: T, perim: true },
         { x: Math.round(x0 - ESCAPE_JAMB), y: wallY - 14, w: ESCAPE_JAMB, h: T + 28, column: true },
         { x: Math.round(x1), y: wallY - 14, w: ESCAPE_JAMB, h: T + 28, column: true },
-        // The bar across the opening until the gate is open, and the pocket
-        // behind it (see "THE GATE BAR AND THE EXIT POCKET").
-        { x: Math.round(x0), y: wallY, w: Math.round(x1 - x0), h: T, gateBar: true },
-        { x: Math.round(x0 - ESCAPE_JAMB - 20), y: wallY + T, w: 20, h: EXIT_POCKET, perim: true },
-        { x: Math.round(x1 + ESCAPE_JAMB), y: wallY + T, w: 20, h: EXIT_POCKET, perim: true },
-        { x: Math.round(x0 - ESCAPE_JAMB - 20), y: wallY + T + EXIT_POCKET, w: Math.round(x1 - x0 + ESCAPE_JAMB * 2 + 40), h: 20, perim: true }
+        // THE GATE IS SOLID OVER EVERYTHING IT DRAWS until it is fully open
+        // ("make the fence non-mountable, it should collide at all points").
+        { x: Math.round(x0), y: wallY, w: Math.round(x1 - x0), h: ARC_GATE_H, gateBar: true },
+        // ONE CONTINUOUS TUNNEL behind it, to the bottom of the world.
+        { x: Math.round(x0 - T), y: wallY, w: T, h: WORLD_H - wallY, perim: true },
+        { x: Math.round(x1), y: wallY, w: T, h: WORLD_H - wallY, perim: true }
     );
-    arcExitBottom = wallY + T + EXIT_POCKET;
-    // The tanks are solid all round now, and tall (drawTallSilo).
+    arcOutY = wallY + ARC_GATE_H + ARC_OUT_PAST;
+    // THE TANKS ARE SOLID OVER THEIR WHOLE DRAWN SHAPE (2026-10-04: "I
+    // shouldn't be able to walk on top of the silos themselves at all") --
+    // the footprint plus everything extruded above it.
     for (let k = 0; k < 3; k++) {
         const s = silos[k];
-        keepWalls.push({ x: s.x, y: s.y, w: s.w, h: s.h, silo: true });
+        keepWalls.push({ x: s.x, y: s.y - SILO_LIFT, w: s.w, h: s.h + SILO_LIFT, silo: true });
     }
     walls = keepWalls;
-    escapeOpening = { x: Math.round(x0), y: wallY - 14, w: Math.round(x1 - x0), h: T + 28 };
+    escapeOpening = { x: Math.round(x0), y: wallY, w: Math.round(x1 - x0), h: ARC_GATE_H };
     plantArenaTerrain(fits);
 
     if (typeof zfKeepPatches === "function") {
@@ -619,6 +634,14 @@ function buildArcadeArena() {
             return false;
         });
     }
+}
+
+// The only place a tank's switch can be thrown from: a strip along its base
+// (2026-10-04: "hitting F on the silo should be at the bottom of the silo
+// only"). The tank itself is solid all the way up, so this is the face you
+// can actually stand at.
+function siloUseRect(s) {
+    return { x: s.x - 8, y: s.y + s.h - 6, w: s.w + 16, h: 40 };
 }
 
 // A box wholly inside the arena's fence.
@@ -649,7 +672,7 @@ function arcadeObjectiveTarget() {
     }
     if (!escapeRect) return null;
     return { x: escapeRect.x + escapeRect.w / 2, y: escapeRect.y + escapeRect.h / 2, r: 110, kind: "gate",
-             label: escapeOpen() ? "EXIT — EVERYONE IN"
+             label: escapeOpen() ? "EXIT — WALK OUT, EVERYONE"
                                  : "EXIT — OPENING " + Math.max(0, Math.ceil((escapeAt - Date.now()) / 1000)) + "s" };
 }
 
@@ -893,7 +916,7 @@ function arcadeRenderSideGoals() {
 // MP.random(), never Math.random(): every client must grow the same forest.
 const TREE_TRUNK = 40;           // the whole footprint is solid, not just a trunk
 const TREE_CANOPY = 64;
-const TREE_GAP = 110;             // trunk to trunk, edge to edge-ish
+const TREE_GAP = 90;              // edge to edge between whole trees; over the 78px a brute needs
 const ARENA_PATCHES = 8;           // was 6: "more patches" (2026-10-04)
 let arenaBushes = [];             // {x, y, r, shade} -- drawn only
 let arenaTrees = [];              // the same rects as the tree walls, for drawing
@@ -902,8 +925,14 @@ function plantArenaTerrain(fits) {
     arenaBushes = [];
     arenaTrees = [];
     const A = ARENA;
+    // A TREE IS SOLID OVER ITS WHOLE DRAWN SHAPE -- trunk, canopy and all --
+    // so nothing can stand "behind" one and be hidden by it (2026-10-04:
+    // "silos and trees should be FULLY collidable, this way zombies can't
+    // hide behind trees"). (x, y) is the footprint's centre on the ground.
     const tryTree = function (x, y) {
-        const r = { x: Math.round(x - TREE_TRUNK / 2), y: Math.round(y - TREE_TRUNK / 2), w: TREE_TRUNK, h: TREE_TRUNK };
+        const bottom = Math.round(y + TREE_TRUNK / 2);
+        const tall = treeFullHeight();
+        const r = { x: Math.round(x - TREE_CANOPY / 2), y: bottom - tall, w: TREE_CANOPY, h: tall };
         const pad = { x: r.x - 30, y: r.y - 30, w: r.w + 60, h: r.h + 60 };
         if (!fits(pad)) return false;
         for (let i = 0; i < walls.length; i++) {
@@ -1013,22 +1042,19 @@ function arcadeDrawBushes(inView) {
 const TREE_SHADES = ["#1F3D17", "#25471A", "#183213"];
 
 // ---------------------------------------------------
-//   THE GATE BAR AND THE EXIT POCKET (2026-10-04, third playtest note)
+//   THE GATE BAR (2026-10-04)
 // ---------------------------------------------------
 // "I can walk outside of the map if I try to walk out through the exit
-// before it's ready." The opening in the south wall was only ever DRAWN shut.
-// Now a solid bar fills it until the chainlink is open, and beyond it a
-// small walled pocket catches anyone who walks through, so nobody can leave
-// the arena -- the run ends in the pocket or the zone in front of it.
+// before it's ready." The opening was only ever DRAWN shut. A solid bar
+// covering the whole gate fills it until the gate is FULLY open (heavy gate
+// up, chainlink swung), and then it comes out. Behind it is one tunnel to the
+// bottom of the world -- see "WALK OUT TO WIN".
 //
 // Every client builds the bar (generateLevel) and every client removes it
 // (arcadeUpdateGateBar, from update()), off escapeAt, which rides the
 // snapshot -- so the geometry agrees without a message of its own.
-const EXIT_POCKET = 140;          // how deep the pocket behind the gate is
-let arcExitBottom = 0;            // world y of the pocket's floor
-
 function arcadeUpdateGateBar() {
-    if (!escapeOpen() || escapeChainFrac() < 0.5) return;
+    if (!escapeOpen() || escapeChainFrac() < 1) return;
     let removed = false;
     for (let i = walls.length - 1; i >= 0; i--) {
         if (walls[i].gateBar) { walls.splice(i, 1); removed = true; }
@@ -1190,6 +1216,11 @@ function arcadeDrawIntroText(now) {
 const SILO_LIFT = 96;
 const TREE_LIFT = 30;
 
+// Ground to the top of the canopy's crown, as drawTallTree draws it.
+function treeFullHeight() {
+    return TREE_LIFT + Math.round(TREE_CANOPY * 0.8) + 8;
+}
+
 // A grey bowl: rings stepping darker and slightly DOWN toward the middle (the
 // pseudo-depth), blood pooling at the bottom as the tank fills, and a grate.
 function arcadeDrawFunnels(now, inView) {
@@ -1220,18 +1251,25 @@ function arcadeDrawFunnels(now, inView) {
             ctx.fill();
         }
         // The grate.
-        const g = Math.round(f.r * 0.24);
-        const gx = Math.round(f.x - g), gy = Math.round(f.y + 12 - g);
-        ctx.fillStyle = "#111111";
-        ctx.fillRect(gx, gy, g * 2, g * 2);
-        ctx.fillStyle = "#6A6A6A";
-        for (let b = 0; b <= g * 2; b += 6) {
-            ctx.fillRect(gx + b, gy, 2, g * 2);
-            ctx.fillRect(gx, gy + b, g * 2, 2);
-        }
-        ctx.strokeStyle = "#7A7A7A";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(gx, gy, g * 2, g * 2);
+        // The grate: ROUND and dark (2026-10-04) -- a drain, not a vent.
+        const g = Math.round(f.r * 0.26);
+        const gcx = f.x, gcy = f.y + 12;
+        ctx.fillStyle = "#050505";
+        ctx.beginPath();
+        ctx.arc(gcx, gcy, g, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(gcx, gcy, g - 2, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.fillStyle = "#2A2A2A";
+        for (let b = -g; b <= g; b += 6) ctx.fillRect(Math.round(gcx + b), gcy - g, 2, g * 2);
+        ctx.restore();
+        ctx.strokeStyle = "#333333";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(gcx, gcy, g, 0, Math.PI * 2);
+        ctx.stroke();
     }
 }
 
@@ -1326,12 +1364,13 @@ function drawTallSilo(i, si, now) {
 const TRUNK_W = 12;
 
 function drawTallTree(t) {
+    // `t` is the whole solid shape; the footprint is its bottom edge.
     const cx = t.x + t.w / 2;
     const lift = TREE_LIFT;
     const cw = TREE_CANOPY, ch = Math.round(TREE_CANOPY * 0.8);
     // Shadow on the ground under the footprint.
     ctx.fillStyle = "rgba(0,0,0,0.42)";
-    ctx.fillRect(t.x + 6, t.y + 6, t.w, t.h);
+    ctx.fillRect(Math.round(cx - TREE_TRUNK / 2) + 6, t.y + t.h - TREE_TRUNK + 6, TREE_TRUNK, TREE_TRUNK);
     // Trunk, standing in the footprint.
     ctx.fillStyle = "#3A2614";
     ctx.fillRect(Math.round(cx - TRUNK_W / 2), t.y + t.h - lift - 6, TRUNK_W, lift + 6);

@@ -1342,6 +1342,8 @@ function updatePlayers(now, dt) {
     if (ZOMBIE_ARCADE && arcadeIntroActive(now)) return;   // controls off for the intro
     for (let i = players.length - 1; i >= 0; i--) {
         const p = players[i];
+        // ARCADE: out through the gate -- the client walks you off the screen.
+        if (ZOMBIE_ARCADE) arcadeExitControl(p, now);
         let vx = 0;
         let vy = 0;
         const speed = playerSpeed(p, now);
@@ -2602,7 +2604,7 @@ function interactWith(p) {
 
     for (let i = 0; i < silos.length; i++) {
         if (!silos[i] || !siloReady(i)) continue;
-        if (rectsOverlap(box, silos[i])) { requestBuy("silo", i, p); return; }
+        if (rectsOverlap(box, ZOMBIE_ARCADE ? siloUseRect(silos[i]) : silos[i])) { requestBuy("silo", i, p); return; }
     }
 
     for (let i = 0; i < doors.length; i++) {
@@ -2671,7 +2673,7 @@ function nearestPrompt(p) {
     }
 
     for (let i = 0; i < silos.length; i++) {
-        if (!silos[i] || !rectsOverlap(box, silos[i])) continue;
+        if (!silos[i] || !rectsOverlap(box, ZOMBIE_ARCADE ? siloUseRect(silos[i]) : silos[i])) continue;
         if (siloFlipped[i]) return "FUEL TANK " + (i + 1) + " — PUMPED";
         if (siloReady(i)) return "TANK " + (i + 1) + " FULL — THROW ITS SWITCH";
         return "FUEL TANK " + (i + 1) + " — " + siloFill[i] + "/" + siloCapacity(i);

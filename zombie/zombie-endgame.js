@@ -112,7 +112,9 @@ const GATE_HOLD_MS = 4000;        // per stage; the second one is longer
 // one that happens in the set piece built for it, rather than in the open.
 // ARCADE: 8/12/16 -- about 20s of funnel fighting each at the 1:00-2:30
 // kill rate, in a run that has to be over by ~4:00.
-const SILO_CAPACITY = ZOMBIE_ARCADE ? [8, 12, 16] : [12, 24, 36];
+// 2026-10-04 (fourth playtest): "+25% ... round up to a simpler number. It
+// feels a TAD too quick/easy" -- 8/12/16 became 10/15/20.
+const SILO_CAPACITY = ZOMBIE_ARCADE ? [10, 15, 20] : [12, 24, 36];
 
 function siloCapacity(i) {
     return SILO_CAPACITY[i] !== undefined ? SILO_CAPACITY[i] : SILO_CAPACITY[SILO_CAPACITY.length - 1];
@@ -202,7 +204,8 @@ function endgameObjective() {
             return "GATE OPENING — " + Math.ceil((escapeAt - Date.now()) / 1000) + "s — EVERYONE TO THE GATE";
         }
         const g = arcadeAtGate();
-        return "GATE OPEN — " + g.at + "/" + g.of + " AT THE GATE — EVERYONE STANDING GETS OUT TOGETHER";
+        if (escapeChainFrac() < 1) return "GATE OPENING — GET TO THE TUNNEL";
+        return "GATE OPEN — " + g.at + "/" + g.of + " OUT — EVERYONE STANDING WALKS OUT THE BOTTOM";
     }
     if (typeof trainRunning !== "undefined" && trainRunning) {
         if (!escapeOpen()) {

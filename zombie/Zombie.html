@@ -379,6 +379,13 @@
         body.arcade #ui { position: static; font-size: 15px; }
         body.arcade #loadout { position: static; margin-top: auto; flex-wrap: wrap; gap: 12px; }
         body.arcade #ammoBig { font-size: 40px; }
+        /* "Remove start dialog ... just replace with 'click to start'"
+           (2026-10-04): no box, blinking cabinet text. */
+        body.arcade #startprompt {
+            background: none; border: none; padding: 0;
+            color: #FFFFFF; font-size: 34px; font-weight: bold; letter-spacing: 6px;
+            text-shadow: 3px 3px 0 #000; animation: cabBlink 1s steps(1) infinite;
+        }
         /* Everything that centred on the window now centres on the play area. */
         body.arcade #spectate, body.arcade #netlost, body.arcade #zonename,
         body.arcade #prompt, body.arcade #toast, body.arcade #roundcard,
@@ -448,8 +455,7 @@
     <!-- Trimmed 2026-09-18: the controls and rules moved into the ESC dialog
          (#help), which also carries the map's goals. -->
     <div id="startprompt">
-        PRESS <span class="k">W-A-S-D</span> OR CLICK TO JOIN<br>
-        <span class="hint"><span class="k">ESC</span> how to play &amp; goals</span>
+        CLICK TO START
     </div>
 
     <!-- ESC: goals (a checklist ticked from live state) + how to play. -->
