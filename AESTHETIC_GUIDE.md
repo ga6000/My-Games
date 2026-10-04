@@ -406,6 +406,41 @@ The hub is not a webpage listing games — it is **an arcade floor**. Tiles beco
 bezel with a 2px `--sig-cyan` inner rule and a black surround sells "cabinet" more cheaply than any
 texture.
 
+### 4.11a The cabinet panel — REQUIRED FOR EVERY GAME (decided 2026-10-04)
+**The user's rule: every hub game gets a right-hand cabinet panel, modelled on *Bosconian*
+(Namco, 1981).** Bosconian's panel is the reference because it does what a 2–5 minute session
+needs: one glance tells you the score, where you are, how bad it is, and what to do next, without
+a single overlay on the play field. First built in Zombie Arcade (`zombie/Zombie.html`
+`#sidebar`, `zombie/zombie-arcade.js` "THE CABINET PANEL"). Copy that rather than starting again.
+
+**Layout, top to bottom:**
+1. **HI-SCORE**, then **1UP** (this player's score). Red label, white number, right-aligned,
+   tabular figures.
+2. **The radar.** The whole play area in a hard light frame (3px), black inside. It shows the
+   things you navigate by (objectives, exits, teammates, you), not every enemy. Zombie leaves the
+   zombies off on purpose, for clarity. A game whose whole read IS enemy positions may show them.
+3. **CONDITION**: GREEN / YELLOW / RED, in that colour, with RED blinking. The game decides what
+   each means (Zombie: how many are within 260px of you, or how full the alive cap is). Beside it,
+   **lives**: one block per teammate, red when down.
+4. **NEXT** and the objective checklist, for any game with a chain of goals.
+5. **The game's own readouts** (time, level, kills, etc.), with the loadout at the bottom.
+
+**Rules:**
+- **Width:** `clamp(240px, 18vw, 380px)`, full height, on the right, ground `#050505`, a 2px
+  `--phos-dim` rule on its inner edge. The user asked for "15 to 20%" of the screen.
+- **The play canvas is the window minus the panel**, anchored left, so `clientX` is still canvas x
+  and aiming needs no offset. Every overlay that centred on the window centres on the play area:
+  `left: calc((100% - var(--side-w)) / 2)` under `body.arcade` (or the game's own class).
+- **Move the existing HUD elements into the panel, don't copy them.** Every existing writer then
+  keeps working unchanged.
+- **Labels in red (`#FF3344`), values in white, CONDITION in its own colour.** This is the one
+  place the Signal Three steps aside: the panel is the cabinet's furniture, not the game's world.
+- **Nothing in the panel is drawn on the play field as well.** A corner minimap, a duplicate NEXT
+  strip or a stats stack in the corner gets switched off once the panel exists.
+
+**Status:** Zombie has it. **RD Arena, 4D Pong, Glass City and Gyro Space do not yet**; each is a
+Hub 1.0 item now (`HUB_1_0_PLAN.md` Phase 4).
+
 ### 4.12 What NOT to do
 - **No barrel/CRT-curvature shader.** It costs a full-screen pass, it hurts on the phones this
   repo is already weak on, and it reads as 2016 indie, not 1980 arcade.

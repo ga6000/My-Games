@@ -458,6 +458,8 @@ function startGame() {
         if (ZOMBIE_ARCADE) arcadeStart(startTime);
         else startRound(1);
     }
+    // ARCADE: the flythrough, on every client, controls off.
+    if (ZOMBIE_ARCADE) arcadeBeginIntro(Date.now());
     // The score opens on chimes, then the organ comes in under them.
     musicStart();
 }
@@ -1220,6 +1222,7 @@ function update(now, dt) {
         updateGeneratorRestart(dt);
     }
     if (ZOMBIE_ARCADE) {
+        arcadeUpdateGateBar();
         if (netIsHost) {
             updateArcadeWave(now, dt);
             arcadeExpireDrops(now);
@@ -1336,6 +1339,7 @@ function markHotZones() {
 }
 
 function updatePlayers(now, dt) {
+    if (ZOMBIE_ARCADE && arcadeIntroActive(now)) return;   // controls off for the intro
     for (let i = players.length - 1; i >= 0; i--) {
         const p = players[i];
         let vx = 0;
@@ -1714,6 +1718,8 @@ function placeShed(child, parent, spread) {
         const x = clamp(parent.x + Math.cos(a) * r, 0, WORLD_W - child.size);
         const y = clamp(parent.y + Math.sin(a) * r, 0, WORLD_H - child.size);
         if (blockedAt(x, y, child.size, true)) continue;
+        // ARCADE: a parent against the fence must not shed through it.
+        if (ZOMBIE_ARCADE && !inArena(x, y, child.size)) continue;
         child.x = x;
         child.y = y;
         return;
@@ -2568,6 +2574,7 @@ function carryLocalPlayerOnTrain() {
 
 function interactWith(p) {
     const now = Date.now();
+    if (ZOMBIE_ARCADE && arcadeIntroActive(now)) return;
     const box = { x: p.x - 26, y: p.y - 26, w: p.size + 52, h: p.size + 52 };
 
     if (codexRect && rectsOverlap(box, codexRect)) { openCodex(); return; }

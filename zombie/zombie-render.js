@@ -556,7 +556,8 @@ function draw() {
     drawRailTracks(inView);
     // Furniture first: it is floor dressing, under every entity.
     drawBuildingInteriors(inView);
-    drawSiloPipes(now, inView);
+    if (ZOMBIE_ARCADE) arcadeDrawPipes(now, inView);
+    else drawSiloPipes(now, inView);
     drawEndgame(now, inView);
     drawCodex(now, inView);
     drawIntensifySwitch(now, inView);
@@ -569,7 +570,6 @@ function draw() {
     drawPickups(now, inView);
     drawDecoys(now);
     drawWalls(inView);
-    if (ZOMBIE_ARCADE) arcadeDrawTrees(inView);
     // AFTER the walls on purpose (T3): a landmark has to be visible from
     // the sector next door or it cannot be a landmark. The containers go
     // first so a crane leg standing among them draws over them.
@@ -584,6 +584,7 @@ function draw() {
     drawBarricades(inView);
     drawBlasts(now);
     drawZombies(now, inView);
+    if (ZOMBIE_ARCADE) arcadeDrawTall(now, inView);   // tanks and trees over what stands behind them
     drawBolts(now);
     drawBullets(inView);
     drawRemotePlayers(now, inView);
@@ -594,14 +595,17 @@ function draw() {
     // Before the lighting: the light bands are pure black and have no colour
     // to drain, so draining after would be wasted work on the same pixels.
     drawBlackoutMonochrome();
-    drawLighting();
-    if (ZOMBIE_ARCADE) arcadeDrawBeacon(now);
+    // ARCADE: the intro shows the whole lit map; the beacon waits for it.
+    const introOn = ZOMBIE_ARCADE && arcadeIntroActive(now);
+    if (!introOn) drawLighting();
+    if (ZOMBIE_ARCADE && !introOn) arcadeDrawBeacon(now);
     drawOffscreenMarkers(now);
     // ARCADE: the whole-map view is the sidebar's, permanently.
     if (hudMapOn && !ZOMBIE_ARCADE) drawMinimap();
     // ALT (idea 61): the objective chain is on screen ALWAYS now, not only
     // behind ESC or with the minimap up.
     if (!ZOMBIE_ARCADE) drawNextGoal();   // ARCADE: the sidebar says NEXT
+    if (ZOMBIE_ARCADE) arcadeDrawIntroText(now);
     // THE FADE (2026-09-19): after the walk out, everything goes. Last, and
     // over the lighting and the minimap, because it is the screen going
     // dark, not the world going dark -- the DOM HUD is faded with it in
@@ -679,6 +683,8 @@ function drawWalls(inView) {
     for (let i = 0; i < walls.length; i++) {
         const w = walls[i];
         if (!inView(w.x, w.y, w.w, w.h)) continue;
+        // ARCADE: trees and tanks are drawn tall later; the gate's art covers its bar.
+        if (w.tree || w.silo || w.gateBar) continue;
         // Sampled at the CENTRE. A boundary wall is centred on the line
         // between two sectors, so its own corner can sit in either one and
         // sampling x,y made a run flicker between two palettes along its
@@ -898,7 +904,10 @@ function drawEndgame(now, inView) {
     }
 
     // --- funnels ---
-    for (let i = 0; i < funnels.length; i++) {
+    // ARCADE: grey bowls with a grate (zombie-arcade.js); the tall tanks are
+    // drawn after the zombies, so the flat silo pass below is skipped too.
+    if (ZOMBIE_ARCADE) arcadeDrawFunnels(now, inView);
+    for (let i = 0; i < funnels.length && !ZOMBIE_ARCADE; i++) {
         const f = funnels[i];
         if (!f || !inView(f.x - f.r, f.y - f.r, f.r * 2, f.r * 2)) continue;
         const live = funnelActive[i];
@@ -933,7 +942,7 @@ function drawEndgame(now, inView) {
     }
 
     // --- silos ---
-    for (let i = 0; i < silos.length; i++) {
+    for (let i = 0; i < silos.length && !ZOMBIE_ARCADE; i++) {
         const si = silos[i];
         if (!si || !inView(si.x, si.y, si.w, si.h)) continue;
         const frac = Math.min(1, siloFill[i] / siloCapacity(i));
@@ -3007,7 +3016,7 @@ function updateHud(now) {
         hudFaded = winFade > 0;
     }
 
-    uiTime.innerText = Math.floor((now - startTime) / 1000) + "s";
+    uiTime.innerText = Math.max(0, Math.floor((now - startTime) / 1000)) + "s";   // the arcade intro runs before T=0
     uiZombies.innerText = String(zombies.length);
     uiKills.innerText = String(kills);
     if (ZOMBIE_ARCADE) {
@@ -3028,7 +3037,8 @@ function updateHud(now) {
 
     // IDEA 35: name the place you are standing in, so callouts work.
     const me0 = players[0];
-    if (me0) {
+    // ARCADE: the arena has no sectors to name.
+    if (me0 && !ZOMBIE_ARCADE) {
         const z = zoneOf(me0.x, me0.y);
         if (z !== lastZoneShown) {
             lastZoneShown = z;
@@ -3591,7 +3601,8 @@ function gameLoop(ts) {
     updateWinSequence(now);
     updateIntensifyAnnounce(now);
     updateHordeCall(now);
-    updateCamera(cameraTargets());
+    // ARCADE: the intro flies the camera itself.
+    if (!(ZOMBIE_ARCADE && arcadeIntroCamera(now))) updateCamera(cameraTargets());
     draw();
 
     // Sustained audio is driven from state every frame rather than from

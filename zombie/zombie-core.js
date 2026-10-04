@@ -130,7 +130,7 @@ const ZOMBIE_ARCADE = true;
 // The arcade's fenced play area, centred where players start
 // (zombie-arcade.js, "THE ARENA"). The camera stays inside it.
 const ARENA = { x: Math.round(WORLD_W / 2 - 1200), y: Math.round(WORLD_H / 2 - 700), w: 2400, h: 1400 };
-const ARENA_CAM_PAD = 90;          // a little of the outside shows past the fence
+const ARENA_CAM_PAD = 180;         // the fence, and the exit pocket behind the gate
 
 function trackTimeout(fn, ms) {
     const t = setTimeout(fn, ms);

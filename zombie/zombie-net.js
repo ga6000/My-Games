@@ -586,7 +586,10 @@ function applyWorldSnapshot(msg, now) {
 
     // Round state (sent as a remaining duration, never a timestamp).
     round = msg.rd || 0;
-    if (ZOMBIE_ARCADE && typeof msg.el === "number") startTime = now - msg.el;
+    if (ZOMBIE_ARCADE && typeof msg.el === "number") {
+        startTime = now - msg.el;
+        arcadeIntroSync(msg.el);
+    }
     roundPhase = ROUND_PHASES[msg.rp] || "idle";
     roundEndsAt = deadlineFrom(msg.rt || 0, now);
     roundBudget = msg.rb || 0;

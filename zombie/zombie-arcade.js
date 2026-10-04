@@ -63,6 +63,8 @@ function arcadeStart(now) {
     arcSpawnDebt = 0;
     arcDiedAt = 0;
     arcDropSeq = 0;
+    // The run's clock starts when the intro ends (arcadeBeginIntro).
+    startTime = now + ARC_INTRO_MS;
     arcKillsSinceDrop = 0;
     generatorOn = true;
     genTripped = false;
@@ -76,6 +78,7 @@ function arcadeStart(now) {
 
 // HOST. Replaces the round flow in update(): no budget, no breather.
 function updateArcadeWave(now, dt) {
+    if (now < startTime) { roundPhase = "active"; return; }   // the intro
     const t = arcadeElapsedS(now);
     const level = arcadeLevel(now);
     if (level !== round) {
@@ -151,7 +154,10 @@ function arcadeSpawnPoint(size) {
 function arcadeExitZone() {
     if (!escapeRect) return null;
     const r = ARC_ESCAPE_REACH;
-    return { x: escapeRect.x - r, y: escapeRect.y - r * 1.6, w: escapeRect.w + r * 2, h: escapeRect.h + r * 1.6 };
+    const top = escapeRect.y - r * 1.6;
+    // Down into the pocket behind the gate, so walking through still counts.
+    const bottom = Math.max(escapeRect.y + escapeRect.h, arcExitBottom);
+    return { x: escapeRect.x - r, y: top, w: escapeRect.w + r * 2, h: bottom - top };
 }
 
 function arcadeUpdateEscape() {
@@ -520,9 +526,14 @@ function separateZombies() {
 // "immediately after playtesting" was the user's plan for it, and the arena
 // has no room for it anyway.
 const ARENA_FUNNEL_R = 110;
-// Offsets from the arena's centre, which is where players start.
-const ARENA_FUNNELS = [[-650, -250], [650, -400], [450, 350]];
-const ARENA_GATE_DX = -500;       // the exit, in the south wall
+// Offsets from the arena's centre, which is where players start. Laid out
+// like a BASEBALL FIELD (user, 2026-10-04): first at centre-left, second at
+// top-middle, third at centre-right, and the gate is home plate, south.
+const ARENA_FUNNELS = [[-750, 0], [0, -430], [750, 0]];
+const ARENA_GATE_DX = 0;          // the exit, in the south wall
+const ARENA_SILO_W = 70;          // the tank's FOOTPRINT, solid on every side
+const ARENA_SILO_H = 56;
+const ARENA_PIPE_RUN = 110;       // funnel rim to tank: room for the pipes to read
 const ARENA_CLEAR = 150;          // nothing solid this close to the chain
 
 function buildArcadeArena() {
@@ -535,8 +546,8 @@ function buildArcadeArena() {
     for (let k = 0; k < 3; k++) {
         const fx = cx + ARENA_FUNNELS[k][0], fy = cy + ARENA_FUNNELS[k][1];
         funnels[k] = { x: fx, y: fy, r: ARENA_FUNNEL_R, zone: zoneOf(fx, fy) };
-        silos[k] = { x: Math.round(fx + ARENA_FUNNEL_R + 44), y: Math.round(fy - SILO_H / 2),
-                     w: SILO_W, h: SILO_H, zone: zoneOf(fx, fy) };
+        silos[k] = { x: Math.round(fx + ARENA_FUNNEL_R + ARENA_PIPE_RUN), y: Math.round(fy - ARENA_SILO_H / 2),
+                     w: ARENA_SILO_W, h: ARENA_SILO_H, zone: zoneOf(fx, fy) };
         siloPipes[k] = pipeBetween(funnels[k], silos[k]);
     }
     const wallY = A.y + A.h - WALL_T;
@@ -583,8 +594,20 @@ function buildArcadeArena() {
         { x: A.x, y: wallY, w: x0 - A.x, h: T, perim: true },
         { x: x1, y: wallY, w: A.x + A.w - x1, h: T, perim: true },
         { x: Math.round(x0 - ESCAPE_JAMB), y: wallY - 14, w: ESCAPE_JAMB, h: T + 28, column: true },
-        { x: Math.round(x1), y: wallY - 14, w: ESCAPE_JAMB, h: T + 28, column: true }
+        { x: Math.round(x1), y: wallY - 14, w: ESCAPE_JAMB, h: T + 28, column: true },
+        // The bar across the opening until the gate is open, and the pocket
+        // behind it (see "THE GATE BAR AND THE EXIT POCKET").
+        { x: Math.round(x0), y: wallY, w: Math.round(x1 - x0), h: T, gateBar: true },
+        { x: Math.round(x0 - ESCAPE_JAMB - 20), y: wallY + T, w: 20, h: EXIT_POCKET, perim: true },
+        { x: Math.round(x1 + ESCAPE_JAMB), y: wallY + T, w: 20, h: EXIT_POCKET, perim: true },
+        { x: Math.round(x0 - ESCAPE_JAMB - 20), y: wallY + T + EXIT_POCKET, w: Math.round(x1 - x0 + ESCAPE_JAMB * 2 + 40), h: 20, perim: true }
     );
+    arcExitBottom = wallY + T + EXIT_POCKET;
+    // The tanks are solid all round now, and tall (drawTallSilo).
+    for (let k = 0; k < 3; k++) {
+        const s = silos[k];
+        keepWalls.push({ x: s.x, y: s.y, w: s.w, h: s.h, silo: true });
+    }
     walls = keepWalls;
     escapeOpening = { x: Math.round(x0), y: wallY - 14, w: Math.round(x1 - x0), h: T + 28 };
     plantArenaTerrain(fits);
@@ -724,7 +747,7 @@ function buildSideStatic() {
     g.fillRect(0, 0, w, h);
     for (let i = 0; i < walls.length; i++) {
         const wl = walls[i];
-        if (wl.perim || wl.column) continue;
+        if (wl.perim || wl.column || wl.silo || wl.gateBar) continue;
         g.fillStyle = wl.tree ? "#2E5A22" : "#4A4A4A";
         const m = wl.tree ? 3 : 0;
         g.fillRect((wl.x - ARENA.x) * k - m, (wl.y - ARENA.y) * k - m, Math.max(2, wl.w * k) + m * 2, Math.max(2, wl.h * k) + m * 2);
@@ -738,7 +761,7 @@ function buildSideStatic() {
 function arcadeDrawSidebar(now) {
     if (!sideCtx) return;
     const bar = document.getElementById("sidebar");
-    const want = Math.max(120, (bar ? bar.clientWidth : 240) - 24);
+    const want = Math.max(120, (bar ? bar.clientWidth : 240) - 24 - 12);   // the radar frame
     const wantH = Math.round(want * ARENA.h / ARENA.w);
     if (sideCanvas.width !== want || sideCanvas.height !== wantH) {
         sideCanvas.width = want;
@@ -829,6 +852,7 @@ function arcadeDrawSidebar(now) {
     g.textAlign = "left";
 
     arcadeRenderSideGoals();
+    arcadeUpdateCabinet();
 }
 
 // The checklist under the map, rewritten only when it changes.
@@ -867,10 +891,10 @@ function arcadeRenderSideGoals() {
 // patch can seal a pocket.
 //
 // MP.random(), never Math.random(): every client must grow the same forest.
-const TREE_TRUNK = 26;
-const TREE_CANOPY = 56;
+const TREE_TRUNK = 40;           // the whole footprint is solid, not just a trunk
+const TREE_CANOPY = 64;
 const TREE_GAP = 110;             // trunk to trunk, edge to edge-ish
-const ARENA_PATCHES = 6;
+const ARENA_PATCHES = 8;           // was 6: "more patches" (2026-10-04)
 let arenaBushes = [];             // {x, y, r, shade} -- drawn only
 let arenaTrees = [];              // the same rects as the tree walls, for drawing
 
@@ -904,20 +928,20 @@ function plantArenaTerrain(fits) {
         const px = A.x + 220 + MP.random() * (A.w - 440);
         const py = A.y + 200 + MP.random() * (A.h - 400);
         if (!fits({ x: px - 90, y: py - 90, w: 180, h: 180 })) continue;
-        for (let i = 0; i < 9; i++) {
+        for (let i = 0; i < 10; i++) {
             const a = MP.random() * Math.PI * 2, d = 40 + MP.random() * 190;
             tryTree(px + Math.cos(a) * d, py + Math.sin(a) * d);
         }
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 13; i++) {
             const a = MP.random() * Math.PI * 2, d = MP.random() * 240;
             addBush(px + Math.cos(a) * d, py + Math.sin(a) * d, 7 + MP.random() * 8);
         }
     }
     // The sparse scatter between them.
-    for (let i = 0; i < 34; i++) {
+    for (let i = 0; i < 37; i++) {          // +10% (2026-10-04)
         tryTree(A.x + 80 + MP.random() * (A.w - 160), A.y + 80 + MP.random() * (A.h - 160));
     }
-    for (let i = 0; i < 46; i++) {
+    for (let i = 0; i < 51; i++) {          // +10%
         addBush(A.x + 60 + MP.random() * (A.w - 120), A.y + 60 + MP.random() * (A.h - 120), 5 + MP.random() * 7);
     }
 }
@@ -988,20 +1012,417 @@ function arcadeDrawBushes(inView) {
 
 const TREE_SHADES = ["#1F3D17", "#25471A", "#183213"];
 
-function arcadeDrawTrees(inView) {
-    const h = TREE_CANOPY / 2;
+// ---------------------------------------------------
+//   THE GATE BAR AND THE EXIT POCKET (2026-10-04, third playtest note)
+// ---------------------------------------------------
+// "I can walk outside of the map if I try to walk out through the exit
+// before it's ready." The opening in the south wall was only ever DRAWN shut.
+// Now a solid bar fills it until the chainlink is open, and beyond it a
+// small walled pocket catches anyone who walks through, so nobody can leave
+// the arena -- the run ends in the pocket or the zone in front of it.
+//
+// Every client builds the bar (generateLevel) and every client removes it
+// (arcadeUpdateGateBar, from update()), off escapeAt, which rides the
+// snapshot -- so the geometry agrees without a message of its own.
+const EXIT_POCKET = 140;          // how deep the pocket behind the gate is
+let arcExitBottom = 0;            // world y of the pocket's floor
+
+function arcadeUpdateGateBar() {
+    if (!escapeOpen() || escapeChainFrac() < 0.5) return;
+    let removed = false;
+    for (let i = walls.length - 1; i >= 0; i--) {
+        if (walls[i].gateBar) { walls.splice(i, 1); removed = true; }
+    }
+    if (removed) {
+        markNavDirty();
+        rebuildSolidIndex();
+    }
+}
+
+// ---------------------------------------------------
+//   THE INTRO (2026-10-04, third playtest note)
+// ---------------------------------------------------
+// "Full map zoomed out -> 'Escape' -> zoom in on center where players spawn
+// (should show all players [controls off for starting animation]) 'you' ->
+// pan over to first silo 'fill the silos' -> pan to other two silos, still on
+// each one for a second -> finish pan to exit gate 'initiate gate open,
+// Escape'."
+//
+// Local to every client, driven from gameLoop, and it costs the run nothing:
+// the host's clock starts AFTER it (arcadeStart pushes startTime forward by
+// ARC_INTRO_MS), so the wave, the drops and the 4:00 curve all begin when the
+// camera lands back on you. A guest arriving in a run that is already going
+// (`el` > 0 on its first snapshot) skips it -- 11 seconds with no controls in
+// the middle of a fight is not an intro.
+const ARC_INTRO_MS = 11400;
+let arcIntroAt = 0;
+
+function arcadeBeginIntro(now) {
+    arcIntroAt = now;
+    if (typeof releaseHeldKeys === "function") releaseHeldKeys();
+}
+
+function arcadeIntroActive(now) {
+    return arcIntroAt > 0 && (now || Date.now()) - arcIntroAt < ARC_INTRO_MS;
+}
+
+// From applyWorldSnapshot: a run already past its intro skips ours.
+function arcadeIntroSync(elapsedMs) {
+    if (elapsedMs > 1500 && arcadeIntroActive()) arcIntroAt = 0;
+}
+
+// The scale updateCamera() settles on, so the intro hands over without a jump.
+function arcadeNormalScale() {
+    let needW = VIEW_W, needH = VIEW_H;
+    const aspect = canvas.width / Math.max(1, canvas.height);
+    if (needW / needH < aspect) needW = needH * aspect;
+    else needH = needW / aspect;
+    return Math.min(canvas.width / needW, canvas.height / needH);
+}
+
+function arcadeFitScale() {
+    return Math.min(canvas.width / (ARENA.w + 160), canvas.height / (ARENA.h + 160));
+}
+
+// [start ms, end ms, where, zoom ('fit' | 'near'), caption]
+function arcadeIntroShots() {
+    const c = { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+    const me = players[0] ? { x: players[0].x + 8, y: players[0].y + 8 } : c;
+    const f = function (k) { return funnels[k] ? { x: funnels[k].x + 60, y: funnels[k].y } : c; };
+    const gate = escapeRect ? { x: escapeRect.x + escapeRect.w / 2, y: escapeRect.y - 60 } : c;
+    return [
+        [0, 1800, c, "fit", "ESCAPE"],
+        [1800, 2800, me, "near", ""],
+        [2800, 3600, me, "near", "YOU"],
+        [3600, 4600, f(0), "near", ""],
+        [4600, 5600, f(0), "near", "FILL THE SILOS"],
+        [5600, 6400, f(1), "near", ""],
+        [6400, 7000, f(1), "near", "TANK 2"],
+        [7000, 7800, f(2), "near", ""],
+        [7800, 8400, f(2), "near", "TANK 3"],
+        [8400, 9400, gate, "near", ""],
+        [9400, 10600, gate, "near", "INITIATE GATE OPEN — ESCAPE"],
+        [10600, ARC_INTRO_MS, me, "near", ""]
+    ];
+}
+
+function introEase(t) { return t * t * (3 - 2 * t); }
+
+// Drives the camera directly while the intro runs. Returns false when done.
+function arcadeIntroCamera(now) {
+    if (!arcadeIntroActive(now)) return false;
+    const t = now - arcIntroAt;
+    const shots = arcadeIntroShots();
+    let prev = shots[0];
+    for (let i = 0; i < shots.length; i++) {
+        const s = shots[i];
+        if (t < s[0] || t >= s[1]) { prev = s; continue; }
+        const from = i ? shots[i - 1] : s;
+        const k = introEase(clamp((t - s[0]) / Math.max(1, s[1] - s[0]), 0, 1));
+        const sc = function (mode) { return mode === "fit" ? arcadeFitScale() : arcadeNormalScale(); };
+        camera.x = from[2].x + (s[2].x - from[2].x) * k;
+        camera.y = from[2].y + (s[2].y - from[2].y) * k;
+        camera.scale = sc(from[3]) + (sc(s[3]) - sc(from[3])) * k;
+        camera.shake = 0;
+        return true;
+    }
+    return true;
+}
+
+// Screen space, last thing drawn: the caption, big and blocky.
+function arcadeDrawIntroText(now) {
+    if (!arcadeIntroActive(now)) return;
+    const t = now - arcIntroAt;
+    const shots = arcadeIntroShots();
+    let cap = "", shot = null;
+    for (let i = 0; i < shots.length; i++) if (t >= shots[i][0] && t < shots[i][1]) { cap = shots[i][4]; shot = shots[i]; }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Letterbox bars: this is a cutscene, and it should look like one.
+    const bar = Math.round(canvas.height * 0.09);
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, canvas.width, bar);
+    ctx.fillRect(0, canvas.height - bar, canvas.width, bar);
+    if (cap && shot) {
+        const local = (t - shot[0]) / Math.max(1, shot[1] - shot[0]);
+        const big = cap === "ESCAPE" ? 96 : cap.length > 18 ? 34 : 54;
+        ctx.font = "bold " + big + "px Courier";
+        ctx.textAlign = "center";
+        // A whole-pixel jitter in, like the horde call -- never a smooth fade.
+        const jx = local < 0.15 ? Math.round((Math.random() - 0.5) * 6) : 0;
+        const y = cap === "YOU" ? canvas.height / 2 - 70 : canvas.height / 2 - canvas.height * 0.18;
+        ctx.fillStyle = "#000000";
+        ctx.fillText(cap, canvas.width / 2 + 4 + jx, y + 4);
+        ctx.fillStyle = cap === "ESCAPE" || cap.indexOf("GATE") >= 0 ? ICON_CYAN : COLOR_PICKUP;
+        ctx.fillText(cap, canvas.width / 2 + jx, y);
+        if (cap === "YOU" && players[0]) {
+            const s = worldToScreen(players[0].x + 8, players[0].y);
+            ctx.fillStyle = COLOR_PICKUP;
+            ctx.beginPath();
+            ctx.moveTo(s.x, s.y - 14);
+            ctx.lineTo(s.x - 12, s.y - 34);
+            ctx.lineTo(s.x + 12, s.y - 34);
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+    ctx.font = "13px Courier";
+    ctx.fillStyle = "#777777";
+    ctx.textAlign = "right";
+    ctx.fillText("GET READY", canvas.width - 16, canvas.height - bar / 2 + 4);
+    ctx.restore();
+}
+
+// ---------------------------------------------------
+//   FUNNELS, PIPES, TALL TANKS AND TREES (2026-10-04, third playtest note)
+// ---------------------------------------------------
+// "Silo funnels should also read more as grey sinking down with pseudo-depth
+// & grate at center. More visual pipes running from funnel to silo. Make
+// silos taller, 1d iso tall, with collisions all around... make trees
+// slightly taller with same 1d isometric effect, with full collisions."
+//
+// "1D isometric" here is the landmarks' two-fill trick taken further: a
+// footprint on the ground that IS the collision box, and the body extruded
+// straight UP the screen by `lift`, with a darker front face and a lit top.
+// Tall things are drawn after the zombies, sorted by their footprint's
+// bottom edge, so a tank hides what stands behind it and not what stands in
+// front.
+const SILO_LIFT = 96;
+const TREE_LIFT = 30;
+
+// A grey bowl: rings stepping darker and slightly DOWN toward the middle (the
+// pseudo-depth), blood pooling at the bottom as the tank fills, and a grate.
+function arcadeDrawFunnels(now, inView) {
+    for (let i = 0; i < funnels.length; i++) {
+        const f = funnels[i];
+        if (!f || !inView(f.x - f.r, f.y - f.r, f.r * 2, f.r * 2)) continue;
+        const live = funnelActive[i];
+        const steps = ["#5A5A5A", "#4A4A4A", "#3B3B3B", "#2D2D2D", "#202020"];
+        for (let s = 0; s < steps.length; s++) {
+            const r = f.r * (1 - s * 0.17);
+            ctx.fillStyle = steps[s];
+            ctx.beginPath();
+            ctx.arc(f.x, f.y + s * 3, r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // The rim's lit lip.
+        ctx.strokeStyle = live ? "#B0B0B0" : "#6E6E6E";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r, Math.PI * 1.05, Math.PI * 1.95);
+        ctx.stroke();
+        // What has gone down it so far.
+        const frac = Math.min(1, siloFill[i] / siloCapacity(i));
+        if (frac > 0 && !siloFlipped[i]) {
+            ctx.fillStyle = (live && now % 900 < 450) ? "#8A1020" : "#6A0C18";
+            ctx.beginPath();
+            ctx.arc(f.x, f.y + 12, f.r * 0.32 * (0.4 + 0.6 * frac), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // The grate.
+        const g = Math.round(f.r * 0.24);
+        const gx = Math.round(f.x - g), gy = Math.round(f.y + 12 - g);
+        ctx.fillStyle = "#111111";
+        ctx.fillRect(gx, gy, g * 2, g * 2);
+        ctx.fillStyle = "#6A6A6A";
+        for (let b = 0; b <= g * 2; b += 6) {
+            ctx.fillRect(gx + b, gy, 2, g * 2);
+            ctx.fillRect(gx, gy + b, g * 2, 2);
+        }
+        ctx.strokeStyle = "#7A7A7A";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(gx, gy, g * 2, g * 2);
+    }
+}
+
+// Two pipes, side by side, rim to tank, with flanges and blood moving in
+// them while their funnel is live.
+function arcadeDrawPipes(now, inView) {
+    for (let i = 0; i < siloPipes.length; i++) {
+        const p = siloPipes[i];
+        if (!p) continue;
+        const len = Math.hypot(p.x2 - p.x1, p.y2 - p.y1);
+        if (len < 1) continue;
+        const ux = (p.x2 - p.x1) / len, uy = (p.y2 - p.y1) / len;
+        if (!inView(Math.min(p.x1, p.x2) - 20, Math.min(p.y1, p.y2) - 20, Math.abs(p.x2 - p.x1) + 40, Math.abs(p.y2 - p.y1) + 40)) continue;
+        const live = funnelActive[i] && !siloFlipped[i];
+        for (let side = -1; side <= 1; side += 2) {
+            const ox = -uy * 12 * side, oy = ux * 12 * side;
+            ctx.lineCap = "butt";
+            ctx.strokeStyle = "#202020";
+            ctx.lineWidth = 12;
+            ctx.beginPath();
+            ctx.moveTo(p.x1 + ox, p.y1 + oy + 3);
+            ctx.lineTo(p.x2 + ox, p.y2 + oy + 3);
+            ctx.stroke();
+            ctx.strokeStyle = "#555555";
+            ctx.lineWidth = 9;
+            ctx.beginPath();
+            ctx.moveTo(p.x1 + ox, p.y1 + oy);
+            ctx.lineTo(p.x2 + ox, p.y2 + oy);
+            ctx.stroke();
+            ctx.strokeStyle = "#7C7C7C";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(p.x1 + ox - uy * 2, p.y1 + oy - 3);
+            ctx.lineTo(p.x2 + ox - uy * 2, p.y2 + oy - 3);
+            ctx.stroke();
+            ctx.fillStyle = "#8A8A8A";
+            for (let d = 6; d < len - 4; d += 26) {
+                ctx.fillRect(Math.round(p.x1 + ox + ux * d - 3), Math.round(p.y1 + oy + uy * d - 7), 6, 14);
+            }
+            if (live) {
+                ctx.fillStyle = "#B01428";
+                const off = (now / 12) % 26;
+                for (let d = off; d < len - 4; d += 26) {
+                    ctx.fillRect(Math.round(p.x1 + ox + ux * d - 2), Math.round(p.y1 + oy + uy * d - 2), 5, 4);
+                }
+            }
+        }
+    }
+}
+
+function drawTallSilo(i, si, now) {
+    const lift = SILO_LIFT;
+    const frac = Math.min(1, siloFill[i] / siloCapacity(i));
+    const ready = siloReady(i), done = siloFlipped[i];
+    // Ground shadow.
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillRect(si.x + 10, si.y + 8, si.w, si.h);
+    // Front face: the tall body, from the top face's lower edge to the ground.
+    const faceY = si.y + si.h - lift;
+    ctx.fillStyle = "#3A1A1E";
+    ctx.fillRect(si.x, faceY, si.w, lift);
+    // Blood rising in it, behind a sight-glass strip.
+    const gx = si.x + Math.round(si.w * 0.38), gw = Math.round(si.w * 0.24);
+    ctx.fillStyle = "#140608";
+    ctx.fillRect(gx, faceY + 8, gw, lift - 14);
+    const fh = Math.round((lift - 14) * frac);
+    ctx.fillStyle = "#C0182C";
+    ctx.fillRect(gx, faceY + 8 + (lift - 14) - fh, gw, fh);
+    // Hoops.
+    ctx.fillStyle = "#5A2A30";
+    for (let k = 1; k <= 3; k++) ctx.fillRect(si.x, faceY + Math.round(lift * k / 4), si.w, 3);
+    // Top face, lifted.
+    ctx.fillStyle = done ? "#2C4A2C" : ready ? (now % 500 < 250 ? COLOR_BUY : "#2E8A2E") : "#6A3238";
+    ctx.fillRect(si.x, si.y - lift, si.w, si.h);
+    ctx.fillStyle = "#8A4A50";
+    ctx.fillRect(si.x + 6, si.y - lift + 6, si.w - 12, 4);
+    ctx.strokeStyle = done ? "#335533" : ready ? COLOR_BUY : "#995560";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(si.x, si.y - lift, si.w, si.h + lift);
+    // A big number on the top, so a tank is named from across the arena.
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "bold 22px Courier";
+    ctx.textAlign = "center";
+    ctx.fillText(String(i + 1), si.x + si.w / 2, si.y - lift + si.h / 2 + 8);
+    ctx.font = "bold 10px Courier";
+    ctx.fillStyle = done ? "#5A8A5A" : ready ? COLOR_BUY : "#FFAAAA";
+    ctx.fillText(done ? "PUMPED" : ready ? "[F] SWITCH" : siloFill[i] + "/" + siloCapacity(i),
+                 si.x + si.w / 2, si.y + si.h + 14);
+    ctx.textAlign = "left";
+}
+
+const TRUNK_W = 12;
+
+function drawTallTree(t) {
+    const cx = t.x + t.w / 2;
+    const lift = TREE_LIFT;
+    const cw = TREE_CANOPY, ch = Math.round(TREE_CANOPY * 0.8);
+    // Shadow on the ground under the footprint.
+    ctx.fillStyle = "rgba(0,0,0,0.42)";
+    ctx.fillRect(t.x + 6, t.y + 6, t.w, t.h);
+    // Trunk, standing in the footprint.
+    ctx.fillStyle = "#3A2614";
+    ctx.fillRect(Math.round(cx - TRUNK_W / 2), t.y + t.h - lift - 6, TRUNK_W, lift + 6);
+    // Canopy: a dark lower band (the side) and a lit top, lifted.
+    const top = t.y + t.h - lift - ch;
+    const shade = TREE_SHADES[Math.floor(t.shade * TREE_SHADES.length) % TREE_SHADES.length];
+    ctx.fillStyle = "#132A0F";
+    ctx.fillRect(Math.round(cx - cw / 2), top + Math.round(ch * 0.55), cw, Math.round(ch * 0.45));
+    ctx.fillStyle = shade;
+    ctx.fillRect(Math.round(cx - cw / 2), top, cw, Math.round(ch * 0.6));
+    ctx.fillRect(Math.round(cx - cw * 0.35), top - 8, Math.round(cw * 0.7), 10);
+    ctx.fillStyle = "#3A6A2C";
+    ctx.fillRect(Math.round(cx - cw * 0.3), top - 4, Math.round(cw * 0.35), 7);
+}
+
+// After the zombies: every tall thing, back to front.
+function arcadeDrawTall(now, inView) {
+    const list = [];
     for (let i = 0; i < arenaTrees.length; i++) {
         const t = arenaTrees[i];
-        const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
-        if (!inView(cx - h - 8, cy - h - 8, TREE_CANOPY + 16, TREE_CANOPY + 16)) continue;
-        // A cast shadow, then a stepped canopy in two flat tones -- the same
-        // two-fill height trick the landmarks use.
-        ctx.fillStyle = "rgba(0,0,0,0.4)";
-        ctx.fillRect(cx - h + 8, cy - h + 8, TREE_CANOPY, TREE_CANOPY);
-        ctx.fillStyle = TREE_SHADES[Math.floor(t.shade * TREE_SHADES.length) % TREE_SHADES.length];
-        ctx.fillRect(cx - h, cy - h * 0.7, TREE_CANOPY, TREE_CANOPY * 0.7);
-        ctx.fillRect(cx - h * 0.7, cy - h, TREE_CANOPY * 0.7, TREE_CANOPY);
-        ctx.fillStyle = "#35602A";
-        ctx.fillRect(cx - h * 0.55, cy - h * 0.75, TREE_CANOPY * 0.45, TREE_CANOPY * 0.3);
+        if (inView(t.x - TREE_CANOPY, t.y - TREE_LIFT - TREE_CANOPY, t.w + TREE_CANOPY * 2, t.h + TREE_LIFT + TREE_CANOPY)) {
+            list.push({ y: t.y + t.h, tree: t });
+        }
+    }
+    for (let i = 0; i < silos.length; i++) {
+        const s = silos[i];
+        if (s && inView(s.x, s.y - SILO_LIFT, s.w, s.h + SILO_LIFT + 20)) list.push({ y: s.y + s.h, silo: i });
+    }
+    list.sort(function (a, b) { return a.y - b.y; });
+    for (let i = 0; i < list.length; i++) {
+        if (list[i].tree) drawTallTree(list[i].tree);
+        else drawTallSilo(list[i].silo, silos[list[i].silo], now);
+    }
+}
+
+// ---------------------------------------------------
+//   THE CABINET PANEL (2026-10-04, third playtest note)
+// ---------------------------------------------------
+// "Make [the sidebar] more like an arcade cabinet sidebar UI (think
+// Bosconian)", and the user's rule that every hub game gets one
+// (AESTHETIC_GUIDE.md, "The cabinet panel"). Bosconian's right panel is
+// HI-SCORE and 1UP at the top, the radar in the middle, CONDITION
+// GREEN/YELLOW/RED under it, and the round and lives below -- red labels,
+// white numbers, black ground. This is that panel, filled with this game's
+// numbers.
+const CAB_BEST_KEY = "zombie_arcade_best";
+let cabSig = "";
+
+function cabBest() {
+    try { return parseInt(localStorage.getItem(CAB_BEST_KEY) || "0", 10) || 0; } catch (e) { return 0; }
+}
+
+// GREEN nothing close; YELLOW they are gathering; RED they are on you.
+function cabCondition() {
+    const me = players[0];
+    const cap = arcadeAliveCap();
+    let near = 0;
+    if (me) {
+        for (let i = 0; i < zombies.length; i++) {
+            if (Math.hypot(zombies[i].x - me.x, zombies[i].y - me.y) < 260) near++;
+        }
+    }
+    if (near >= 6 || zombies.length >= cap * 0.8 || (me && me.downed)) return "RED";
+    if (near >= 2 || zombies.length >= cap * 0.4) return "YELLOW";
+    return "GREEN";
+}
+
+function arcadeUpdateCabinet() {
+    const me = players[0];
+    const score = me ? runScoreFor(netIdFor(me)).total : 0;
+    let best = cabBest();
+    if ((gameOver || won) && score > best) {
+        best = score;
+        try { localStorage.setItem(CAB_BEST_KEY, String(best)); } catch (e) { /* private mode */ }
+    }
+    const cond = gameStarted ? cabCondition() : "GREEN";
+    let lives = 0;
+    const all = allTargets();
+    for (let i = 0; i < all.length; i++) if (!all[i].downed) lives++;
+    const sig = best + "|" + score + "|" + cond + "|" + lives + "|" + all.length;
+    if (sig === cabSig) return;
+    cabSig = sig;
+    const set = function (id, v) { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set("cabHi", String(best));
+    set("cabScore", String(score));
+    const c = document.getElementById("cabCond");
+    if (c) { c.textContent = cond; c.className = "cab-cond " + cond.toLowerCase(); }
+    const l = document.getElementById("cabLives");
+    if (l) {
+        let html = "";
+        for (let i = 0; i < all.length; i++) html += "<span class='life" + (all[i].downed ? " down" : "") + "'></span>";
+        l.innerHTML = html;
     }
 }

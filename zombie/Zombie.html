@@ -346,7 +346,23 @@
             z-index: 11; overflow: hidden; pointer-events: none;
             color: var(--phos-mid); text-shadow: none;
         }
-        #sidebar .side-h { color: var(--phos-hot); font-size: 12px; letter-spacing: 3px; }
+        /* Bosconian's panel: red labels, white numbers, black ground, the
+           radar in a hard frame, CONDITION in its own colour. */
+        #sidebar .cab-l { color: #FF3344; font-size: 13px; font-weight: bold; letter-spacing: 3px; }
+        #sidebar .cab-v {
+            color: #FFFFFF; font-size: 24px; font-weight: bold; letter-spacing: 2px;
+            text-align: right; font-variant-numeric: tabular-nums; margin-top: -6px;
+        }
+        #sidebar .cab-radar { border: 3px solid #E8E8E8; padding: 3px; background: #000; align-self: stretch; }
+        #sidebar .cab-row { display: flex; justify-content: space-between; align-items: flex-end; }
+        #sidebar .cab-cond { font-size: 22px; font-weight: bold; letter-spacing: 3px; }
+        #sidebar .cab-cond.green { color: #33FF55; }
+        #sidebar .cab-cond.yellow { color: #FFE033; }
+        #sidebar .cab-cond.red { color: #FF2233; animation: cabBlink 0.5s steps(1) infinite; }
+        @keyframes cabBlink { 50% { visibility: hidden; } }
+        #sidebar .cab-lives { display: flex; gap: 5px; padding-bottom: 4px; }
+        #sidebar .cab-lives .life { width: 12px; height: 12px; background: #55FFFF; }
+        #sidebar .cab-lives .life.down { background: #FF2233; }
         #sideHud { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
         #sidemap { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
         #sideNext #objective {
@@ -502,10 +518,20 @@
         <span style="font-size: 22px; color: var(--sig-cyan);">Click anywhere to restart</span>
     </div>
 
+    <!-- THE CABINET PANEL (2026-10-04): Bosconian's right-hand panel,
+         filled with this game's numbers. Required for every hub game from
+         here on -- AESTHETIC_GUIDE.md, "The cabinet panel". -->
     <div id="sidebar">
-        <div class="side-h">MAP</div>
-        <canvas id="sidemap" width="240" height="140"></canvas>
-        <div class="side-h">NEXT</div>
+        <div class="cab-l">HI-SCORE</div>
+        <div class="cab-v" id="cabHi">0</div>
+        <div class="cab-l">1UP</div>
+        <div class="cab-v" id="cabScore">0</div>
+        <div class="cab-radar"><canvas id="sidemap" width="240" height="140"></canvas></div>
+        <div class="cab-row">
+            <div><div class="cab-l">CONDITION</div><div class="cab-cond green" id="cabCond">GREEN</div></div>
+            <div class="cab-lives" id="cabLives"></div>
+        </div>
+        <div class="cab-l">NEXT</div>
         <div id="sideNext"></div>
         <ul id="sideGoals"></ul>
         <div id="sideHud"></div>

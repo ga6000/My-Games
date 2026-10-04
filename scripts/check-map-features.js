@@ -190,8 +190,8 @@ function runOpenMap() {
         // Drops replaced every bought or placed item (2026-10-04,
         // zombie-arcade.js): wall-buys, stations, crates, traps, levers.
         counts.wallBuys.push(read("wallBuys.length + cardStations.length + ammoCrates.length + traps.length + gateSwitches.length"));
-        counts.interior.push(read("walls.filter(function (w) { return !(w.perim || w.column || w.trunk || w.landmark || w.railcar); }).length"));
-        counts.outside.push(read("walls.filter(function (w) { return !w.column && (w.x < ARENA.x || w.y < ARENA.y || w.x + w.w > ARENA.x + ARENA.w || w.y + w.h > ARENA.y + ARENA.h); }).length"));
+        counts.interior.push(read("walls.filter(function (w) { return !(w.perim || w.column || w.trunk || w.landmark || w.railcar || w.silo || w.gateBar); }).length"));
+        counts.outside.push(read("walls.filter(function (w) { return !w.column && !w.perim && (w.x < ARENA.x || w.y < ARENA.y || w.x + w.w > ARENA.x + ARENA.w || w.y + w.h > ARENA.y + ARENA.h); }).length"));
         counts.openings.push(read("doors.length + barricades.length"));
     }
     console.log("Zombie ARCADE, open map (" + SEEDS + " seeds) -- the walled-map baselines are skipped;");

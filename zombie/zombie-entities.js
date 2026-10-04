@@ -714,6 +714,11 @@ function offMapPoint(size, anchor) {
 }
 
 function pickSpawnPoint(size) {
+    // ARCADE: "zombies are spawning outside of the map" (2026-10-04). The
+    // screamer's summons, the splitter's sheds and spawnling births all came
+    // through here, and this placer works in SECTORS and off the map edge --
+    // all of it outside the arena. In the arcade every spawn goes inside.
+    if (ZOMBIE_ARCADE) return arcadeSpawnPoint(size);
     const targets = livingTargets();
     if (!targets.length) return { x: WORLD_W / 2, y: 0 - SPAWN_OFF_MAP_PAD };
 

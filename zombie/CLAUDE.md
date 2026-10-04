@@ -61,6 +61,54 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Intro, gate bar, spawns, tall tanks and trees, the cabinet panel (2026-10-04, third playtest)
+
+- **The intro** (`arcadeBeginIntro`, `arcadeIntroCamera`, `arcadeDrawIntroText`): 11.4s on every
+  client.
+  - The shots: the whole map "ESCAPE" → zoom to the spawn "YOU" → tank 1 "FILL THE SILOS" → tank 2
+    → tank 3 (about a second each) → the gate "INITIATE GATE OPEN — ESCAPE" → back to you.
+  - Letterboxed. Controls are off (`updatePlayers` and `interactWith` return early) and the
+    lighting is skipped so the map is visible.
+  - **The host's clock starts after it** (`arcadeStart` pushes `startTime` forward by
+    `ARC_INTRO_MS`), so the wave and the 4:00 curve begin when the camera lands. `el` goes
+    negative during the intro, and that is fine because it is a duration.
+  - A guest whose first snapshot shows `el` > 1.5s skips the intro (`arcadeIntroSync`).
+- **The gate bar** (`gateBar` wall, removed by `arcadeUpdateGateBar` on every client once the
+  chainlink is open, with a nav rebuild). A **walled pocket** behind the gate catches anyone who
+  walks through, and the exit zone extends into it. Reported as *"I can walk outside of the map
+  ... before it's ready"*: the opening was only ever drawn shut.
+- **Every spawn stays inside the arena.** `pickSpawnPoint` delegates to `arcadeSpawnPoint` in the
+  arcade. Screamer summons, splitter sheds and spawnling births all went through the sector
+  placer, which puts zombies in cold sectors and off the map edge: the reported *"zombies are
+  spawning outside of the map"*. `placeShed` also refuses a spot outside the fence.
+- **Baseball layout:** tanks at centre-left, top-middle and centre-right, and the gate at home
+  plate (south-centre). The tank stands `ARENA_PIPE_RUN` (110px) past its funnel's rim, so the
+  pipes read.
+- **Funnels** are grey bowls stepping darker and slightly down toward a grate, with blood pooling
+  as the tank fills (`arcadeDrawFunnels`). **Twin pipes** with flanges carry moving blood while
+  the funnel is live (`arcadeDrawPipes`).
+- **Tall things, 1D iso** (`arcadeDrawTall`, after `drawZombies`, sorted by footprint bottom):
+  - Each **tank** is a solid 70×56 footprint (`silo` wall) extruded 96px up the screen. It has a
+    front face with a sight-glass of blood, hoops, a lit top with its number, and the state under
+    it.
+  - Each **tree** is a solid 40px footprint (was a 26px trunk) with a trunk and a canopy lifted
+    30px.
+  - `drawWalls` skips `tree`, `silo` and `gateBar`.
+- **Density:** 8 patches (was 6), +10% trees and bushes. 18 trees at fewest over 12 seeds.
+- **The cabinet panel** (`AESTHETIC_GUIDE.md` §4.11a, required for every game):
+  - HI-SCORE (best run, `localStorage` `zombie_arcade_best`) and 1UP (`runScoreFor`).
+  - The radar in a hard frame.
+  - CONDITION GREEN/YELLOW/RED (`cabCondition`: zombies within 260px, or how full the alive cap
+    is; RED blinks), and lives blocks.
+  - Then NEXT, the checklist, stats and the loadout.
+- The sector-name popup is off in the arcade.
+- **Verified in the page:**
+  - Controls stay off and nothing spawns during the intro.
+  - 60 forced old-path spawns all landed inside the arena.
+  - The bar stopped a player at the gate. After it opened, the pocket held them and the run was
+    won.
+  - The tanks are solid. Frames were captured from the intro and from play. No console errors.
+
 ### The arena, terrain, auto-pickup and the sidebar (2026-10-04, second playtest)
 
 From the user's notes on the first local run: *"compress quite a bit so there's less running between
@@ -2393,4 +2441,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: f429aa11 | 2026-10-04 -->
+<!-- doc-sync: 6d6bb0be | 2026-10-04 -->

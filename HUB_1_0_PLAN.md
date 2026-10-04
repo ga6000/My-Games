@@ -78,6 +78,7 @@ games hub page"* (`SCOPE_RULES.md` rule 0). For ZOMBIE that means:
 | 2c | **Cut the rail from the arcade**, "immediately after playtesting" (user). The ending falls back to the south gate walk-out (`ae0f19d`'s), which the user accepted "for now" | **done 2026-10-04**, with the arena (2f) |
 | 2d | **The 2–4 minute loop** (spec below, built in `zombie-arcade.js`) | **built 2026-10-04, waiting on the local playtest** |
 | 2e | Trim the remaining items the loop doesn't use (the user expects "trimming all others off") | partly done: field manual, horde switch, generator and rail gone from the map (2026-10-04). Their code is still loaded |
+| 2g | **Third playtest notes:** the intro flythrough with controls off; the gate bar and exit pocket (you could walk out before it opened); every spawn path kept inside the arena (screamer summons and splitter sheds went through the sector placer); the baseball-field layout; grey sunken funnels with grates and twin pipes; tall solid tanks and trees (1D iso); +2 tree patches and +10% density; the Bosconian cabinet panel | **done 2026-10-04** |
 | 2f | **Second playtest notes:** compress the map (a 2400×1400 arena with a fixed chain), make the silos clear (beacon + edge arrow), a right sidebar with a permanent whole-map view and the HUD, auto-pickup, grass with tree and bush patches | **done 2026-10-04**; see `zombie/CLAUDE.md` "The arena, terrain, auto-pickup and the sidebar" |
 
 ### 2d — balance proposal: a swarm that escalates too fast to hold (not built)
@@ -161,6 +162,10 @@ Only what the night turns up. Candidates: minimap, floor tints, door/window art,
 
 RD Arena (never played by a human, MP included), 4D Pong with four humans, Glass City past level 1,
 Gyro Space. Fix only bugs that end a session; everything else goes on a known-issues list.
+
+**Added 2026-10-04 (user): every card gets the cabinet panel** (`AESTHETIC_GUIDE.md` §4.11a,
+modelled on Bosconian; Zombie's is the reference). It is part of each card's Phase 4 pass, along
+with trimming the card toward a 2–5 minute session (`SCOPE_RULES.md` rule 0).
 
 ## Phase 5 — Reconciliation · §5 items 4, 5
 

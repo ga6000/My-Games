@@ -18,6 +18,10 @@ Game tags: `hub-zombie`, `long-game`, `hub` (the board itself), `<game-folder>`.
 - 2026-10-04 · hub-zombie · A revive gives both players 3s of OVERCLOCK, which makes picking someone up the strong play
 - 2026-10-04 · hub-zombie · A team escape multiplier: the win bonus scales with how many got out, shared by everyone who did
 
+- 2026-10-04 · hub-zombie · (after a few more playtests) Tight clusters of trees for pinch points, less common than the open patches
+- 2026-10-04 · hub-zombie · (after a few more playtests) Boxes of organised trees round the tank areas to bottleneck them, most at tank 1
+- 2026-10-04 · hub-zombie · (after a few more playtests) Tank 1 ringed by shacks (the stamps from zombie-rail), tank 2 inside a larger warehouse, tank 3 reached through a dense forest with many pinch points
+
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)
