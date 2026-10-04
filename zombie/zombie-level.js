@@ -1264,6 +1264,8 @@ function openTheArena() {
             return false;
         });
     }
+    // The fenced arena, the fixed chain, and no rail (zombie-arcade.js).
+    if (ZOMBIE_ARCADE && typeof buildArcadeArena === "function") buildArcadeArena();
 }
 
 function generateLevel() {

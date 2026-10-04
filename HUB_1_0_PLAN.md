@@ -75,9 +75,10 @@ games hub page"* (`SCOPE_RULES.md` rule 0). For ZOMBIE that means:
 | 2a | Fork the rail build out; the hub card reads "Open-Map Arcade" | **done 2026-10-04** |
 | 2b | **Open map, same perimeter**: every wall except the hard wall, escape columns, forest, landmarks and rolling stock is removed, along with every door, window and orphaned room floor. Items stay. `zombie-level.js` → `openTheArena()`, behind `ARCADE_OPEN_MAP` | **done 2026-10-04** |
 | → | **Playtest the open map** (user's next step) | |
-| 2c | **Cut the rail from the arcade**, "immediately after playtesting" (user). The ending falls back to the south gate walk-out (`ae0f19d`'s), which the user accepted "for now" | after the playtest |
+| 2c | **Cut the rail from the arcade**, "immediately after playtesting" (user). The ending falls back to the south gate walk-out (`ae0f19d`'s), which the user accepted "for now" | **done 2026-10-04**, with the arena (2f) |
 | 2d | **The 2–4 minute loop** (spec below, built in `zombie-arcade.js`) | **built 2026-10-04, waiting on the local playtest** |
-| 2e | Trim the remaining items the loop doesn't use (the user expects "trimming all others off") | after 2d |
+| 2e | Trim the remaining items the loop doesn't use (the user expects "trimming all others off") | partly done: field manual, horde switch, generator and rail gone from the map (2026-10-04). Their code is still loaded |
+| 2f | **Second playtest notes:** compress the map (a 2400×1400 arena with a fixed chain), make the silos clear (beacon + edge arrow), a right sidebar with a permanent whole-map view and the HUD, auto-pickup, grass with tree and bush patches | **done 2026-10-04**; see `zombie/CLAUDE.md` "The arena, terrain, auto-pickup and the sidebar" |
 
 ### 2d — balance proposal: a swarm that escalates too fast to hold (not built)
 

@@ -24,7 +24,9 @@
  * Exits 1 on any failed check.
  */
 const fs=require("fs"),path=require("path"),vm=require("vm");
-const SRC=fs.readFileSync("scripts/zombie-headless.js","utf8");const ALT=path.resolve("zombie");
+const SRC=fs.readFileSync("scripts/zombie-headless.js","utf8");// The train lives in the rail build since 2026-10-04: zombie/ is the
+// open-map arcade, which has no rail at all.
+const ALT=path.resolve("under-development/zombie-rail");
 const patched=SRC.replace('const ZOMBIE = path.join(__dirname, "..", "zombie");','const ZOMBIE = '+JSON.stringify(ALT)+';')
                  .replace('const PAGE = path.join(ZOMBIE, "Zombie.html");','const PAGE = path.join(ZOMBIE, "Zombie.html");');
 const m={exports:{}};vm.runInThisContext('(function(module,require,__dirname){'+patched+'})')(m,require,path.resolve("scripts"));

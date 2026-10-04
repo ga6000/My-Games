@@ -58,6 +58,60 @@ has one place to look. The page is **24 local scripts**.
 
 **Not updated for the arcade yet:** the field manual still describes wall-buys, stations, crates
 and traps, and the horde switch and generator still stand in the map. Those are step 2e's trim.
+*(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
+below. The manual's code is still loaded, just unreachable.)*
+
+### The arena, terrain, auto-pickup and the sidebar (2026-10-04, second playtest)
+
+From the user's notes on the first local run: *"compress quite a bit so there's less running between
+silos"*; *"very visually clear where the silos are"*; *"a permanent minimap ... on a right sidebar
+... 15 to 20% of the screen ... the rest of the UI is pushed onto there ... OK not to reflect
+zombies"*; *"auto-pick up"*; *"remove field manual, horde switch"*; *"sparse trees & bushes with
+denser patches & grass throughout, rather than the alternate floor tiles"*.
+
+- **`ARENA`** (`zombie-core.js`) is a **2400×1400** fenced rectangle at the world's centre.
+  `buildArcadeArena()` runs at the end of `openTheArena()`. The world and its placers are
+  untouched; the arena just keeps what falls inside it.
+  - The three funnels sit on a **fixed triangle** (`ARENA_FUNNELS`), each with its tank beside it.
+  - The gate is cut into the arena's south wall between two columns.
+  - The route from start through 1, 2 and 3 to the gate is ~3,800px (~16s), down from ~7,850px
+    (~33s).
+  - The camera clamps to the arena (+90px). Spawns, relocations and drops stay inside it
+    (`inArena`, `arcadeSpawnPoint`).
+- **Removed:** the rail (`railPaths`, `railcars`, `trainReset()`), the field manual
+  (`codexRect`), the horde switch (`intensifyRect`) and the generator rect. **No landmark falls
+  inside the arena**; they all stood in the outer sectors.
+- **Terrain** (`plantArenaTerrain`, `MP.random` so every client grows the same one):
+  - One flat **grass** ground, a fixed-seed tile of tufts, replaces the nine sector floors.
+  - **Six dense patches** plus a sparse scatter: 18+ trees and ~44 bushes a map.
+  - **Trees are solid** (walls tagged `tree`) and keep `TREE_GAP` 110px apart, so no patch seals
+    a pocket. **Bushes are drawn only**: small, lighter ground cover that never reads as a tree.
+- **Auto-pickup:** every drop is taken by walking over it, and the F path is gone. It is still
+  **one taker**, decided by the host. A perk you have no slot for is not taken and stays for a
+  teammate ("CALL IT OUT").
+- **The objective beacon** (`arcadeObjectiveTarget`, `arcadeDrawBeacon`) is a pulsing ring plus a
+  label on the live funnel, the full tank's switch, or the gate. It is drawn in screen space
+  **after the lighting**, so the dark never hides it, with an edge arrow when it's off-screen. The
+  beacon, the arrow and the sidebar all read the same target.
+- **The sidebar** (`#sidebar`, `arcadeMountSidebar`, `arcadeDrawSidebar`), `clamp(240px, 18vw,
+  380px)` wide, full height, contains:
+  - the whole-arena map: grass, trees, numbered funnel rings, tanks filling, the gate, drops,
+    teammates and you, but no zombies;
+  - NEXT, and the goal checklist;
+  - the stats and the loadout, **moved** there rather than copied, so every HUD writer still
+    works.
+
+  The canvas is the window minus the sidebar, from the left edge, so `clientX` is still canvas
+  x. Every overlay that centred on the window now centres on the play area. The corner minimap,
+  its NEXT strip and the "perks not on this map" notice are off in the arcade.
+- **Checks:**
+  - `check-map-features.js` (open map): 12+ trees (18 at fewest when written), no solid outside the arena except the gate's
+    columns, and no placed items or openings.
+  - **`check-zombie-train.js` now targets `under-development/zombie-rail`**, which is where the
+    train lives.
+- **Verified in the page:** auto-pickup, perk refusal, first contact at 13.6s with every zombie
+  inside the arena, a win at the arena gate, and no console errors. Screenshots were taken at
+  1400×800. **Not verified:** a full run by people.
 
 Co-op survival. **The first game in this repo split into classic-script files** rather than one
 monolithic HTML — the structure `GAME_PROTOTYPE_INSTRUCTIONS.md` §2 describes but no game had
@@ -2339,4 +2393,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 9e3df788 | 2026-10-04 -->
+<!-- doc-sync: f429aa11 | 2026-10-04 -->

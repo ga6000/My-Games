@@ -438,8 +438,7 @@ function mapGoals() {
 function arcadeMapGoals() {
     const goals = [];
     for (let k = 0; k < 3; k++) {
-        const where = k === 0 ? zoneAt(sluiceRoom) + " (the sluice room)"
-                    : (funnelHalls[k] ? zoneName(funnelHalls[k].zone) : (funnels[k] ? zoneName(funnels[k].zone) : ""));
+        const where = funnels[k] ? zoneName(funnels[k].zone) : "";
         const full = siloFill[k] >= siloCapacity(k);
         goals.push({
             text: "Charge fuel tank " + (k + 1),
@@ -543,7 +542,9 @@ function draw() {
     };
 
     // Zone floors (zombie-floors.js); the old grid only if they failed.
-    if (!drawZoneFloors(vr)) drawGround(vr);
+    // ARCADE: one grass ground with terrain over it, not nine sector floors.
+    if (ZOMBIE_ARCADE) { arcadeDrawGround(vr); arcadeDrawBushes(inView); }
+    else if (!drawZoneFloors(vr)) drawGround(vr);
 
     // World border
     ctx.strokeStyle = COLOR_WALL;
@@ -568,6 +569,7 @@ function draw() {
     drawPickups(now, inView);
     drawDecoys(now);
     drawWalls(inView);
+    if (ZOMBIE_ARCADE) arcadeDrawTrees(inView);
     // AFTER the walls on purpose (T3): a landmark has to be visible from
     // the sector next door or it cannot be a landmark. The containers go
     // first so a crane leg standing among them draws over them.
@@ -593,11 +595,13 @@ function draw() {
     // to drain, so draining after would be wasted work on the same pixels.
     drawBlackoutMonochrome();
     drawLighting();
+    if (ZOMBIE_ARCADE) arcadeDrawBeacon(now);
     drawOffscreenMarkers(now);
-    if (hudMapOn) drawMinimap();
+    // ARCADE: the whole-map view is the sidebar's, permanently.
+    if (hudMapOn && !ZOMBIE_ARCADE) drawMinimap();
     // ALT (idea 61): the objective chain is on screen ALWAYS now, not only
     // behind ESC or with the minimap up.
-    drawNextGoal();
+    if (!ZOMBIE_ARCADE) drawNextGoal();   // ARCADE: the sidebar says NEXT
     // THE FADE (2026-09-19): after the walk out, everything goes. Last, and
     // over the lighting and the minimap, because it is the screen going
     // dark, not the world going dark -- the DOM HUD is faded with it in
@@ -922,7 +926,8 @@ function drawEndgame(now, inView) {
             ctx.fillStyle = "#FF3355";
             ctx.font = "bold 11px Courier";
             ctx.textAlign = "center";
-            ctx.fillText("FUNNEL " + (i + 1) + " — " + siloFill[i] + "/" + siloCapacity(i), f.x, f.y - f.r - 10);
+            // ARCADE: the objective beacon carries this label, bigger.
+            if (!ZOMBIE_ARCADE) ctx.fillText("FUNNEL " + (i + 1) + " — " + siloFill[i] + "/" + siloCapacity(i), f.x, f.y - f.r - 10);
             ctx.textAlign = "left";
         }
     }
@@ -2991,6 +2996,7 @@ function updateHordeCall(now) {
 let hudArcadeLabels = false;
 
 function updateHud(now) {
+    if (ZOMBIE_ARCADE) arcadeDrawSidebar(now);
     // The readout goes out with the world (2026-09-19). Written only while
     // the sequence is running or has just ended, so this is not a style
     // write on every ordinary frame.
@@ -3070,7 +3076,8 @@ function updateHud(now) {
 
     // The first time the lights come on in a run, say which perks this map
     // does not sell (playtest item 6) -- the manual also lists them.
-    if (generatorOn && !hudSeenPower && gameStarted) {
+    // ARCADE: no stations, so "not on this map" would list every perk.
+    if (!ZOMBIE_ARCADE && generatorOn && !hudSeenPower && gameStarted) {
         hudSeenPower = true;
         if (absentCardKeys().length) hudAbsentUntil = now + 9000;
     }
@@ -3596,6 +3603,8 @@ function gameLoop(ts) {
     musicUpdate(now, dt);
 }
 
+// ARCADE: the sidebar has to be in place before the canvas is sized.
+if (ZOMBIE_ARCADE) { arcadeMountSidebar(); hudMapOn = true; }
 resizeCanvas();
 generateLevel();
 uiStats.style.display = hudMapOn ? "" : "none";

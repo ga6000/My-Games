@@ -180,20 +180,26 @@ function inBite(room, r) {
 // survivors, no door or window, and the items still all there.
 function runOpenMap() {
     const failures = [];
-    const counts = { landmarks: [], wallBuys: [], interior: [], openings: [] };
+    const counts = { landmarks: [], wallBuys: [], interior: [], openings: [], outside: [] };
     for (let s = 0; s < SEEDS; s++) {
         const sandbox = harness.generate(1000 + s * 137);
         const read = function (expr) { return harness.snapshot(sandbox, expr); };
-        counts.landmarks.push(read("landmarks.length"));
+        // Landmarks stood in the outer sectors and none fall inside the
+        // arena (2026-10-04); the cover is trees now. Count those instead.
+        counts.landmarks.push(read("walls.filter(function (w) { return w.tree; }).length"));
         // Drops replaced every bought or placed item (2026-10-04,
         // zombie-arcade.js): wall-buys, stations, crates, traps, levers.
         counts.wallBuys.push(read("wallBuys.length + cardStations.length + ammoCrates.length + traps.length + gateSwitches.length"));
         counts.interior.push(read("walls.filter(function (w) { return !(w.perim || w.column || w.trunk || w.landmark || w.railcar); }).length"));
+        counts.outside.push(read("walls.filter(function (w) { return !w.column && (w.x < ARENA.x || w.y < ARENA.y || w.x + w.w > ARENA.x + ARENA.w || w.y + w.h > ARENA.y + ARENA.h); }).length"));
         counts.openings.push(read("doors.length + barricades.length"));
     }
     console.log("Zombie ARCADE, open map (" + SEEDS + " seeds) -- the walled-map baselines are skipped;");
     console.log("they describe under-development/zombie-rail now.");
-    checkExact("landmarks", counts.landmarks, BASELINE.landmarks.exact, failures);
+    const fewest = Math.min.apply(null, counts.landmarks);
+    if (fewest < 12) failures.push("trees: as few as " + fewest + " on a map (want 12+ for cover)");
+    else console.log("  " + "trees (fewest on a map)".padEnd(32) + fewest);
+    checkExact("solids outside the arena", counts.outside, 0, failures);
     checkExact("placed items (drops replace them)", counts.wallBuys, 0, failures);
     checkExact("untagged interior walls", counts.interior, 0, failures);
     checkExact("doors + windows", counts.openings, 0, failures);

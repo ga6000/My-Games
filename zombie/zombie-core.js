@@ -127,6 +127,10 @@ let zLastDraw = 0;
 // files, so it is declared in the first one. The walled build with the train
 // is under-development/zombie-rail.
 const ZOMBIE_ARCADE = true;
+// The arcade's fenced play area, centred where players start
+// (zombie-arcade.js, "THE ARENA"). The camera stays inside it.
+const ARENA = { x: Math.round(WORLD_W / 2 - 1200), y: Math.round(WORLD_H / 2 - 700), w: 2400, h: 1400 };
+const ARENA_CAM_PAD = 90;          // a little of the outside shows past the fence
 
 function trackTimeout(fn, ms) {
     const t = setTimeout(fn, ms);
@@ -192,7 +196,10 @@ const camera = {
 };
 
 function resizeCanvas() {
-    canvas.width = window.innerWidth;
+    // ARCADE: the right sidebar takes its share; the canvas is the rest, from
+    // the left edge, so clientX is still canvas x for aiming.
+    const side = (ZOMBIE_ARCADE && typeof sidebarWidth === "function") ? sidebarWidth() : 0;
+    canvas.width = Math.max(320, window.innerWidth - side);
     canvas.height = window.innerHeight;
 }
 
@@ -255,8 +262,13 @@ function updateCamera(targets) {
     // Don't show the void outside the world. If the view is wider than
     // the world itself, centre instead of clamping (clamp() would get a
     // lo > hi range and pin to the wrong edge).
-    const wantX = (halfW * 2 >= WORLD_W) ? WORLD_W / 2 : clamp(cx, halfW, WORLD_W - halfW);
-    const wantY = (halfH * 2 >= WORLD_H) ? WORLD_H / 2 : clamp(cy, halfH, WORLD_H - halfH);
+    // ARCADE: the bounds are the arena, not the world.
+    const bx0 = ZOMBIE_ARCADE ? ARENA.x - ARENA_CAM_PAD : 0;
+    const by0 = ZOMBIE_ARCADE ? ARENA.y - ARENA_CAM_PAD : 0;
+    const bw = ZOMBIE_ARCADE ? ARENA.w + ARENA_CAM_PAD * 2 : WORLD_W;
+    const bh = ZOMBIE_ARCADE ? ARENA.h + ARENA_CAM_PAD * 2 : WORLD_H;
+    const wantX = (halfW * 2 >= bw) ? bx0 + bw / 2 : clamp(cx, bx0 + halfW, bx0 + bw - halfW);
+    const wantY = (halfH * 2 >= bh) ? by0 + bh / 2 : clamp(cy, by0 + halfH, by0 + bh - halfH);
 
     camera.x += (wantX - camera.x) * CAM_LERP;
     camera.y += (wantY - camera.y) * CAM_LERP;

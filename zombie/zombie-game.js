@@ -2065,7 +2065,7 @@ function lureFor(zcx, zcy) {
 // free.
 function relocateZombie(z) {
     for (let tries = 0; tries < 8; tries++) {
-        const spot = pickSpawnPoint(z.size);
+        const spot = ZOMBIE_ARCADE ? arcadeSpawnPoint(z.size) : pickSpawnPoint(z.size);
         if (!spot || blockedAt(spot.x, spot.y, z.size, true)) continue;
         z.x = spot.x;
         z.y = spot.y;
@@ -2571,7 +2571,6 @@ function interactWith(p) {
     const box = { x: p.x - 26, y: p.y - 26, w: p.size + 52, h: p.size + 52 };
 
     if (codexRect && rectsOverlap(box, codexRect)) { openCodex(); return; }
-    if (ZOMBIE_ARCADE && arcadeInteractDrop(p)) return;
 
     // The horde switch. Free, but still a world change, so it goes through
     // the host like every purchase does -- two players hitting it on the

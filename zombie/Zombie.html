@@ -331,6 +331,45 @@
             #startprompt { font-size: 15px; padding: 14px 16px; line-height: 1.55; }
             #startprompt .hint { font-size: 12px; }
         }
+
+        /* ARCADE SIDEBAR (2026-10-04): "a permanent minimap ... on a right
+           sidebar that is taking up the full right side of the screen maybe
+           15 to 20%". Shown only with body.arcade, which zombie-arcade.js
+           sets at boot; the stats, loadout and objective are MOVED in. */
+        #sidebar { display: none; }
+        body.arcade { --side-w: clamp(240px, 18vw, 380px); }
+        body.arcade #sidebar {
+            display: flex; flex-direction: column; gap: 10px;
+            position: fixed; top: 0; right: 0; bottom: 0; width: var(--side-w);
+            box-sizing: border-box; padding: 12px;
+            background: #050505; border-left: 2px solid var(--phos-dim);
+            z-index: 11; overflow: hidden; pointer-events: none;
+            color: var(--phos-mid); text-shadow: none;
+        }
+        #sidebar .side-h { color: var(--phos-hot); font-size: 12px; letter-spacing: 3px; }
+        #sideHud { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
+        #sidemap { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+        #sideNext #objective {
+            position: static; transform: none; display: block !important;
+            white-space: normal; font-size: 15px; line-height: 1.35; min-height: 2.7em;
+        }
+        #sideGoals { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+        #sideGoals li { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: #5A5A5A; }
+        #sideGoals .box { width: 10px; height: 10px; border: 2px solid currentColor; flex: none; }
+        #sideGoals li.done { color: #3C6A3C; }
+        #sideGoals li.done .box { background: currentColor; }
+        #sideGoals li.now { color: var(--sig-amber); }
+        #sideGoals .gp { margin-left: auto; font-variant-numeric: tabular-nums; }
+        body.arcade #ui { position: static; font-size: 15px; }
+        body.arcade #loadout { position: static; margin-top: auto; flex-wrap: wrap; gap: 12px; }
+        body.arcade #ammoBig { font-size: 40px; }
+        /* Everything that centred on the window now centres on the play area. */
+        body.arcade #spectate, body.arcade #netlost, body.arcade #zonename,
+        body.arcade #prompt, body.arcade #toast, body.arcade #roundcard,
+        body.arcade #scores, body.arcade #win, body.arcade #gameover,
+        body.arcade #startprompt {
+            left: calc((100% - var(--side-w)) / 2);
+        }
     </style>
 </head>
 <body data-game="zombie" data-cabinet="raster">
@@ -463,6 +502,14 @@
         <span style="font-size: 22px; color: var(--sig-cyan);">Click anywhere to restart</span>
     </div>
 
+    <div id="sidebar">
+        <div class="side-h">MAP</div>
+        <canvas id="sidemap" width="240" height="140"></canvas>
+        <div class="side-h">NEXT</div>
+        <div id="sideNext"></div>
+        <ul id="sideGoals"></ul>
+        <div id="sideHud"></div>
+    </div>
     <canvas id="gameCanvas"></canvas>
 
 <!-- Classic scripts, no modules: the project's file:// hard constraint.
