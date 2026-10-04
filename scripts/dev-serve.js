@@ -45,7 +45,13 @@ const TYPES = {
 // refuses to serve outside ROOT; a write route wants the same care and a
 // little more, because a mistake here edits the repo rather than showing
 // the wrong page.
-const WRITABLE = { "/zombie/zombie-map-data.js": true };
+// The map editor writes its own map file. Two copies of the editor exist since
+// 2026-10-04 (the arcade in zombie/, the rail build in under-development/), and
+// each must write only its own -- zombie-mapedit.js carries the path.
+const WRITABLE = {
+  "/zombie/zombie-map-data.js": true,
+  "/under-development/zombie-rail/zombie-map-data.js": true
+};
 
 function handleWrite(req, res, rel) {
   if (!WRITABLE[rel]) { res.writeHead(403).end("not writable: " + rel); return; }

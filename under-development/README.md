@@ -40,6 +40,7 @@ moving them was to make the remaining `No`s in `Game dev tracking.xlsx` a finite
 | `reality-rewrite/` | `reality-rewrite.html` | **Traded off the board 2026-09-06 for 4D Pong — shelved, not broken.** The most finished thing here after Glucose Dash: six `rr-*.js` files, a verified `GameInstance`, procedural audio, and the VECTOR skin with §6.12's phosphor shift. Read `reality-rewrite/CLAUDE.md` first. Its four `../shared/` paths became `../../shared/` on the way down — reverse that to promote it. |
 | `voice-runner/` | `voice-runner.html` | Was flagged `broken: true`. Mic capture only, no game audio. |
 | `wasteland-train-sim/` | `wasteland_train_sim.html` | Unverified; long-term Unity candidate. |
+| `zombie-rail/` | `Zombie.html` | **Added 2026-10-04: a copy, not a move.** Zombie's most developed build (sectors, stamps, map editor, the evacuation train) is parked here so `zombie/` can become the open-map 2–4 minute arcade. Room and leaderboard ids are `zombie-rail`. Its docs stay in `zombie/` at tag `zombie-rail-fork`. Read `zombie-rail/CLAUDE.md` first. |
 
 ## Bringing one back
 
