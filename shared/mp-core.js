@@ -217,9 +217,21 @@
     // so there is nothing to retry and nothing to race. isHost() already
     // returns true whenever status !== "online", so solo play is not a special
     // case anywhere else in the codebase -- this only decides how we get there.
+    //
+    // A DOUBLE-CLICKED PAGE IS SOLO TOO (2026-10-04). ?solo=1 cannot be typed
+    // into a double-click, so file:// play went on joining the live server's
+    // room -- and a stale tab or an unreaped socket there made it a guest:
+    // reported as "normal for 3-5s, then bullets fly around, CONNECTION
+    // UNSTABLE, zombies frozen" (the socket opening, the host's world
+    // arriving, then that host going quiet). The group plays from the hub
+    // over https, which this does not touch. ?online=1 opts a file:// page
+    // back in, for anyone who really wants to test against the live room.
     function soloRequested() {
         try {
             var p = new URLSearchParams(window.location.search);
+            var on = p.get("online");
+            if (on !== null && on !== "0" && on.toLowerCase() !== "false") return false;
+            if (window.location.protocol === "file:") return true;
             var v = p.get("solo") || p.get("offline");
             // Bare ?solo counts; ?solo=0 and ?solo=false deliberately do not.
             return v !== null && v !== "0" && v.toLowerCase() !== "false";
