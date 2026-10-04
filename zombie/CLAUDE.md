@@ -1,5 +1,10 @@
 # Zombie — file-by-file
 
+> **2026-09-27: Zombie is two games — read `THE_SPLIT.md` first.** This folder is **ZOMBIE, the
+> hub game**: a one-sitting co-op arcade run, heading for a frozen v1. The rail-connected world,
+> campaign, survival-sim and roguelite ideas belong to a separate *long game* and must not be
+> prototyped here. Route them to `../IDEAS_INBOX.md` instead.
+
 Co-op survival. **The first game in this repo split into classic-script files** rather than one
 monolithic HTML — the structure `GAME_PROTOTYPE_INSTRUCTIONS.md` §2 describes but no game had
 adopted. Rebuilt 2026-09-01 from a 1040-line single file.
