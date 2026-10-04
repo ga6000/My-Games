@@ -12,6 +12,12 @@ Game tags: `hub-zombie`, `long-game`, `hub` (the board itself), `<game-folder>`.
 - 2026-09-27 · long-game · Organic (non-rectilinear) level design, which needs a new level representation — `zombie/THE_SPLIT.md` §2
 - 2026-09-24 · hub-zombie? · Objective verbs for weapons/classes (undecided which game) — `zombie/DESIGN_IDEAS_2.md` §3.8
 
+- 2026-10-04 · hub-zombie · Hand-off: a key that drops the gun in your hands (with its rounds) as a one-taker drop for a teammate
+- 2026-10-04 · hub-zombie · A funnel fills faster with more players standing on it (x1.5 credit at 2+), so a tank is a team job
+- 2026-10-04 · hub-zombie · Ping a drop to label it on everyone's screen and minimap ("dibs"), so the drop callout works without voice
+- 2026-10-04 · hub-zombie · A revive gives both players 3s of OVERCLOCK, which makes picking someone up the strong play
+- 2026-10-04 · hub-zombie · A team escape multiplier: the win bonus scales with how many got out, shared by everyone who did
+
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)

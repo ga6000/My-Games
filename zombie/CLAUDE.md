@@ -25,6 +25,40 @@
 > - The sector paint, the map editor and the stamps still run, and on this map they now edit
 >   ground nobody sees as walls. Trimming them is step 2e.
 
+## The arcade rules — `zombie-arcade.js` (2026-10-04)
+
+`../HUB_1_0_PLAN.md` Phase 2d. The user's brief: a swarm that *"escalates way too quickly"*, so the
+team is **overwhelmed around 4:00** and the run is a race to finish the chain and get out first.
+Drops come from kills, each drop has **one taker**, and the game has to *"reward cooperative play"*.
+
+All of it is in `zombie-arcade.js` (#7b, between the train and `zombie-game.js`), switched by
+**`ZOMBIE_ARCADE`** in `zombie-core.js`. The other files hold one-line hooks only, so trimming
+has one place to look. The page is **24 local scripts**.
+
+| | |
+|---|---|
+| **Clock** | One continuous wave on elapsed `T`, host-owned, sent as `el` (elapsed ms, a duration). Level = 1 + ⌊T/12⌋. It drives the old round curves: type mix, HP, speed, and the HORDE/BRUTE/Blackout waves. Spawn rate is 0.8/s × 2^(T/50) × team scale. The alive cap is 60 + 30/player, but splitter children land on top of it (a kite test reached 229 solo at 4:20, which is the overwhelm). Spawns land on a 640–900px ring around a random living player, outside a 0.62×view box |
+| **Chain** | Power on, sluice open and no levers (`arcadeStart`). Tanks take **8/12/16** kills. Tank 3 opens the gate over **30s** (`ESCAPE_OPEN_MS`). There's no flood (the wave already is one) and no train: the rail is scenery and `trainUpdate` doesn't run |
+| **Win** | **Every player still standing must be inside the exit zone** (`arcadeUpdateEscape`). A downed teammate has to be revived or left. Anyone left gets no escape bonus (`wonAboard`, reusing the train's rule). The card reads THEY GOT OUT / LEFT BEHIND |
+| **Drops** | Replace the wall-buys, stations, crates, traps and levers (all cleared in `openTheArena`). Kinds: gun (by level), perk (9; CONDUCTOR and SCAVENGER are out), and the team drops AMMO, OVERCLOCK, RALLY, FUEL (+4 to the live tank) and SHOCKWAVE (the swarm thrown back through the SUPER SPLITTER's launch phase). Every drop is **24px**. The chance is 6% per kill, guaranteed within 25 kills. A drop lasts 25s, at most 6 are live, and they blink for the last 5s |
+| **One taker** | `requestBuy("drop", id)` → `arcadeHostTake` → `bought` → `arcadeApplyTake` on every client. So the host decides, and two players on one frame produce one taker. **Guns and perks need F**, so you can leave one for a teammate. Team drops are walked over. Full perk slots refuse the drop with "CALL IT OUT" |
+| **Respawn** | 15s after bleeding out, beside a standing teammate (`arcadeRespawnDue`, `arcadePlaceRespawn`) |
+| **Separation** | `separateZombies()`: a uniform 32px grid, a push capped at 1.4px/step, through `moveWithCollisions`. It skips flying and chewing zombies. **Zombies on their target are NOT exempt**: with them exempt, the whole cap stood in ONE 20px cell on the player |
+
+**Measured, headless in the real page (seed of the moment):**
+- Max bodies per 20px cell: **51 → 2–13**.
+- A flamer player standing on funnel 1 fills tank 1 by **0:21**, gets touched by **0:12**, and
+  touches climb steeply from ~1:20. Standing still loses well before 4:00.
+- Running the chain end to end, ignoring the fighting, is **7,853px ≈ 33s** at 4px/step.
+- **0.25ms per simulation step** at 68 alive.
+- Drop take, perk refusal, team ammo, expiry, and the gate win both blocked (1/2 at the gate)
+  and then won together, all verified.
+- **Not measured:** a full winning run. The scripted kiting player is too weak to stand in for
+  people (6–37 kills per 20s). The playtest is the measurement.
+
+**Not updated for the arcade yet:** the field manual still describes wall-buys, stations, crates
+and traps, and the horde switch and generator still stand in the map. Those are step 2e's trim.
+
 Co-op survival. **The first game in this repo split into classic-script files** rather than one
 monolithic HTML — the structure `GAME_PROTOTYPE_INSTRUCTIONS.md` §2 describes but no game had
 adopted. Rebuilt 2026-09-01 from a 1040-line single file.
@@ -2305,4 +2339,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 7d382cda | 2026-10-04 -->
+<!-- doc-sync: 9e3df788 | 2026-10-04 -->

@@ -454,7 +454,10 @@ function startGame() {
     uiStart.style.display = 'none';
     startTime = Date.now();
     lastSpawnTime = startTime;
-    if (netIsHost) startRound(1);
+    if (netIsHost) {
+        if (ZOMBIE_ARCADE) arcadeStart(startTime);
+        else startRound(1);
+    }
     // The score opens on chimes, then the organ comes in under them.
     musicStart();
 }
@@ -556,6 +559,7 @@ function killLocalPlayer(p) {
     if (gameStarted && !gameOver && !won) {
         zAwaitRespawn = true;
         zDiedRound = round;
+        if (ZOMBIE_ARCADE) arcDiedAt = Date.now();
     }
     checkAllDead();
 }
@@ -589,12 +593,15 @@ function goSoloAfterLoss() {
 function updateRespawn(now) {
     if (!zAwaitRespawn || !gameStarted || gameOver || won) return;
     if (players.length) { zAwaitRespawn = false; return; }
-    const due = (roundPhase === "intermission" && round >= zDiedRound) || round > zDiedRound;
+    // ARCADE: no breather to wait for -- 15s, then beside a teammate.
+    const due = ZOMBIE_ARCADE ? arcadeRespawnDue(now)
+              : (roundPhase === "intermission" && round >= zDiedRound) || round > zDiedRound;
     if (!due) return;
     zAwaitRespawn = false;
     const p = spawnPlayer(zKeptCards);
     if (p) {
         p.invulnUntil = now + 3000;
+        if (ZOMBIE_ARCADE) arcadePlaceRespawn(p, now);
         showToast("BACK IN", 1800);
     }
 }
@@ -765,11 +772,11 @@ function showWinCard() {
     // Same ending, two readings of it. Whoever was standing on the train when
     // it took the tunnel got out; whoever was not watched it go.
     const aboard = wonOnTrain(netIdFor(players[0]));
-    if (uiWinHead) uiWinHead.innerText = aboard ? "YOU GOT OUT." : "THE TRAIN LEFT.";
+    if (uiWinHead) uiWinHead.innerText = aboard ? "YOU GOT OUT." : (ZOMBIE_ARCADE ? "THEY GOT OUT." : "THE TRAIN LEFT.");
     if (uiWinSub) {
         uiWinSub.innerHTML = aboard
             ? 'ESCAPED ON ROUND <span id="winRound">' + round + '</span>'
-            : 'YOU WERE NOT ON IT — ROUND ' + round;
+            : (ZOMBIE_ARCADE ? 'YOU WERE LEFT BEHIND — LEVEL ' : 'YOU WERE NOT ON IT — ROUND ') + round;
     }
     // NOT uiWinRound any more: rewriting uiWinSub's innerHTML replaces the
     // #winRound span, so the cached reference points at a detached node. The
@@ -996,6 +1003,15 @@ function hostHandleBuy(msg) {
         return;
     }
 
+    // ARCADE: a drop has ONE taker, and this is where it is decided.
+    if (msg.what === "drop") {
+        if (!ZOMBIE_ARCADE || !arcadeHostTake(msg)) return;
+        const outD = { k: "bought", what: "drop", i: i, id: msg.id, t: msg.t, it: msg.it, x: msg.x, y: msg.y };
+        applyPurchase(outD, now);
+        if (netOnline) MP.send(outD);
+        return;
+    }
+
     if (msg.what === "door") {
         const d = doors[i];
         if (!d || d.open || scrapPool < d.cost) return;
@@ -1058,6 +1074,8 @@ function hostHandleBuy(msg) {
 
 function applyPurchase(msg, now) {
     const i = msg.i | 0;
+
+    if (msg.what === "drop") { arcadeApplyTake(msg, now); return; }
 
     if (msg.what === "door") {
         if (doors[i]) {
@@ -1201,7 +1219,12 @@ function update(now, dt) {
         updateEndgame(now, dt);
         updateGeneratorRestart(dt);
     }
-    if (netIsHost && !floodActive) {
+    if (ZOMBIE_ARCADE) {
+        if (netIsHost) {
+            updateArcadeWave(now, dt);
+            arcadeExpireDrops(now);
+        }
+    } else if (netIsHost && !floodActive) {
         if (roundPhase === "intermission" && now >= roundEndsAt) startRound(round + 1);
 
         if (roundPhase === "active") {
@@ -1347,8 +1370,10 @@ function updatePlayers(now, dt) {
 
         moveWithCollisions(p, vx, vy, true, false);
 
+        // ARCADE: drops are taken through the host, one taker each.
+        if (ZOMBIE_ARCADE) arcadeWalkOverDrops(p, now);
         // Pickups are team-wide, so collection is worth broadcasting.
-        for (let j = pickups.length - 1; j >= 0; j--) {
+        else for (let j = pickups.length - 1; j >= 0; j--) {
             const pu = pickups[j];
             if (!rectIntersect(p.x, p.y, p.size, p.size, pu.x, pu.y, pu.size, pu.size)) continue;
             pickups.splice(j, 1);
@@ -1802,6 +1827,7 @@ function damageZombie(index, dmg, ownerId, now, src, hitVx, hitVy) {
     // in the game rewards killing zombies wherever they are; this is the
     // one system that asks you to fight in a chosen place.
     creditFunnelKill(z.x + z.size / 2, z.y + z.size / 2);
+    if (ZOMBIE_ARCADE) arcadeMaybeDrop(zcx, zcy, now);
     hostEvent(SND_KILL, z.x, z.y, Z_TYPE_KEYS.indexOf(z.type));
 
     // IDEA 6: kills near a teammate are worth more. A quiet, always-on
@@ -2105,6 +2131,7 @@ function updateZombies(now, dt) {
         if (updateZombieLaunch(z, now, dt)) {
             z.stuck = 0;
             z.noProgress = 0;
+            z.holding = true;
             continue;
         }
 
@@ -2304,6 +2331,7 @@ function updateZombies(now, dt) {
             const onTarget = Math.hypot(tcx - (z.x + z.size / 2),
                                         tcy - (z.y + z.size / 2))
                              <= (z.size + (lure ? 40 : (target.size || 16)));
+            z.holding = chewing;                  // ARCADE separation leaves a chewer be
 
             if (chewing || onTarget) {
                 z.progX = z.x; z.progY = z.y; z.progAt = now;
@@ -2362,6 +2390,7 @@ function updateZombies(now, dt) {
             if (!target.downed) downPlayer(target, now);
         }
     }
+    if (ZOMBIE_ARCADE) separateZombies();
 }
 
 function downPlayer(target, now) {
@@ -2542,6 +2571,7 @@ function interactWith(p) {
     const box = { x: p.x - 26, y: p.y - 26, w: p.size + 52, h: p.size + 52 };
 
     if (codexRect && rectsOverlap(box, codexRect)) { openCodex(); return; }
+    if (ZOMBIE_ARCADE && arcadeInteractDrop(p)) return;
 
     // The horde switch. Free, but still a world change, so it goes through
     // the host like every purchase does -- two players hitting it on the
@@ -2606,6 +2636,10 @@ function nearestPrompt(p) {
     const box = { x: p.x - 26, y: p.y - 26, w: p.size + 52, h: p.size + 52 };
 
     if (codexRect && rectsOverlap(box, codexRect)) return "FIELD MANUAL — READ";
+    if (ZOMBIE_ARCADE) {
+        const dp = arcadeDropPrompt(p);
+        if (dp) return dp;
+    }
 
     // The switch says what it does in as few words as possible, and says it
     // is one-way, because it IS one-way and nothing else in this game is.

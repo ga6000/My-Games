@@ -462,8 +462,16 @@ function applyWorldSnapshot(msg, now) {
     }
     zombies = next;
 
+    // [x, y, type, id, item, ms left] -- the last three only for arcade
+    // drops. `item` is an index into WEAPON_KEYS (gun) or CARD_KEYS (perk).
     pickups = (msg.p || []).map(function (pu) {
-        return { x: pu[0], y: pu[1], size: 18, type: PICKUP_TYPES[pu[2]] || "overclock" };
+        const type = PICKUP_TYPES[pu[2]] || "overclock";
+        if (pu.length < 4) return { x: pu[0], y: pu[1], size: 18, type: type };
+        const item = type === "gun" ? WEAPON_KEYS[pu[4]] : type === "perk" ? CARD_KEYS[pu[4]] : "";
+        // A promoted host must not hand out an id that is already live.
+        if (ZOMBIE_ARCADE && pu[3] > arcDropSeq) arcDropSeq = pu[3];
+        return { x: pu[0], y: pu[1], size: DROP_SIZE, type: type, id: pu[3], item: item || "",
+                 until: deadlineFrom(pu[5] || 0, now) };
     });
 
     // Other players' bullets only -- ours are simulated locally so our
@@ -578,6 +586,7 @@ function applyWorldSnapshot(msg, now) {
 
     // Round state (sent as a remaining duration, never a timestamp).
     round = msg.rd || 0;
+    if (ZOMBIE_ARCADE && typeof msg.el === "number") startTime = now - msg.el;
     roundPhase = ROUND_PHASES[msg.rp] || "idle";
     roundEndsAt = deadlineFrom(msg.rt || 0, now);
     roundBudget = msg.rb || 0;
@@ -718,7 +727,10 @@ function broadcastWorld() {
             return row;
         }),
         p: pickups.map(function (pu) {
-            return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type)];
+            if (!pu.id) return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type)];
+            const item = pu.type === "gun" ? WEAPON_KEYS.indexOf(pu.item)
+                       : pu.type === "perk" ? CARD_KEYS.indexOf(pu.item) : -1;
+            return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type), pu.id, item, msLeft(pu.until, now)];
         }),
         sc: Math.round(scrapPool),
         ki: kills,
@@ -790,6 +802,10 @@ function broadcastWorld() {
         hc: (intensified && Date.now() - intensifyAt < 6000) ? hordeCalledBy : undefined,
 
         rd: round,
+        // ARCADE: the run clock, as ELAPSED ms (a duration, never a
+        // timestamp). Every curve in zombie-arcade.js reads T, so a promoted
+        // host has to inherit it, and every HUD clock should agree.
+        el: ZOMBIE_ARCADE && startTime ? Math.round(now - startTime) : undefined,
         rp: ROUND_PHASES.indexOf(roundPhase),
         rt: msLeft(roundEndsAt, now),
         rb: roundBudget,                       // so a promoted host can resume mid-round

@@ -342,13 +342,13 @@
 
     <!-- #stats is what M hides along with the minimap (2026-09-18). -->
     <div id="ui">
-        ROUND: <b id="roundDisplay">0</b><br>
+        <span id="roundLabel">ROUND</span>: <b id="roundDisplay">0</b><br>
         <span id="stats">
             TIME ALIVE: <b id="scoreDisplay">0</b><br>
             ZOMBIES: <b id="zombieCount">0</b><br>
             KILLS: <b id="killCount">0</b><br>
         </span>
-        SCRAP: <b class="scrap" id="scrapDisplay">0</b><br>
+        <span id="scrapLine">SCRAP: <b class="scrap" id="scrapDisplay">0</b><br></span>
         <span class="role" id="roleDisplay"></span>
     </div>
 
@@ -368,7 +368,7 @@
 
     <div id="spectate">
         YOU BLED OUT
-        <small>Back in at the next breather. If everyone goes down, the run is over.</small>
+        <small id="spectateNote">Back in at the next breather. If everyone goes down, the run is over.</small>
     </div>
 
     <!-- Connection trouble (2026-09-19). A shared run HOLDS for you while you
@@ -506,6 +506,7 @@
     <!-- The evacuation train (2026-09-26). Needs the endgame's silo state and
      the level's railPaths; declares only, so it may sit here. -->
     <script src="zombie-train.js"></script>
+<script src="zombie-arcade.js"></script>
 <script src="zombie-game.js"></script>
 <script src="zombie-net.js"></script>
 <!-- Pixel icons and zone floors. Render-only, so they sit just before

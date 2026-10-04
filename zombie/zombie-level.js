@@ -1220,7 +1220,7 @@ function randomPointInZone(i, pad) {
 // Everything else in walls[] goes, and with it every door, window and rail
 // gate, the floors and decor of rooms that no longer exist, and the
 // thresholds (none are painted: there are no openings left).
-const ARCADE_OPEN_MAP = true;
+const ARCADE_OPEN_MAP = ZOMBIE_ARCADE;
 
 function openTheArena() {
     const keep = [];
@@ -1235,6 +1235,17 @@ function openTheArena() {
     buildingRooms = [];
     yardContainers = [];
     spillwayRuns = null;
+    // THE ARCADE'S ITEMS COME FROM KILLS (2026-10-04, zombie-arcade.js
+    // "DROPS"): wall-buys, perk stations and ammo crates go, the door traps
+    // go ("please remove door traps"), and the sluice levers go -- the chain
+    // starts with the sluice open.
+    if (ZOMBIE_ARCADE) {
+        wallBuys = [];
+        cardStations = [];
+        ammoCrates = [];
+        traps = [];
+        gateSwitches = [];
+    }
 
     // Floors: keep the rail bed, and the hardstanding under anything still
     // standing (landmarks, the generator's plinth). An interior tile with no

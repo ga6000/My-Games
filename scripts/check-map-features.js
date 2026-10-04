@@ -180,28 +180,28 @@ function inBite(room, r) {
 // survivors, no door or window, and the items still all there.
 function runOpenMap() {
     const failures = [];
-    const counts = { landmarks: [], wallBuys: [], stations: [], interior: [], openings: [] };
+    const counts = { landmarks: [], wallBuys: [], interior: [], openings: [] };
     for (let s = 0; s < SEEDS; s++) {
         const sandbox = harness.generate(1000 + s * 137);
         const read = function (expr) { return harness.snapshot(sandbox, expr); };
         counts.landmarks.push(read("landmarks.length"));
-        counts.wallBuys.push(read("wallBuys.length"));
-        counts.stations.push(read("cardStations.length"));
+        // Drops replaced every bought or placed item (2026-10-04,
+        // zombie-arcade.js): wall-buys, stations, crates, traps, levers.
+        counts.wallBuys.push(read("wallBuys.length + cardStations.length + ammoCrates.length + traps.length + gateSwitches.length"));
         counts.interior.push(read("walls.filter(function (w) { return !(w.perim || w.column || w.trunk || w.landmark || w.railcar); }).length"));
         counts.openings.push(read("doors.length + barricades.length"));
     }
     console.log("Zombie ARCADE, open map (" + SEEDS + " seeds) -- the walled-map baselines are skipped;");
     console.log("they describe under-development/zombie-rail now.");
     checkExact("landmarks", counts.landmarks, BASELINE.landmarks.exact, failures);
-    checkExact("wall-buys", counts.wallBuys, BASELINE.wallBuys.exact, failures);
-    checkExact("stations", counts.stations, BASELINE.stations.exact, failures);
+    checkExact("placed items (drops replace them)", counts.wallBuys, 0, failures);
     checkExact("untagged interior walls", counts.interior, 0, failures);
     checkExact("doors + windows", counts.openings, 0, failures);
     if (failures.length) {
         for (let i = 0; i < failures.length; i++) console.log("FAIL  " + failures[i]);
         return 1;
     }
-    console.log("OK    open map: no interior walls or openings; every item still placed");
+    console.log("OK    open map: no interior walls, openings or placed items");
     return 0;
 }
 

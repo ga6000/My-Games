@@ -175,7 +175,7 @@ function zDevAdvanceChain() {
         flipSilo(i);
         return "tank " + (i + 1) + " switch thrown";
     }
-    const hasTrain = typeof trainCars !== "undefined" && trainCars.length > 0;
+    const hasTrain = !ZOMBIE_ARCADE && typeof trainCars !== "undefined" && trainCars.length > 0;
     if (hasTrain && !trainRunning) {
         for (let i = 1; i < trainCars.length; i++) {
             if (!trainCars[i].coupled) {
@@ -196,7 +196,7 @@ function zDevAdvanceChain() {
         escapeAt = Date.now();
         return "tunnel open";
     }
-    if (!hasTrain && !floodActive) {
+    if (!ZOMBIE_ARCADE && !hasTrain && !floodActive) {
         startFlood();
         return "flood started";
     }

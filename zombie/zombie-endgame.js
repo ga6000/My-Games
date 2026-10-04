@@ -110,13 +110,15 @@ const GATE_HOLD_MS = 4000;        // per stage; the second one is longer
 // 3, which since 2026-09-18 live in funnel HALLS -- and, since this same
 // pass, halls with a door-like pinch at each end. So the longer fight is the
 // one that happens in the set piece built for it, rather than in the open.
-const SILO_CAPACITY = [12, 24, 36];
+// ARCADE: 8/12/16 -- about 20s of funnel fighting each at the 1:00-2:30
+// kill rate, in a run that has to be over by ~4:00.
+const SILO_CAPACITY = ZOMBIE_ARCADE ? [8, 12, 16] : [12, 24, 36];
 
 function siloCapacity(i) {
     return SILO_CAPACITY[i] !== undefined ? SILO_CAPACITY[i] : SILO_CAPACITY[SILO_CAPACITY.length - 1];
 }
 const FLOOD_SIZE = 90;            // zombies in the final wave, scaled by team
-const ESCAPE_OPEN_MS = 90000;     // "takes a long time to open"
+const ESCAPE_OPEN_MS = ZOMBIE_ARCADE ? 30000 : 90000;  // arcade: a 30s hold, not a 90s one
 
 // THE WAY OUT, 2026-09-19. There used to be a yellow loading bar over the
 // rect and the word SEALED. Now there are two gates, and the whole point is
@@ -195,6 +197,13 @@ function escapeOpen() {
 // A short line for the HUD describing what the team should be doing.
 function endgameObjective() {
     if (won) return "";
+    if (ZOMBIE_ARCADE && escapeAt) {
+        if (!escapeOpen()) {
+            return "GATE OPENING — " + Math.ceil((escapeAt - Date.now()) / 1000) + "s — EVERYONE TO THE GATE";
+        }
+        const g = arcadeAtGate();
+        return "GATE OPEN — " + g.at + "/" + g.of + " AT THE GATE — EVERYONE STANDING GETS OUT TOGETHER";
+    }
     if (typeof trainRunning !== "undefined" && trainRunning) {
         if (!escapeOpen()) {
             const left = Math.ceil((escapeAt - Date.now()) / 1000);
@@ -396,6 +405,8 @@ function flipSilo(i) {
     if (i + 1 < funnels.length) {
         funnelActive[i + 1] = true;
         hostEvent(SND_GENERATOR, funnels[i + 1].x, funnels[i + 1].y);
+    } else if (ZOMBIE_ARCADE) {
+        arcadeOpenGate();
     } else {
         // ALT, 2026-09-25: THE THIRD TANK DOES NOT START THE FLOOD.
         // The flood and the tunnel are now one event, and the locomotive
@@ -482,8 +493,10 @@ function updateEndgame(now, dt) {
     // with players on rail behind score readout." The old `if (won) return`
     // at the top froze it mid-shot. The gate and the flood do stop -- there
     // is nothing left for either to decide.
-    if (typeof trainUpdate === "function") trainUpdate(now, dt);
+    // ARCADE: the rail is scenery until it is cut -- its cars do not move.
+    if (!ZOMBIE_ARCADE && typeof trainUpdate === "function") trainUpdate(now, dt);
     if (won) return;
     updateGate(dt);
     updateFlood(now);
+    if (ZOMBIE_ARCADE) arcadeUpdateEscape();
 }

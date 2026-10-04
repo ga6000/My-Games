@@ -76,7 +76,7 @@ games hub page"* (`SCOPE_RULES.md` rule 0). For ZOMBIE that means:
 | 2b | **Open map, same perimeter**: every wall except the hard wall, escape columns, forest, landmarks and rolling stock is removed, along with every door, window and orphaned room floor. Items stay. `zombie-level.js` → `openTheArena()`, behind `ARCADE_OPEN_MAP` | **done 2026-10-04** |
 | → | **Playtest the open map** (user's next step) | |
 | 2c | **Cut the rail from the arcade**, "immediately after playtesting" (user). The ending falls back to the south gate walk-out (`ae0f19d`'s), which the user accepted "for now" | after the playtest |
-| 2d | **The 2–4 minute loop**: the balance proposal below | waiting on the user's go |
+| 2d | **The 2–4 minute loop** (spec below, built in `zombie-arcade.js`) | **built 2026-10-04, waiting on the local playtest** |
 | 2e | Trim the remaining items the loop doesn't use (the user expects "trimming all others off") | after 2d |
 
 ### 2d — balance proposal: a swarm that escalates too fast to hold (not built)
@@ -103,6 +103,43 @@ Proposed, on a **clock** rather than rounds:
 | Loss | team wipe | the same. A death at ~3:30 should feel like the swarm won, not like a mistake |
 | Economy | doors are the big sink; perks 9–12.5k ×3 stacks; guns 1.5–7.5k | **no doors exist now**. Option A: same wall-buys and stations, prices ÷~5, **one stack per perk**. Option B (more arcade): **guns and perks drop from kills** as timed pickups, and the stations go |
 | Score | combat + round² + tanks + win ×2 | combat + **seconds survived** + tanks + escape bonus. Short runs post often, which suits the leaderboard |
+
+**User's answers, 2026-10-04:** be **overwhelmed around 4:00**, so it's a race to finish and get out
+before then. Only a team managing things very well gets past that point. **Guns and perks drop from
+kills**, along with other drop kinds, all about one size (wall-buys were 4x+ a player). **One
+pickup in total**: each drop goes to one player, so the team has to call drops out. Co-op must be
+rewarded. Remove the door traps. Separation: yes. Landmarks: keep for now.
+
+**Build spec (2d), as built 2026-10-04.** All of it lives in `zombie/zombie-arcade.js`, switched by
+`ZOMBIE_ARCADE` (`zombie-core.js`):
+- **The clock.** `T` = seconds since start, host-owned and sent as an elapsed duration.
+  - Level = 1 + ⌊T/12⌋. It drives the existing type mix, HP and speed curves, so HORDE (L5, L15)
+    and BRUTE (L10, L20) waves and the Blackout darkening (L7, L14) still punctuate the run.
+    SUPER SPLITTERs arrive from L16 (3:00).
+  - Spawn rate = 0.8/s × 2^(T/50) × team scale.
+  - Alive cap = 60 + 30 per player.
+  - Spawns land on a ring just off-screen around a random living player.
+- **The chain.** Power is on from the start. There are no levers: the sluice is open and funnel 1
+  is live. Tanks take 8/12/16 funnel kills. Throwing the third tank's switch opens the south gate
+  over 30s (`ESCAPE_OPEN_MS`). The rail is scenery for this playtest: it's out of the chain and
+  its cars don't move.
+- **Win: everyone standing has to be at the gate.** The run is won when every player still on
+  their feet is inside the exit zone. A downed teammate must be revived or left behind, and a
+  player left behind gets no escape bonus.
+- **Drops** replace the wall-buys, perk stations, ammo crates and traps, which are all removed.
+  - Kinds: gun (tiered by level), perk (the nine that still mean something here; CONDUCTOR
+    needed traps and SCAVENGER needed scrap), AMMO (whole team), OVERCLOCK (whole team), RALLY
+    (whole team), FUEL (+4 to the live tank), SHOCKWAVE (blasts the swarm back from whoever
+    takes it).
+  - Every drop is 24px, 1.5x a player.
+  - **The host decides who gets each drop**, through the purchase path, so two players can't
+    both take it. Guns and perks need **F** (a deliberate choice, so you can leave it for someone
+    else). Team drops are taken by walking over them.
+  - A drop lasts 25s, at most 6 are live, and there's a 6% chance per kill, guaranteed at least
+    every 25 kills.
+- **Respawn** 15s after bleeding out, beside a standing teammate.
+- **Separation:** a soft push-apart on a uniform grid, which skips zombies that are flying, chewing
+  or already on their target.
 
 **Swarm reading needs separation.** At 100+ alive, the reported stacking ("100+ zombies can be
 within the same square") stops being cosmetic, because a swarm reads as a blob. The soft

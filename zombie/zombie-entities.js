@@ -803,7 +803,9 @@ function spawnZombieAt(type, roundNo, x, y) {
 // Points / Nuke -- ammo resupply is a map feature (crates) instead, and
 // RALLY is a co-op-specific effect with no CoD equivalent.
 // ADRENALINE was removed on request 2026-09-01.
-const PICKUP_TYPES = ["overclock", "rally"];
+// APPEND-ONLY: the index is the wire value. The arcade's drops (2026-10-04,
+// zombie-arcade.js) ride the same list and the same `p` rows.
+const PICKUP_TYPES = ["overclock", "rally", "gun", "perk", "ammo", "fuel", "shock"];
 const PICKUP_LABEL = { overclock: "O", rally: "R" };
 const PICKUP_NAME = { overclock: "OVERCLOCK", rally: "RALLY" };
 

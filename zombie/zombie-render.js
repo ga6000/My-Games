@@ -354,6 +354,7 @@ function zoneAt(r) {
 // In order. `short` is the minimap label; `note` explains; `progress` is
 // live numbers where there are any.
 function mapGoals() {
+    if (ZOMBIE_ARCADE) return arcadeMapGoals();
     const goals = [];
     goals.push({
         text: genTripped ? "Restart the generator" : "Start the generator",
@@ -427,6 +428,35 @@ function mapGoals() {
                   ? (escapeOpen() ? Math.round(Math.abs(trainLoco() ? trainLoco().v : 0)) + " px/s"
                                   : Math.ceil((escapeAt - Date.now()) / 1000) + "s")
                   : "",
+        done: won
+    });
+    return goals;
+}
+
+// ARCADE: power and the sluice are given; the run is the three tanks and
+// the gate, against the clock.
+function arcadeMapGoals() {
+    const goals = [];
+    for (let k = 0; k < 3; k++) {
+        const where = k === 0 ? zoneAt(sluiceRoom) + " (the sluice room)"
+                    : (funnelHalls[k] ? zoneName(funnelHalls[k].zone) : (funnels[k] ? zoneName(funnels[k].zone) : ""));
+        const full = siloFill[k] >= siloCapacity(k);
+        goals.push({
+            text: "Charge fuel tank " + (k + 1),
+            short: full ? "PUMP TANK " + (k + 1) : "CHARGE TANK " + (k + 1),
+            where: where,
+            note: full ? "full — throw the switch on the tank" : "kill zombies standing ON funnel " + (k + 1) + " — FUEL drops help",
+            progress: (!siloFlipped[k] && siloFill[k] > 0) ? siloFill[k] + "/" + siloCapacity(k) : "",
+            done: !!siloFlipped[k]
+        });
+    }
+    const g = (typeof arcadeAtGate === "function") ? arcadeAtGate() : { at: 0, of: 0 };
+    goals.push({
+        text: "Get everyone out of the south gate",
+        short: "EVERYONE TO THE GATE",
+        where: zoneAt(escapeRect),
+        note: "it opens " + Math.round(ESCAPE_OPEN_MS / 1000) + "s after tank 3 — every player still standing has to be there",
+        progress: escapeAt ? (escapeOpen() ? g.at + "/" + g.of : Math.ceil((escapeAt - Date.now()) / 1000) + "s") : "",
         done: won
     });
     return goals;
@@ -1927,10 +1957,44 @@ function drawTraps(now, inView) {
     }
 }
 
+// ARCADE DROPS (2026-10-04): one 24px frame for every kind -- the wall-buys
+// were 110x28, "awkwardly large at 4x+ the player's size". The frame colour
+// says who it is for: CYAN a gun, WORLD HUE a perk (both one taker, F),
+// AMBER the team (walk over). Blinks for its last few seconds.
+const DROP_FRAME = { gun: ICON_CYAN, perk: ICON_WORLD_HUE };
+const DROP_GLYPH = { ammo: "A", overclock: "O", rally: "R", fuel: "F", shock: "S" };
+
+function drawDrop(pu, now) {
+    const left = pu.until ? pu.until - now : DROP_LIFE_MS;
+    if (left < DROP_BLINK_MS && (now % 260) < 110) return;
+    const s = pu.size;
+    const frame = DROP_FRAME[pu.type] || COLOR_PICKUP;
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(pu.x - 2, pu.y - 2, s + 4, s + 4);
+    ctx.fillStyle = frame;
+    ctx.fillRect(pu.x - 2, pu.y - 2, s + 4, 2);
+    ctx.fillRect(pu.x - 2, pu.y + s, s + 4, 2);
+    ctx.fillRect(pu.x - 2, pu.y, 2, s);
+    ctx.fillRect(pu.x + s, pu.y, 2, s);
+    const icon = pu.type === "gun" ? gunIcon(pu.item, ICON_CYAN)
+               : pu.type === "perk" ? perkIcon(pu.item, ICON_WORLD_HUE) : null;
+    if (icon) {
+        // Fit the bitmap inside the frame at a whole-pixel scale.
+        const k = Math.max(1, Math.floor(Math.min((s - 2) / icon.width, (s - 2) / icon.height)));
+        const w = icon.width * k, h = icon.height * k;
+        ctx.drawImage(icon, Math.round(pu.x + (s - w) / 2), Math.round(pu.y + (s - h) / 2), w, h);
+    } else {
+        ctx.fillStyle = frame;
+        ctx.font = "bold 16px Courier";
+        ctx.fillText(DROP_GLYPH[pu.type] || "?", pu.x + 7, pu.y + 18);
+    }
+}
+
 function drawPickups(now, inView) {
     for (let i = 0; i < pickups.length; i++) {
         const pu = pickups[i];
         if (!inView(pu.x, pu.y, pu.size, pu.size)) continue;
+        if (pu.id) { drawDrop(pu, now); continue; }
         ctx.fillStyle = (now % 300 < 150) ? COLOR_PICKUP : "#FFFFFF";
         ctx.fillRect(pu.x, pu.y, pu.size, pu.size);
         ctx.fillStyle = "#000000";
@@ -2924,6 +2988,8 @@ function updateHordeCall(now) {
     uiHordeCallText.style.transform = 'translate(' + jx + 'px,' + jy + 'px)';
 }
 
+let hudArcadeLabels = false;
+
 function updateHud(now) {
     // The readout goes out with the world (2026-09-19). Written only while
     // the sequence is running or has just ended, so this is not a style
@@ -2938,8 +3004,21 @@ function updateHud(now) {
     uiTime.innerText = Math.floor((now - startTime) / 1000) + "s";
     uiZombies.innerText = String(zombies.length);
     uiKills.innerText = String(kills);
-    uiRound.innerText = String(round);
-    uiScrap.innerText = String(Math.round(scrapPool));
+    if (ZOMBIE_ARCADE) {
+        // The run clock, against the 4:00 the swarm is built to win at.
+        const t = gameStarted ? Math.floor(arcadeElapsedS(now)) : 0;
+        uiRound.innerText = Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0") + "  LV " + round;
+        if (!hudArcadeLabels) {
+            hudArcadeLabels = true;
+            const lab = document.getElementById("roundLabel");
+            if (lab) lab.innerText = "TIME";
+            const sl = document.getElementById("scrapLine");
+            if (sl) sl.style.display = "none";
+        }
+    } else {
+        uiRound.innerText = String(round);
+        uiScrap.innerText = String(Math.round(scrapPool));
+    }
 
     // IDEA 35: name the place you are standing in, so callouts work.
     const me0 = players[0];
@@ -2967,6 +3046,10 @@ function updateHud(now) {
     // Bled out, waiting for the breather.
     const waiting = zAwaitRespawn && gameStarted && !gameOver && !won;
     uiSpectate.style.display = waiting ? 'block' : 'none';
+    if (waiting && ZOMBIE_ARCADE) {
+        const note = document.getElementById("spectateNote");
+        if (note) note.innerText = "Back in " + arcadeRespawnLeftS(now) + "s, beside a teammate. If everyone goes down, the run is over.";
+    }
 
     // Connection trouble (2026-09-19): holding for a reconnect, and the
     // softer "no snapshot lately" warning for a guest whose socket is up
@@ -3190,7 +3273,7 @@ function renderRunScore(el) {
         // The train left without you. You keep every point you earned getting
         // it moving -- the rounds and the tanks are team work and you did it
         // -- and none of what leaving was worth.
-        lines.push(["MISSED THE TRAIN", "+0", ""]);
+        lines.push([ZOMBIE_ARCADE ? "LEFT BEHIND" : "MISSED THE TRAIN", "+0", ""]);
     }
 
     let html = "<table>";

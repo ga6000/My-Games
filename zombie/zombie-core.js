@@ -122,6 +122,12 @@ const Z_BG_AFTER_MS = 300;       // rAF silent this long = the page is not drawi
 let zSimAcc = 0;
 let zLastDraw = 0;
 
+// ZOMBIE ARCADE (2026-10-04): the open map, the clock-driven swarm, drops
+// from kills. The rules live in zombie-arcade.js; this flag is read across
+// files, so it is declared in the first one. The walled build with the train
+// is under-development/zombie-rail.
+const ZOMBIE_ARCADE = true;
+
 function trackTimeout(fn, ms) {
     const t = setTimeout(fn, ms);
     zTimers.push(t);
