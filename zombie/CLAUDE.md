@@ -67,6 +67,38 @@ different bodies, so don't "clean" those up. A repo-wide scan found no other fil
 Everything else only declares. That's why render goes last — `zombie-dev.js` sits after it because
 registration is inert, not because it needs the loop running.
 
+## The simulation clock (2026-10-03)
+
+`HUB_1_0_PLAN.md` Phase 1. **`update()` runs in fixed 60Hz steps** (`Z_STEP_MS`) from an accumulator
+in `stepSimulation()` (`zombie-render.js`), not once per rendered frame. Two faults had the same
+cause:
+
+- **Movement is pixels per call, not per second.** Players, zombies and bullets all move a fixed
+  amount per `update()`, so one call per rAF frame ran the game **2.4x fast on a 144Hz monitor**.
+  Measured headless: 60, 144 and 30Hz frame rates now all give ~60 steps a second.
+- **A hidden host froze the room.** A background tab gets no rAF, and the host owns zombie AI, the
+  round clock, the scrap pool and `broadcastWorld`, so one alt-tab left every guest staring at
+  CONNECTION UNSTABLE. Now `zBackgroundTick` (a `trackInterval`, 250ms; browsers throttle it to
+  ~1Hz in a hidden tab) steps the world whenever rAF has been silent for 300ms. It catches up to 60
+  steps a tick, so a hidden host still simulates at close to full rate. Measured in a hidden
+  Browser pane with zero frames drawn: **57.6 steps/s**, with zombies spawning.
+  - **Only for a host with a connected guest.** A hidden solo game still freezes, which is the
+    honest pause it always was. A hidden guest still freezes too: it stops sending, the host marks
+    it AWAY and pauses its bleed-out. That's kinder than an unattended body left in the fight.
+  - **Not a Worker**, because Chrome won't construct one under `file://`.
+- **A rendered frame catches up at most `Z_MAX_STEPS` (5, ~83ms)**, and anything owed beyond that
+  is dropped rather than queued. That matches the old `Math.min(100, dt)` clamp, so returning to a
+  tab doesn't lurch.
+- Each step gets its own timestamp, spread back across the gap, so per-step gates (the spawn gap)
+  still see time pass between steps.
+- `lastFrame` is now the **simulation's** clock. `zLastDraw` is the rendered frame's, and
+  `musicUpdate` still gets the frame dt.
+- **Not verified in the browser at 144Hz, or by the group.** The Browser pane draws no frames
+  while it is hidden, so the visible-frame path is measured headless only.
+- **What it may change in feel:** anyone who played on a high-refresh monitor was playing a faster
+  game than the 60Hz numbers assumed, and now isn't. Remote interpolation and the camera were per
+  frame and still are.
+
 ## Lighting, generator, cards
 
 The map is **dim until the generator runs**. `ambientDarkness()` is the single source of truth.
@@ -1506,7 +1538,16 @@ behind the overlay.
 and say so — a guest writing to them locally gets one frame of a lie before the next broadcast
 overwrites it. `OPEN SLUICE` is the one worth knowing about: the two-plate gate is the only
 mechanic in the game that is *strictly impossible alone*, so without that button a solo playtester
-can never see anything past it.
+can never see anything past it. *(2026-10-03: the plates became levers on 2026-09-26 and solo can
+throw them, so this is now a convenience rather than the only way past.)*
+
+**`NEXT CHAIN STEP`** (2026-10-03, `zDevAdvanceChain`) completes whichever link of the chain is
+current, in `mapGoals()` order: generator → sluice → each tank filled, then its switch thrown →
+each fuel car coupled → each rail crossing opened → locomotive started → tunnel open. Fifteen
+presses take a fresh map to the run's final seconds (verified headless, seed 22352). Wherever a
+real trigger function exists it goes through it (`flipSilo`, `trainCouple`, `trainHostStart`).
+The train steps are `typeof`-guarded so the button survives `zombie-train.js` being removed. With no
+train, the last step starts the flood.
 
 Every weapon has a **screen-shake kick** (`WEAPONS[].shake`, in *screen pixels*): pistol 1.8, SMG
 1.3, rifle 2.6, shotgun 8, sniper 10. `applyCameraTransform` divides by `camera.scale`, so the
@@ -2244,4 +2285,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 3d539b89 | 2026-09-26 -->
+<!-- doc-sync: 7dd04d42 | 2026-10-03 -->

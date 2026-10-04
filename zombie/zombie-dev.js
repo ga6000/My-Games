@@ -144,6 +144,65 @@ function zDevReport() {
     return rows;
 }
 
+// The train steps are guarded with typeof: the rail may leave the arcade
+// (HUB_1_0_PLAN.md, open scope question), and this button must survive
+// zombie-train.js being deleted.
+function zDevAdvanceChain() {
+    if (won) return "already won";
+    if (!generatorOn || genTripped) {
+        generatorOn = true;
+        genTripped = false;
+        genRestart = 0;
+        return "generator on";
+    }
+    if (gateStage < GATE_STAGES) {
+        gateStage = GATE_STAGES;
+        gateProgress = 0;
+        funnelActive[0] = true;
+        if (sluiceGate) {
+            sluiceGate.open = true;
+            rebuildSolidIndex();
+        }
+        return "sluice open, funnel 1 live";
+    }
+    for (let i = 0; i < siloFill.length; i++) {
+        if (siloFlipped[i]) continue;
+        if (siloFill[i] < siloCapacity(i)) {
+            funnelActive[i] = true;
+            siloFill[i] = siloCapacity(i);
+            return "tank " + (i + 1) + " full";
+        }
+        flipSilo(i);
+        return "tank " + (i + 1) + " switch thrown";
+    }
+    const hasTrain = typeof trainCars !== "undefined" && trainCars.length > 0;
+    if (hasTrain && !trainRunning) {
+        for (let i = 1; i < trainCars.length; i++) {
+            if (!trainCars[i].coupled) {
+                trainCouple(i);
+                return "car " + i + " coupled";
+            }
+        }
+        const shut = trainPathBlockedBy();
+        if (shut) {
+            shut.open = true;
+            rebuildSolidIndex();
+            return "rail crossing opened";
+        }
+        trainHostStart();
+        return trainRunning ? "locomotive started — tunnel opening" : "locomotive would not start";
+    }
+    if (escapeAt && !escapeOpen()) {
+        escapeAt = Date.now();
+        return "tunnel open";
+    }
+    if (!hasTrain && !floodActive) {
+        startFlood();
+        return "flood started";
+    }
+    return "nothing left to advance";
+}
+
 var zDevActions = [
     {
         label: "FREE BUYS",
@@ -372,8 +431,22 @@ var zDevActions = [
         }
     },
     {
+        // HUB_1_0_PLAN.md Phase 1 (from PLAYTEST_2_PLAN §6.4): one press, one
+        // link of the chain, in mapGoals() order -- so any later step can be
+        // reached and re-checked in seconds instead of a whole run. Each case
+        // does what the real trigger does, through the same function where
+        // one exists (flipSilo, trainCouple, trainHostStart).
+        label: "NEXT CHAIN STEP",
+        hint: "host only — completes the current objective",
+        fn: function () {
+            const no = zDevHostOnly("chain");
+            if (no) return no;
+            return zDevAdvanceChain();
+        }
+    },
+    {
         label: "OPEN SLUICE",
-        hint: "host only — skips the 2-player gate",
+        hint: "host only — skips the sluice levers",
         fn: function () {
             const no = zDevHostOnly("sluice");
             if (no) return no;

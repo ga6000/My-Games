@@ -21,7 +21,7 @@ the rest is re-sorted below. That file is kept as the record of what the playtes
 - doc-sync: only the docs that were actually re-read get stamped. The four repo-wide docs cover
   every game, so they wait for Phase 5's reconciliation.
 
-## Phase 1 — Bugs that end a session · §5 item 3
+## Phase 1 — Bugs that end a session · §5 item 3 · **done 2026-10-03 (Zombie; the other cards audited)**
 
 1. **Fixed-timestep loop + a background tick for the host.** A host tab in the background got no
    `requestAnimationFrame` calls, so the whole room froze and showed CONNECTION UNSTABLE.
@@ -31,6 +31,32 @@ the rest is re-sorted below. That file is kept as the record of what the playtes
    what each one does.
 3. **Dev buttons that advance each step of the Zombie chain**, so later phases can be tested in
    seconds.
+
+### Phase 1 results (2026-10-03)
+
+- **1 — done in ZOMBIE.** Fixed 60Hz step plus `zBackgroundTick`; see `zombie/CLAUDE.md` → "The
+  simulation clock". It also fixed a fault nobody had reported: the game ran **2.4x fast at
+  144Hz**, because movement is pixels per `update()` call. Measured in a hidden Browser pane with
+  no frames drawn: a host with a guest simulates at 57.6 steps/s. Solo, and a guest, stay frozen
+  on purpose.
+- **3 — done.** One dev-panel button, `NEXT CHAIN STEP`. Fifteen presses take a fresh map to the
+  open tunnel. It survives the rail being removed.
+- **2 — audit only; nothing changed in the other games.** Read from each game's loop and net code:
+
+  | Card | Host? | Hidden tab does | Session-ender? |
+  |---|---|---|---|
+  | Gyro Space | no, peer positions | freezes only itself | no |
+  | Glass City | no ("parallel worlds, no host") | freezes only itself; its ghost stands still for the others | no |
+  | **RD Arena** | **yes** (`rd-net.js`: enemies, rounds, field packets) | rAF stops, so **enemies and rounds freeze for every client**. No guest-side fallback | **yes, same fault as Zombie had** |
+  | **4D Pong** | **yes** (`fp-net.js`: ball, score, tug) | pauses itself on `visibilitychange`, but the PAUSED phase only goes out in a snapshot from the rAF loop, which has stopped. **Guests see a frozen ball with no PAUSED** until the host returns | **partly**: the room is stuck and nothing says why |
+
+  Proposed fixes, **not done**:
+  - RD Arena: the same background tick, if its loop can take a fixed step. Read `rd-arena/CLAUDE.md`
+    first; `loop()` advances one step per frame.
+  - 4D Pong: pausing is right for a pong match. It just has to send the paused snapshot right away,
+    skipping the `canSend` throttle.
+
+  Both are Phase 4 work: fix them when each card gets its game night, or sooner if you decide to.
 
 ## Phase 2 — ZOMBIE arcade v1 fixes · §5 item 2
 

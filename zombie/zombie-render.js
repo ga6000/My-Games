@@ -3426,6 +3426,60 @@ window.addEventListener('resize', resizeCanvas, KEY_OPTS);
 // ---------------------------------------------------
 //   BOOT
 // ---------------------------------------------------
+// Advances the world in fixed Z_STEP_MS steps for the time since it last
+// moved. More than maxSteps owed and the excess is DROPPED rather than
+// queued, so a long gap resumes without a freeze-then-lurch. Each step gets
+// its own timestamp, spread back across the gap, so per-step gates such as
+// the spawn gap still see time pass between steps.
+function stepSimulation(now, maxSteps) {
+    // Applied on a step boundary rather than inside the message handler,
+    // so a reset never lands mid-update with half the entity arrays
+    // already iterated.
+    if (pendingReset) {
+        pendingReset = false;
+        resetGame();
+    }
+    zSimAcc += lastFrame ? Math.max(0, now - lastFrame) : Z_STEP_MS;
+    lastFrame = now;
+    let steps = Math.floor(zSimAcc / Z_STEP_MS);
+    if (steps > maxSteps) {
+        steps = maxSteps;
+        zSimAcc = 0;
+    } else {
+        zSimAcc -= steps * Z_STEP_MS;
+    }
+    for (let i = 0; i < steps; i++) update(now - (steps - 1 - i) * Z_STEP_MS, Z_STEP_MS);
+    return steps;
+}
+
+// Someone else is in the room and still connected -- the only case in which
+// a host that stops simulating stops anybody but itself.
+function zHostHasCompany() {
+    for (const id in remotePlayers) {
+        if (Object.prototype.hasOwnProperty.call(remotePlayers, id) && !remotePlayers[id].away) return true;
+    }
+    return false;
+}
+
+// THE HOST KEEPS THE ROOM ALIVE WHEN ITS TAB IS HIDDEN (2026-10-03).
+// A background tab gets no rAF, and the host owns zombie AI, the round
+// clock, the scrap pool and broadcastWorld -- so one alt-tab froze every
+// other player behind CONNECTION UNSTABLE. A timer still runs, throttled to
+// about 1Hz, and with the fixed step that is enough to keep the world moving
+// and snapshots going out. (Not a Worker: Chrome will not construct one
+// under file://, a hard constraint here.)
+//
+// HOST WITH COMPANY ONLY, on purpose. A hidden SOLO game stays frozen, which
+// is the honest pause it always was. A hidden GUEST stays frozen too: it
+// stops sending, the host marks it AWAY, and its bleed-out clock pauses --
+// kinder than leaving an unattended body in the fight.
+function zBackgroundTick() {
+    const now = Date.now();
+    if (now - zLastDraw < Z_BG_AFTER_MS) return;   // rAF is alive and owns the clock
+    if (!netIsHost || !zHostHasCompany()) return;
+    stepSimulation(now, Z_MAX_STEPS_HIDDEN);
+}
+
 function gameLoop(ts) {
     // Scheduled FIRST, on purpose. It used to be the last statement, so
     // any exception thrown in update() or draw() meant the next frame was
@@ -3434,19 +3488,13 @@ function gameLoop(ts) {
     zRafHandle = requestAnimationFrame(gameLoop);
 
     const now = Date.now();
-    const dt = lastFrame ? Math.min(100, now - lastFrame) : 16;
-    lastFrame = now;
+    // Frame time, for the things that are per-FRAME by nature (the score's
+    // easing). The simulation keeps its own clock -- see Z_STEP_MS.
+    const dt = zLastDraw ? Math.min(100, Math.max(0, now - zLastDraw)) : 16;
+    zLastDraw = now;
     zFrameCount++;                             // drives the flicker budget
 
-    // Applied on a frame boundary rather than inside the message
-    // handler, so a reset never lands mid-update with half the entity
-    // arrays already iterated.
-    if (pendingReset) {
-        pendingReset = false;
-        resetGame();
-    }
-
-    update(now, dt);
+    stepSimulation(now, Z_MAX_STEPS);
     // Driven from the LOOP, not from update(): update() returns early while
     // netLost, and a connection that drops during the walk-out must not
     // leave the world frozen half-faded with no card ever arriving.
@@ -3469,3 +3517,4 @@ resizeCanvas();
 generateLevel();
 uiStats.style.display = hudMapOn ? "" : "none";
 zRafHandle = requestAnimationFrame(gameLoop);
+trackInterval(zBackgroundTick, Z_BG_TICK_MS);

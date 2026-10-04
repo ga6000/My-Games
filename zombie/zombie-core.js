@@ -107,6 +107,21 @@ let zTimers = [];
 let zAbort = new AbortController();
 let zRafHandle = 0;
 
+// THE SIMULATION CLOCK (2026-10-03, HUB_1_0_PLAN.md Phase 1). update() runs
+// in fixed 60Hz steps from an accumulator, not once per rendered frame.
+// Movement here is pixels PER CALL, so one-call-per-frame made the game run
+// 2.4x fast on a 144Hz monitor, and stop dead in a background tab -- which,
+// on the host, froze the whole room. The step is fixed; what calls it is
+// interchangeable: rAF while the page draws, a background interval while it
+// does not (zombie-render.js, gameLoop / zBackgroundTick).
+const Z_STEP_MS = 1000 / 60;
+const Z_MAX_STEPS = 5;           // a rendered frame catches up at most ~83ms (the old 100ms clamp)
+const Z_MAX_STEPS_HIDDEN = 60;   // a background tick may catch up a whole second
+const Z_BG_TICK_MS = 250;        // browsers throttle a hidden tab's interval to ~1Hz anyway
+const Z_BG_AFTER_MS = 300;       // rAF silent this long = the page is not drawing
+let zSimAcc = 0;
+let zLastDraw = 0;
+
 function trackTimeout(fn, ms) {
     const t = setTimeout(fn, ms);
     zTimers.push(t);
