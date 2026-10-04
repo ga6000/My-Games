@@ -102,8 +102,16 @@ function attachInput(signal) {
 
     // The tab losing visibility pauses rather than letting the accumulator
     // bank several seconds of simulation to replay at once on return.
+    //
+    // A HOST hiding its tab used to freeze the room silently (2026-10-03,
+    // HUB_1_0_PLAN.md Phase 1): the pause only travelled in the next snapshot,
+    // which the stopped rAF loop never sent, so guests saw a frozen ball with
+    // no PAUSED. Send it at once.
     document.addEventListener("visibilitychange", function () {
-        if (document.hidden && phase === "play") setPhase("paused");
+        if (document.hidden && phase === "play") {
+            setPhase("paused");
+            sendSnapshot(true);
+        }
     }, { signal: signal });
 }
 

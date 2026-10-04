@@ -396,7 +396,11 @@ function drawOverlay(ctx) {
     if (phase === "paused") {
         rect(ctx, field.x, field.y, field.w, field.h, "#000", 0.62);
         centreText(ctx, "PAUSED", big, tokenColor("--phos-hot"), 0);
-        centreText(ctx, "SPACE TO RESUME", 17, tokenColor("--phos-mid"), big * 1.1, uiFont);
+        // A guest cannot resume: the host owns the phase and the next snapshot
+        // would put it straight back.
+        var guest = typeof net !== "undefined" && net.on && !net.host;
+        centreText(ctx, guest ? "WAITING FOR THE HOST" : "SPACE TO RESUME", 17,
+                   tokenColor("--phos-mid"), big * 1.1, uiFont);
         return;
     }
     if (phase === "over") {

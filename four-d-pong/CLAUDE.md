@@ -279,6 +279,15 @@ button in a game three people are staring at is a support call.
    differently shaped windows each play a full-size field instead of one being letterboxed to
    match the other. Velocity scales with them — otherwise the ball crosses a smaller field faster
    and the two screens disagree about *when* it arrives.
+3. **A host hiding its tab froze the room without saying so** (2026-10-03, found by audit in
+   `HUB_1_0_PLAN.md` Phase 1). `visibilitychange` paused the host, but the pause only travelled in
+   the next 20Hz snapshot, and that snapshot is sent from the rAF loop that had just stopped. So
+   guests saw a ball frozen mid-flight with no PAUSED. Now the handler calls
+   `sendSnapshot(true)`, which skips the throttle once, and a guest's pause screen reads **WAITING
+   FOR THE HOST** rather than SPACE TO RESUME, since the next snapshot would undo a guest's
+   resume anyway. Pausing, rather than simulating on, is deliberate for a pong match: the host's
+   own paddle would be unattended. Verified in the browser with the throttle stubbed shut: one
+   send, `ph: "paused"`. **Not yet run with two real clients.**
 
 ### Testing it again
 
@@ -413,4 +422,4 @@ one. Each is a 45° line, so the reflection has a closed form and needs no dot p
   between two advanced paddles, and a stuck ball is worse than a soft one. Now that every seat can
   reach the middle it will be *seen* more often, so it is worth a decision if it grates.
 
-<!-- doc-sync: f20f3c9a | 2026-09-25 -->
+<!-- doc-sync: 5a2113a9 | 2026-10-04 -->

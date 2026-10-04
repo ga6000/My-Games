@@ -53,10 +53,11 @@ the rest is re-sorted below. That file is kept as the record of what the playtes
   Proposed fixes, **not done**:
   - RD Arena: the same background tick, if its loop can take a fixed step. Read `rd-arena/CLAUDE.md`
     first; `loop()` advances one step per frame.
-  - 4D Pong: pausing is right for a pong match. It just has to send the paused snapshot right away,
-    skipping the `canSend` throttle.
+  - ~~4D Pong: pausing is right for a pong match. It just has to send the paused snapshot right away,
+    skipping the `canSend` throttle.~~ **Done 2026-10-04** (user: "now"). `sendSnapshot(true)` on hide,
+    and guests read WAITING FOR THE HOST. Not yet run with two real clients.
 
-  Both are Phase 4 work: fix them when each card gets its game night, or sooner if you decide to.
+  RD Arena is Phase 4 work: fix it when it gets its game night.
 
 ## Phase 2 — ZOMBIE arcade v1 fixes · §5 item 2
 

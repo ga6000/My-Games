@@ -185,9 +185,12 @@ function applyOnlineMode() {
 // Compact because it goes 20x/second to every peer. Goals are included so a
 // client can SOUND a goal without a separate event: a dropped event is silent
 // forever, a changed number is self-correcting on the very next snapshot.
-function sendSnapshot() {
+// `force` skips the 20Hz throttle. Used once: the host's tab going hidden
+// (fp-input.js). That pause has to reach the room NOW, because the loop that
+// would otherwise carry it in the next snapshot has just stopped (2026-10-03).
+function sendSnapshot(force) {
     if (!net.host || !net.on) return;
-    if (!MP.canSend("snap", NET_SNAP_MS)) return;
+    if (!force && !MP.canSend("snap", NET_SNAP_MS)) return;
 
     var pos = [], dep = [], lng = [], stun = 0;
     for (var i = 0; i < 4; i++) {
