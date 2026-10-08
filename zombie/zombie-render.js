@@ -597,7 +597,8 @@ function draw() {
     drawBlackoutMonochrome();
     // ARCADE: the intro shows the whole lit map; the beacon waits for it.
     const introOn = ZOMBIE_ARCADE && arcadeIntroActive(now);
-    if (!introOn) drawLighting();
+    // ARCADE: its own light (daylight outside, a dark warehouse, real windows).
+    if (!introOn) { if (ZOMBIE_ARCADE) arcadeDrawLighting(); else drawLighting(); }
     if (ZOMBIE_ARCADE && !introOn) {
         arcadeDrawLight();                // daylight through the warehouse windows
         arcadeDrawBeacon(now);
@@ -2527,6 +2528,7 @@ function drawLighting() {
 // Gated on the SAME condition ambientDarkness() uses, so the two can never
 // disagree about whether a round is a blackout.
 function drawBlackoutMonochrome() {
+    if (ZOMBIE_ARCADE) return;                // no Blackouts in the arcade
     if (!isBlackoutRound(round) || roundPhase !== "active") return;
     const prevOp = ctx.globalCompositeOperation;
     // If a browser does not support this blend mode it falls back to
@@ -3384,6 +3386,7 @@ const KEY_OPTS = { signal: zSignal() };
 // PERK: DECOY hangs off the ping, but the host decides it (registerDecoy,
 // via sendPing or the relayed ping), so nothing perk-shaped happens here.
 function pingFrom(p) {
+    if (ZOMBIE_ARCADE) return;                // ping removed from the arcade (2026-10-07)
     // ROLE: SCOUT reaches twice as far.
     const reach = myRole() === "scout" ? 520 : 260;
     sendPing(

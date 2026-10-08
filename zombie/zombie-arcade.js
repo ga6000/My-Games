@@ -88,7 +88,7 @@ function updateArcadeWave(now, dt) {
         round = level;
         // Only the special waves get a card; a plain level change every 12s
         // would put a banner on screen for a third of the run.
-        if (isHordeRound(level) || isBruteRound(level) || isBlackoutRound(level)) {
+        if (isHordeRound(level) || isBruteRound(level)) {
             roundCardUntil = now + 1800;
         }
     }
@@ -255,9 +255,12 @@ function arcadePlaceRespawn(p, now) {
 const DROP_SIZE = 24;
 const DROP_LIFE_MS = 25000;
 const DROP_BLINK_MS = 5000;       // blinks for its last 5s
-const DROP_MAX_LIVE = 8;
-const DROP_CHANCE = 0.075;        // +25% (2026-10-04), was 0.06
-const DROP_PITY_KILLS = 20;       // never longer than this between drops (was 25)
+const DROP_MAX_LIVE = 10;
+const DROP_CHANCE = 0.094;        // +25% twice (2026-10-04, 2026-10-07): 0.06 -> 0.075 -> 0.094
+const DROP_PITY_KILLS = 16;       // never longer than this between drops (25 -> 20 -> 16)
+// ATTRACT (2026-10-07): your pickup reach, per stack. A drop this close is
+// taken as if you had walked over it.
+const ATTRACT_REACH = [0, 50, 90, 130];
 const DROP_FUEL = 4;              // FUEL: kills added to the live tank
 const SHOCK_RADIUS = 300;
 const OVERCLOCK_MS = 6000;
@@ -269,7 +272,8 @@ const DROP_WEIGHTS = [
 ];
 // The perks that still mean something here. CONDUCTOR made traps cheaper
 // and SCAVENGER made scrap; there are no traps, and nothing to spend.
-const DROP_PERKS = ["overdrive", "ricochet", "decoy", "spite", "arc", "blastcap",
+// DECOY is out with the ping it hung off (2026-10-07); ATTRACT is in.
+const DROP_PERKS = ["overdrive", "ricochet", "attract", "spite", "arc", "blastcap",
                     "skewer", "laststand", "salvage"];
 // By level: an early drop is a step up from the pistol, a late one is the
 // heavy kit. [minLevel, key, weight].
@@ -354,15 +358,15 @@ function dropTouching(p, pad) {
 function dropRefusal(cards, d) {
     if (d.type !== "perk") return "";
     const lvl = cards.filter(function (k) { return k === d.item; }).length;
-    if (lvl >= CARD_MAX_STACK) return "MAXED — LEAVE IT FOR A TEAMMATE";
-    if (lvl === 0 && distinctCardCount(cards) >= CARD_SLOTS) return "PERK SLOTS FULL — CALL IT OUT";
+    if (lvl >= CARD_MAX_STACK) return "MAXED";
+    if (lvl === 0 && distinctCardCount(cards) >= CARD_SLOTS) return "SLOTS FULL";
     return "";
 }
 
 // Every client, for its own player: everything is walked over.
 function arcadeWalkOverDrops(p, now) {
     if (p.downed) return;
-    const d = dropTouching(p, 0);
+    const d = dropTouching(p, ATTRACT_REACH[cardLevel(p, "attract")] || 0);
     if (!d || dropRefusal(p.cards || [], d)) return;
     if (arcTakeAskedAt[d.id] && now - arcTakeAskedAt[d.id] < 400) return;
     arcTakeAskedAt[d.id] = now;
@@ -540,7 +544,7 @@ const ARENA_FUNNEL_R = 110;
 // Offsets from the arena's centre, which is where players start. Laid out
 // like a BASEBALL FIELD (user, 2026-10-04): first at centre-left, second at
 // top-middle, third at centre-right, and the gate is home plate, south.
-const ARENA_FUNNELS = [[-750, 0], [0, -430], [750, 0]];
+const ARENA_FUNNELS = [[-1150, 0], [0, -600], [1100, 0]];   // pushed apart with the 33% bigger arena (2026-10-07)
 const ARENA_GATE_DX = 0;          // the exit, in the south wall
 const ARENA_SILO_W = 70;          // the tank's FOOTPRINT, solid on every side
 const ARENA_SILO_H = 56;
@@ -668,17 +672,16 @@ function arcadeObjectiveTarget() {
         if (siloReady(k)) {
             const s = silos[k];
             return { x: s.x + s.w / 2, y: s.y + s.h / 2, r: 46, k: k, kind: "silo",
-                     label: "TANK " + (k + 1) + " FULL — [F] THROW THE SWITCH" };
+                     label: "TANK " + (k + 1) + "  [F]" };
         }
         const f = funnels[k];
         if (!f) return null;
         return { x: f.x, y: f.y, r: f.r, k: k, kind: "funnel",
-                 label: "TANK " + (k + 1) + " — KILL ON THE FUNNEL  " + siloFill[k] + "/" + siloCapacity(k) };
+                 label: "TANK " + (k + 1) + "  " + siloFill[k] + "/" + siloCapacity(k) };
     }
     if (!escapeRect) return null;
     return { x: escapeRect.x + escapeRect.w / 2, y: escapeRect.y + escapeRect.h / 2, r: 110, kind: "gate",
-             label: escapeOpen() ? "EXIT — WALK OUT, EVERYONE"
-                                 : "EXIT — OPENING " + Math.max(0, Math.ceil((escapeAt - Date.now()) / 1000)) + "s" };
+             label: escapeOpen() ? "EXIT" : "EXIT  " + Math.max(0, Math.ceil((escapeAt - Date.now()) / 1000)) + "s" };
 }
 
 // Screen space, after the lighting, so the dark never hides it.
@@ -777,7 +780,8 @@ function buildSideStatic() {
         const wl = walls[i];
         if (wl.perim || wl.column || wl.silo || wl.gateBar) continue;
         g.fillStyle = (wl.tree || wl.kind === "hedge") ? "#2E5A22"
-                    : wl.kind === "container" ? wl.hue[0] : wl.kind === "pallet" ? "#7A5A30" : "#4A4A4A";
+                    : wl.kind === "container" ? wl.hue[0] : wl.kind === "pallet" ? "#7A5A30"
+                    : wl.kind === "rack" ? "#C8641E" : "#4A4A4A";
         const m = wl.tree ? 3 : 0;
         g.fillRect((wl.x - ARENA.x) * k - m, (wl.y - ARENA.y) * k - m, Math.max(2, wl.w * k) + m * 2, Math.max(2, wl.h * k) + m * 2);
     }
@@ -923,7 +927,7 @@ function arcadeRenderSideGoals() {
 const TREE_TRUNK = 40;           // the whole footprint is solid, not just a trunk
 const TREE_CANOPY = 64;
 const TREE_GAP = 90;              // edge to edge between whole trees; over the 78px a brute needs
-const ARENA_PATCHES = 8;           // was 6: "more patches" (2026-10-04)
+const ARENA_PATCHES = 11;          // 6 -> 8 ("more patches"), -> 11 with the bigger arena
 let arenaBushes = [];             // {x, y, r, shade} -- drawn only
 let arenaTrees = [];              // the same rects as the tree walls, for drawing
 
@@ -982,10 +986,10 @@ function plantArenaTerrain(fits) {
         }
     }
     // The sparse scatter between them.
-    for (let i = 0; i < 37; i++) {          // +10% (2026-10-04)
+    for (let i = 0; i < 50; i++) {          // +10% (2026-10-04), scaled with the arena (2026-10-07)
         tryTree(A.x + 80 + MP.random() * (A.w - 160), A.y + 80 + MP.random() * (A.h - 160));
     }
-    for (let i = 0; i < 51; i++) {          // +10%
+    for (let i = 0; i < 68; i++) {          // +10%, then scaled with the arena
         addBush(A.x + 60 + MP.random() * (A.w - 120), A.y + 60 + MP.random() * (A.h - 120), 5 + MP.random() * 7);
     }
 }
@@ -1489,61 +1493,72 @@ function arcadeUpdateCabinet() {
 }
 
 // ---------------------------------------------------
-//   THE ONE-HIT BUFFER (2026-10-07)
+//   THE HIT BUFFER (2026-10-07, revised the same day)
 // ---------------------------------------------------
-// "Add a one-hit buffer, a bump back, screen red with 0.5s invulnerability.
-// 5s red screen then 1s cooldown -- the one hit kill I'm realizing is a
-// little bit unforgiving. If playtesting shows this is making it too easy I
-// want to retain the possibility to easily flip this off."
+// First version: one absorbed hit, 0.5s untouchable, then 5s "wounded" with a
+// caption. Revised on request: "1 bump to slight red, 2 bumps to 'red' in
+// previous sense. Longer invulnerability after hit", and "remove 'wounded
+// next hit downs you' -- generally I'd favor more of a learn-through-
+// experience type model rather than explaining." So:
+//
+//   hit 1   bumped back, untouchable 1.2s, the screen's edge goes SLIGHTLY red
+//   hit 2   bumped back, untouchable 1.2s, the edge goes RED and pulses
+//   hit 3   down
+//   every 6s without a hit heals one step (red -> slight red -> clear)
+//
+// No words. The red is the whole explanation.
 //
 // THE SWITCH IS ARC_HIT_BUFFER. false puts the old one-touch down back,
 // exactly: arcadeAbsorbHit() is the only thing it gates.
 //
-//   hit             bumped back, screen flashes red, 0.5s untouchable
-//   0.5s - 5s       WOUNDED: the screen stays red; a second hit downs you
-//   5s - 6s         the red is gone; one more second before the buffer is back
-//   6s on           the next touch is absorbed again
-//
 // HOST-DECIDED, like every down: contact is resolved where the zombies are
 // simulated. The host keeps one record per player (arcHitState) and tells a
-// guest it was hit (`hit` over relay); the BUMP and the red are applied by
-// the hit player's own client, because only that client moves its player.
+// guest it was hit (`hit` over relay, with the new level); the BUMP and the
+// red are applied by the hit player's own client, because only that client
+// moves its player.
 const ARC_HIT_BUFFER = true;
-const ARC_HIT_INVULN_MS = 500;
-const ARC_HIT_WOUND_MS = 5000;
-const ARC_HIT_RECHARGE_MS = 1000;
+const ARC_HIT_STEPS = 2;          // hits absorbed before the next one downs you
+const ARC_HIT_INVULN_MS = 1200;
+const ARC_HIT_HEAL_MS = 6000;     // per step
 const ARC_KNOCK_MS = 160;
 const ARC_KNOCK_SPEED = 7;        // px per step while the bump lasts (~110px)
-let arcHitState = {};             // HOST: netId -> when its buffer was last spent
+let arcHitState = {};             // HOST: netId -> {lvl, at}
+
+function woundLevel(lvl, at, now) {
+    if (!lvl || !at) return 0;
+    return Math.max(0, lvl - Math.floor((now - at) / ARC_HIT_HEAL_MS));
+}
 
 // HOST, from the contact test in updateZombies. True = absorbed, so do not
 // down the player. False = down them as before.
 function arcadeAbsorbHit(target, z, now) {
     if (!ARC_HIT_BUFFER) return false;
     const st = arcHitState[target.id];
-    if (st && now - st < ARC_HIT_INVULN_MS) return true;              // untouchable
-    if (st && now - st < ARC_HIT_WOUND_MS + ARC_HIT_RECHARGE_MS) {    // wounded: this one counts
-        delete arcHitState[target.id];                                // a fresh buffer next life
+    if (st && now - st.at < ARC_HIT_INVULN_MS) return true;           // untouchable
+    const lvl = st ? woundLevel(st.lvl, st.at, now) : 0;
+    if (lvl >= ARC_HIT_STEPS) {                                        // this one counts
+        delete arcHitState[target.id];                                 // a fresh buffer next life
         return false;
     }
-    arcHitState[target.id] = now;
+    arcHitState[target.id] = { lvl: lvl + 1, at: now };
     const dx = (target.x + (target.size || 16) / 2) - (z.x + z.size / 2);
     const dy = (target.y + (target.size || 16) / 2) - (z.y + z.size / 2);
     const d = Math.hypot(dx, dy) || 1;
-    if (target.local) arcadeApplyHit(target.ref, dx / d, dy / d, now);
-    else if (netOnline) MP.send({ k: "hit", id: target.id, dx: +(dx / d).toFixed(3), dy: +(dy / d).toFixed(3) });
+    if (target.local) arcadeApplyHit(target.ref, dx / d, dy / d, now, lvl + 1);
+    else if (netOnline) MP.send({ k: "hit", id: target.id, dx: +(dx / d).toFixed(3), dy: +(dy / d).toFixed(3), l: lvl + 1 });
     shakeNear(target.x, target.y, 6);
     return true;
 }
 
-// The hit player's own client: the bump, the red, the half-second.
-function arcadeApplyHit(p, ux, uy, now) {
+// The hit player's own client: the bump, the red, the untouchable window.
+function arcadeApplyHit(p, ux, uy, now, lvl) {
     p.invulnUntil = Math.max(p.invulnUntil || 0, now + ARC_HIT_INVULN_MS);
     p.hurtAt = now;
+    p.hurtLvl = lvl || 1;
     p.knockUntil = now + ARC_KNOCK_MS;
     p.kvx = ux * ARC_KNOCK_SPEED;
     p.kvy = uy * ARC_KNOCK_SPEED;
-    addShake(8);
+    addShake(lvl >= 2 ? 11 : 7);
     localEvent(SND_DOWN, p.x, p.y);
 }
 
@@ -1554,36 +1569,129 @@ function arcadeKnock(p, now) {
 }
 
 function arcadeWounded(p, now) {
-    return !!(p && p.hurtAt && now - p.hurtAt < ARC_HIT_WOUND_MS);
+    return !!p && woundLevel(p.hurtLvl, p.hurtAt, now) >= ARC_HIT_STEPS;
 }
 
-// Screen space, after the lighting: a flash, then a red frame while wounded.
+// Screen space, after the lighting: a short flash on the hit, then a red
+// edge -- faint at one step, strong and pulsing at two.
 function arcadeDrawHurt(now) {
     const p = players[0];
     if (!p || !p.hurtAt || p.downed) return;
+    const lvl = woundLevel(p.hurtLvl, p.hurtAt, now);
     const t = now - p.hurtAt;
-    if (t >= ARC_HIT_WOUND_MS) return;
+    if (!lvl && t > 400) return;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (t < ARC_HIT_INVULN_MS) {
-        ctx.fillStyle = "rgba(255,0,20," + (0.45 * (1 - t / ARC_HIT_INVULN_MS) + 0.15).toFixed(3) + ")";
+    if (t < 400) {
+        ctx.fillStyle = "rgba(255,0,20," + (0.32 * (1 - t / 400)).toFixed(3) + ")";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
-    // The frame: thick red edges, pulsing faster as the wound runs out.
-    const pulse = 0.5 + 0.5 * Math.sin(now / (t > 3500 ? 90 : 180));
-    const a = 0.22 + 0.2 * pulse;
-    const b = Math.round(Math.min(canvas.width, canvas.height) * 0.07);
-    ctx.fillStyle = "rgba(255,0,20," + a.toFixed(3) + ")";
-    ctx.fillRect(0, 0, canvas.width, b);
-    ctx.fillRect(0, canvas.height - b, canvas.width, b);
-    ctx.fillRect(0, b, b, canvas.height - b * 2);
-    ctx.fillRect(canvas.width - b, b, b, canvas.height - b * 2);
-    ctx.fillStyle = "#FF2233";
-    ctx.font = "bold 16px Courier";
-    ctx.textAlign = "center";
-    ctx.fillText("WOUNDED — NEXT HIT DOWNS YOU", canvas.width / 2, b + 22);
+    if (lvl) {
+        const pulse = lvl >= 2 ? 0.5 + 0.5 * Math.sin(now / 160) : 0;
+        const a = lvl >= 2 ? 0.26 + 0.18 * pulse : 0.12;
+        const b = Math.round(Math.min(canvas.width, canvas.height) * (lvl >= 2 ? 0.08 : 0.05));
+        ctx.fillStyle = "rgba(255,0,20," + a.toFixed(3) + ")";
+        ctx.fillRect(0, 0, canvas.width, b);
+        ctx.fillRect(0, canvas.height - b, canvas.width, b);
+        ctx.fillRect(0, b, b, canvas.height - b * 2);
+        ctx.fillRect(canvas.width - b, b, b, canvas.height - b * 2);
+    }
     ctx.restore();
 }
+
+// ---------------------------------------------------
+//   LIGHT (2026-10-07)
+// ---------------------------------------------------
+// "Add lighting model so that lighter outside, window openings let in light
+// is actually real, and warehouse is actually darker." The arcade replaces
+// drawLighting() with this: a DARKNESS LAYER built on its own offscreen
+// canvas -- light ambient outdoors, deep dark inside the warehouse -- with
+// the window shafts and the player's own light cut OUT of it, then laid over
+// the frame once.
+//
+// destination-out is safe HERE, on the private layer, and only here: the
+// note in drawLighting() is about running it on the main canvas, where it
+// erases the world itself. On a layer that holds nothing but darkness,
+// removing alpha is exactly "letting light in".
+const LIGHT_OUTSIDE = 0.12;       // daylight, under an overcast sky
+const LIGHT_INSIDE = 0.74;        // the warehouse, away from the windows
+const WINDOW_REACH = 230;         // how far a shaft of light falls across the floor
+let lightLayer = null;
+
+function windowShaft(g, w, spread) {
+    const y0 = w.dir > 0 ? w.y + w.h : w.y;
+    const y1 = y0 + w.dir * WINDOW_REACH;
+    g.beginPath();
+    g.moveTo(w.x - 4, y0);
+    g.lineTo(w.x + w.w + 4, y0);
+    g.lineTo(w.x + w.w + 4 + spread, y1);
+    g.lineTo(w.x - 4 + spread * 0.4, y1);
+    g.closePath();
+}
+
+function arcadeDrawLighting() {
+    if (!lightLayer) lightLayer = document.createElement("canvas");
+    if (lightLayer.width !== canvas.width || lightLayer.height !== canvas.height) {
+        lightLayer.width = canvas.width;
+        lightLayer.height = canvas.height;
+    }
+    const g = lightLayer.getContext("2d");
+    const s = camera.scale;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = "source-over";
+    g.clearRect(0, 0, lightLayer.width, lightLayer.height);
+    g.setTransform(s, 0, 0, s, canvas.width / 2 - camera.x * s, canvas.height / 2 - camera.y * s);
+    const vr = viewRect();
+
+    g.fillStyle = "rgba(0,0,0," + LIGHT_OUTSIDE + ")";
+    g.fillRect(vr.x, vr.y, vr.w, vr.h);
+    const W = arenaWarehouse;
+    if (W) {
+        // Topped up to LIGHT_INSIDE: 1 - (1 - out)(1 - extra) = inside.
+        const extra = 1 - (1 - LIGHT_INSIDE) / (1 - LIGHT_OUTSIDE);
+        g.fillStyle = "rgba(0,0,0," + extra.toFixed(3) + ")";
+        g.fillRect(W.x, W.y, W.w, W.h);
+    }
+
+    g.globalCompositeOperation = "destination-out";
+    // Daylight through every window: a strong core and a softer spill.
+    if (W) {
+        for (let i = 0; i < W.windows.length; i++) {
+            const w = W.windows[i];
+            g.fillStyle = "rgba(0,0,0,0.55)";
+            windowShaft(g, w, 70);
+            g.fill();
+            g.fillStyle = "rgba(0,0,0,0.35)";
+            windowShaft(g, w, 30);
+            g.fill();
+        }
+        // The two doors let light in as well.
+        for (let i = 0; i < W.doors.length; i++) {
+            const d = W.doors[i];
+            g.fillStyle = "rgba(0,0,0,0.5)";
+            g.fillRect(d.x + (d.dir > 0 ? 0 : -150), d.y, 150 + T_PAD, d.h);
+        }
+    }
+    // The player's own light, in the same four flat bands drawLighting uses.
+    const me = players[0];
+    const cx = me ? me.x + me.size / 2 : camera.x, cy = me ? me.y + me.size / 2 : camera.y;
+    const inner = (me && me.downed) ? LIGHT_RADIUS * 0.55 : LIGHT_RADIUS;
+    const outer = inner * LIGHT_FADE;
+    const bands = [[outer, 0.34], [(inner + outer) / 2, 0.34], [inner, 1]];
+    for (let i = 0; i < bands.length; i++) {
+        g.fillStyle = "rgba(0,0,0," + bands[i][1] + ")";
+        g.beginPath();
+        g.arc(cx, cy, bands[i][0], 0, Math.PI * 2);
+        g.fill();
+    }
+    g.globalCompositeOperation = "source-over";
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(lightLayer, 0, 0);
+    ctx.restore();
+}
+const T_PAD = 20;
 
 // ---------------------------------------------------
 //   THE SILO SETS (2026-10-07)
@@ -1603,6 +1711,15 @@ function arcadeDrawHurt(now) {
 // container. All of it is MP.random(): every client builds the same sets.
 const SET_GAP = 130;              // a gap a body has to walk through
 const SET_CLEAR = 90;             // a freestanding prop's clearance to anything solid
+// The warehouse (silo 2): margins round the chain, and the racking.
+const WH_SIDE = 420;              // wall to the chain, each side: the racking bays
+const WH_TOP = 160;
+const WH_BOTTOM = 300;            // room for a row of racks and an aisle below the chain
+const RACK_D = 40;                // rack footprint depth
+const RACK_LIFT = 60;             // tall steel shelving
+const RACK_LEN = 160;             // a horizontal rack's length
+const RACK_PITCH = 150;           // column to column: 40 of rack, 110 of aisle
+const RACK_COLS = 2;
 const HEDGE_T = 24;               // hedge footprint thickness
 const HEDGE_LIFT = 18;
 const SET_CONTAINER_LIFT = 34;        // per box in a stack
@@ -1626,9 +1743,12 @@ function grow(r, m) {
 
 // A solid with a footprint `fh` deep at the bottom of rect r and `lift` of
 // height drawn above it. `r` is the WHOLE solid, so it goes straight into
-// walls[] as the collision box.
+// walls[] as the collision box. `footY` is the footprint's BOTTOM edge -- the
+// ground line. (It was treated as the footprint's top until 2026-10-07, which
+// put every hedge, container, rack and pallet one footprint too low: racks
+// stood through the warehouse's south wall.)
 function pushProp(kind, x, footY, w, fh, lift, extra) {
-    const r = { x: Math.round(x), y: Math.round(footY - lift), w: Math.round(w), h: Math.round(fh + lift),
+    const r = { x: Math.round(x), y: Math.round(footY - fh - lift), w: Math.round(w), h: Math.round(fh + lift),
                 setProp: true, fh: fh, lift: lift, kind: kind };
     if (extra) for (const k in extra) r[k] = extra[k];
     walls.push(r);
@@ -1667,24 +1787,25 @@ function buildSiloSets(clear) {
     arenaWarehouse = null;
     if (funnels.length < 3) return;
 
-    // ---- SILO 1: two hedge rings, gaps staggered so you zig-zag in, and
-    // container stacks outside.
+    // ---- SILO 1: two TIGHT hedge rings round the tank -- "localize hedges to
+    // just immediate vicinity around silo 1 with less sprawl" -- gaps
+    // staggered so you zig-zag in, and container stacks just outside.
     const c1 = siloCluster(0);
-    const inner = grow(c1, 70);
-    const outer = grow(c1, 70 + HEDGE_T + SET_GAP);
+    const inner = grow(c1, 36);
+    const outer = grow(c1, 36 + HEDGE_T + SET_GAP);
     hedgeRing(inner, { n: 0.72, s: 0.28, e: 0.5 });
     hedgeRing(outer, { n: 0.22, s: 0.78, e: 0.82, w: 0.3 });
     const outerGaps = [
         { x: outer.x + outer.w * 0.22, y: outer.y }, { x: outer.x + outer.w * 0.78, y: outer.y + outer.h },
         { x: outer.x + outer.w, y: outer.y + outer.h * 0.82 }, { x: outer.x, y: outer.y + outer.h * 0.3 }
     ];
+    // Rows above, below and to the west, far enough out to keep SET_CLEAR.
     const spots = [];
-    // A row above the rings and a row below, far enough out to keep SET_CLEAR
-    // from the hedges. (The west side is too close to the fence for any.)
     for (let i = 0; i < 10; i++) spots.push({ x: outer.x - 60 + i * (outer.w - 30) / 9, y: outer.y - 190, v: false });
     for (let i = 0; i < 10; i++) spots.push({ x: outer.x - 60 + i * (outer.w - 30) / 9, y: outer.y + outer.h + 160, v: false });
+    for (let i = 0; i < 5; i++) spots.push({ x: outer.x - 200, y: outer.y + 20 + i * (outer.h - 120) / 4, v: true });
     let placed = 0;
-    for (let i = 0; i < spots.length && placed < 8; i++) {
+    for (let i = 0; i < spots.length && placed < 9; i++) {
         if (MP.random() < 0.2) continue;
         const sp = spots[i];
         const w = sp.v ? 56 : 150, fh = sp.v ? 150 : 56;
@@ -1706,21 +1827,23 @@ function buildSiloSets(clear) {
     }
     clear.push(grow(outer, 40));
 
-    // ---- SILO 2: a warehouse round the funnel and the tank.
+    // ---- SILO 2: a BIG warehouse round the funnel and the tank, "more
+    // pallets on a grid, think warehouse storage racking". Tall steel racks
+    // stand in the two side bays (in columns, each split by the door band) and
+    // in a row below the chain, with aisles a body can use between them.
     const c2 = siloCluster(1);
-    const W = { x: c2.x - 210, y: c2.y - 90, w: c2.w + 420, h: c2.h + 250 };
+    const W = { x: c2.x - WH_SIDE, y: c2.y - WH_TOP, w: c2.w + WH_SIDE * 2, h: c2.h + WH_TOP + WH_BOTTOM };
     const T = WALL_T;
-    const doorY = W.y + W.h / 2 + 20, door = 170;
-    const windows = [];
+    const doorY = Math.round(W.y + W.h / 2), door = 190;
+    const windows = [], doors = [];
     // Top and bottom: wall, window, wall ... (windows are glass: solid, but
-    // they let the light in).
+    // they let the light in -- arcadeDrawLighting).
     const strip = function (y, dir) {
-        const pane = 80, pitch = 170;
+        const pane = 90, pitch = 190;
         let x = W.x;
-        for (let px = W.x + 80; px + pane < W.x + W.w - 60; px += pitch) {
+        for (let px = W.x + 90; px + pane < W.x + W.w - 70; px += pitch) {
             walls.push({ x: x, y: y, w: px - x, h: T, building: true });
-            const win = { x: px, y: y, w: pane, h: T, window: true, building: true };
-            walls.push(win);
+            walls.push({ x: px, y: y, w: pane, h: T, window: true, building: true });
             windows.push({ x: px, y: y, w: pane, h: T, dir: dir });
             x = px + pane;
         }
@@ -1728,63 +1851,58 @@ function buildSiloSets(clear) {
     };
     strip(W.y, 1);
     strip(W.y + W.h - T, -1);
-    // Left and right: one wide door each.
-    const side = function (x) {
+    const side = function (x, dir) {
         walls.push({ x: x, y: W.y + T, w: T, h: doorY - door / 2 - (W.y + T), building: true });
         walls.push({ x: x, y: doorY + door / 2, w: T, h: W.y + W.h - T - (doorY + door / 2), building: true });
+        doors.push({ x: x, y: doorY - door / 2, h: door, dir: dir });
     };
-    side(W.x);
-    side(W.x + W.w - T);
-    arenaWarehouse = { x: W.x, y: W.y, w: W.w, h: W.h, windows: windows };
-    // Pallet stacks in the two side bays (between the walls and the chain),
-    // 2 wide by 3 deep at each end, with the middle of each bay left clear
-    // for the door. 1-3 layers high.
-    const bays = [W.x + T + 12, W.x + W.w - T - 12 - PALLET * 2 - 14];
+    side(W.x, 1);
+    side(W.x + W.w - T, -1);
+    arenaWarehouse = { x: W.x, y: W.y, w: W.w, h: W.h, windows: windows, doors: doors };
+
+    // Racks in the side bays: vertical, RACK_D deep, columns RACK_PITCH apart,
+    // each column split round the door band.
+    const bandTop = doorY - door / 2 - 40, bandBot = doorY + door / 2 + 40;
+    const bays = [[W.x + T + 60, 1], [W.x + W.w - T - 60 - RACK_D, -1]];
     for (let b = 0; b < bays.length; b++) {
-        for (let end = 0; end < 2; end++) {
-            for (let gx = 0; gx < 2; gx++) {
-                for (let gy = 0; gy < 3; gy++) {
-                    if (MP.random() < 0.15) continue;
-                    const layers = 1 + Math.floor(MP.random() * 3);
-                    const lift = PALLET_LIFT * layers;
-                    const px = bays[b] + gx * (PALLET + 14);
-                    const footBottom = end === 0
-                        ? W.y + T + 14 + lift + PALLET + gy * (PALLET + 14)
-                        : W.y + W.h - T - 14 - gy * (PALLET + 14);
-                    const box = { x: px, y: footBottom - PALLET - lift, w: PALLET, h: PALLET + lift };
-                    if (Math.abs(box.y + box.h / 2 - doorY) < door / 2 + 20) continue;
-                    if (rectsOverlap(grow(box, 16), grow(c2, 24))) continue;
-                    if (clashesAnySolid(box, [])) continue;
-                    pushProp("pallet", px, footBottom, PALLET, PALLET, lift, { layers: layers });
-                }
-            }
+        for (let col = 0; col < RACK_COLS; col++) {
+            const x = bays[b][0] + bays[b][1] * col * RACK_PITCH;
+            // above the door band
+            const top0 = W.y + T + 30, top1 = bandTop;
+            if (top1 - top0 > 120) pushProp("rack", x, top1, RACK_D, top1 - top0 - RACK_LIFT, RACK_LIFT, { vertical: true, fill: MP.random() });
+            // below it
+            const bot0 = bandBot + RACK_LIFT, bot1 = W.y + W.h - T - 30;
+            if (bot1 - bot0 > 100) pushProp("rack", x, bot1, RACK_D, bot1 - bot0, RACK_LIFT, { vertical: true, fill: MP.random() });
         }
+    }
+    // A row of racks below the chain, with gaps to walk through.
+    const rowY = c2.y + c2.h + 70 + RACK_LIFT;            // footprint top
+    const rowX0 = c2.x - 40, rowX1 = c2.x + c2.w + 40;
+    for (let x = rowX0; x + RACK_LEN <= rowX1; x += RACK_LEN + SET_GAP) {
+        pushProp("rack", x, rowY + RACK_D, RACK_LEN, RACK_D, RACK_LIFT, { vertical: false, fill: MP.random() });
     }
     clear.push(grow(W, 40));
 
-    // ---- SILO 3: a dense, untidy forest you have to walk through.
+    // ---- SILO 3: a dense, untidy forest -- "add more, and denser trees" --
+    // of small trees, mostly on the side you arrive from, so the last tank is
+    // reached THROUGH it. 44px canopies 80px apart: still over the 78px a
+    // brute needs.
     const c3 = siloCluster(2);
     const fits = function (r) {
         if (!inArenaRect(r)) return false;
         for (let i = 0; i < clear.length; i++) if (rectsOverlap(r, clear[i])) return false;
         return true;
     };
-    // Smaller trees, closer together than the open terrain's (48px canopy,
-    // 80px apart -- still over the 78px a brute needs), and most of them on
-    // the side you arrive from, so the last tank is reached THROUGH the
-    // forest rather than round it.
-    const fx0 = c3.x - 480, fx1 = c3.x + c3.w + 220;
-    const fy0 = c3.y - 400, fy1 = c3.y + c3.h + 400;
-    for (let i = 0; i < 320; i++) {
+    const fx0 = c3.x - 700, fx1 = c3.x + c3.w + 300;
+    const fy0 = c3.y - 560, fy1 = c3.y + c3.h + 560;
+    for (let i = 0; i < 600; i++) {
         const x = fx0 + MP.random() * (fx1 - fx0);
         const y = fy0 + MP.random() * (fy1 - fy0);
         if (rectsOverlap({ x: x - 30, y: y - 30, w: 60, h: 60 }, grow(c3, 50))) continue;
-        arenaPlaceTree(x, y, fits, 48, 80);
+        arenaPlaceTree(x, y, fits, 44, 80);
     }
-    for (let i = 0; i < 50; i++) {
-        const a = MP.random() * Math.PI * 2, d = 40 + MP.random() * 420;
-        arenaAddBush(c3.x + c3.w / 2 + Math.cos(a) * (c3.w / 2 + d), c3.y + c3.h / 2 + Math.sin(a) * (c3.h / 2 + d),
-                     6 + MP.random() * 8, fits);
+    for (let i = 0; i < 90; i++) {
+        arenaAddBush(fx0 + MP.random() * (fx1 - fx0), fy0 + MP.random() * (fy1 - fy0), 6 + MP.random() * 8, fits);
     }
 }
 
@@ -1838,6 +1956,35 @@ function drawSetProp(r) {
         if (r.levels > 1) { ctx.fillStyle = "#000000"; ctx.fillRect(r.x, faceY + SET_CONTAINER_LIFT, r.w, 2); }
         ctx.fillStyle = "rgba(255,255,255,0.12)";
         ctx.fillRect(r.x + 4, fy - r.lift + 4, r.w - 8, 3);
+    } else if (r.kind === "rack") {
+        drawBlock(r, "#3A3E44", "#24272C", "#111316");
+        const faceY = fy + r.fh - r.lift;
+        // Uprights on the front face, and the shelf beam halfway up.
+        ctx.fillStyle = "#C8641E";
+        const step = r.vertical ? r.w : 50;
+        for (let x = r.x; x <= r.x + r.w - 4; x += step) ctx.fillRect(x, faceY, 4, r.lift);
+        ctx.fillRect(r.x + r.w - 4, faceY, 4, r.lift);
+        ctx.fillStyle = "#E07A28";
+        ctx.fillRect(r.x, faceY + Math.round(r.lift * 0.5), r.w, 3);
+        // Pallets on the top shelf, on a grid along the rack's length. Which
+        // bays are empty comes from the rack's own seeded `fill`.
+        const len = r.vertical ? r.fh : r.w;
+        const n = Math.floor(len / 46);
+        for (let i = 0; i < n; i++) {
+            if (((i * 7 + Math.floor(r.fill * 13)) % 5) === 0) continue;
+            const bx = r.vertical ? r.x + 5 : r.x + 6 + i * 46;
+            const by = r.vertical ? fy - r.lift + 6 + i * 46 : fy - r.lift + 5;
+            const bw = r.vertical ? r.w - 10 : 38, bh = r.vertical ? 38 : r.fh - 10;
+            ctx.fillStyle = "#8A6A3A";
+            ctx.fillRect(bx, by, bw, bh);
+            ctx.fillStyle = "#A8864E";
+            ctx.fillRect(bx + 2, by + 2, bw - 4, 3);
+            ctx.fillStyle = "#5A4222";
+            ctx.fillRect(bx, by + bh - 3, bw, 3);
+        }
+        // Pallets showing on the lower shelf through the front face.
+        ctx.fillStyle = "#6E5230";
+        if (!r.vertical) for (let x = r.x + 8; x < r.x + r.w - 30; x += 46) ctx.fillRect(x, faceY + Math.round(r.lift * 0.5) + 5, 32, Math.round(r.lift * 0.5) - 8);
     } else if (r.kind === "pallet") {
         drawBlock(r, "#8A6A3A", "#5A4222", "#2A1E10");
         ctx.fillStyle = "#3A2A16";
@@ -1882,7 +2029,7 @@ function arcadeDrawLight() {
     ctx.save();
     applyCameraTransform();
     ctx.globalCompositeOperation = "lighter";
-    ctx.fillStyle = "rgba(255,236,180,0.10)";
+    ctx.fillStyle = "rgba(255,236,180,0.05)";
     for (let i = 0; i < W.windows.length; i++) {
         const w = W.windows[i];
         const y0 = w.dir > 0 ? w.y + w.h : w.y;

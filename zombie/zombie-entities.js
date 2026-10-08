@@ -192,10 +192,14 @@ const CARDS = {
     laststand: { name: "LAST STAND", cost: 9500,  blurb: "SHOOT WHILE DOWNED",
                  detail: "x1: fire the pistol while down. x2: fire any gun. x3: crawl 60% faster and bleed out 50% slower." },
     salvage:   { name: "SALVAGE",    cost: 10000, blurb: "KILLS REFUND AMMO",
-                 detail: "30% / 45% / 60% of kills refund a round to the gun in your hands. Less for the sniper and rockets." }
+                 detail: "30% / 45% / 60% of kills refund a round to the gun in your hands. Less for the sniper and rockets." },
+    // ARCADE (2026-10-07): drops only, never sold.
+    attract:   { name: "ATTRACT",    cost: 9000,  blurb: "LONGER PICKUP REACH",
+                 detail: "You take drops from 50 / 90 / 130 px away." }
 };
+// APPEND-ONLY: the index is the wire value for an arcade perk drop.
 const CARD_KEYS = ["overdrive", "scavenger", "ricochet", "decoy", "spite", "conductor",
-                   "arc", "blastcap", "skewer", "laststand", "salvage"];
+                   "arc", "blastcap", "skewer", "laststand", "salvage", "attract"];
 
 // Always on the map. It was requested by name, and with the old 4-of-6
 // station draw it was missing from a third of maps -- which is exactly what

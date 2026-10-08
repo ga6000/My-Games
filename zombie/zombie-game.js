@@ -225,7 +225,8 @@ const AMBIENT_BLACKOUT_ADD = 0.26;
 
 function ambientDarkness() {
     let a = generatorOn ? AMBIENT_LIT : AMBIENT_DARK;
-    if (isBlackoutRound(round) && roundPhase === "active") a += AMBIENT_BLACKOUT_ADD;
+    // ARCADE: no Blackouts ("remove black out", 2026-10-07).
+    if (!ZOMBIE_ARCADE && isBlackoutRound(round) && roundPhase === "active") a += AMBIENT_BLACKOUT_ADD;
     return Math.min(0.9, a);
 }
 
@@ -441,7 +442,13 @@ function engineerInGame() {
     return false;
 }
 
+// ARCADE: a flat 1.5s ("shorter revive time", 2026-10-07). The escalation
+// below resets with each round, and the arcade has no rounds, so it climbed
+// to its 6s cap and stayed there for the whole run.
+const ARC_REVIVE_MS = 1500;
+
 function reviveMsRequired() {
+    if (ZOMBIE_ARCADE) return ARC_REVIVE_MS;
     // Escalating cost (idea 2): 3s, 4.5s, 6s within a round.
     return Math.min(6000, 3000 * (1 + 0.5 * revivesThisRound));
 }

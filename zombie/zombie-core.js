@@ -129,7 +129,9 @@ let zLastDraw = 0;
 const ZOMBIE_ARCADE = true;
 // The arcade's fenced play area, centred where players start
 // (zombie-arcade.js, "THE ARENA"). The camera stays inside it.
-const ARENA = { x: Math.round(WORLD_W / 2 - 1200), y: Math.round(WORLD_H / 2 - 700), w: 2400, h: 1400 };
+// 2400x1400 until 2026-10-07, then a third bigger on each side, to push the
+// three silo sets apart: "increase map size 33% to accommodate".
+const ARENA = { x: Math.round(WORLD_W / 2 - 1600), y: Math.round(WORLD_H / 2 - 930), w: 3200, h: 1860 };
 const ARENA_CAM_PAD = 180;         // the fence, and the exit pocket behind the gate
 
 function trackTimeout(fn, ms) {

@@ -352,7 +352,7 @@ MP.connect({
         // "THE ONE-HIT BUFFER"); the bump and the red happen here.
         if (msg.k === "hit") {
             const hp = localPlayerByNetId(msg.id);
-            if (hp && ZOMBIE_ARCADE) arcadeApplyHit(hp, msg.dx || 0, msg.dy || 0, now);
+            if (hp && ZOMBIE_ARCADE) arcadeApplyHit(hp, msg.dx || 0, msg.dy || 0, now, msg.l || 1);
             return;
         }
 

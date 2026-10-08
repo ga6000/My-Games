@@ -61,6 +61,52 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Two-step wounds, light, a bigger arena, racking (2026-10-07, later)
+
+- **The hit buffer is two steps now** (`ARC_HIT_STEPS` = 2). Hit 1 gives a faint red edge; hit 2
+  gives a strong pulsing red edge; hit 3 downs you. Each hit is followed by **1.2s untouchable**
+  (was 0.5s), and every 6s without a hit heals a step (`woundLevel`).
+  - **No words**: the "WOUNDED — NEXT HIT DOWNS YOU" caption is gone, on request ("favor more of
+    a learn-through-experience type model rather than explaining"). The red is the explanation.
+  - In the same spirit, the beacon reads only "TANK 1  3/10", "TANK 1  [F]" or "EXIT", and a
+    refused perk only "SLOTS FULL".
+  - `ARC_HIT_BUFFER = false` still restores the one-touch down exactly. The `hit` relay message
+    carries the new level (`l`).
+- **Revive is a flat 1.5s** (`ARC_REVIVE_MS`). The old escalation resets per round, and the arcade
+  has no rounds, so it had climbed to its 6s cap and stayed there all run.
+- **Blackouts are off** in the arcade: no darkening, no monochrome, no card.
+- **The ping is off** (`pingFrom` returns), and **DECOY** is out of the drop pool with it.
+  **ATTRACT** is in: a new perk (`CARDS.attract`, `CARD_KEYS` index 11, appended; a magnet icon)
+  that takes drops from 50 / 90 / 130px away (`ATTRACT_REACH`).
+- **Drops +25% again**: 9.4% a kill, guaranteed within 16, up to 10 live.
+- **The arena is a third bigger on each side: 3200×1860.** Tanks sit at centre-left −1150,
+  top-middle −600 and centre-right +1100, so the three sets have room. The open terrain scales
+  with it: 11 patches, 50 scattered trees, 68 bushes.
+- **Light** (`arcadeDrawLighting`, replacing `drawLighting` in the arcade): a darkness layer on
+  its own offscreen canvas. It is a light 0.12 outdoors and a deep 0.74 in the warehouse. Window
+  shafts, the two door openings and the player's own light (the same four flat bands) are cut OUT
+  of that layer with destination-out, then it is laid over the frame. destination-out is safe
+  here because the layer holds only darkness; `drawLighting`'s warning is about the main canvas.
+- **The sets, reworked:**
+  - **Tank 1:** both hedge rings pulled in tight (36px and 190px out, was 70 / 224), and containers
+    in rows just outside them, 5–6 a map.
+  - **Tank 2:** a **big warehouse** (`WH_SIDE` 420 each side, 160 above, 300 below) with **storage
+    racking**: steel racks 60 high with orange uprights and pallets on the shelves, in two columns
+    per side bay (split round the door band) and a row below the tank, with aisles over the 78px a
+    brute needs. 10 racks and 12 windows.
+  - **Tank 3:** a **thicker forest** of 44px trees 80px apart, about 30 within 800px of the tank
+    (was ~15).
+- **A real bug fixed:** `pushProp` read `footY` as the footprint's TOP while every caller passed its
+  BOTTOM, so every hedge, container, rack and pallet sat one footprint too low (racks stood through
+  the warehouse's south wall). Fixed, then re-measured.
+- **Measured over 12 seeds:** every tank, switch strip and the gate are reachable on both nav
+  grids, with 0% of arena cells unreachable (one seed: 0.017% on the tight grid).
+  38–48 trees a map.
+- **Verified in the page:** hit 1 → level 1, a touch at 0.8s is ignored, hit 2 → level 2, hit 3
+  downs, healed to 0 after 6s. Revive 1.5s. ATTRACT x2 took a drop 80px away. The ping does
+  nothing. Frames were captured of the overview, warehouse, tank 1, tank 3 and the red edge. No
+  console errors.
+
 ### The one-hit buffer and the silo sets (2026-10-07)
 
 - **The one-hit buffer** (`zombie-arcade.js` "THE ONE-HIT BUFFER"). **Flip `ARC_HIT_BUFFER` to
@@ -2511,4 +2557,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 5010e457 | 2026-10-07 -->
+<!-- doc-sync: 0063f6a9 | 2026-10-07 -->
