@@ -130,8 +130,22 @@ const ZOMBIE_ARCADE = true;
 // The arcade's fenced play area, centred where players start
 // (zombie-arcade.js, "THE ARENA"). The camera stays inside it.
 // 2400x1400 until 2026-10-07, then a third bigger on each side, to push the
-// three silo sets apart: "increase map size 33% to accommodate".
-const ARENA = { x: Math.round(WORLD_W / 2 - 1600), y: Math.round(WORLD_H / 2 - 930), w: 3200, h: 1860 };
+// three silo sets apart: "increase map size 33% to accommodate" (3200x1860).
+// Then (2026-10-07, later): "keep everything where it is now, but add an
+// extra 25% buffer to the outer left, top, and right of map" -- 25% of that
+// width on each side and 25% of that height on top; the south wall, and the
+// gate in it, do not move. Everything in the chain is laid out from the WORLD
+// centre (where players start), not from this rect's centre, which is now
+// off-centre by the top buffer.
+const ARENA_CORE_W = 3200, ARENA_CORE_H = 1860;
+const ARENA_BUFFER_X = Math.round(ARENA_CORE_W * 0.25);   // 800, left and right
+const ARENA_BUFFER_TOP = Math.round(ARENA_CORE_H * 0.25); // 465
+const ARENA = {
+    x: Math.round(WORLD_W / 2 - ARENA_CORE_W / 2 - ARENA_BUFFER_X),
+    y: Math.round(WORLD_H / 2 - ARENA_CORE_H / 2 - ARENA_BUFFER_TOP),
+    w: ARENA_CORE_W + ARENA_BUFFER_X * 2,
+    h: ARENA_CORE_H + ARENA_BUFFER_TOP
+};
 const ARENA_CAM_PAD = 180;         // the fence, and the exit pocket behind the gate
 
 function trackTimeout(fn, ms) {

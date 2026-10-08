@@ -783,9 +783,17 @@ function showWinCard() {
     const aboard = wonOnTrain(netIdFor(players[0]));
     if (uiWinHead) uiWinHead.innerText = aboard ? "YOU GOT OUT." : (ZOMBIE_ARCADE ? "THEY GOT OUT." : "THE TRAIN LEFT.");
     if (uiWinSub) {
-        uiWinSub.innerHTML = aboard
-            ? 'ESCAPED ON ROUND <span id="winRound">' + round + '</span>'
-            : (ZOMBIE_ARCADE ? 'YOU WERE LEFT BEHIND — LEVEL ' : 'YOU WERE NOT ON IT — ROUND ') + round;
+        // ARCADE: the run is measured in TIME, not rounds (2026-10-07: "it
+        // should say 'escaped at 4:00' or whatever the time is").
+        if (ZOMBIE_ARCADE) {
+            const t = Math.floor(arcadeElapsedS(winSeqAt || Date.now()));
+            const clock = Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+            uiWinSub.innerHTML = (aboard ? "ESCAPED AT " : "LEFT BEHIND AT ") + clock;
+        } else {
+            uiWinSub.innerHTML = aboard
+                ? 'ESCAPED ON ROUND <span id="winRound">' + round + '</span>'
+                : 'YOU WERE NOT ON IT — ROUND ' + round;
+        }
     }
     // NOT uiWinRound any more: rewriting uiWinSub's innerHTML replaces the
     // #winRound span, so the cached reference points at a detached node. The
@@ -2406,7 +2414,8 @@ function updateZombies(now, dt) {
         // Contact still tests the PLAYER, never the waypoint.
         if (rectIntersect(target.x, target.y, target.size, target.size, z.x, z.y, z.size, z.size)) {
             // ARCADE: the one-hit buffer (ARC_HIT_BUFFER) may absorb this touch.
-            if (!target.downed && !(ZOMBIE_ARCADE && arcadeAbsorbHit(target, z, now))) downPlayer(target, now);
+            // Nothing hurts anyone once the run is won (2026-10-07).
+            if (!target.downed && !won && !(ZOMBIE_ARCADE && arcadeAbsorbHit(target, z, now))) downPlayer(target, now);
         }
     }
     if (ZOMBIE_ARCADE) separateZombies();

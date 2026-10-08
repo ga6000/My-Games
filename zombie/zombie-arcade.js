@@ -553,7 +553,10 @@ const ARENA_CLEAR = 150;          // nothing solid this close to the chain
 
 function buildArcadeArena() {
     const A = ARENA;
-    const cx = A.x + A.w / 2, cy = A.y + A.h / 2;
+    // The chain hangs off the WORLD centre (the spawn), not the arena's
+    // centre: the arena grew asymmetrically (a top buffer) on 2026-10-07 and
+    // nothing in it was to move.
+    const cx = WORLD_W / 2, cy = WORLD_H / 2;
 
     // The chain first: everything else is tested against it.
     funnelHalls = [];
@@ -927,7 +930,7 @@ function arcadeRenderSideGoals() {
 const TREE_TRUNK = 40;           // the whole footprint is solid, not just a trunk
 const TREE_CANOPY = 64;
 const TREE_GAP = 90;              // edge to edge between whole trees; over the 78px a brute needs
-const ARENA_PATCHES = 11;          // 6 -> 8 ("more patches"), -> 11 with the bigger arena
+const ARENA_PATCHES = 20;          // 6 -> 8 ("more patches") -> 11 (+33%) -> 20 (the buffer: same density)
 let arenaBushes = [];             // {x, y, r, shade} -- drawn only
 let arenaTrees = [];              // the same rects as the tree walls, for drawing
 
@@ -986,10 +989,10 @@ function plantArenaTerrain(fits) {
         }
     }
     // The sparse scatter between them.
-    for (let i = 0; i < 50; i++) {          // +10% (2026-10-04), scaled with the arena (2026-10-07)
+    for (let i = 0; i < 94; i++) {          // +10% (2026-10-04), scaled with the arena twice (2026-10-07)
         tryTree(A.x + 80 + MP.random() * (A.w - 160), A.y + 80 + MP.random() * (A.h - 160));
     }
-    for (let i = 0; i < 68; i++) {          // +10%, then scaled with the arena
+    for (let i = 0; i < 128; i++) {         // +10%, then scaled with the arena twice
         addBush(A.x + 60 + MP.random() * (A.w - 120), A.y + 60 + MP.random() * (A.h - 120), 5 + MP.random() * 7);
     }
 }
@@ -1132,7 +1135,7 @@ function arcadeFitScale() {
 
 // [start ms, end ms, where, zoom ('fit' | 'near'), caption]
 function arcadeIntroShots() {
-    const c = { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };
+    const c = { x: ARENA.x + ARENA.w / 2, y: ARENA.y + ARENA.h / 2 };      // the whole arena, for the wide shot
     const me = players[0] ? { x: players[0].x + 8, y: players[0].y + 8 } : c;
     const f = function (k) { return funnels[k] ? { x: funnels[k].x + 60, y: funnels[k].y } : c; };
     const gate = escapeRect ? { x: escapeRect.x + escapeRect.w / 2, y: escapeRect.y - 60 } : c;

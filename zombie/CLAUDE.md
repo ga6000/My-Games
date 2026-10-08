@@ -61,6 +61,27 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### The arena's outer buffer, the win card, six perks (2026-10-07, last)
+
+- **25% more room on the left, top and right**, and nothing in the chain moved.
+  - `ARENA` is now `ARENA_CORE_W`×`ARENA_CORE_H` (3200×1860) plus `ARENA_BUFFER_X` (800) on each
+    side and `ARENA_BUFFER_TOP` (465) on top: 4800×2325 at (400, 355). The south wall and the gate
+    are unchanged.
+  - **The chain is laid out from the WORLD centre, not the arena's** (`buildArcadeArena`'s
+    `cx, cy`), because the top buffer moved the arena's centre. Verified: tanks at (1650,1750),
+    (2800,1150), (3900,1750), and the gate line at y 2660, exactly as before.
+  - The open terrain was re-scattered over the larger area at the same density (20 patches, 94
+    scattered trees, 128 bushes, about 80–90 trees a map). The west container row at tank 1 now has
+    room, so there are 7–9 containers.
+- **The win card gives the run's time**: "ESCAPED AT 3:12", or "LEFT BEHIND AT 3:12", from
+  `arcadeElapsedS(winSeqAt)`, never a round.
+- **Nothing hurts anyone once the run is won**: the contact test skips `won`.
+- **Six perk slots** in the arcade (`CARD_SLOTS`), on request ("allow for stacking up to 6 perks").
+  Read as six different perks held at once; each perk's own stack still tops out at x3, because
+  every per-stack table is written to x3.
+- Measured over 12 seeds: every tank, switch strip and the gate are reachable on both nav grids
+  (0%; one seed at 0.008% on the tight grid).
+
 ### Two-step wounds, light, a bigger arena, racking (2026-10-07, later)
 
 - **The hit buffer is two steps now** (`ARC_HIT_STEPS` = 2). Hit 1 gives a faint red edge; hit 2
@@ -2557,4 +2578,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 0063f6a9 | 2026-10-07 -->
+<!-- doc-sync: b5ec86fe | 2026-10-07 -->
