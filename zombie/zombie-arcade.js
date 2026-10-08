@@ -65,6 +65,7 @@ function arcadeStart(now) {
     arcSpawnDebt = 0;
     arcDiedAt = 0;
     arcDropSeq = 0;
+    arcHitState = {};
     // The run's clock starts when the intro ends (arcadeBeginIntro).
     startTime = now + ARC_INTRO_MS;
     arcKillsSinceDrop = 0;
@@ -625,6 +626,10 @@ function buildArcadeArena() {
     }
     walls = keepWalls;
     escapeOpening = { x: Math.round(x0), y: wallY, w: Math.round(x1 - x0), h: ARC_GATE_H };
+    // The silo sets first (they claim their ground), then the open terrain.
+    arenaTrees = [];
+    arenaBushes = [];
+    buildSiloSets(clear);
     plantArenaTerrain(fits);
 
     if (typeof zfKeepPatches === "function") {
@@ -771,7 +776,8 @@ function buildSideStatic() {
     for (let i = 0; i < walls.length; i++) {
         const wl = walls[i];
         if (wl.perim || wl.column || wl.silo || wl.gateBar) continue;
-        g.fillStyle = wl.tree ? "#2E5A22" : "#4A4A4A";
+        g.fillStyle = (wl.tree || wl.kind === "hedge") ? "#2E5A22"
+                    : wl.kind === "container" ? wl.hue[0] : wl.kind === "pallet" ? "#7A5A30" : "#4A4A4A";
         const m = wl.tree ? 3 : 0;
         g.fillRect((wl.x - ARENA.x) * k - m, (wl.y - ARENA.y) * k - m, Math.max(2, wl.w * k) + m * 2, Math.max(2, wl.h * k) + m * 2);
     }
@@ -921,18 +927,18 @@ const ARENA_PATCHES = 8;           // was 6: "more patches" (2026-10-04)
 let arenaBushes = [];             // {x, y, r, shade} -- drawn only
 let arenaTrees = [];              // the same rects as the tree walls, for drawing
 
-function plantArenaTerrain(fits) {
-    arenaBushes = [];
-    arenaTrees = [];
-    const A = ARENA;
-    // A TREE IS SOLID OVER ITS WHOLE DRAWN SHAPE -- trunk, canopy and all --
-    // so nothing can stand "behind" one and be hidden by it (2026-10-04:
-    // "silos and trees should be FULLY collidable, this way zombies can't
-    // hide behind trees"). (x, y) is the footprint's centre on the ground.
-    const tryTree = function (x, y) {
+// A TREE IS SOLID OVER ITS WHOLE DRAWN SHAPE -- trunk, canopy and all --
+// so nothing can stand "behind" one and be hidden by it (2026-10-04:
+// "silos and trees should be FULLY collidable, this way zombies can't hide
+// behind trees"). (x, y) is the footprint's centre on the ground. Shared by
+// the general terrain and the silo sets (buildSiloSets).
+function arenaPlaceTree(x, y, fits, canopy, gap) {
+    {
+        const cw = canopy || TREE_CANOPY;
+        const minGap = gap || TREE_GAP;
         const bottom = Math.round(y + TREE_TRUNK / 2);
-        const tall = treeFullHeight();
-        const r = { x: Math.round(x - TREE_CANOPY / 2), y: bottom - tall, w: TREE_CANOPY, h: tall };
+        const tall = treeFullHeight(cw);
+        const r = { x: Math.round(x - cw / 2), y: bottom - tall, w: cw, h: tall };
         const pad = { x: r.x - 30, y: r.y - 30, w: r.w + 60, h: r.h + 60 };
         if (!fits(pad)) return false;
         for (let i = 0; i < walls.length; i++) {
@@ -940,17 +946,26 @@ function plantArenaTerrain(fits) {
             if (w.perim || w.column) continue;
             const dx = Math.max(0, Math.max(w.x - (r.x + r.w), r.x - (w.x + w.w)));
             const dy = Math.max(0, Math.max(w.y - (r.y + r.h), r.y - (w.y + w.h)));
-            if (Math.hypot(dx, dy) < TREE_GAP) return false;
+            if (Math.hypot(dx, dy) < minGap) return false;
         }
-        const t = { x: r.x, y: r.y, w: r.w, h: r.h, trunk: true, tree: true, shade: MP.random() };
+        const t = { x: r.x, y: r.y, w: r.w, h: r.h, trunk: true, tree: true, cw: cw, shade: MP.random() };
         walls.push(t);
         arenaTrees.push(t);
         return true;
-    };
-    const addBush = function (x, y, rad) {
-        if (!fits({ x: x - rad, y: y - rad, w: rad * 2, h: rad * 2 })) return;
-        arenaBushes.push({ x: Math.round(x), y: Math.round(y), r: Math.round(rad), shade: MP.random() });
-    };
+    }
+}
+
+function arenaAddBush(x, y, rad, fits) {
+    if (!fits({ x: x - rad, y: y - rad, w: rad * 2, h: rad * 2 })) return;
+    arenaBushes.push({ x: Math.round(x), y: Math.round(y), r: Math.round(rad), shade: MP.random() });
+}
+
+// The open patches and the scatter. arenaTrees / arenaBushes are reset by
+// buildArcadeArena, because the silo sets plant first.
+function plantArenaTerrain(fits) {
+    const A = ARENA;
+    const tryTree = function (x, y) { return arenaPlaceTree(x, y, fits); };
+    const addBush = function (x, y, rad) { arenaAddBush(x, y, rad, fits); };
 
     // Dense patches.
     for (let p = 0; p < ARENA_PATCHES; p++) {
@@ -1016,6 +1031,7 @@ function arcadeDrawGround(vr) {
     ctx.fillStyle = arenaGrassPattern;
     ctx.fillRect(ARENA.x, ARENA.y, ARENA.w, ARENA.h);
     ctx.restore();
+    arcadeDrawSetFloors();
 }
 
 // Lighter and yellower than the canopies, and a third their size, so a
@@ -1217,8 +1233,8 @@ const SILO_LIFT = 96;
 const TREE_LIFT = 30;
 
 // Ground to the top of the canopy's crown, as drawTallTree draws it.
-function treeFullHeight() {
-    return TREE_LIFT + Math.round(TREE_CANOPY * 0.8) + 8;
+function treeFullHeight(cw) {
+    return TREE_LIFT + Math.round((cw || TREE_CANOPY) * 0.8) + 8;
 }
 
 // A grey bowl: rings stepping darker and slightly DOWN toward the middle (the
@@ -1367,7 +1383,7 @@ function drawTallTree(t) {
     // `t` is the whole solid shape; the footprint is its bottom edge.
     const cx = t.x + t.w / 2;
     const lift = TREE_LIFT;
-    const cw = TREE_CANOPY, ch = Math.round(TREE_CANOPY * 0.8);
+    const cw = t.cw || TREE_CANOPY, ch = Math.round(cw * 0.8);
     // Shadow on the ground under the footprint.
     ctx.fillStyle = "rgba(0,0,0,0.42)";
     ctx.fillRect(Math.round(cx - TREE_TRUNK / 2) + 6, t.y + t.h - TREE_TRUNK + 6, TREE_TRUNK, TREE_TRUNK);
@@ -1391,7 +1407,7 @@ function arcadeDrawTall(now, inView) {
     const list = [];
     for (let i = 0; i < arenaTrees.length; i++) {
         const t = arenaTrees[i];
-        if (inView(t.x - TREE_CANOPY, t.y - TREE_LIFT - TREE_CANOPY, t.w + TREE_CANOPY * 2, t.h + TREE_LIFT + TREE_CANOPY)) {
+        if (inView(t.x - 20, t.y - 20, t.w + 40, t.h + 40)) {
             list.push({ y: t.y + t.h, tree: t });
         }
     }
@@ -1399,9 +1415,15 @@ function arcadeDrawTall(now, inView) {
         const s = silos[i];
         if (s && inView(s.x, s.y - SILO_LIFT, s.w, s.h + SILO_LIFT + 20)) list.push({ y: s.y + s.h, silo: i });
     }
+    for (let i = 0; i < arenaProps.length; i++) {
+        const r = arenaProps[i];
+        if (inView(r.x - 8, r.y - 8, r.w + 16, r.h + 16)) list.push({ y: r.y + r.h, prop: r });
+    }
+    arcadeDrawWindows();
     list.sort(function (a, b) { return a.y - b.y; });
     for (let i = 0; i < list.length; i++) {
         if (list[i].tree) drawTallTree(list[i].tree);
+        else if (list[i].prop) drawSetProp(list[i].prop);
         else drawTallSilo(list[i].silo, silos[list[i].silo], now);
     }
 }
@@ -1433,7 +1455,7 @@ function cabCondition() {
             if (Math.hypot(zombies[i].x - me.x, zombies[i].y - me.y) < 260) near++;
         }
     }
-    if (near >= 6 || zombies.length >= cap * 0.8 || (me && me.downed)) return "RED";
+    if (near >= 6 || zombies.length >= cap * 0.8 || (me && me.downed) || arcadeWounded(me, Date.now())) return "RED";
     if (near >= 2 || zombies.length >= cap * 0.4) return "YELLOW";
     return "GREEN";
 }
@@ -1464,4 +1486,414 @@ function arcadeUpdateCabinet() {
         for (let i = 0; i < all.length; i++) html += "<span class='life" + (all[i].downed ? " down" : "") + "'></span>";
         l.innerHTML = html;
     }
+}
+
+// ---------------------------------------------------
+//   THE ONE-HIT BUFFER (2026-10-07)
+// ---------------------------------------------------
+// "Add a one-hit buffer, a bump back, screen red with 0.5s invulnerability.
+// 5s red screen then 1s cooldown -- the one hit kill I'm realizing is a
+// little bit unforgiving. If playtesting shows this is making it too easy I
+// want to retain the possibility to easily flip this off."
+//
+// THE SWITCH IS ARC_HIT_BUFFER. false puts the old one-touch down back,
+// exactly: arcadeAbsorbHit() is the only thing it gates.
+//
+//   hit             bumped back, screen flashes red, 0.5s untouchable
+//   0.5s - 5s       WOUNDED: the screen stays red; a second hit downs you
+//   5s - 6s         the red is gone; one more second before the buffer is back
+//   6s on           the next touch is absorbed again
+//
+// HOST-DECIDED, like every down: contact is resolved where the zombies are
+// simulated. The host keeps one record per player (arcHitState) and tells a
+// guest it was hit (`hit` over relay); the BUMP and the red are applied by
+// the hit player's own client, because only that client moves its player.
+const ARC_HIT_BUFFER = true;
+const ARC_HIT_INVULN_MS = 500;
+const ARC_HIT_WOUND_MS = 5000;
+const ARC_HIT_RECHARGE_MS = 1000;
+const ARC_KNOCK_MS = 160;
+const ARC_KNOCK_SPEED = 7;        // px per step while the bump lasts (~110px)
+let arcHitState = {};             // HOST: netId -> when its buffer was last spent
+
+// HOST, from the contact test in updateZombies. True = absorbed, so do not
+// down the player. False = down them as before.
+function arcadeAbsorbHit(target, z, now) {
+    if (!ARC_HIT_BUFFER) return false;
+    const st = arcHitState[target.id];
+    if (st && now - st < ARC_HIT_INVULN_MS) return true;              // untouchable
+    if (st && now - st < ARC_HIT_WOUND_MS + ARC_HIT_RECHARGE_MS) {    // wounded: this one counts
+        delete arcHitState[target.id];                                // a fresh buffer next life
+        return false;
+    }
+    arcHitState[target.id] = now;
+    const dx = (target.x + (target.size || 16) / 2) - (z.x + z.size / 2);
+    const dy = (target.y + (target.size || 16) / 2) - (z.y + z.size / 2);
+    const d = Math.hypot(dx, dy) || 1;
+    if (target.local) arcadeApplyHit(target.ref, dx / d, dy / d, now);
+    else if (netOnline) MP.send({ k: "hit", id: target.id, dx: +(dx / d).toFixed(3), dy: +(dy / d).toFixed(3) });
+    shakeNear(target.x, target.y, 6);
+    return true;
+}
+
+// The hit player's own client: the bump, the red, the half-second.
+function arcadeApplyHit(p, ux, uy, now) {
+    p.invulnUntil = Math.max(p.invulnUntil || 0, now + ARC_HIT_INVULN_MS);
+    p.hurtAt = now;
+    p.knockUntil = now + ARC_KNOCK_MS;
+    p.kvx = ux * ARC_KNOCK_SPEED;
+    p.kvy = uy * ARC_KNOCK_SPEED;
+    addShake(8);
+    localEvent(SND_DOWN, p.x, p.y);
+}
+
+// From updatePlayers, before the player's own movement.
+function arcadeKnock(p, now) {
+    if (!p.knockUntil || now >= p.knockUntil) return;
+    moveWithCollisions(p, p.kvx, p.kvy, true, false);
+}
+
+function arcadeWounded(p, now) {
+    return !!(p && p.hurtAt && now - p.hurtAt < ARC_HIT_WOUND_MS);
+}
+
+// Screen space, after the lighting: a flash, then a red frame while wounded.
+function arcadeDrawHurt(now) {
+    const p = players[0];
+    if (!p || !p.hurtAt || p.downed) return;
+    const t = now - p.hurtAt;
+    if (t >= ARC_HIT_WOUND_MS) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (t < ARC_HIT_INVULN_MS) {
+        ctx.fillStyle = "rgba(255,0,20," + (0.45 * (1 - t / ARC_HIT_INVULN_MS) + 0.15).toFixed(3) + ")";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    // The frame: thick red edges, pulsing faster as the wound runs out.
+    const pulse = 0.5 + 0.5 * Math.sin(now / (t > 3500 ? 90 : 180));
+    const a = 0.22 + 0.2 * pulse;
+    const b = Math.round(Math.min(canvas.width, canvas.height) * 0.07);
+    ctx.fillStyle = "rgba(255,0,20," + a.toFixed(3) + ")";
+    ctx.fillRect(0, 0, canvas.width, b);
+    ctx.fillRect(0, canvas.height - b, canvas.width, b);
+    ctx.fillRect(0, b, b, canvas.height - b * 2);
+    ctx.fillRect(canvas.width - b, b, b, canvas.height - b * 2);
+    ctx.fillStyle = "#FF2233";
+    ctx.font = "bold 16px Courier";
+    ctx.textAlign = "center";
+    ctx.fillText("WOUNDED — NEXT HIT DOWNS YOU", canvas.width / 2, b + 22);
+    ctx.restore();
+}
+
+// ---------------------------------------------------
+//   THE SILO SETS (2026-10-07)
+// ---------------------------------------------------
+// "Introduce some map details at each silo for more variation":
+//   1  "tree hedge paths surrounding in layers create bottlenecks for getting
+//      in / out on all sides. shipping containers placed around some in stacks"
+//   2  "inside of a large warehouse building with pallets stacked around,
+//      windows at top and bottom should show light pouring in with large door
+//      openings on the left and right"
+//   3  "a denser forested area with less organization, we should have to walk
+//      through a bit of forest to get to this last corner of the map"
+//
+// Every gap a body has to use is at least SET_GAP, over the 78px a brute
+// needs, and every solid here is SOLID OVER ITS WHOLE DRAWN SHAPE (the 1D-iso
+// rule the tanks and trees follow), so nothing hides behind a hedge or a
+// container. All of it is MP.random(): every client builds the same sets.
+const SET_GAP = 130;              // a gap a body has to walk through
+const SET_CLEAR = 90;             // a freestanding prop's clearance to anything solid
+const HEDGE_T = 24;               // hedge footprint thickness
+const HEDGE_LIFT = 18;
+const SET_CONTAINER_LIFT = 34;        // per box in a stack
+const PALLET = 40;
+const PALLET_LIFT = 15;           // per layer
+const SET_CONTAINER_HUES = [["#8A3A28", "#5A2418"], ["#2E5E80", "#1C3C54"], ["#6E6E30", "#46461E"], ["#9A7030", "#644818"]];
+
+let arenaProps = [];              // {kind, x, y, w, h (the whole solid), fh, lift, ...} -- drawn tall
+let arenaWarehouse = null;        // {x, y, w, h, windows: [{x, y, w, h, dir}]}
+
+function siloCluster(k) {
+    const f = funnels[k], s = silos[k];
+    const x0 = f.x - f.r, x1 = s.x + s.w;
+    const y0 = Math.min(f.y - f.r, s.y - SILO_LIFT), y1 = Math.max(f.y + f.r, s.y + s.h + 40);
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+function grow(r, m) {
+    return { x: r.x - m, y: r.y - m, w: r.w + m * 2, h: r.h + m * 2 };
+}
+
+// A solid with a footprint `fh` deep at the bottom of rect r and `lift` of
+// height drawn above it. `r` is the WHOLE solid, so it goes straight into
+// walls[] as the collision box.
+function pushProp(kind, x, footY, w, fh, lift, extra) {
+    const r = { x: Math.round(x), y: Math.round(footY - lift), w: Math.round(w), h: Math.round(fh + lift),
+                setProp: true, fh: fh, lift: lift, kind: kind };
+    if (extra) for (const k in extra) r[k] = extra[k];
+    walls.push(r);
+    arenaProps.push(r);
+    return r;
+}
+
+// A rectangular hedge ring, with one gap on each side listed in `gaps`
+// ({ n, s, e, w }: 0..1 along that side).
+function hedgeRing(R, gaps) {
+    const T = HEDGE_T;
+    const run = function (vertical, fixed, a0, a1, gapAt) {
+        const parts = [];
+        if (gapAt == null) parts.push([a0, a1]);
+        else {
+            const g0 = a0 + (a1 - a0) * gapAt - SET_GAP / 2, g1 = g0 + SET_GAP;
+            if (g0 - a0 > 20) parts.push([a0, g0]);
+            if (a1 - g1 > 20) parts.push([g1, a1]);
+        }
+        for (let i = 0; i < parts.length; i++) {
+            const p = parts[i];
+            // A vertical hedge's lift is drawn above its top end, so the
+            // footprint starts that much lower: the gap stays SET_GAP clear.
+            if (vertical) pushProp("hedge", fixed, p[1], T, p[1] - p[0] - HEDGE_LIFT, HEDGE_LIFT, { vertical: true });
+            else pushProp("hedge", p[0], fixed + T, p[1] - p[0], T, HEDGE_LIFT);
+        }
+    };
+    run(false, R.y, R.x, R.x + R.w, gaps.n);
+    run(false, R.y + R.h - T, R.x, R.x + R.w, gaps.s);
+    run(true, R.x, R.y + T, R.y + R.h - T, gaps.w);
+    run(true, R.x + R.w - T, R.y + T, R.y + R.h - T, gaps.e);
+}
+
+function buildSiloSets(clear) {
+    arenaProps = [];
+    arenaWarehouse = null;
+    if (funnels.length < 3) return;
+
+    // ---- SILO 1: two hedge rings, gaps staggered so you zig-zag in, and
+    // container stacks outside.
+    const c1 = siloCluster(0);
+    const inner = grow(c1, 70);
+    const outer = grow(c1, 70 + HEDGE_T + SET_GAP);
+    hedgeRing(inner, { n: 0.72, s: 0.28, e: 0.5 });
+    hedgeRing(outer, { n: 0.22, s: 0.78, e: 0.82, w: 0.3 });
+    const outerGaps = [
+        { x: outer.x + outer.w * 0.22, y: outer.y }, { x: outer.x + outer.w * 0.78, y: outer.y + outer.h },
+        { x: outer.x + outer.w, y: outer.y + outer.h * 0.82 }, { x: outer.x, y: outer.y + outer.h * 0.3 }
+    ];
+    const spots = [];
+    // A row above the rings and a row below, far enough out to keep SET_CLEAR
+    // from the hedges. (The west side is too close to the fence for any.)
+    for (let i = 0; i < 10; i++) spots.push({ x: outer.x - 60 + i * (outer.w - 30) / 9, y: outer.y - 190, v: false });
+    for (let i = 0; i < 10; i++) spots.push({ x: outer.x - 60 + i * (outer.w - 30) / 9, y: outer.y + outer.h + 160, v: false });
+    let placed = 0;
+    for (let i = 0; i < spots.length && placed < 8; i++) {
+        if (MP.random() < 0.2) continue;
+        const sp = spots[i];
+        const w = sp.v ? 56 : 150, fh = sp.v ? 150 : 56;
+        const levels = MP.random() < 0.5 ? 2 : 1;
+        const lift = SET_CONTAINER_LIFT * levels;
+        const box = { x: sp.x, y: sp.y - lift, w: w, h: fh + lift };
+        // A GAP IS EITHER CLOSED OR WALKABLE: a container leaves at least
+        // SET_CLEAR to the fence and to every other solid. Hard against the
+        // west fence, one sealed a 320px strip off from the flow field.
+        if (!inArenaRect(grow(box, SET_CLEAR))) continue;
+        let near = false;
+        for (let g = 0; g < outerGaps.length; g++) {
+            if (Math.hypot(box.x + box.w / 2 - outerGaps[g].x, box.y + box.h / 2 - outerGaps[g].y) < 150) near = true;
+        }
+        if (near || clashesAnySolid(grow(box, SET_CLEAR), clear)) continue;
+        const hue = SET_CONTAINER_HUES[Math.floor(MP.random() * SET_CONTAINER_HUES.length)];
+        pushProp("container", box.x, sp.y + fh, w, fh, lift, { levels: levels, hue: hue, vertical: sp.v });
+        placed++;
+    }
+    clear.push(grow(outer, 40));
+
+    // ---- SILO 2: a warehouse round the funnel and the tank.
+    const c2 = siloCluster(1);
+    const W = { x: c2.x - 210, y: c2.y - 90, w: c2.w + 420, h: c2.h + 250 };
+    const T = WALL_T;
+    const doorY = W.y + W.h / 2 + 20, door = 170;
+    const windows = [];
+    // Top and bottom: wall, window, wall ... (windows are glass: solid, but
+    // they let the light in).
+    const strip = function (y, dir) {
+        const pane = 80, pitch = 170;
+        let x = W.x;
+        for (let px = W.x + 80; px + pane < W.x + W.w - 60; px += pitch) {
+            walls.push({ x: x, y: y, w: px - x, h: T, building: true });
+            const win = { x: px, y: y, w: pane, h: T, window: true, building: true };
+            walls.push(win);
+            windows.push({ x: px, y: y, w: pane, h: T, dir: dir });
+            x = px + pane;
+        }
+        walls.push({ x: x, y: y, w: W.x + W.w - x, h: T, building: true });
+    };
+    strip(W.y, 1);
+    strip(W.y + W.h - T, -1);
+    // Left and right: one wide door each.
+    const side = function (x) {
+        walls.push({ x: x, y: W.y + T, w: T, h: doorY - door / 2 - (W.y + T), building: true });
+        walls.push({ x: x, y: doorY + door / 2, w: T, h: W.y + W.h - T - (doorY + door / 2), building: true });
+    };
+    side(W.x);
+    side(W.x + W.w - T);
+    arenaWarehouse = { x: W.x, y: W.y, w: W.w, h: W.h, windows: windows };
+    // Pallet stacks in the two side bays (between the walls and the chain),
+    // 2 wide by 3 deep at each end, with the middle of each bay left clear
+    // for the door. 1-3 layers high.
+    const bays = [W.x + T + 12, W.x + W.w - T - 12 - PALLET * 2 - 14];
+    for (let b = 0; b < bays.length; b++) {
+        for (let end = 0; end < 2; end++) {
+            for (let gx = 0; gx < 2; gx++) {
+                for (let gy = 0; gy < 3; gy++) {
+                    if (MP.random() < 0.15) continue;
+                    const layers = 1 + Math.floor(MP.random() * 3);
+                    const lift = PALLET_LIFT * layers;
+                    const px = bays[b] + gx * (PALLET + 14);
+                    const footBottom = end === 0
+                        ? W.y + T + 14 + lift + PALLET + gy * (PALLET + 14)
+                        : W.y + W.h - T - 14 - gy * (PALLET + 14);
+                    const box = { x: px, y: footBottom - PALLET - lift, w: PALLET, h: PALLET + lift };
+                    if (Math.abs(box.y + box.h / 2 - doorY) < door / 2 + 20) continue;
+                    if (rectsOverlap(grow(box, 16), grow(c2, 24))) continue;
+                    if (clashesAnySolid(box, [])) continue;
+                    pushProp("pallet", px, footBottom, PALLET, PALLET, lift, { layers: layers });
+                }
+            }
+        }
+    }
+    clear.push(grow(W, 40));
+
+    // ---- SILO 3: a dense, untidy forest you have to walk through.
+    const c3 = siloCluster(2);
+    const fits = function (r) {
+        if (!inArenaRect(r)) return false;
+        for (let i = 0; i < clear.length; i++) if (rectsOverlap(r, clear[i])) return false;
+        return true;
+    };
+    // Smaller trees, closer together than the open terrain's (48px canopy,
+    // 80px apart -- still over the 78px a brute needs), and most of them on
+    // the side you arrive from, so the last tank is reached THROUGH the
+    // forest rather than round it.
+    const fx0 = c3.x - 480, fx1 = c3.x + c3.w + 220;
+    const fy0 = c3.y - 400, fy1 = c3.y + c3.h + 400;
+    for (let i = 0; i < 320; i++) {
+        const x = fx0 + MP.random() * (fx1 - fx0);
+        const y = fy0 + MP.random() * (fy1 - fy0);
+        if (rectsOverlap({ x: x - 30, y: y - 30, w: 60, h: 60 }, grow(c3, 50))) continue;
+        arenaPlaceTree(x, y, fits, 48, 80);
+    }
+    for (let i = 0; i < 50; i++) {
+        const a = MP.random() * Math.PI * 2, d = 40 + MP.random() * 420;
+        arenaAddBush(c3.x + c3.w / 2 + Math.cos(a) * (c3.w / 2 + d), c3.y + c3.h / 2 + Math.sin(a) * (c3.h / 2 + d),
+                     6 + MP.random() * 8, fits);
+    }
+}
+
+function inArenaRect(r) {
+    const A = ARENA, m = WALL_T + 4;
+    return r.x >= A.x + m && r.y >= A.y + m && r.x + r.w <= A.x + A.w - m && r.y + r.h <= A.y + A.h - m;
+}
+
+function clashesAnySolid(r, clear) {
+    for (let i = 0; i < clear.length; i++) if (rectsOverlap(r, clear[i])) return true;
+    for (let i = 0; i < walls.length; i++) {
+        const w = walls[i];
+        if (w.perim || w.column) continue;
+        if (rectsOverlap(r, w)) return true;
+    }
+    return false;
+}
+
+// --- drawing the sets -------------------------------------------------------
+// A block in the 1D-iso style: footprint at the bottom of r, extruded `lift`
+// up the screen -- front face, then a lit top.
+function drawBlock(r, top, front, line) {
+    const fy = r.y + r.h - r.fh;
+    ctx.fillStyle = "rgba(0,0,0,0.42)";
+    ctx.fillRect(r.x + 7, fy + 6, r.w, r.fh);
+    ctx.fillStyle = front;
+    ctx.fillRect(r.x, fy + r.fh - r.lift, r.w, r.lift);
+    ctx.fillStyle = top;
+    ctx.fillRect(r.x, fy - r.lift, r.w, r.fh);
+    if (line) {
+        ctx.strokeStyle = line;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(r.x + 0.5, fy - r.lift + 0.5, r.w - 1, r.fh + r.lift - 1);
+    }
+}
+
+function drawSetProp(r) {
+    const fy = r.y + r.h - r.fh;
+    if (r.kind === "hedge") {
+        drawBlock(r, "#2F5A22", "#1A3814", null);
+        ctx.fillStyle = "#3E7230";
+        for (let x = r.x + 4; x < r.x + r.w - 4; x += 11) {
+            for (let y = fy - r.lift + 3; y < fy - r.lift + r.fh - 3; y += 9) ctx.fillRect(x + ((y / 9) % 2) * 4, y, 4, 3);
+        }
+    } else if (r.kind === "container") {
+        drawBlock(r, r.hue[0], r.hue[1], "#000000");
+        // Corrugation on the front face, and a seam between stacked boxes.
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        const faceY = fy + r.fh - r.lift;
+        for (let x = r.x + 6; x < r.x + r.w - 4; x += 8) ctx.fillRect(x, faceY + 2, 2, r.lift - 4);
+        if (r.levels > 1) { ctx.fillStyle = "#000000"; ctx.fillRect(r.x, faceY + SET_CONTAINER_LIFT, r.w, 2); }
+        ctx.fillStyle = "rgba(255,255,255,0.12)";
+        ctx.fillRect(r.x + 4, fy - r.lift + 4, r.w - 8, 3);
+    } else if (r.kind === "pallet") {
+        drawBlock(r, "#8A6A3A", "#5A4222", "#2A1E10");
+        ctx.fillStyle = "#3A2A16";
+        const faceY = fy + r.fh - r.lift;
+        for (let l = 1; l < r.layers; l++) ctx.fillRect(r.x, faceY + l * PALLET_LIFT, r.w, 2);
+        ctx.fillStyle = "#A07E48";
+        for (let x = r.x + 4; x < r.x + r.w - 4; x += 9) ctx.fillRect(x, fy - r.lift + 3, 5, r.fh - 6);
+    }
+}
+
+// The warehouse floor, under everything, after the grass.
+function arcadeDrawSetFloors() {
+    const W = arenaWarehouse;
+    if (!W) return;
+    ctx.fillStyle = "#33332E";
+    ctx.fillRect(W.x, W.y, W.w, W.h);
+    ctx.fillStyle = "#2A2A26";
+    for (let y = W.y + 40; y < W.y + W.h; y += 80) ctx.fillRect(W.x, y, W.w, 2);
+    for (let x = W.x + 60; x < W.x + W.w; x += 120) ctx.fillRect(x, W.y, 2, W.h);
+}
+
+// Glass, drawn where drawWalls skipped the window segments.
+function arcadeDrawWindows() {
+    const W = arenaWarehouse;
+    if (!W) return;
+    for (let i = 0; i < W.windows.length; i++) {
+        const w = W.windows[i];
+        ctx.fillStyle = "#1C2A34";
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        ctx.fillStyle = "#7FB4D0";
+        ctx.fillRect(w.x + 3, w.y + 4, w.w - 6, 4);
+        ctx.fillStyle = "#9A9A9A";
+        ctx.fillRect(w.x + w.w / 2 - 1, w.y, 2, w.h);
+    }
+}
+
+// Light pouring in through the windows. Drawn AFTER the darkness, in world
+// space, additive, so it reads in the dark the way a shaft of daylight does.
+function arcadeDrawLight() {
+    const W = arenaWarehouse;
+    if (!W) return;
+    ctx.save();
+    applyCameraTransform();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "rgba(255,236,180,0.10)";
+    for (let i = 0; i < W.windows.length; i++) {
+        const w = W.windows[i];
+        const y0 = w.dir > 0 ? w.y + w.h : w.y;
+        const y1 = y0 + w.dir * 190;
+        ctx.beginPath();
+        ctx.moveTo(w.x, y0);
+        ctx.lineTo(w.x + w.w, y0);
+        ctx.lineTo(w.x + w.w + 34, y1);
+        ctx.lineTo(w.x + 14, y1);
+        ctx.closePath();
+        ctx.fill();
+    }
+    ctx.restore();
 }

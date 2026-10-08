@@ -598,7 +598,11 @@ function draw() {
     // ARCADE: the intro shows the whole lit map; the beacon waits for it.
     const introOn = ZOMBIE_ARCADE && arcadeIntroActive(now);
     if (!introOn) drawLighting();
-    if (ZOMBIE_ARCADE && !introOn) arcadeDrawBeacon(now);
+    if (ZOMBIE_ARCADE && !introOn) {
+        arcadeDrawLight();                // daylight through the warehouse windows
+        arcadeDrawBeacon(now);
+        arcadeDrawHurt(now);              // the one-hit buffer's red
+    }
     drawOffscreenMarkers(now);
     // ARCADE: the whole-map view is the sidebar's, permanently.
     if (hudMapOn && !ZOMBIE_ARCADE) drawMinimap();
@@ -684,7 +688,7 @@ function drawWalls(inView) {
         const w = walls[i];
         if (!inView(w.x, w.y, w.w, w.h)) continue;
         // ARCADE: trees and tanks are drawn tall later; the gate's art covers its bar.
-        if (w.tree || w.silo || w.gateBar) continue;
+        if (w.tree || w.silo || w.gateBar || w.setProp || w.window) continue;
         // Sampled at the CENTRE. A boundary wall is centred on the line
         // between two sectors, so its own corner can sit in either one and
         // sampling x,y made a run flicker between two palettes along its

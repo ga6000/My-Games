@@ -1343,7 +1343,10 @@ function updatePlayers(now, dt) {
     for (let i = players.length - 1; i >= 0; i--) {
         const p = players[i];
         // ARCADE: out through the gate -- the client walks you off the screen.
-        if (ZOMBIE_ARCADE) arcadeExitControl(p, now);
+        if (ZOMBIE_ARCADE) {
+            arcadeExitControl(p, now);
+            arcadeKnock(p, now);          // the one-hit buffer's bump
+        }
         let vx = 0;
         let vy = 0;
         const speed = playerSpeed(p, now);
@@ -2395,7 +2398,8 @@ function updateZombies(now, dt) {
 
         // Contact still tests the PLAYER, never the waypoint.
         if (rectIntersect(target.x, target.y, target.size, target.size, z.x, z.y, z.size, z.size)) {
-            if (!target.downed) downPlayer(target, now);
+            // ARCADE: the one-hit buffer (ARC_HIT_BUFFER) may absorb this touch.
+            if (!target.downed && !(ZOMBIE_ARCADE && arcadeAbsorbHit(target, z, now))) downPlayer(target, now);
         }
     }
     if (ZOMBIE_ARCADE) separateZombies();

@@ -61,6 +61,45 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### The one-hit buffer and the silo sets (2026-10-07)
+
+- **The one-hit buffer** (`zombie-arcade.js` "THE ONE-HIT BUFFER"). **Flip `ARC_HIT_BUFFER` to
+  `false` for the old one-touch down**; it gates `arcadeAbsorbHit()` and nothing else.
+  - The first touch is absorbed: a ~60px bump away from the zombie, a red flash, and 0.5s
+    untouchable.
+  - For the next 5s you are WOUNDED: a red frame with "NEXT HIT DOWNS YOU", and the panel reads
+    CONDITION RED. A touch then downs you.
+  - 1s after the red goes, the buffer is back. A down clears the record, so a revived player
+    starts fresh.
+  - **The host decides** (`arcHitState`, per net id). A guest is told with a `hit` relay message;
+    the bump and the red are applied by the hit player's own client (`arcadeApplyHit`,
+    `arcadeKnock`), because only it moves that player.
+  - Verified: first touch absorbed (63px bump), immune for 0.5s, the wounded touch downs, fresh
+    after a revive, recharged after 6s.
+- **The silo sets** (`buildSiloSets`, built before the open terrain so they claim their ground).
+  Every prop is **solid over its whole drawn shape** and drawn tall (`drawSetProp`, the 1D-iso
+  rule). Every gap a body uses is `SET_GAP` 130, and freestanding props keep `SET_CLEAR` 90 from
+  everything.
+  - **Tank 1:** two rectangular **hedge rings**. The inner ring has gaps N/S/E, the outer one a gap
+    on every side, staggered, so you zig-zag in and out. **Container stacks** of 1–2 sit in rows
+    above and below the rings, 2–4 a map.
+  - **Tank 2:** a **warehouse** round the funnel and tank, with a concrete floor and a wide
+    170px door on the left and on the right. The top and bottom walls carry **windows** (solid
+    glass, `window` walls) that throw **light shafts** across the floor. The shafts are drawn
+    additive, after the darkness (`arcadeDrawLight`), so they read in the dark. **Pallet stacks**
+    of 1–3 layers fill the side bays, clear of the doors, 6–10 a map.
+  - **Tank 3:** a **dense, untidy forest** of smaller trees (48px canopy, 80px apart; still over
+    the 78px a brute needs), mostly on the side you arrive from, so the last tank is reached
+    through it.
+- **Two traps hit and fixed, both the same rule:** "a gap is either closed or walkable".
+  - A container hard against the west fence sealed a 320px strip: 1% of the arena unreachable on
+    every seed. Hence `SET_CLEAR`.
+  - The first build also redeclared `CONTAINER_LIFT` and `CONTAINER_HUES`, which already exist in
+    `zombie-render.js`. The collision checker caught it; they are `SET_CONTAINER_*` here.
+- **Measured over 12 seeds:** every tank, every tank's switch strip and the gate are reachable on
+  both nav grids. Unreachable arena cells: 0% on the tight grid, 0–0.08% on the wide grid (a few
+  cells beside pallets, which relocation covers). 18–23 trees a map.
+
 ### Walk-out win, the tunnel, full collisions (2026-10-04, fourth playtest)
 
 - **Winning means walking out** (`arcadeUpdateEscape`, `arcadeExitControl`, `isOut`).
@@ -2472,4 +2511,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 38a04157 | 2026-10-04 -->
+<!-- doc-sync: 5010e457 | 2026-10-07 -->

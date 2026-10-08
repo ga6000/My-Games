@@ -348,6 +348,14 @@ MP.connect({
             return;
         }
 
+        // ARCADE: the host absorbed a hit on this player (zombie-arcade.js,
+        // "THE ONE-HIT BUFFER"); the bump and the red happen here.
+        if (msg.k === "hit") {
+            const hp = localPlayerByNetId(msg.id);
+            if (hp && ZOMBIE_ARCADE) arcadeApplyHit(hp, msg.dx || 0, msg.dy || 0, now);
+            return;
+        }
+
         if (msg.k === "pickup") {
             applyTeamPickup(msg.t, msg.ms || 0, now, false);
             return;
