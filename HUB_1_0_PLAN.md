@@ -78,6 +78,7 @@ games hub page"* (`SCOPE_RULES.md` rule 0). For ZOMBIE that means:
 | 2c | **Cut the rail from the arcade**, "immediately after playtesting" (user). The ending falls back to the south gate walk-out (`ae0f19d`'s), which the user accepted "for now" | **done 2026-10-04**, with the arena (2f) |
 | 2d | **The 2–4 minute loop** (spec below, built in `zombie-arcade.js`) | **built 2026-10-04, waiting on the local playtest** |
 | 2e | Trim the remaining items the loop doesn't use (the user expects "trimming all others off") | partly done: field manual, horde switch, generator and rail gone from the map (2026-10-04). Their code is still loaded |
+| 2l | Perks x6 (and six held); a forest in the outer buffer; lighter grass; night with a pointer flashlight (no grey); orange lamps at the warehouse and the tanks | **done 2026-10-08** |
 | 2k | +25% outer buffer left/top/right with the chain unmoved; "ESCAPED AT m:ss"; no damage after the win; six perk slots | **done 2026-10-07** |
 | 2j | Two-step wounds + 1.2s untouchable, no explanatory text; 1.5s revive; no Blackouts; no ping or DECOY; ATTRACT perk; drops +25%; arena +33% per side; real lighting (dark warehouse, window light); tight hedges, warehouse racking, a thicker forest; `pushProp` placement bug fixed | **done 2026-10-07** |
 | 2i | **One-hit buffer** (switchable: `ARC_HIT_BUFFER`) and **silo sets**: hedge rings + containers at 1, a warehouse with window light + pallets at 2, a dense forest at 3 | **done 2026-10-07** |

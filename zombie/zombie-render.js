@@ -600,6 +600,7 @@ function draw() {
     // ARCADE: its own light (daylight outside, a dark warehouse, real windows).
     if (!introOn) { if (ZOMBIE_ARCADE) arcadeDrawLighting(); else drawLighting(); }
     if (ZOMBIE_ARCADE && !introOn) {
+        arcadeDrawLamps();                // the orange lamps, and their pools
         arcadeDrawLight();                // daylight through the warehouse windows
         arcadeDrawBeacon(now);
         arcadeDrawHurt(now);              // the one-hit buffer's red

@@ -1424,7 +1424,7 @@ function updatePlayers(now, dt) {
         let cooldown = (now < p.overclockUntil) ? Math.max(60, w.cooldown * 0.2) : w.cooldown;
         // CARD: OVERDRIVE, per stack.
         const od = cardLevel(p, "overdrive");
-        if (od) cooldown *= [1, 0.65, 0.5, 0.4][od];
+        if (od) cooldown *= [1, 0.65, 0.5, 0.4, 0.33, 0.28, 0.24][od];   // x4-x6: arcade (2026-10-08)
         if (p.keys.shoot && now - p.lastShotTime > cooldown) {
             shoot(p, now, fireKey);
             p.lastShotTime = now;
@@ -1449,7 +1449,7 @@ function updateSalvage() {
     const key = currentWeaponKey(me);
     const w = WEAPONS[key];
     if (w.infinite) return;
-    const chance = [0, 0.3, 0.45, 0.6][lvl] * (w.salvage || 0);
+    const chance = [0, 0.3, 0.45, 0.6, 0.7, 0.78, 0.85][lvl] * (w.salvage || 0);
     for (let i = 0; i < fresh; i++) {
         if (Math.random() < chance) me.ammo[key] = (me.ammo[key] || 0) + (w.salvageAmt || 1);
     }
@@ -1896,7 +1896,7 @@ function damageZombie(index, dmg, ownerId, now, src, hitVx, hitVy) {
         if (arc) arcFrom(zcx, zcy, arc, ownerId, now);
         // PERK: BLASTCAP -- sometimes the body goes off.
         const cap = idCardLevel(ownerId, "blastcap");
-        if (cap && Math.random() < [0, 0.18, 0.28, 0.38][cap]) {
+        if (cap && Math.random() < [0, 0.18, 0.28, 0.38, 0.46, 0.53, 0.6][cap]) {
             burstAt(zcx, zcy, 95, 4 * zombieHpMultiplier(round), ownerId, now);
         }
     }

@@ -260,7 +260,7 @@ const DROP_CHANCE = 0.094;        // +25% twice (2026-10-04, 2026-10-07): 0.06 -
 const DROP_PITY_KILLS = 16;       // never longer than this between drops (25 -> 20 -> 16)
 // ATTRACT (2026-10-07): your pickup reach, per stack. A drop this close is
 // taken as if you had walked over it.
-const ATTRACT_REACH = [0, 50, 90, 130];
+const ATTRACT_REACH = [0, 50, 90, 130, 165, 195, 220];   // to x6 (2026-10-08)
 const DROP_FUEL = 4;              // FUEL: kills added to the live tank
 const SHOCK_RADIUS = 300;
 const OVERCLOCK_MS = 6000;
@@ -777,7 +777,7 @@ function buildSideStatic() {
     c.width = w; c.height = h;
     const g = c.getContext("2d");
     const k = w / ARENA.w;
-    g.fillStyle = "#16210F";
+    g.fillStyle = "#26381C";
     g.fillRect(0, 0, w, h);
     for (let i = 0; i < walls.length; i++) {
         const wl = walls[i];
@@ -995,6 +995,39 @@ function plantArenaTerrain(fits) {
     for (let i = 0; i < 128; i++) {         // +10%, then scaled with the arena twice
         addBush(A.x + 60 + MP.random() * (A.w - 120), A.y + 60 + MP.random() * (A.h - 120), 5 + MP.random() * 7);
     }
+    plantBufferForest(fits);
+}
+
+// THE OUTER BUFFER IS FOREST (2026-10-08: "make that extra 25% of the map on
+// the edges thicker with forest to discourage exploration in those
+// directions"). Dense, small trees BUFFER_GAP apart -- passable, because a
+// gap is either closed or walkable, but slow and blind going, so the game's
+// real ground is the core.
+// 92, not the core forest's 80: at 80, three trees in a triangle sealed small
+// pockets off from the WIDE nav grid on 2 seeds in 12 (0.2% of cells) --
+// 80 clears the 78px guarantee only on paper once the grid's alignment
+// takes its share.
+const BUFFER_GAP = 92;
+
+function plantBufferForest(fits) {
+    const A = ARENA;
+    const zones = [
+        { x: A.x + 30, y: A.y + 30, w: ARENA_BUFFER_X - 30, h: A.h - 60 },                      // west
+        { x: A.x + A.w - ARENA_BUFFER_X, y: A.y + 30, w: ARENA_BUFFER_X - 30, h: A.h - 60 },     // east
+        { x: A.x + ARENA_BUFFER_X, y: A.y + 30, w: A.w - ARENA_BUFFER_X * 2, h: ARENA_BUFFER_TOP - 30 } // north
+    ];
+    for (let z = 0; z < zones.length; z++) {
+        const Z = zones[z];
+        const tries = Math.round(Z.w * Z.h / 4200);
+        for (let i = 0; i < tries; i++) {
+            arenaPlaceTree(Z.x + MP.random() * Z.w, Z.y + MP.random() * Z.h, fits, 58, BUFFER_GAP);
+        }
+        // Undergrowth, thick: it is drawn only, so it makes the forest READ
+        // dense without closing a single gap.
+        for (let i = 0; i < Math.round(tries * 0.9); i++) {
+            arenaAddBush(Z.x + MP.random() * Z.w, Z.y + MP.random() * Z.h, 8 + MP.random() * 10, fits);
+        }
+    }
 }
 
 // --- drawing ---------------------------------------------------------------
@@ -1009,10 +1042,12 @@ function arenaGrassTile() {
     const c = document.createElement("canvas");
     c.width = S; c.height = S;
     const g = c.getContext("2d");
-    g.fillStyle = "#1E2A16";
+    // Lighter since 2026-10-08 ("more visual clarity between grass & trees"):
+    // the canopies are the dark greens now, the ground the light ones.
+    g.fillStyle = "#34502A";
     g.fillRect(0, 0, S, S);
     const rnd = zfRng(4242);
-    const shades = ["#26361B", "#2E4220", "#172112", "#33491F"];
+    const shades = ["#3E5C30", "#4A6A36", "#2C4422", "#56783C"];
     for (let i = 0; i < 70; i++) {
         const x = Math.floor(rnd() * S), y = Math.floor(rnd() * S);
         g.fillStyle = shades[Math.floor(rnd() * shades.length)];
@@ -1020,7 +1055,7 @@ function arenaGrassTile() {
         if (rnd() < 0.5) g.fillRect(x + 2, y + 1, 2, 3);
     }
     for (let i = 0; i < 6; i++) {               // a few bare patches
-        g.fillStyle = "#2A2A1A";
+        g.fillStyle = "#4A4A30";
         g.fillRect(Math.floor(rnd() * S), Math.floor(rnd() * S), 6, 4);
     }
     return c;
@@ -1603,22 +1638,39 @@ function arcadeDrawHurt(now) {
 }
 
 // ---------------------------------------------------
-//   LIGHT (2026-10-07)
+//   LIGHT (2026-10-07, reworked 2026-10-08)
 // ---------------------------------------------------
-// "Add lighting model so that lighter outside, window openings let in light
-// is actually real, and warehouse is actually darker." The arcade replaces
-// drawLighting() with this: a DARKNESS LAYER built on its own offscreen
-// canvas -- light ambient outdoors, deep dark inside the warehouse -- with
-// the window shafts and the player's own light cut OUT of it, then laid over
-// the frame once.
+// 2026-10-07: "lighter outside, window openings let in light is actually
+// real, and warehouse is actually darker." 2026-10-08: "darken whole map (no
+// greytone), and change 'light' around player to be a flashlight in the
+// direction of the pointer", and "add orangey light sources to the outside of
+// the warehouse between windows as well as at the silos."
+//
+// The arcade replaces drawLighting() with this: a DARKNESS LAYER on its own
+// offscreen canvas -- night outdoors, near-black in the warehouse, tinted a
+// deep blue-black rather than grey so the colours under it stay colours --
+// with every light source cut OUT of it, then laid over the frame once:
+//
+//   your flashlight     a cone toward the pointer, in three flat bands
+//   a small glow        round you, so you can always see your own feet
+//   teammates           the same, along THEIR aim (`facingX/Y` rides `players`)
+//   windows, doors      daylight shafts into the warehouse
+//   lamps               orange pools at the warehouse and at each tank
+//   drops               a faint glow, so a callout has something to point at
 //
 // destination-out is safe HERE, on the private layer, and only here: the
 // note in drawLighting() is about running it on the main canvas, where it
 // erases the world itself. On a layer that holds nothing but darkness,
 // removing alpha is exactly "letting light in".
-const LIGHT_OUTSIDE = 0.12;       // daylight, under an overcast sky
-const LIGHT_INSIDE = 0.74;        // the warehouse, away from the windows
+const LIGHT_TINT = "4,7,20";      // the night's colour: blue-black, not grey
+const LIGHT_OUTSIDE = 0.8;
+const LIGHT_INSIDE = 0.93;        // the warehouse, away from the windows
 const WINDOW_REACH = 230;         // how far a shaft of light falls across the floor
+const TORCH_RANGE = 640;          // flashlight reach
+const TORCH_HALF = 0.42;          // half the cone's angle, radians (~48 degrees across)
+const TORCH_BANDS = [[0.55, 1], [0.8, 0.72], [1, 0.42]];   // [fraction of range, light]
+const SELF_GLOW = 82;
+const LAMP_RADIUS = 130;
 let lightLayer = null;
 
 function windowShaft(g, w, spread) {
@@ -1630,6 +1682,36 @@ function windowShaft(g, w, spread) {
     g.lineTo(w.x + w.w + 4 + spread, y1);
     g.lineTo(w.x - 4 + spread * 0.4, y1);
     g.closePath();
+}
+
+// A flashlight as flat annular sectors -- disjoint, so their alphas never
+// compound into the wrong levels.
+function cutTorch(g, cx, cy, fx, fy, range) {
+    const a = Math.atan2(fy, fx);
+    let r0 = 0;
+    for (let i = 0; i < TORCH_BANDS.length; i++) {
+        const r1 = range * TORCH_BANDS[i][0];
+        g.fillStyle = "rgba(0,0,0," + TORCH_BANDS[i][1] + ")";
+        g.beginPath();
+        g.arc(cx, cy, r1, a - TORCH_HALF, a + TORCH_HALF);
+        if (r0 > 0) g.arc(cx, cy, r0, a + TORCH_HALF, a - TORCH_HALF, true);
+        else g.lineTo(cx, cy);
+        g.closePath();
+        g.fill();
+        r0 = r1;
+    }
+}
+
+function cutGlow(g, x, y, r, inner) {
+    g.fillStyle = "rgba(0,0,0," + inner + ")";
+    g.beginPath();
+    g.arc(x, y, r * 0.62, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = "rgba(0,0,0," + (inner * 0.5).toFixed(3) + ")";
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.arc(x, y, r * 0.62, 0, Math.PI * 2, true);
+    g.fill();
 }
 
 function arcadeDrawLighting() {
@@ -1646,47 +1728,63 @@ function arcadeDrawLighting() {
     g.setTransform(s, 0, 0, s, canvas.width / 2 - camera.x * s, canvas.height / 2 - camera.y * s);
     const vr = viewRect();
 
-    g.fillStyle = "rgba(0,0,0," + LIGHT_OUTSIDE + ")";
+    g.fillStyle = "rgba(" + LIGHT_TINT + "," + LIGHT_OUTSIDE + ")";
     g.fillRect(vr.x, vr.y, vr.w, vr.h);
     const W = arenaWarehouse;
     if (W) {
         // Topped up to LIGHT_INSIDE: 1 - (1 - out)(1 - extra) = inside.
         const extra = 1 - (1 - LIGHT_INSIDE) / (1 - LIGHT_OUTSIDE);
-        g.fillStyle = "rgba(0,0,0," + extra.toFixed(3) + ")";
+        g.fillStyle = "rgba(" + LIGHT_TINT + "," + extra.toFixed(3) + ")";
         g.fillRect(W.x, W.y, W.w, W.h);
     }
 
     g.globalCompositeOperation = "destination-out";
-    // Daylight through every window: a strong core and a softer spill.
     if (W) {
         for (let i = 0; i < W.windows.length; i++) {
             const w = W.windows[i];
-            g.fillStyle = "rgba(0,0,0,0.55)";
+            g.fillStyle = "rgba(0,0,0,0.5)";
             windowShaft(g, w, 70);
             g.fill();
-            g.fillStyle = "rgba(0,0,0,0.35)";
+            g.fillStyle = "rgba(0,0,0,0.3)";
             windowShaft(g, w, 30);
             g.fill();
         }
-        // The two doors let light in as well.
         for (let i = 0; i < W.doors.length; i++) {
             const d = W.doors[i];
-            g.fillStyle = "rgba(0,0,0,0.5)";
+            g.fillStyle = "rgba(0,0,0,0.45)";
             g.fillRect(d.x + (d.dir > 0 ? 0 : -150), d.y, 150 + T_PAD, d.h);
         }
     }
-    // The player's own light, in the same four flat bands drawLighting uses.
+    for (let i = 0; i < arenaLamps.length; i++) {
+        const l = arenaLamps[i];
+        if (l.x < vr.x - LAMP_RADIUS || l.x > vr.x + vr.w + LAMP_RADIUS ||
+            l.y < vr.y - LAMP_RADIUS || l.y > vr.y + vr.h + LAMP_RADIUS) continue;
+        g.save();
+        clipToLampSide(g, l, vr);
+        cutGlow(g, l.x, l.y, LAMP_RADIUS, 0.85);
+        g.restore();
+    }
+    for (let i = 0; i < pickups.length; i++) {
+        const d = pickups[i];
+        cutGlow(g, d.x + d.size / 2, d.y + d.size / 2, 42, 0.6);
+    }
+    if (escapeAt) {
+        cutGlow(g, escapeRect.x + escapeRect.w / 2, escapeRect.y + 20, 200, escapeOpen() ? 0.85 : 0.5);
+    }
+    // Teammates: a glow, and their flashlight along their own aim.
+    for (const id in remotePlayers) {
+        if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
+        const r = remotePlayers[id];
+        if (r.away) continue;
+        const rx = r.x + (r.size || 16) / 2, ry = r.y + (r.size || 16) / 2;
+        cutGlow(g, rx, ry, SELF_GLOW * 0.8, 0.7);
+        if (!r.downed && (r.facingX || r.facingY)) cutTorch(g, rx, ry, r.facingX || 0, r.facingY || 0, TORCH_RANGE * 0.85);
+    }
+    // You: the flashlight toward the pointer, and the glow round your feet.
     const me = players[0];
     const cx = me ? me.x + me.size / 2 : camera.x, cy = me ? me.y + me.size / 2 : camera.y;
-    const inner = (me && me.downed) ? LIGHT_RADIUS * 0.55 : LIGHT_RADIUS;
-    const outer = inner * LIGHT_FADE;
-    const bands = [[outer, 0.34], [(inner + outer) / 2, 0.34], [inner, 1]];
-    for (let i = 0; i < bands.length; i++) {
-        g.fillStyle = "rgba(0,0,0," + bands[i][1] + ")";
-        g.beginPath();
-        g.arc(cx, cy, bands[i][0], 0, Math.PI * 2);
-        g.fill();
-    }
+    cutGlow(g, cx, cy, SELF_GLOW * ((me && me.downed) ? 0.7 : 1), 0.9);
+    if (me) cutTorch(g, cx, cy, me.facingX || 1, me.facingY || 0, TORCH_RANGE * (me.downed ? 0.45 : 1));
     g.globalCompositeOperation = "source-over";
 
     ctx.save();
@@ -1695,6 +1793,58 @@ function arcadeDrawLighting() {
     ctx.restore();
 }
 const T_PAD = 20;
+
+// A lamp lights only its own side of the warehouse wall: an outside lamp is
+// clipped to everything BUT the warehouse, the lamp at tank 2 to the inside.
+// (Unclipped, the wall lamps lit the warehouse through its own wall.)
+function clipToLampSide(c, l, vr) {
+    const W = arenaWarehouse;
+    if (!W) return;
+    c.beginPath();
+    if (l.inside) {
+        c.rect(W.x, W.y, W.w, W.h);
+        c.clip();
+    } else {
+        c.rect(vr.x - LAMP_RADIUS, vr.y - LAMP_RADIUS, vr.w + LAMP_RADIUS * 2, vr.h + LAMP_RADIUS * 2);
+        c.rect(W.x, W.y, W.w, W.h);
+        c.clip("evenodd");
+    }
+}
+
+// The lamps themselves, over the darkness: an orange pool (additive, flat
+// rings -- no gradients) and the bulb, which is never in the dark.
+function arcadeDrawLamps() {
+    if (!arenaLamps.length) return;
+    ctx.save();
+    applyCameraTransform();
+    ctx.globalCompositeOperation = "lighter";
+    const vr = viewRect();
+    for (let i = 0; i < arenaLamps.length; i++) {
+        const l = arenaLamps[i];
+        ctx.save();
+        clipToLampSide(ctx, l, vr);
+        ctx.fillStyle = "rgba(255,140,50,0.07)";
+        ctx.beginPath();
+        ctx.arc(l.x, l.y, LAMP_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,150,60,0.08)";
+        ctx.beginPath();
+        ctx.arc(l.x, l.y, LAMP_RADIUS * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+    ctx.globalCompositeOperation = "source-over";
+    for (let i = 0; i < arenaLamps.length; i++) {
+        const l = arenaLamps[i];
+        ctx.fillStyle = "#2A2A2A";
+        ctx.fillRect(l.x - 5, l.y - 4, 10, 8);
+        ctx.fillStyle = "#FFB050";
+        ctx.fillRect(l.x - 3, l.y - 2, 6, 4);
+        ctx.fillStyle = "#FFF2C0";
+        ctx.fillRect(l.x - 1, l.y - 1, 2, 2);
+    }
+    ctx.restore();
+}
 
 // ---------------------------------------------------
 //   THE SILO SETS (2026-10-07)
@@ -1732,6 +1882,7 @@ const SET_CONTAINER_HUES = [["#8A3A28", "#5A2418"], ["#2E5E80", "#1C3C54"], ["#6
 
 let arenaProps = [];              // {kind, x, y, w, h (the whole solid), fh, lift, ...} -- drawn tall
 let arenaWarehouse = null;        // {x, y, w, h, windows: [{x, y, w, h, dir}]}
+let arenaLamps = [];              // {x, y}: orange light sources (arcadeDrawLighting)
 
 function siloCluster(k) {
     const f = funnels[k], s = silos[k];
@@ -1788,7 +1939,14 @@ function hedgeRing(R, gaps) {
 function buildSiloSets(clear) {
     arenaProps = [];
     arenaWarehouse = null;
+    arenaLamps = [];
     if (funnels.length < 3) return;
+    // A lamp at every tank, beside its base (2026-10-08: "orangey light
+    // sources ... at the silos").
+    for (let k = 0; k < 3; k++) {
+        const s = silos[k];
+        if (s) arenaLamps.push({ x: s.x + s.w + 30, y: s.y + s.h - 6, inside: k === 1 });
+    }
 
     // ---- SILO 1: two TIGHT hedge rings round the tank -- "localize hedges to
     // just immediate vicinity around silo 1 with less sprawl" -- gaps
@@ -1846,6 +2004,9 @@ function buildSiloSets(clear) {
         let x = W.x;
         for (let px = W.x + 90; px + pane < W.x + W.w - 70; px += pitch) {
             walls.push({ x: x, y: y, w: px - x, h: T, building: true });
+            // A lamp on the OUTSIDE face of the wall between two windows
+            // ("orangey light sources to the outside of the warehouse").
+            if (x > W.x) arenaLamps.push({ x: Math.round(x + (px - x) / 2), y: dir > 0 ? y - 10 : y + T + 10, inside: false });
             walls.push({ x: px, y: y, w: pane, h: T, window: true, building: true });
             windows.push({ x: px, y: y, w: pane, h: T, dir: dir });
             x = px + pane;

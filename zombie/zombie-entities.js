@@ -198,7 +198,7 @@ const CARDS = {
                  detail: "30% / 45% / 60% of kills refund a round to the gun in your hands. Less for the sniper and rockets." },
     // ARCADE (2026-10-07): drops only, never sold.
     attract:   { name: "ATTRACT",    cost: 9000,  blurb: "LONGER PICKUP REACH",
-                 detail: "You take drops from 50 / 90 / 130 px away." }
+                 detail: "You take drops from 50 / 90 / 130 / 165 / 195 / 220 px away." }
 };
 // APPEND-ONLY: the index is the wire value for an arcade perk drop.
 const CARD_KEYS = ["overdrive", "scavenger", "ricochet", "decoy", "spite", "conductor",
@@ -218,7 +218,10 @@ const CARD_STATION_COUNT = 8;
 // Three distinct cards (slots), each stackable to three. Cost climbs
 // steeply per stack so late-round scrap has somewhere to go without the
 // first stack being unaffordable.
-const CARD_MAX_STACK = 3;
+// ARCADE: x6 (2026-10-08, "both" -- six perks held AND each stacking to six).
+// Every per-stack table below this game is written out to index 6; the old
+// x3 values are unchanged.
+const CARD_MAX_STACK = ZOMBIE_ARCADE ? 6 : 3;
 const CARD_STACK_COST = [1, 2.2, 4.0];
 
 function hasCard(p, key) {

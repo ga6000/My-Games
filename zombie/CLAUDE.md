@@ -61,6 +61,44 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Flashlight, night, lamps, an edge forest, x6 perks (2026-10-08)
+
+- **Night, and a flashlight** (`arcadeDrawLighting`, "LIGHT"). The whole map is dark: a 0.8
+  blue-black (`LIGHT_TINT`) outdoors, not a grey wash, and 0.93 in the warehouse. Your light is a
+  **cone toward the pointer** (`TORCH_RANGE` 640, ~48°, three flat bands) plus a small glow round
+  your feet.
+  - **Teammates' flashlights light the world too**: their aim already rides `players` as
+    `fx`/`fy`.
+  - Drops glow faintly, so a callout has something to point at, and the gate glows once it
+    starts opening.
+  - All of it is cut out of one offscreen darkness layer, where destination-out is safe.
+- **Orange lamps** (`arenaLamps`, `arcadeDrawLamps`): on the warehouse's OUTER walls between the
+  windows, and one beside each tank. Each lamp cuts a pool out of the dark and adds a flat
+  additive orange.
+  - **A lamp lights only its own side of the warehouse wall** (`clipToLampSide`). Unclipped, the
+    wall lamps lit the warehouse through its own wall.
+  - 13 lamps a map.
+- **The grass is lighter** (base `#34502A`), so the dark canopies stand clear of it.
+- **The outer buffer is forest** (`plantBufferForest`), to discourage exploring the edges:
+  - trees with 58px canopies, `BUFFER_GAP` 92 apart, plus thick undergrowth that is drawn only,
+    so it reads dense without closing a gap;
+  - **92, not 80**: at 80, three trees in a triangle sealed pockets off the wide nav grid on 2
+    seeds in 12 (0.2%);
+  - about 140–150 trees a map in all.
+- **Perks stack to x6 and six are held** (the user's "both"). `CARD_MAX_STACK` is 6 in the arcade,
+  and every per-stack table is extended, keeping each perk's curve:
+  - OVERDRIVE cooldown x0.33 / x0.28 / x0.24
+  - SALVAGE 70 / 78 / 85%
+  - BLASTCAP 46 / 53 / 60%
+  - ATTRACT 165 / 195 / 220px
+  - ARC, SKEWER, RICOCHET and SPITE already scale with the level.
+- **The larger arena now takes in three old landmarks** in its buffer (the feed silo, the gantry
+  crane, the pump bank). They are kept, per the earlier "keep for now".
+- **Measured over 12 seeds:** every tank, switch strip and the gate are reachable on both nav
+  grids (0%; one seed at 0.009% on the tight grid).
+- **Verified in the page:** perks to x6, with a seventh refused. Frames captured of the flashlight,
+  the warehouse inside and out, tank 1, the buffer forest and the overview.
+
 ### The arena's outer buffer, the win card, six perks (2026-10-07, last)
 
 - **25% more room on the left, top and right**, and nothing in the chain moved.
@@ -2578,4 +2616,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: b5ec86fe | 2026-10-07 -->
+<!-- doc-sync: 77c9ddac | 2026-10-08 -->
