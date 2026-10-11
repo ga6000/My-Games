@@ -61,6 +61,41 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Smooth light, lit intro, more lamps (2026-10-08, later)
+
+> **Superseded 2026-10-09: the light is BANDED again**, on request ("step into bands"), and banded
+> light is now a standing rule (`.claude/skills/hub-visual-review`, checklist item 9). Every cut
+> and additive pool goes through `bandGradient()` on `ARC_LIGHT_BANDS` (4 flat steps: radius 0.3 /
+> 0.55 / 0.8 / 1.0 at light 1 / 0.66 / 0.36 / 0.12). The flashlight is 3 stacked sectors
+> (`TORCH_LAYERS`, alpha 0.63 each), so it steps across the beam as well as along it. The
+> raycasting, the dusk sun and every lamp are unchanged. "No drawn light edges" below is the old
+> request.
+
+- **No drawn light edges.** The flat bands are gone: every glow is a radial gradient on the shared
+  `FALLOFF` stops (`cutGlow`, lamps' additive pools), the flashlight is 9 stacked sectors that each
+  carry that falloff (`cutTorch`, `TORCH_LAYERS`) so it feathers sideways, and window and door
+  shafts are linear gradients, with widening layers on the sides. `TORCH_BANDS` is now unused.
+- **The intro shows all the lighting** (night, flashlight, lamps, window shafts). Only the beacon
+  and the hurt frame still wait for the intro to end.
+- **Raycast light** (`visPoly`): every light (lamps, your torch and glow, teammates') is clipped to
+  a visibility polygon cast against `walls` (glass `window` walls let light through), so it stops
+  at trees, racks, tanks and walls. ~3.6ms for a frame of lighting in the Browser pane. Lamps keep
+  their polygon (`l.poly`) for the additive pass. Window and door shafts are not raycast.
+- **The dusk sun is a real light now** (2026-10-08, later). The hand-drawn window/door shafts are
+  gone. `sunLights` (built in `arcadeDrawLighting`) puts a raycast light just outside every window
+  and door, low to the west, clipped to the warehouse, so the shafts are whatever the walls and
+  racking let through. `arcadeDrawLight` adds the warm colour from the same polygons. Levels moved
+  to `LIGHT_OUTSIDE` 0.74 / `LIGHT_INSIDE` 0.95 so it reads. Outside lamps are no longer clipped to
+  the outside (the raycast stops them at the wall), so they light inward through windows.
+- **Exit floods:** 5 cool blue-white lamps (`cool: true`, radius 330) either side of the gate and
+  one out front. Lamps take a per-lamp `r`.
+- **The boxed "CLICK TO START" flash** was `body.arcade` being added by script after first paint;
+  `Zombie.html` now carries `class="arcade"` on `<body>`.
+- **Silo 2 gets the same 5 extra lamps**, inside the warehouse.
+- **More lamps:** 5 extra each at silos 1 and 3 (tank west foot and top, funnel N/S/W) and 4
+  around the start point (world centre).
+- Verified headless-in-page by looking at frames; `arcadeDrawLighting` returns early at a 0-size canvas.
+
 ### Flashlight, night, lamps, an edge forest, x6 perks (2026-10-08)
 
 - **Night, and a flashlight** (`arcadeDrawLighting`, "LIGHT"). The whole map is dark: a 0.8

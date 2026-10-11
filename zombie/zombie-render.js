@@ -598,10 +598,13 @@ function draw() {
     // ARCADE: the intro shows the whole lit map; the beacon waits for it.
     const introOn = ZOMBIE_ARCADE && arcadeIntroActive(now);
     // ARCADE: its own light (daylight outside, a dark warehouse, real windows).
-    if (!introOn) { if (ZOMBIE_ARCADE) arcadeDrawLighting(); else drawLighting(); }
-    if (ZOMBIE_ARCADE && !introOn) {
+    // 2026-10-08: the intro shows the lighting too (it used to skip it).
+    if (ZOMBIE_ARCADE) arcadeDrawLighting(); else drawLighting();
+    if (ZOMBIE_ARCADE) {
         arcadeDrawLamps();                // the orange lamps, and their pools
         arcadeDrawLight();                // daylight through the warehouse windows
+    }
+    if (ZOMBIE_ARCADE && !introOn) {
         arcadeDrawBeacon(now);
         arcadeDrawHurt(now);              // the one-hit buffer's red
     }
@@ -3277,7 +3280,9 @@ function renderRunScore(el) {
     const b = runScoreFor(netIdFor(players[0]));
     const lines = [
         ["KILLS " + b.kills + " / REVIVES " + b.revives, fmtScore(b.combat), ""],
-        ["ROUND " + b.round, fmtScore(b.roundPts), ""],
+        // ARCADE: the round term is the level the clock reached, so the row
+        // reads the clock -- the same time the card's subtitle gives.
+        [ZOMBIE_ARCADE ? "SURVIVED " + arcadeClock(winSeqAt || runEndAt || Date.now()) : "ROUND " + b.round, fmtScore(b.roundPts), ""],
         ["SILOS " + b.silos + "/" + siloFill.length, fmtScore(b.siloPts), ""]
     ];
     // Only when the switch was actually thrown -- an ordinary run should not

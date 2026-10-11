@@ -48,6 +48,14 @@ function arcadeElapsedS(now) {
     return startTime ? Math.max(0, (now - startTime) / 1000) : 0;
 }
 
+// "3:12": the one way a run's time is written, on the win card, the down
+// card and the readout (2026-10-08: "getting downed should also read out
+// time similar to end game").
+function arcadeClock(now) {
+    const t = Math.floor(arcadeElapsedS(now));
+    return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+}
+
 function arcadeLevel(now) {
     return 1 + Math.floor(arcadeElapsedS(now) / ARC_LEVEL_S);
 }
@@ -1663,58 +1671,127 @@ function arcadeDrawHurt(now) {
 // erases the world itself. On a layer that holds nothing but darkness,
 // removing alpha is exactly "letting light in".
 const LIGHT_TINT = "4,7,20";      // the night's colour: blue-black, not grey
-const LIGHT_OUTSIDE = 0.8;
-const LIGHT_INSIDE = 0.93;        // the warehouse, away from the windows
-const WINDOW_REACH = 230;         // how far a shaft of light falls across the floor
+const LIGHT_OUTSIDE = 0.74;      // dusk: the sun the warehouse lets in
+const LIGHT_INSIDE = 0.95;        // the warehouse, away from the windows
 const TORCH_RANGE = 640;          // flashlight reach
 const TORCH_HALF = 0.42;          // half the cone's angle, radians (~48 degrees across)
-const TORCH_BANDS = [[0.55, 1], [0.8, 0.72], [1, 0.42]];   // [fraction of range, light]
 const SELF_GLOW = 82;
 const LAMP_RADIUS = 130;
+const SUN_R = 430;                // the dusk sun's reach through a window or door
+let sunLights = [];               // rebuilt each frame: {x, y, k, poly}
 let lightLayer = null;
 
-function windowShaft(g, w, spread) {
-    const y0 = w.dir > 0 ? w.y + w.h : w.y;
-    const y1 = y0 + w.dir * WINDOW_REACH;
-    g.beginPath();
-    g.moveTo(w.x - 4, y0);
-    g.lineTo(w.x + w.w + 4, y0);
-    g.lineTo(w.x + w.w + 4 + spread, y1);
-    g.lineTo(w.x - 4 + spread * 0.4, y1);
-    g.closePath();
+// Visibility polygon (2026-10-08: "raycast light across collide-able objects
+// so light doesn't pass through them"). Rays go to every corner of every
+// solid rect in reach (and a hair either side, so the light slips round a
+// corner) plus a ring of fillers so the open edge stays round. Glass lets
+// light through; everything else solid stops it.
+function visPoly(x, y, R) {
+    const rs = [];
+    for (let i = 0; i < walls.length; i++) {
+        const w = walls[i];
+        if (w.window) continue;
+        if (w.x > x + R || w.x + w.w < x - R || w.y > y + R || w.y + w.h < y - R) continue;
+        if (x > w.x && x < w.x + w.w && y > w.y && y < w.y + w.h) continue;   // standing inside it: ignore
+        rs.push(w);
+    }
+    const angs = [];
+    for (let k = 0; k < 48; k++) angs.push(k / 48 * Math.PI * 2 - Math.PI);
+    for (let i = 0; i < rs.length; i++) {
+        const w = rs[i];
+        const cs = [[w.x, w.y], [w.x + w.w, w.y], [w.x, w.y + w.h], [w.x + w.w, w.y + w.h]];
+        for (let c = 0; c < 4; c++) {
+            const a = Math.atan2(cs[c][1] - y, cs[c][0] - x);
+            angs.push(a - 0.0004, a, a + 0.0004);
+        }
+    }
+    angs.sort(function (p, q) { return p - q; });
+    const pts = new Array(angs.length * 2);
+    for (let n = 0; n < angs.length; n++) {
+        const dx = Math.cos(angs[n]), dy = Math.sin(angs[n]);
+        let best = R;
+        for (let i = 0; i < rs.length; i++) {
+            const w = rs[i];
+            let t0 = 0, t1 = best;
+            if (dx !== 0) {
+                let a = (w.x - x) / dx, b = (w.x + w.w - x) / dx;
+                if (a > b) { const q = a; a = b; b = q; }
+                if (a > t0) t0 = a;
+                if (b < t1) t1 = b;
+            } else if (x < w.x || x > w.x + w.w) continue;
+            if (t0 > t1) continue;
+            if (dy !== 0) {
+                let a = (w.y - y) / dy, b = (w.y + w.h - y) / dy;
+                if (a > b) { const q = a; a = b; b = q; }
+                if (a > t0) t0 = a;
+                if (b < t1) t1 = b;
+            } else if (y < w.y || y > w.y + w.h) continue;
+            if (t0 > t1 || t0 < 0) continue;
+            if (t0 < best) best = t0;
+        }
+        pts[n * 2] = x + dx * best;
+        pts[n * 2 + 1] = y + dy * best;
+    }
+    return pts;
 }
 
-// A flashlight as flat annular sectors -- disjoint, so their alphas never
-// compound into the wrong levels.
+function clipToPoly(g, pts) {
+    g.beginPath();
+    g.moveTo(pts[0], pts[1]);
+    for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]);
+    g.closePath();
+    g.clip();
+}
+
+// QUANTIZED LIGHT (2026-10-09: "step into bands"; AESTHETIC_GUIDE.md §4.9 --
+// the era had no smooth gradients). Every light is still raycast and still
+// falls off, but in four flat steps: [outer edge as a fraction of the
+// radius, light]. Hard steps are colour stops placed a hair apart. Shared by
+// every cut and every additive pool, so all the light in the game steps
+// alike.
+const ARC_LIGHT_BANDS = [[0.3, 1], [0.55, 0.66], [0.8, 0.36], [1, 0.12]];
+function bandGradient(g, x, y, r, rgb, a) {
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    let from = 0;
+    for (let i = 0; i < ARC_LIGHT_BANDS.length; i++) {
+        const c = "rgba(" + rgb + "," + (ARC_LIGHT_BANDS[i][1] * a).toFixed(3) + ")";
+        gr.addColorStop(from, c);
+        gr.addColorStop(ARC_LIGHT_BANDS[i][0] - 0.001, c);
+        from = ARC_LIGHT_BANDS[i][0];
+    }
+    gr.addColorStop(1, "rgba(" + rgb + ",0)");
+    return gr;
+}
+function falloffGradient(g, x, y, r, a) { return bandGradient(g, x, y, r, "0,0,0", a); }
+
+// A flashlight: three sectors, each wider than the last, each carrying the
+// banded falloff. Their alphas compound under destination-out, so the beam
+// steps down sideways as well as along its length: 3 layers in the core,
+// 2 at the shoulder, 1 at the rim.
+const TORCH_LAYERS = [0.45, 0.85, 1.25];     // half-angle, as a multiple of TORCH_HALF
+const TORCH_LAYER_A = 0.63;                  // 1 - (1 - 0.63)^3 = 0.95 in the core
 function cutTorch(g, cx, cy, fx, fy, range) {
     const a = Math.atan2(fy, fx);
-    let r0 = 0;
-    for (let i = 0; i < TORCH_BANDS.length; i++) {
-        const r1 = range * TORCH_BANDS[i][0];
-        g.fillStyle = "rgba(0,0,0," + TORCH_BANDS[i][1] + ")";
+    for (let i = 0; i < TORCH_LAYERS.length; i++) {
+        const half = TORCH_HALF * TORCH_LAYERS[i];
+        g.fillStyle = falloffGradient(g, cx, cy, range, TORCH_LAYER_A);
         g.beginPath();
-        g.arc(cx, cy, r1, a - TORCH_HALF, a + TORCH_HALF);
-        if (r0 > 0) g.arc(cx, cy, r0, a + TORCH_HALF, a - TORCH_HALF, true);
-        else g.lineTo(cx, cy);
+        g.moveTo(cx, cy);
+        g.arc(cx, cy, range, a - half, a + half);
         g.closePath();
         g.fill();
-        r0 = r1;
     }
 }
 
 function cutGlow(g, x, y, r, inner) {
-    g.fillStyle = "rgba(0,0,0," + inner + ")";
-    g.beginPath();
-    g.arc(x, y, r * 0.62, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = "rgba(0,0,0," + (inner * 0.5).toFixed(3) + ")";
+    g.fillStyle = falloffGradient(g, x, y, r, inner);
     g.beginPath();
     g.arc(x, y, r, 0, Math.PI * 2);
-    g.arc(x, y, r * 0.62, 0, Math.PI * 2, true);
     g.fill();
 }
 
 function arcadeDrawLighting() {
+    if (!canvas.width || !canvas.height) return;   // before the first resize
     if (!lightLayer) lightLayer = document.createElement("canvas");
     if (lightLayer.width !== canvas.width || lightLayer.height !== canvas.height) {
         lightLayer.width = canvas.width;
@@ -1740,28 +1817,42 @@ function arcadeDrawLighting() {
 
     g.globalCompositeOperation = "destination-out";
     if (W) {
+        // The dusk sun is a real light, just outside each window and door
+        // and low to the west. Raycast, so it only comes in through the
+        // openings and falls across the floor as a shaft where the walls and
+        // racking let it.
+        sunLights = [];
         for (let i = 0; i < W.windows.length; i++) {
             const w = W.windows[i];
-            g.fillStyle = "rgba(0,0,0,0.5)";
-            windowShaft(g, w, 70);
-            g.fill();
-            g.fillStyle = "rgba(0,0,0,0.3)";
-            windowShaft(g, w, 30);
-            g.fill();
+            sunLights.push({ x: w.x + w.w / 2 - 150, y: w.dir > 0 ? w.y - 110 : w.y + w.h + 110, k: 0.9 });
         }
         for (let i = 0; i < W.doors.length; i++) {
             const d = W.doors[i];
-            g.fillStyle = "rgba(0,0,0,0.45)";
-            g.fillRect(d.x + (d.dir > 0 ? 0 : -150), d.y, 150 + T_PAD, d.h);
+            sunLights.push({ x: d.dir > 0 ? d.x - 110 : d.x + T_PAD + 110, y: d.y + d.h / 2 - 100, k: 0.8 });
         }
-    }
+        for (let i = 0; i < sunLights.length; i++) {
+            const u = sunLights[i];
+            if (u.x < vr.x - SUN_R || u.x > vr.x + vr.w + SUN_R || u.y < vr.y - SUN_R || u.y > vr.y + vr.h + SUN_R) { u.poly = null; continue; }
+            g.save();
+            g.beginPath();
+            g.rect(W.x, W.y, W.w, W.h);
+            g.clip();
+            u.poly = visPoly(u.x, u.y, SUN_R);
+            clipToPoly(g, u.poly);
+            cutGlow(g, u.x, u.y, SUN_R, u.k);
+            g.restore();
+        }
+    } else sunLights = [];
     for (let i = 0; i < arenaLamps.length; i++) {
         const l = arenaLamps[i];
-        if (l.x < vr.x - LAMP_RADIUS || l.x > vr.x + vr.w + LAMP_RADIUS ||
-            l.y < vr.y - LAMP_RADIUS || l.y > vr.y + vr.h + LAMP_RADIUS) continue;
+        const LR = l.r || LAMP_RADIUS;
+        if (l.x < vr.x - LR || l.x > vr.x + vr.w + LR ||
+            l.y < vr.y - LR || l.y > vr.y + vr.h + LR) { l.poly = null; continue; }
         g.save();
         clipToLampSide(g, l, vr);
-        cutGlow(g, l.x, l.y, LAMP_RADIUS, 0.85);
+        l.poly = visPoly(l.x, l.y, LR);
+        clipToPoly(g, l.poly);
+        cutGlow(g, l.x, l.y, LR, l.cool ? 0.95 : 0.85);
         g.restore();
     }
     for (let i = 0; i < pickups.length; i++) {
@@ -1777,14 +1868,21 @@ function arcadeDrawLighting() {
         const r = remotePlayers[id];
         if (r.away) continue;
         const rx = r.x + (r.size || 16) / 2, ry = r.y + (r.size || 16) / 2;
+        g.save();
+        clipToPoly(g, visPoly(rx, ry, TORCH_RANGE * 0.85));
         cutGlow(g, rx, ry, SELF_GLOW * 0.8, 0.7);
         if (!r.downed && (r.facingX || r.facingY)) cutTorch(g, rx, ry, r.facingX || 0, r.facingY || 0, TORCH_RANGE * 0.85);
+        g.restore();
     }
     // You: the flashlight toward the pointer, and the glow round your feet.
     const me = players[0];
     const cx = me ? me.x + me.size / 2 : camera.x, cy = me ? me.y + me.size / 2 : camera.y;
+    const myRange = TORCH_RANGE * ((me && me.downed) ? 0.45 : 1);
+    g.save();
+    clipToPoly(g, visPoly(cx, cy, myRange));
     cutGlow(g, cx, cy, SELF_GLOW * ((me && me.downed) ? 0.7 : 1), 0.9);
-    if (me) cutTorch(g, cx, cy, me.facingX || 1, me.facingY || 0, TORCH_RANGE * (me.downed ? 0.45 : 1));
+    if (me) cutTorch(g, cx, cy, me.facingX || 1, me.facingY || 0, myRange);
+    g.restore();
     g.globalCompositeOperation = "source-over";
 
     ctx.save();
@@ -1800,15 +1898,12 @@ const T_PAD = 20;
 function clipToLampSide(c, l, vr) {
     const W = arenaWarehouse;
     if (!W) return;
+    // Outside lamps are not clipped any more: the raycast stops them at the
+    // wall and lets them in through the windows (2026-10-08).
+    if (!l.inside) return;
     c.beginPath();
-    if (l.inside) {
-        c.rect(W.x, W.y, W.w, W.h);
-        c.clip();
-    } else {
-        c.rect(vr.x - LAMP_RADIUS, vr.y - LAMP_RADIUS, vr.w + LAMP_RADIUS * 2, vr.h + LAMP_RADIUS * 2);
-        c.rect(W.x, W.y, W.w, W.h);
-        c.clip("evenodd");
-    }
+    c.rect(W.x, W.y, W.w, W.h);
+    c.clip();
 }
 
 // The lamps themselves, over the darkness: an orange pool (additive, flat
@@ -1821,15 +1916,14 @@ function arcadeDrawLamps() {
     const vr = viewRect();
     for (let i = 0; i < arenaLamps.length; i++) {
         const l = arenaLamps[i];
+        if (!l.poly) continue;
         ctx.save();
         clipToLampSide(ctx, l, vr);
-        ctx.fillStyle = "rgba(255,140,50,0.07)";
+        clipToPoly(ctx, l.poly);
+        const LR = l.r || LAMP_RADIUS, rgb = l.cool ? "140,195,255" : "255,145,55", m = l.cool ? 0.75 : 1;
+        ctx.fillStyle = bandGradient(ctx, l.x, l.y, LR, rgb, 0.17 * m);
         ctx.beginPath();
-        ctx.arc(l.x, l.y, LAMP_RADIUS, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "rgba(255,150,60,0.08)";
-        ctx.beginPath();
-        ctx.arc(l.x, l.y, LAMP_RADIUS * 0.5, 0, Math.PI * 2);
+        ctx.arc(l.x, l.y, LR, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
     }
@@ -1838,9 +1932,9 @@ function arcadeDrawLamps() {
         const l = arenaLamps[i];
         ctx.fillStyle = "#2A2A2A";
         ctx.fillRect(l.x - 5, l.y - 4, 10, 8);
-        ctx.fillStyle = "#FFB050";
+        ctx.fillStyle = l.cool ? "#9CCBFF" : "#FFB050";
         ctx.fillRect(l.x - 3, l.y - 2, 6, 4);
-        ctx.fillStyle = "#FFF2C0";
+        ctx.fillStyle = l.cool ? "#F0F8FF" : "#FFF2C0";
         ctx.fillRect(l.x - 1, l.y - 1, 2, 2);
     }
     ctx.restore();
@@ -1947,6 +2041,28 @@ function buildSiloSets(clear) {
         const s = silos[k];
         if (s) arenaLamps.push({ x: s.x + s.w + 30, y: s.y + s.h - 6, inside: k === 1 });
     }
+    // 2026-10-08: "slightly more light sources around silos 1 and 3, but also
+    // at the start point". Lamps are light only: nothing solid is added.
+    // (2026-10-08 later: silo 2 too -- inside the warehouse.)
+    for (let k = 0; k < 3; k++) {
+        const f = funnels[k], s = silos[k], ins = k === 1;
+        arenaLamps.push({ x: s.x - 28, y: s.y + s.h - 6, inside: ins });                 // tank, west foot
+        arenaLamps.push({ x: s.x + s.w / 2, y: s.y - SILO_LIFT - 14, inside: ins });     // tank, top
+        arenaLamps.push({ x: f.x, y: f.y - f.r - 34, inside: ins });                     // funnel, north
+        arenaLamps.push({ x: f.x, y: f.y + f.r + 34, inside: ins });                     // funnel, south
+        arenaLamps.push({ x: f.x - f.r - 34, y: f.y, inside: ins });                     // funnel, west
+    }
+    // The exit: cool flood lights either side of the gate and one out front.
+    if (escapeRect) {
+        const gx = escapeRect.x + escapeRect.w / 2, gy = escapeRect.y;
+        const fl = function (x, y) { arenaLamps.push({ x: x, y: y, inside: false, cool: true, r: 330 }); };
+        fl(gx - escapeRect.w / 2 - 90, gy - 40); fl(gx + escapeRect.w / 2 + 90, gy - 40);
+        fl(gx - escapeRect.w / 2 - 90, gy - 190); fl(gx + escapeRect.w / 2 + 90, gy - 190);
+        fl(gx, gy - 270);
+    }
+    const sx = WORLD_W / 2, sy = WORLD_H / 2;
+    arenaLamps.push({ x: sx - 130, y: sy - 90, inside: false }, { x: sx + 130, y: sy - 90, inside: false },
+                    { x: sx - 130, y: sy + 90, inside: false }, { x: sx + 130, y: sy + 90, inside: false });
 
     // ---- SILO 1: two TIGHT hedge rings round the tank -- "localize hedges to
     // just immediate vicinity around silo 1 with less sprawl" -- gaps
@@ -2185,26 +2301,28 @@ function arcadeDrawWindows() {
     }
 }
 
-// Light pouring in through the windows. Drawn AFTER the darkness, in world
-// space, additive, so it reads in the dark the way a shaft of daylight does.
+// The dusk sun, as colour: a warm additive pool for each raycast sun light
+// (arcadeDrawLighting builds them), so the shafts the walls leave read as
+// light and not only as less dark. No hand-drawn shaft shapes any more.
 function arcadeDrawLight() {
     const W = arenaWarehouse;
-    if (!W) return;
+    if (!W || !sunLights.length) return;
     ctx.save();
     applyCameraTransform();
     ctx.globalCompositeOperation = "lighter";
-    ctx.fillStyle = "rgba(255,236,180,0.05)";
-    for (let i = 0; i < W.windows.length; i++) {
-        const w = W.windows[i];
-        const y0 = w.dir > 0 ? w.y + w.h : w.y;
-        const y1 = y0 + w.dir * 190;
+    ctx.beginPath();
+    ctx.rect(W.x, W.y, W.w, W.h);
+    ctx.clip();
+    for (let i = 0; i < sunLights.length; i++) {
+        const u = sunLights[i];
+        if (!u.poly) continue;
+        ctx.save();
+        clipToPoly(ctx, u.poly);
+        ctx.fillStyle = bandGradient(ctx, u.x, u.y, SUN_R, "255,195,115", 0.11);
         ctx.beginPath();
-        ctx.moveTo(w.x, y0);
-        ctx.lineTo(w.x + w.w, y0);
-        ctx.lineTo(w.x + w.w + 34, y1);
-        ctx.lineTo(w.x + 14, y1);
-        ctx.closePath();
+        ctx.arc(u.x, u.y, SUN_R, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
     }
     ctx.restore();
 }

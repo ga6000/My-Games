@@ -395,7 +395,7 @@
         }
     </style>
 </head>
-<body data-game="zombie" data-cabinet="raster">
+<body class="arcade" data-game="zombie" data-cabinet="raster">
 
 <!-- 4.6 -- raster cabinets only. Sits above the canvas and below the HUD
      (z-index 10+) by paint order alone: it is positioned and the canvas is
@@ -519,7 +519,7 @@
 
     <div id="gameover">
         EVERYONE WENT DOWN.<br>
-        <span style="font-size: 22px; color: var(--phos-hot);">SURVIVED TO ROUND <span id="finalRound">0</span></span><br>
+        <span style="font-size: 22px; color: var(--phos-hot);" id="overSub">SURVIVED TO ROUND <span id="finalRound">0</span></span><br>
         <div class="runscore" id="overScore"></div>
         <span style="font-size: 22px; color: var(--sig-cyan);">Click anywhere to restart</span>
     </div>

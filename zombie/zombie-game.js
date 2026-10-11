@@ -722,6 +722,7 @@ function updateRemoteBleed(now) {
 const ESCAPE_PULL_MS = 1400;
 const ESCAPE_FADE_MS = 1200;
 
+let runEndAt = 0;       // when a lost run ended (the down card's clock)
 let winSeqAt = 0;        // when the sequence started; 0 = not running
 let winPullPx = 0;       // how far the local player is drawn past the gate
 let winFade = 0;         // 0..1 black over the world
@@ -786,9 +787,7 @@ function showWinCard() {
         // ARCADE: the run is measured in TIME, not rounds (2026-10-07: "it
         // should say 'escaped at 4:00' or whatever the time is").
         if (ZOMBIE_ARCADE) {
-            const t = Math.floor(arcadeElapsedS(winSeqAt || Date.now()));
-            const clock = Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
-            uiWinSub.innerHTML = (aboard ? "ESCAPED AT " : "LEFT BEHIND AT ") + clock;
+            uiWinSub.innerHTML = (aboard ? "ESCAPED AT " : "LEFT BEHIND AT ") + arcadeClock(winSeqAt || Date.now());
         } else {
             uiWinSub.innerHTML = aboard
                 ? 'ESCAPED ON ROUND <span id="winRound">' + round + '</span>'
@@ -813,7 +812,11 @@ function triggerGameOver() {
     stopAllLoops();
     musicEnd("over");
     uiGameOver.style.display = 'block';
-    uiFinalRound.innerText = String(round);
+    runEndAt = Date.now();
+    // ARCADE: time, like the win card -- there are no rounds to survive to.
+    const overSub = document.getElementById('overSub');
+    if (ZOMBIE_ARCADE && overSub) overSub.innerText = "DOWN AT " + arcadeClock(runEndAt);
+    else uiFinalRound.innerText = String(round);
     renderRunScore(uiOverScore);
     submitRunToLeaderboard();
 }
@@ -936,6 +939,7 @@ function resetGame() {
     // The win sequence, or a restart clicked during one leaves the world
     // half-faded and the local player drawn 600px south of themselves.
     winSeqAt = 0;
+    runEndAt = 0;
     winPullPx = 0;
     winFade = 0;
     uiWinShown = false;
