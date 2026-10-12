@@ -281,6 +281,7 @@ MP.connect({
                 if (!r.downed) r.reviveProgress = 0;
                 r.weapon = rp.w || "pistol";
                 r.cards = rp.cd || [];
+                r.boomUntil = rp.bm ? deadlineFrom(rp.bm, now) : 0;
                 if (rp.sk) r.sk = rp.sk;
                 r.tx = rp.x;
                 r.ty = rp.y;
@@ -312,11 +313,25 @@ MP.connect({
             (msg.s || []).forEach(function (s) {
                 bullets.push({
                     x: s[0], y: s[1], vx: s[2], vy: s[3], size: size,
-                    dmg: msg.d || 1, pierce: msg.pr || 0, bounces: msg.bo || 0, hitZ: [],
+                    dmg: msg.d || 1, pierce: msg.pr || 0, bounces: msg.bo || 0, homing: msg.hm || 0, hitZ: [],
                     travelled: 0, range: msg.rg || 800, kind: kind,
                     ownerColor: msg.c, owner: msg.id
                 });
             });
+            return;
+        }
+
+        // A guest fired the BOOMGUN. Resolved here so kills are credited.
+        if (msg.k === "boom" && netIsHost) {
+            if (typeof arcadeBoomResolve === "function") {
+                arcadeBoomResolve(msg.id, msg.x, msg.y, msg.dx, msg.dy, Date.now());
+            }
+            return;
+        }
+
+        // A guest placed its turret. The host owns the turret list.
+        if (msg.k === "turret" && netIsHost) {
+            if (typeof arcadeHostPlaceTurret === "function") arcadeHostPlaceTurret(msg.id, msg.c, msg.x, msg.y);
             return;
         }
 
@@ -427,6 +442,12 @@ function applyWorldSnapshot(msg, now) {
     // because generateLevel() sets levelSeed = MP.seed(). Done here,
     // before the door/barricade rows below are applied, so the host's
     // state lands on the corrected geometry in the same packet.
+    // ARCADE: map 2 begins. The level number comes first: the seed does not
+    // move between maps, so it is `lv` that makes this client rebuild.
+    if (ZOMBIE_ARCADE && typeof msg.df === "number") arcDifficulty = msg.df;
+    if (ZOMBIE_ARCADE && typeof msg.lv === "number" && msg.lv > arcLevelNo) {
+        arcadeEnterLevel(msg.lv, now, msg.l1 || [0, 0]);
+    }
     if (typeof msg.ls === "number") {
         hostLevelSeed = msg.ls;
         if (msg.ls !== levelSeed) {
@@ -435,16 +456,29 @@ function applyWorldSnapshot(msg, now) {
         }
     }
 
-    // Zombies reconcile by index so interpolation targets survive
-    // between snapshots.
+    // Zombies reconcile by STABLE ID, not array index (2026-10-11). The host
+    // splices a zombie out of `zombies` on every kill, which shifts every
+    // later zombie down one slot; matching by index made each of them
+    // inherit its neighbour's old position and then lerp across the screen,
+    // so a guest saw dozens of shapes sliding and flashing all over. The
+    // arcade kills fast enough to do that constantly. Row layout:
+    // [x, y, type, flash ms, id, burn ms, launch ms, lvx, lvy] -- burn and
+    // the launch triple only when present.
     const incoming = msg.z || [];
+    const prevById = {};
+    for (let i = 0; i < zombies.length; i++) {
+        if (zombies[i].nid) prevById[zombies[i].nid] = zombies[i];
+    }
     const next = [];
     for (let i = 0; i < incoming.length; i++) {
         const zi = incoming[i];
-        const prev = zombies[i];
+        const nid = zi[4] || 0;
+        if (nid > zNidSeq) zNidSeq = nid;   // a promoted host must not reuse a live id
+        const prev = nid ? prevById[nid] : null;
         const key = Z_TYPE_KEYS[zi[2]] || "walker";
         const spec = ZOMBIE_TYPES[key];
         next.push({
+            nid: nid,
             type: key,
             x: prev ? prev.x : zi[0],
             y: prev ? prev.y : zi[1],
@@ -459,11 +493,11 @@ function applyWorldSnapshot(msg, now) {
             // compared it against the local clock, so a host running fast
             // made every zombie render permanently white here.
             flashUntil: deadlineFrom(zi[3] || 0, now),
-            burnUntil: deadlineFrom(zi[4] || 0, now),   // same rule, same reason
+            burnUntil: deadlineFrom(zi[5] || 0, now),   // same rule, same reason
             // In flight, if the row carried it. Same rule again.
-            launchUntil: zi.length > 5 ? deadlineFrom(zi[5] || 0, now) : 0,
-            lvx: zi.length > 6 ? zi[6] : 0,
-            lvy: zi.length > 7 ? zi[7] : 0,
+            launchUntil: zi.length > 6 ? deadlineFrom(zi[6] || 0, now) : 0,
+            lvx: zi.length > 7 ? zi[7] : 0,
+            lvy: zi.length > 8 ? zi[8] : 0,
             nextScream: 0,
             isolationSeeker: false
         });
@@ -513,6 +547,20 @@ function applyWorldSnapshot(msg, now) {
     decoys = (msg.dc || []).map(function (d) {
         return { x: d[0], y: d[1], r: d[2], until: deadlineFrom(d[3], now) };
     });
+
+    // ARCADE: the freeze zone and the turrets. Remaining durations, rebased.
+    if (ZOMBIE_ARCADE) {
+        freezeZone = msg.frz ? { x: msg.frz[0], y: msg.frz[1], r: msg.frz[2], until: deadlineFrom(msg.frz[3], now) } : null;
+        // BOOMGUN bolts: [id, x, y, vx, vy, owner, travelled]. Our own are drawn from the
+        // local prediction, so the host's copy of them is skipped.
+        boomBolts = (msg.bb || []).filter(function (r) { return !isMyNetId(r[5]); }).map(function (r) {
+            return { id: r[0], x: r[1], y: r[2], vx: r[3], vy: r[4], owner: r[5], travelled: r[6] || 0 };
+        });
+        arcTurrets = (msg.tu || []).map(function (t) {
+            return { id: t[0], x: t[1], y: t[2], until: deadlineFrom(t[3], now), hp: t[4],
+                     aim: t[5] / 100, liveAt: deadlineFrom(t[6], now) };
+        });
+    }
 
     scrapPool = msg.sc || 0;
     kills = msg.ki || kills;
@@ -586,6 +634,9 @@ function applyWorldSnapshot(msg, now) {
         if (e[0] === SND_EXPLODE) addBlast(e[1], e[2], e[3] || 190);
         else if (e[0] === SND_POP) addBlast(e[1], e[2], e[3] || 95);
         else if (e[0] === SND_ULTRA && e[3] === 1) addBlast(e[1], e[2], 70);
+        else if (e[0] === SND_BOOM) {
+            boomKick(e[1], e[2]);
+        }
         else if (e[0] === SND_ARC) {
             // The bolt's far end is packed into arg; see arcFrom().
             addBolt(e[1], e[2], e[1] + Math.floor(e[3] / 1024) - 512, e[2] + (e[3] % 1024) - 512);
@@ -688,6 +739,8 @@ function broadcastPlayers() {
                 // the bar pulse (see the players handler).
                 w: currentWeaponKey(p),
                 cd: p.cards,
+                // BOOMGUN: ms left, so teammates see the big gun in your hands.
+                bm: (ZOMBIE_ARCADE && p.boomUntil > Date.now()) ? Math.round(p.boomUntil - Date.now()) : 0,
                 // The socket this id currently rides, so a server `leave`
                 // (which names sockets) can be matched to a player.
                 sk: MP.selfId || ""
@@ -710,11 +763,17 @@ function broadcastWorld() {
             const row = [
                 Math.round(z.x), Math.round(z.y),
                 Z_TYPE_KEYS.indexOf(z.type),
-                msLeft(z.flashUntil, now)      // duration, never a timestamp
+                msLeft(z.flashUntil, now),     // duration, never a timestamp
+                // Stable id: array indices shift on every kill (see
+                // applyWorldSnapshot). Assigned lazily so no spawn site
+                // has to know about it.
+                z.nid || (z.nid = ++zNidSeq)
             ];
             // Burning, as a remaining duration. Omitted when not burning, so
             // a horde with no flamethrower in it costs nothing extra.
-            if (z.burnUntil && now < z.burnUntil) row.push(msLeft(z.burnUntil, now));
+            const burning = z.burnUntil && now < z.burnUntil;
+            const flying = z.launchUntil && now < z.launchUntil;
+            if (burning || flying) row.push(burning ? msLeft(z.burnUntil, now) : 0);
             // IN FLIGHT (2026-09-20): an ultra spawnling thrown by a SUPER
             // SPLITTER flies before it chases, and a guest has to draw that
             // -- one flying zombie that a client thinks is walking reads as
@@ -722,8 +781,7 @@ function broadcastWorld() {
             // actually in the air, so nothing else on the map pays for it.
             //
             // A REMAINING DURATION, never a timestamp (rule 1).
-            if (z.launchUntil && now < z.launchUntil) {
-                if (row.length < 5) row.push(0);          // keep the burn slot
+            if (flying) {
                 row.push(msLeft(z.launchUntil, now), +z.lvx.toFixed(2), +z.lvy.toFixed(2));
             }
             return row;
@@ -755,6 +813,17 @@ function broadcastWorld() {
             const s = scoreBoard[id];
             return [id, s.kills, s.assists, s.revives, s.score];
         }),
+        // ARCADE: the freeze zone [x, y, r, ms left] and the turrets
+        // [id, x, y, ms left, hp %, aim x100, ms until live]. Durations only.
+        frz: (ZOMBIE_ARCADE && freezeZone && now < freezeZone.until)
+            ? [Math.round(freezeZone.x), Math.round(freezeZone.y), freezeZone.r, msLeft(freezeZone.until, now)] : 0,
+        bb: ZOMBIE_ARCADE ? boomBolts.map(function (b) {
+            return [b.id, Math.round(b.x), Math.round(b.y), +b.vx.toFixed(1), +b.vy.toFixed(1), b.owner, Math.round(b.travelled)];
+        }) : [],
+        tu: ZOMBIE_ARCADE ? arcTurrets.map(function (t) {
+            return [t.id, Math.round(t.x), Math.round(t.y), msLeft(t.until, now), Math.round(t.hp),
+                    Math.round(t.aim * 100), msLeft(t.liveAt, now)];
+        }) : [],
         // Live DECOY lures, as remaining durations.
         dc: decoys.map(function (d) {
             return [Math.round(d.x), Math.round(d.y), d.r, msLeft(d.until, now)];
@@ -765,6 +834,12 @@ function broadcastWorld() {
         // so it needs nothing from the server -- which is just as well,
         // since the server cannot be changed.
         ls: levelSeed,
+        // ARCADE: which map, and what map 1 left behind for the run's time
+        // and score ([seconds, tanks]). Small, and healing: a client that
+        // missed the transition catches up from the next snapshot.
+        lv: ZOMBIE_ARCADE ? arcLevelNo : 1,
+        df: ZOMBIE_ARCADE ? arcDifficulty : 1,
+        l1: (ZOMBIE_ARCADE && arcLevelNo >= 2) ? [Math.round(arcL1Seconds * 10) / 10, arcL1Silos] : 0,
 
         // The Blood Silo chain. All small integers; `esc` is a REMAINING
         // DURATION, never a timestamp.

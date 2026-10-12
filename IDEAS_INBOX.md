@@ -20,8 +20,15 @@ Game tags: `hub-zombie`, `long-game`, `hub` (the board itself), `<game-folder>`.
 
 - 2026-10-04 · hub-zombie · (after a few more playtests) Tight clusters of trees for pinch points, less common than the open patches
 
+- 2026-10-11 · hub-zombie · Zombies standing on an active funnel take damage over time, so the funnel itself is crowd control
+- 2026-10-11 · hub-zombie · A throwable on G (frag/stun) with its own small ammo that AMMO drops refill — the one skill-action crowd tool
+
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)
+
+- 2026-10-11 · promoted · Zombie's lighting rework (option A) and the five-silo second map were proposed and built the same day (`zombie/LIGHTING_PROPOSAL.md`, `zombie/LEVEL_2_PROPOSAL.md`, `zombie/CLAUDE.md` "Seventh").
+
+- 2026-10-11 · promoted · Tank pulse on F at a full tank, FREEZE team drop, TURRET drop, the spawn tide, the lull after a tank fills / the gate opens, and easing the spawn debt after a fast clear were all built the same day they were accepted (`zombie/CLAUDE.md`, "Sixth").
 
 - 2026-10-07 · promoted · "Boxes of organised trees round the tank areas" and "shacks at 1, a warehouse at 2, a dense forest at 3" were built as the silo sets (`zombie/CLAUDE.md`, "The one-hit buffer and the silo sets"). Tank 1 got hedge rings and containers rather than shacks, at the user's request of 2026-10-07.

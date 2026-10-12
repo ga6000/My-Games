@@ -56,6 +56,7 @@
         }
         #gun { display: flex; flex-direction: column; }
         #gun .row { display: flex; align-items: flex-end; gap: 14px; }
+        #gun .gtop { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
         #gunIcon { image-rendering: pixelated; image-rendering: crisp-edges; display: block; margin-bottom: 6px; }
         #gunName { color: var(--sig-cyan); font-size: 13px; letter-spacing: 2px; margin-bottom: 2px; }
         #ammoBig {
@@ -63,24 +64,32 @@
             font-variant-numeric: tabular-nums; min-width: 2ch;
         }
         #ammoBig.low { color: var(--sig-magenta); }
-        #gunStrip { display: flex; gap: 5px; margin-top: 6px; }
+        #gunStrip { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
         #gunStrip .slot {
-            display: inline-flex; align-items: center; gap: 3px;
-            padding: 2px 4px; border: 1px solid var(--phos-dim); background: rgba(0,0,0,.55);
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 3px 4px; border: 2px solid var(--phos-dim); background: rgba(0,0,0,.55);
         }
-        #gunStrip .slot.on { border-color: var(--sig-cyan); }
-        #gunStrip .slot.dry { opacity: .35; }
-        #gunStrip i { font-style: normal; font-size: 10px; color: var(--phos-mid); }
-        #perks { display: flex; gap: 10px; margin-bottom: 4px; }
+        /* The gun in hand: a FILLED tile (icon is drawn black on it), so it
+           is the one thing in the row that reads without looking. */
+        #gunStrip .slot.on { border-color: var(--sig-cyan); background: var(--sig-cyan); }
+        #gunStrip .slot.on i { color: #000; }
+        #gunStrip .slot.on, #gunStrip .slot.on i { text-shadow: none; }
+        #gunStrip .slot.dry { opacity: .4; }
+        #gunStrip .slot.turret { color: var(--sig-cyan); font-size: 14px; font-weight: bold; letter-spacing: 1px; }
+        #gunStrip .slot.turret.on { color: #000; }
+        #gunStrip i { font-style: normal; font-size: 13px; font-weight: bold; color: var(--sig-cyan); }
+        /* WRAPS (2026-10-11): six tiles in a fixed row ran off the edge of
+           the sidebar, which clips. */
+        #perks { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; max-width: 100%; }
         #perks .perk {
-            position: relative; width: 46px; height: 46px;
+            position: relative; width: 48px; height: 48px;
             display: flex; align-items: center; justify-content: center;
-            border: 1px solid var(--world-hue); background: rgba(0,0,0,.6);
+            border: 2px solid var(--world-hue); background: rgba(0,0,0,.6);
         }
         /* the stack level, under the icon's corner */
         #perks .perk b {
-            position: absolute; right: -7px; bottom: -9px;
-            font-size: 12px; font-weight: normal; letter-spacing: 1px;
+            position: absolute; right: -7px; bottom: -10px;
+            font-size: 14px; font-weight: normal; letter-spacing: 1px;
             color: #000; background: var(--world-hue); padding: 0 3px;
             text-shadow: none;
         }
@@ -353,9 +362,13 @@
             color: #FFFFFF; font-size: 24px; font-weight: bold; letter-spacing: 2px;
             text-align: right; font-variant-numeric: tabular-nums; margin-top: -6px;
         }
+        /* HI-SCORE and 1UP share a row (2026-10-11): the loadout and the
+           objective are what the eye needs, and they were being clipped. */
+        #sidebar .cab-pair { display: flex; justify-content: space-between; gap: 12px; }
+        #sidebar .cab-pair .cab-v { margin-top: 0; font-size: 20px; }
         #sidebar .cab-radar { border: 3px solid #E8E8E8; padding: 3px; background: #000; align-self: stretch; }
         #sidebar .cab-row { display: flex; justify-content: space-between; align-items: flex-end; }
-        #sidebar .cab-cond { font-size: 22px; font-weight: bold; letter-spacing: 3px; }
+        #sidebar .cab-cond { font-size: 26px; font-weight: bold; letter-spacing: 3px; }
         #sidebar .cab-cond.green { color: #33FF55; }
         #sidebar .cab-cond.yellow { color: #FFE033; }
         #sidebar .cab-cond.red { color: #FF2233; animation: cabBlink 0.5s steps(1) infinite; }
@@ -365,20 +378,31 @@
         #sidebar .cab-lives .life.down { background: #FF2233; }
         #sideHud { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
         #sidemap { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+        /* 2026-10-11 ("make the objective text larger ... readable from my
+           periphery"): 15px -> 24px bold, with a bar down its edge. */
         #sideNext #objective {
             position: static; transform: none; display: block !important;
-            white-space: normal; font-size: 15px; line-height: 1.35; min-height: 2.7em;
+            white-space: normal; font-size: 24px; font-weight: bold; line-height: 1.2;
+            min-height: 2.4em; letter-spacing: 1px;
+            border-left: 5px solid var(--sig-amber); padding-left: 10px;
         }
-        #sideGoals { list-style: none; margin: 0; padding: 0; font-size: 13px; }
-        #sideGoals li { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: #5A5A5A; }
-        #sideGoals .box { width: 10px; height: 10px; border: 2px solid currentColor; flex: none; }
+        #sideGoals { list-style: none; margin: 0; padding: 0; font-size: 17px; }
+        #sideGoals li { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: #6A6A6A; }
+        #sideGoals .box { width: 12px; height: 12px; border: 2px solid currentColor; flex: none; }
         #sideGoals li.done { color: #3C6A3C; }
         #sideGoals li.done .box { background: currentColor; }
         #sideGoals li.now { color: var(--sig-amber); }
         #sideGoals .gp { margin-left: auto; font-variant-numeric: tabular-nums; }
-        body.arcade #ui { position: static; font-size: 15px; }
+        body.arcade #ui { position: static; font-size: 17px; line-height: 1.3; }
+        /* One wrapped paragraph, not four lines: the stats are the least
+           urgent thing in the panel. */
+        body.arcade #ui br { display: none; }
+        body.arcade #ui b { margin-right: 12px; }
+        /* Short windows drop the checklist: NEXT already says what is current. */
+        @media (max-height: 900px) { #sideGoals { display: none; } }
         body.arcade #loadout { position: static; margin-top: auto; flex-wrap: wrap; gap: 12px; }
-        body.arcade #ammoBig { font-size: 40px; }
+        body.arcade #ammoBig { font-size: 52px; }
+        body.arcade #gunName { font-size: 18px; }
         /* "Remove start dialog ... just replace with 'click to start'"
            (2026-10-04): no box, blinking cabinet text. */
         body.arcade #startprompt {
@@ -416,12 +440,10 @@
 
     <div id="loadout">
         <div id="gun">
-            <img id="gunIcon" alt="" width="96" height="32">
-            <div class="row">
-                <div>
-                    <div id="gunName">PISTOL</div>
-                    <div id="ammoBig">&#8734;</div>
-                </div>
+            <div id="gunName">PISTOL</div>
+            <div class="gtop">
+                <img id="gunIcon" alt="" width="96" height="32">
+                <div id="ammoBig">&#8734;</div>
             </div>
             <div id="gunStrip"></div>
         </div>
@@ -528,10 +550,10 @@
          filled with this game's numbers. Required for every hub game from
          here on -- AESTHETIC_GUIDE.md, "The cabinet panel". -->
     <div id="sidebar">
-        <div class="cab-l">HI-SCORE</div>
-        <div class="cab-v" id="cabHi">0</div>
-        <div class="cab-l">1UP</div>
-        <div class="cab-v" id="cabScore">0</div>
+        <div class="cab-pair">
+            <div><div class="cab-l">HI-SCORE</div><div class="cab-v" id="cabHi">0</div></div>
+            <div><div class="cab-l">1UP</div><div class="cab-v" id="cabScore">0</div></div>
+        </div>
         <div class="cab-radar"><canvas id="sidemap" width="240" height="140"></canvas></div>
         <div class="cab-row">
             <div><div class="cab-l">CONDITION</div><div class="cab-cond green" id="cabCond">GREEN</div></div>

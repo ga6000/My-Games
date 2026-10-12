@@ -117,7 +117,9 @@ const GATE_HOLD_MS = 4000;        // per stage; the second one is longer
 const SILO_CAPACITY = ZOMBIE_ARCADE ? [10, 15, 20] : [12, 24, 36];
 
 function siloCapacity(i) {
-    return SILO_CAPACITY[i] !== undefined ? SILO_CAPACITY[i] : SILO_CAPACITY[SILO_CAPACITY.length - 1];
+    const caps = (ZOMBIE_ARCADE && typeof ARENA_LAYOUTS !== "undefined" && ARENA_LAYOUTS[arcLevelNo])
+        ? ARENA_LAYOUTS[arcLevelNo].caps : SILO_CAPACITY;
+    return caps[i] !== undefined ? caps[i] : caps[caps.length - 1];
 }
 const FLOOD_SIZE = 90;            // zombies in the final wave, scaled by team
 const ESCAPE_OPEN_MS = ZOMBIE_ARCADE ? 30000 : 90000;  // arcade: a 30s hold, not a 90s one
@@ -232,7 +234,7 @@ function endgameObjective() {
         }
         return "";
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < funnels.length; i++) {
         if (funnelActive[i] && siloFill[i] < siloCapacity(i)) {
             return "KILL ON FUNNEL " + (i + 1) + " — SILO " + (i + 1) + " " + siloFill[i] + "/" + siloCapacity(i);
         }
@@ -405,6 +407,9 @@ function siloReady(i) {
 function flipSilo(i) {
     if (!siloReady(i)) return false;
     siloFlipped[i] = true;
+    // ARCADE (2026-10-11, "shockwave should occur on hitting F at silo that
+    // wipes the area"): throwing the switch clears the swarm round the tank.
+    if (ZOMBIE_ARCADE && typeof arcadeSiloPulse === "function") arcadeSiloPulse(i);
     if (i + 1 < funnels.length) {
         funnelActive[i + 1] = true;
         hostEvent(SND_GENERATOR, funnels[i + 1].x, funnels[i + 1].y);

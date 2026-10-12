@@ -15,6 +15,8 @@
 let players = [];
 
 let zombies = [];
+// Stable wire id for zombies (see zombie-net.js applyWorldSnapshot).
+let zNidSeq = 0;
 let bullets = [];
 let pickups = [];
 let scrapPool = 0;          // shared team currency (idea 3), host-authoritative
@@ -198,11 +200,15 @@ const CARDS = {
                  detail: "30% / 45% / 60% of kills refund a round to the gun in your hands. Less for the sniper and rockets." },
     // ARCADE (2026-10-07): drops only, never sold.
     attract:   { name: "ATTRACT",    cost: 9000,  blurb: "LONGER PICKUP REACH",
-                 detail: "You take drops from 50 / 90 / 130 / 165 / 195 / 220 px away." }
+                 detail: "You take drops from 50 / 90 / 130 / 165 / 195 / 220 px away." },
+    // ARCADE (2026-10-11, "bullet curving towards the nearest enemy ... this
+    // also can stack"): rounds bend toward the nearest zombie ahead of them.
+    seeker:    { name: "SEEKER",     cost: 10000, blurb: "ROUNDS CURVE TO ZOMBIES",
+                 detail: "Rounds bend toward the nearest zombie ahead of them, turning up to 1.7 / 2.6 / 3.4 / 4.3 / 5.2 / 6 degrees a step. Not rockets or flame." }
 };
 // APPEND-ONLY: the index is the wire value for an arcade perk drop.
 const CARD_KEYS = ["overdrive", "scavenger", "ricochet", "decoy", "spite", "conductor",
-                   "arc", "blastcap", "skewer", "laststand", "salvage", "attract"];
+                   "arc", "blastcap", "skewer", "laststand", "salvage", "attract", "seeker"];
 
 // Always on the map. It was requested by name, and with the old 4-of-6
 // station draw it was missing from a third of maps -- which is exactly what
@@ -368,7 +374,9 @@ function playerSpeed(p, now) {
     // PERK: LAST STAND x3 crawls faster.
     if (p.downed) return CRAWL_SPEED * (cardLevel(p, "laststand") >= 3 ? 1.6 : 1);
     // ROLE: SCOUT moves a little faster.
-    return PLAYER_SPEED * (myRole() === "scout" ? 1.1 : 1);
+    // ARCADE: a MUD drop slows its taker (zombie-arcade.js).
+    const mud = ZOMBIE_ARCADE && now < (p.slowUntil || 0) ? MUD_SPEED : 1;
+    return PLAYER_SPEED * (myRole() === "scout" ? 1.1 : 1) * mud;
 }
 
 // What the camera follows: this client's own player, downed included.
@@ -426,6 +434,21 @@ function selectWeapon(p, key) {
     return true;
 }
 
+// A gun that runs dry hands over to the most powerful gun you still have
+// rounds for (2026-10-11: "when ammo runs out it should switch to the next
+// most powerful gun instead of straight to pistol"). Before, it took the next
+// owned gun in KEY order, which is "most powerful" only by accident, and
+// currentWeaponKey() dropped straight to the pistol.
+const WEAPON_POWER = ["rocket", "flamer", "sniper", "shotgun", "smg", "rifle", "pistol"];
+
+function bestUsableWeapon(p, except) {
+    for (let i = 0; i < WEAPON_POWER.length; i++) {
+        const k = WEAPON_POWER[i];
+        if (k !== except && weaponUsable(p, k)) return k;
+    }
+    return "pistol";
+}
+
 // Next usable gun after `from` in WEAPON_KEYS order, wrapping; the pistol
 // is always usable, so this always returns something.
 function nextUsableWeapon(p, from, dir) {
@@ -454,7 +477,7 @@ function currentWeapon(p) {
 function currentWeaponKey(p) {
     const w = WEAPONS[p.weapon];
     if (!w) return "pistol";
-    if (!w.infinite && !(p.ammo[p.weapon] > 0)) return "pistol";
+    if (!w.infinite && !(p.ammo[p.weapon] > 0)) return ZOMBIE_ARCADE ? bestUsableWeapon(p, p.weapon) : "pistol";
     return p.weapon;
 }
 
@@ -472,7 +495,7 @@ function shoot(p, now, forcedKey) {
         if (!(p.ammo[key] > 0)) return;
         p.ammo[key]--;
         // Dry: hand over to the next gun you own, not to the pistol.
-        if (p.ammo[key] <= 0 && p.weapon === key) p.weapon = nextUsableWeapon(p, key, 1);
+        if (p.ammo[key] <= 0 && p.weapon === key) p.weapon = ZOMBIE_ARCADE ? bestUsableWeapon(p, key) : nextUsableWeapon(p, key, 1);
     }
 
     // PERKS applied at the muzzle, so a guest's shot message carries them.
@@ -481,6 +504,7 @@ function shoot(p, now, forcedKey) {
     const special = key === "rocket" || key === "flamer";
     const pierce = w.pierce + (special ? 0 : cardLevel(p, "skewer"));     // PERK: SKEWER
     const bounces = special ? 0 : cardLevel(p, "ricochet");                // PERK: RICOCHET
+    const homing = special ? 0 : cardLevel(p, "seeker");                   // PERK: SEEKER
     // ROLE: GUNNER hits harder.
     const dmg = w.dmg * (myRole() === "gunner" ? 1.15 : 1);
     const half = w.bsize / 2;
@@ -509,6 +533,7 @@ function shoot(p, now, forcedKey) {
             dmg: dmg,
             pierce: pierce,
             bounces: bounces,
+            homing: homing,
             hitIds: [],
             travelled: 0,
             range: w.range,
@@ -546,6 +571,7 @@ function shoot(p, now, forcedKey) {
             d: dmg,
             pr: pierce,
             bo: bounces,
+            hm: homing,
             rg: w.range,
             wk: sndIdx,
             s: shots
@@ -820,7 +846,10 @@ function spawnZombieAt(type, roundNo, x, y) {
 // ADRENALINE was removed on request 2026-09-01.
 // APPEND-ONLY: the index is the wire value. The arcade's drops (2026-10-04,
 // zombie-arcade.js) ride the same list and the same `p` rows.
-const PICKUP_TYPES = ["overclock", "rally", "gun", "perk", "ammo", "fuel", "shock"];
+// mud / flare / jam are the arcade's NEGATIVE drops (2026-10-11): walked over,
+// they hurt the taker. Appended, like everything on this list.
+// freeze / turret: 2026-10-11 (the turret is carried, like a gun, and placed on click).
+const PICKUP_TYPES = ["overclock", "rally", "gun", "perk", "ammo", "fuel", "shock", "mud", "flare", "jam", "freeze", "turret", "boomgun"];
 const PICKUP_LABEL = { overclock: "O", rally: "R" };
 const PICKUP_NAME = { overclock: "OVERCLOCK", rally: "RALLY" };
 

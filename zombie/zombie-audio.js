@@ -251,6 +251,7 @@ const SND_POP = 22;          // BLASTCAP burst; arg = radius
 const SND_GEN_TRIP = 23;     // a Blackout takes the generator down
 const SND_DECOY = 24;        // a ping became a lure
 const SND_SIREN = 25;        // the intensify switch: the horde is called
+const SND_BOOM = 26;         // BOOMGUN shot; arg = beam length x 1000 + angle in degrees
 
 // IDEA 40: every gun already has its own screen-shake kick; this is the
 // matching voice. Indexed by WEAPON_KEYS (zombie-core.js) so it can ride in
@@ -386,6 +387,12 @@ function playEvent(code, x, y, arg) {
     const p = place.pan;
 
     switch (code) {
+        case SND_BOOM:
+            // A heavy thump, a falling saw and a bright crack on top.
+            noise(0.3, 0.6 * g, 170, 0.8, p);
+            tone(110, 36, "sawtooth", 0.3, 0.5 * g, p);
+            tone(1500, 260, "square", 0.1, 0.16 * g, p);
+            break;
         case SND_BREACH:
             // IDEA 41: the boards give way. Loud, low, unmistakable --
             // this is the horde entering your zone.

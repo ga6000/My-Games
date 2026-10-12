@@ -78,6 +78,11 @@ games hub page"* (`SCOPE_RULES.md` rule 0). For ZOMBIE that means:
 | 2c | **Cut the rail from the arcade**, "immediately after playtesting" (user). The ending falls back to the south gate walk-out (`ae0f19d`'s), which the user accepted "for now" | **done 2026-10-04**, with the arena (2f) |
 | 2d | **The 2–4 minute loop** (spec below, built in `zombie-arcade.js`) | **built 2026-10-04, waiting on the local playtest** |
 | 2e | Trim the remaining items the loop doesn't use (the user expects "trimming all others off") | partly done: field manual, horde switch, generator and rail gone from the map (2026-10-04). Their code is still loaded |
+| 2q | **Hard speed cap, a difficulty slider and a bot playtest (2026-10-11, very last):** no zombie walks faster than a player (hard rule); map 3 / boss head starts 120 / 240 -> 60 / 100s plus a per-map curve `pace`; a live DIFFICULTY slider in the dev panel (maps 1-2 near-fixed, 3-4 take it whole); a scripted-bot playtest in `scripts/`. **The bot says map 3 was the wall and, at the new defaults, it is not; it is not a human** | **built 2026-10-11, waiting on the group** |
+| 2p | **MAPS 3 AND 4 (the boss) (2026-10-11, last):** map 3 = 7 tanks round a long concrete divider; map 4 = 10 tanks stacked tight in an open map with only super splitters and a constant horde, negative drops x3.3; **beating map 4 is the win**. Each map starts a further 60s up the swarm curve. Also the Boomgun bolt drawn at 1/5 size and growing out of the muzzle | **built 2026-10-11, waiting on the group** |
+| 2o | **Lighting option A, MAP 2 and a cleaned dev panel (2026-10-11):** lit faces, a floor under the dark and 7 bands; a second 5-tank map after the exit (a "W": hedge, warehouse, forest, hedge, forest), its clock offset 60s so its minute 2 is map 1's minute 3, a wipe is game over; dev panel gains BOOMGUN / TURRET / FREEZE / LEVEL 2 and an icon button per perk, and loses ten obsolete items | **built 2026-10-11, waiting on the group** |
+| 2n | **Round 2 of the fifth playtest, answers and acceptances (2026-10-11):** SEEKER perk (bullet curving, stacks); tank pulse on F at a full tank; FREEZE and TURRET drops; the BOOMGUN powerup; tide + lull + ease on the spawn rate; ammo hand-over to the most powerful gun. **Proposals, not built:** `zombie/LIGHTING_PROPOSAL.md`, `zombie/LEVEL_2_PROPOSAL.md` | **built 2026-10-11, waiting on the group**; proposals waiting on the user |
+| 2m | **Fifth playtest (friends, 2026-10-10/11):** guest flashing fixed (zombies keyed by a stable wire id, not array index); hedge/corner pathing fixed (three causes, below); revive 0.75s; respawn 10s; funnels r 110 → 150; silo 1's rings opened; bigger gun + gun strip, perks wrap, 24px objective; negative drops (MUD / FLARE / JAM). Recommendations and the open list are in "2m — next steps" below | **built 2026-10-11, waiting on the next group playtest** |
 | 2l | Perks x6 (and six held); a forest in the outer buffer; lighter grass; night with a pointer flashlight (no grey); orange lamps at the warehouse and the tanks | **done 2026-10-08** |
 | 2k | +25% outer buffer left/top/right with the chain unmoved; "ESCAPED AT m:ss"; no damage after the win; six perk slots | **done 2026-10-07** |
 | 2j | Two-step wounds + 1.2s untouchable, no explanatory text; 1.5s revive; no Blackouts; no ping or DECOY; ATTRACT perk; drops +25%; arena +33% per side; real lighting (dark warehouse, window light); tight hedges, warehouse racking, a thicker forest; `pushProp` placement bug fixed | **done 2026-10-07** |
@@ -85,6 +90,184 @@ games hub page"* (`SCOPE_RULES.md` rule 0). For ZOMBIE that means:
 | 2h | **Fourth playtest notes:** walk out of the tunnel to win, once the gate is fully open; one continuous tunnel; the gate flush, full width and solid; tanks and trees solid over their whole drawn shape; F only at a tank's base; round dark grates; tanks 10/15/20; drops +25%; "CLICK TO START" | **done 2026-10-04** |
 | 2g | **Third playtest notes:** the intro flythrough with controls off; the gate bar and exit pocket (you could walk out before it opened); every spawn path kept inside the arena (screamer summons and splitter sheds went through the sector placer); the baseball-field layout; grey sunken funnels with grates and twin pipes; tall solid tanks and trees (1D iso); +2 tree patches and +10% density; the Bosconian cabinet panel | **done 2026-10-04** |
 | 2f | **Second playtest notes:** compress the map (a 2400×1400 arena with a fixed chain), make the silos clear (beacon + edge arrow), a right sidebar with a permanent whole-map view and the HUD, auto-pickup, grass with tree and bush patches | **done 2026-10-04**; see `zombie/CLAUDE.md` "The arena, terrain, auto-pickup and the sidebar" |
+
+### 2m — fifth playtest: next steps (2026-10-11)
+
+*Game: hub ZOMBIE ARCADE. Finish-line item: §5 item 2 (a playable, finished Zombie) and item 3
+(bugs that end a session).* The group's report, and where each line landed:
+
+| Report | State |
+|---|---|
+| Guests: dozens of zombie shapes flashing all over, "near-unplayable" | **fixed, verified headless.** Root cause below |
+| Zombies stuck at hedge corners, then despawn; hurts the early game | **fixed, verified headless** (48/48 reach the target, 0 relocations; was ~30/48 and 22–43) |
+| Revive shorter | **done**: 1.5s → 0.75s (`ARC_REVIVE_MS`) |
+| Respawn 10s | **done** (`ARC_RESPAWN_MS`) |
+| Funnels larger | **done**: r 110 → 150 (`ARENA_FUNNEL_R`); funnel 2 moved up 80px so its warehouse clears the start |
+| Silo 1 hedges too tight | **done**: inner ring 36 → 100px off the tank, every gap and lane 130 → 200px, a gap on all four sides of the inner ring |
+| Guns bigger; know which gun I hold and what else I own | **done**: icon 4x → 6x, strip icons 1x → 3x with key numbers, the gun in hand is a filled cyan tile |
+| Perk tiles running off screen | **done**: tiles wrap (3 a row at 246px); the checklist hides under 900px tall so the loadout always fits |
+| Objective text readable from the periphery | **done**: 15px → 24px bold with an amber bar; stats 15 → 17px and one paragraph |
+| Negative drops | **done**: MUD, FLARE, JAM — see CLAUDE.md |
+| "Increase bullet curving?" | **not built — needs the user's answer.** No bullet in this game curves. See question 1 below |
+| More crowd tools; let the swarm breathe without rounds | **recommendations only**, below |
+
+**What was actually wrong (so it is not re-broken):**
+
+1. *Flashing.* The host `splice`s a zombie out of `zombies` on every kill; the guest matched snapshot
+   rows to its own zombies **by array index**. So after any kill every later zombie inherited its
+   neighbour's old position and lerped across the screen. Cost scales with kill rate, which is the
+   arcade's whole premise. Rows now carry a stable `nid` (index 4); `[x, y, type, flash, nid,
+   burn?, launch?, lvx, lvy]`. Host assigns lazily, guests keep the max so a promoted host never
+   reuses an id.
+2. *Hedge pathing,* three stacked causes, found by a headless reproduction (a target at funnel 1,
+   48 zombies released from outside the rings, 45 simulated seconds):
+   a. `navStepToward`'s off-field recovery took the lowest field distance within ±2 cells with **no
+      line-of-sight check**, which is almost always the cell on the *far side* of the wall the body
+      is pressed against. (Walls off the 20px lattice — 24px hedges, trees — block a cell that
+      overhangs them, so a body flush against one has its centre in a blocked cell.) It now tries
+      candidates in distance order and takes the first the body can walk to.
+   b. The 5-cell lookahead was aimed through wall corners. It is now string-pulled: the furthest
+      path point with a clear line.
+   c. Axis-separated collision kept only the free axis's share of the step, so a goal nearly
+      perpendicular to a wall crept at ~35% speed, tripped the stuck heuristic and was thrown the
+      other way. A blocked step now spends its lost speed on the free axis (not while chewing).
+3. *Measured after:* 0 relocations on all three silo sets over 3–6 seeds; every tank, switch strip
+   and the gate reachable on both grids in 12 seeds (arena cells unreachable: 0.044% tight, 0.006%
+   wide). A brute/splitter/screamer-heavy mix still relocates a few zombies that are *on* the
+   target in a pile; that is the crowd, not the geometry, and the player is shooting in the real game.
+
+**Questions for the user (answers change what gets built):**
+
+1. *"Increase bullet curving?"* What did you see? Candidates: (a) ARC perk chains reach further /
+   bend between more targets, (b) a homing/steering assist on rifle and SMG rounds, (c) RICOCHET
+   bounces more, (d) you meant spread/recoil. Nothing is built until this is answered.
+2. Hazard frequency: one about every 33 kills, max 3 live. Too rare / right / too common?
+
+**Recommendations (not built; each is one line in `IDEAS_INBOX.md`):**
+
+*Crowd management — in the order I would build them:*
+1. **TANK PULSE.** When a tank fills, a shockwave (the existing `arcadeShockwave`, radius ×2) clears
+   the swarm around the funnel. Three guaranteed crowd-clears per run, each tied to the objective,
+   no new item, and a place for the team to regroup. Cheapest and the most on-theme.
+2. **FREEZE drop (team).** Everything within ~400px of the taker is held for 3s, using the launch
+   phase's "skip pathing" exemption. A crowd tool that lets you reload and reposition rather than
+   one that kills.
+3. **TURRET drop.** A 12s sentry on the spot, aimed at the nearest zombie. Gives a corner you can
+   hold, and a reason for two players to stand together.
+4. **Funnel as a kill zone.** Zombies standing on an active funnel take damage over time, so camping
+   the funnel (which you must do anyway to fill the tank) is itself crowd control.
+5. **A throwable (G).** Frag or stun, with its own small ammo that refills with AMMO drops. This is
+   the only item here that is a skill action rather than a lucky drop; build it last.
+
+*Breathing room without rounds — a clock can breathe, it just has to be told to:*
+1. **A tide.** Multiply the spawn rate by `1 + 0.35·sin(2πT/28s)` on top of the exponential envelope
+   in `arcadeSpawnRate`. The envelope is unchanged, so the run still overwhelms at ~4:00, but there
+   are ~14s swells and ~14s ebbs inside it. Two constants; no round concept.
+2. **A lull after each milestone.** Spawn rate × 0.4 for 8s after a tank fills and after the gate
+   starts opening. Rewards the objective with a beat of air.
+3. **Kill-feeds-the-lull.** Spawn debt drops by a little per kill in a burst (5 kills in 3s), so a
+   good clear is rewarded with a gap rather than the same pressure. Only if 1 and 2 are not enough.
+4. **Do not** lower the cap or flatten the curve: the 2–4 minute session depends on the overwhelm
+   (`SCOPE_RULES.md` rule 0).
+
+**Verify next playtest (the things headless cannot tell us):**
+- Two real clients at 60+ zombies: is the guest view smooth? (Verified by snapshot replay, not on a network.)
+- Silo 1 with the opened rings and r 150: is it still a "set", or now just a clearing?
+- Funnel 2's warehouse after moving up 80px: start point still clear, route still ~16s?
+- Revive at 0.75s: too forgiving? (Watch for downs being undone before a zombie leaves.)
+- Do hazards read as "don't step" before the first one is taken, with no explanation?
+- The sidebar at 1920×1080 (checked at 1366×768 only).
+
+### 2q — the speed cap, the difficulty slider and the bot (2026-10-11, very last)
+
+*Game: hub ZOMBIE ARCADE. Closes §5 item 2.* The user's three asks, and what happened to each:
+
+| Ask | Result |
+|---|---|
+| Zombie speed capped at player speed, a hard rule | **done**, measured at exactly 4.00px a step at wave level 51, alone and in a 60-crowd. Crowd separation is held to the same budget |
+| Scale back the map-starting time on 3 and 4 | **done**: map 3 120 -> 60s, boss 240 -> 100s, plus a `pace` on both (0.5, 0.6) and map 3's tanks -15% |
+| Playtest as a 75th-percentile player; if it can't be trusted, a slider | **both.** A bot played it (it is not a person: see `zombie/CLAUDE.md` "Tenth"); the slider is built regardless, live, ticked, default 1.00, in the dev panel's top row |
+
+**My best guess at a balanced HARD game win** (a guess, from a solo bot and arithmetic, not from a
+human): *a competent group of three or four wins roughly one run in three, in 8 to 11 minutes, and what
+beats the rest is the crowd on map 3 or the boss rather than maps 1 and 2.*
+
+**The honest read of the bot's numbers.** At the shipped default (1.00) the solo bot cleared maps 3 and 4
+together in 2 of 3 finished runs and won the boss alone in 3 of 4. The bot is a worse player than a person
+(it cannot clear map 1 reliably), so **at 1.00 the game is likely EASIER than "hard" for a good group**.
+That is deliberate: 1.00 is "fair", the number to learn the maps on. **My pick for "balanced hard" is
+about 1.25** (bot: boss 1 of 4, shorter survival), and a group should move up to it after the first win.
+
+| Slider | Who it is for | What the bot suggests it plays like |
+|---|---|---|
+| 0.50 CASUAL | a first run, or showing someone the game | boss comfortably won; map 3 gentle |
+| 0.75 EASY | solo, or a pair that has not seen map 3 | boss won 3 of 4 (at the old defaults) |
+| **1.00 DEFAULT** | **learning it; three or four who have cleared the first two maps** | **maps 3-4 won 2 of 3, boss 3 of 4**: fair |
+| **1.25 HARD** | **my pick for the "balanced hard win": a competent group after one win** | boss ~1 of 4 and shorter survival |
+| 1.50 BRUTAL | a stunt | boss 0 of 4 |
+
+Groups are *stronger* than the solo bot (more guns, a revive, the powerups shared) but also face a
+bigger swarm (the rate scales by 0.6 + 0.4 x players and the alive cap by +30 a player). The two roughly
+cancel, which is why the default is not raised for a group: raise the slider instead.
+
+**What to watch in the next playtest, and which way to move the slider:**
+- *Dying on map 3 before the third tank* every time: lower to 0.75, or `pace` on map 3 to 0.4. It is the
+  map the bot could not clear.
+- *Clearing map 3 with a minute to spare*: raise to 1.25. That is the sign the boss is the only fight.
+- *The boss over in under 3 minutes*: raise it. The horde is constant, so its pressure is the rate x D.
+- *Anyone saying "I can't outrun them"*: that would be a bug, not a balance issue (the cap is exact).
+
+**Verify next playtest (new):** does the slider's default feel like "hard" or like "unfair"? Is map 3
+too long to be fun at any setting (its route is ~10,000px)? Does the 0.6x curve on the hard maps read as
+a calmer game, or just as a longer one?
+
+### 2p — maps 3 and 4 (2026-10-11, last)
+
+*Game: hub ZOMBIE ARCADE. Closes §5 item 2.* A full run is now **four maps** (`zombie/CLAUDE.md` "Ninth").
+That is well past `SCOPE_RULES.md` rule 0 (2 to 5 minutes): the user accepted a longer full run on
+2026-10-11 and asked playtesting to decide; **estimate 6 to 10 minutes, a guess**. If it has to come back
+under the line, the cheapest cuts are, in order: tank sizes (`caps`), map 3's clock head start, and a
+checkpoint (restart at the map you died on) rather than game over. The playtest gate (rule 5) now has
+**four un-played passes** stacked: nothing more should be added until the group has played this.
+
+**Verify next playtest (new):** Is map 3's divider a good fight (two halves, a lane over and a pass
+under), or a corridor chore? Is the boss unwinnable, trivially easy, or a good last stand? Are 8
+negative drops at once funny or unfair? Does a four-map run still feel like one arcade run?
+
+### 2o — the two proposals, decided and built (2026-10-11, last)
+
+*Game: hub ZOMBIE ARCADE. Closes §5 item 2.* Lighting **A** was chosen (the "bands" pillar stands, bands
+are finer, and nothing is black). **Rule 0 was accepted as an exception for now**: a full run is two maps,
+about 4 to 7 minutes, and **playtesting decides whether map 2 is trimmed**. The knobs, all in
+`ARENA_LAYOUTS[2]` and its neighbours: tank offsets (route ~7,800px against map 1's ~3,800), tank sizes
+(8 to 16), `L2_LULL_MS` / `L2_RAMP_MS`, and `L2_CLOCK_OFFSET_S`. The playtest gate (rule 5) still applies:
+**this is the third un-played pass**, so the group should play before anything more is added.
+
+**Verify next playtest (new):** does the whole run feel like two acts or like one that overstays? Is
+map 2's arrival lull long enough to read the map, and does the +35s ramp land hard? Which map-2 tank is
+the worst to get to? Do the lit faces on hedges and racks read, or do they make the props look glowing?
+Is the warehouse at 0.80 still scary enough?
+
+### 2n — decisions on 2m's questions and recommendations (2026-10-11, later)
+
+*Game: hub ZOMBIE ARCADE. Closes §5 item 2.* The user answered 2m: hazard frequency is right, and
+bullet curving means *rounds that bend toward the nearest enemy, to raise damage output, stackable*.
+Accepted from the recommendations, all built (`zombie/CLAUDE.md` "Sixth"): the tank pulse on F, a FREEZE
+team drop, a TURRET drop (carried, placed on click, risky to place), the spawn **tide**, the **lull**
+and **easing the spawn debt**. Added by the user: ammo hand-over to the next most powerful gun, and the
+**BOOMGUN**. Not accepted or not mentioned, left in the inbox: funnel damage-over-time, the throwable.
+
+**Two proposals are waiting on the user, and both trip a standing rule:**
+
+| | Rule it trips | The choice |
+|---|---|---|
+| `zombie/LIGHTING_PROPOSAL.md` | `hub-visual-review` item 9: *light steps in bands, decided 2026-10-09*, and the complaint is "hard edge bands" | **A** finer bands + a floor under the dark + lit faces (recommended), **B** smooth the world light with a dated deviation, **C** amend the pillar |
+| `zombie/LEVEL_2_PROPOSAL.md` | `SCOPE_RULES.md` rule 0 (2 to 5 minutes): a full run becomes ~4 to 7 | accept a longer full run, trim it, or leave it as one map; plus rule 5's playtest gate |
+
+**Verify next playtest (new):** is SEEKER at x1 to x2 noticeable, and at x6 silly? Is the Boomgun's 1s
+spin-up felt as tension or as lag? Does a frozen crowd read as frozen to a guest? Is the turret worth
+the risk of placing it, and does 15s feel right? Do the tide and lull read as breathing, or as the
+game stuttering?
 
 ### 2d — balance proposal: a swarm that escalates too fast to hold (not built)
 

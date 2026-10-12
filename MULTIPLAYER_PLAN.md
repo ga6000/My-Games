@@ -195,6 +195,28 @@ Ordered easiest → hardest. This ordering is also the recommended build order.
 > an event, because the event queue is capped at ten a snapshot and is the first thing dropped,
 > and "the horde has been called" must not be droppable).
 >
+> **2026-10-11: zombie rows on the `world` snapshot changed layout.** A guest used to match rows to
+> its own zombies by array index, which the host's per-kill `splice` shifts, so after any kill
+> every later zombie lerped from its neighbour's position (the "flashing" a playtest reported).
+> Rows are now `[x, y, type, flash ms, nid, burn ms?, launch ms?, lvx, lvy]` and guests match by
+> `nid`. Burn moved from index 4 to 5. See `zombie/CLAUDE.md` "Fifth playtest".
+>
+> **Also 2026-10-11 (later), all appended:** `world` gains `frz` (the freeze zone) and `tu` (the
+> turrets), both remaining durations; `shoot` gains `hm` (SEEKER level); `players` gains `bm` (ms of
+> BOOMGUN left); new relay kinds `turret` and `boom` (a guest asking the host to place a turret or
+> resolve a Boomgun shot); `PICKUP_TYPES` gains `mud`, `flare`, `jam`, `freeze`, `turret`, `boomgun`;
+> `SND_BOOM = 26` (its arg is beam length x 1000 + angle in degrees; **superseded 2026-10-11 later**:
+> the arg is 0 and the shot is a bolt riding `world.bb` as `[id, x, y, vx, vy, owner]`).
+>
+> **Also 2026-10-11 (last):** `world` gains `lv` (which map, 1 or 2) and `l1` (`[map 1 seconds,
+> tanks]`, only on map 2). A guest whose `lv` is behind rebuilds with `arcadeEnterLevel()`; the room
+> seed does **not** change between maps. `fa`, `sf` and `sp` are five long on map 2, seven on map 3 and ten on map 4. `lv` runs 1 to 4, and
+> `l1` is `[playing seconds so far, tanks filled so far]` on every map after the first. `bb` rows gained
+> a 7th element, the distance travelled, so a guest draws a bolt's length without a flicker.
+>
+> **Also 2026-10-11 (very last):** `world` gains `df`, the host's difficulty (0.50 to 1.50). Guests only
+> mirror it so their clock and level readouts agree; the host is the only thing that spawns.
+>
 > **The 2026-09-19 map revamp changed nothing on the wire, on purpose.** Zombie's nine sectors are
 > painted into a 12×9 grid now instead of being a 3×3 of rectangles, and the perimeter, landmarks
 > and per-sector floors are all new — but the map is still built by every client from one server
@@ -678,4 +700,4 @@ Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: 0e946089 | 2026-09-25 -->
+<!-- doc-sync: 25b71349 | 2026-10-12 -->

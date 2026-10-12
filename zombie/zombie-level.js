@@ -976,7 +976,18 @@ function navStepToward(x, y, field, wide) {
     // when we are off the field, drop the downhill requirement and widen
     // the search: any reachable cell nearby is progress.
     if (here < 0) {
-        let best = Infinity, bx = -1, by = -1;
+        // LINE OF SIGHT IS REQUIRED (2026-10-11). Without it the lowest
+        // distance within +-2 cells is routinely on the FAR SIDE of the wall
+        // the body is pressed against: a wall that is not on the 20px lattice
+        // (a 24px hedge, a tree) blocks a cell that overhangs it, so a body
+        // standing flush against it has its centre in a blocked cell, and the
+        // cell "just past" the wall always has the lower distance. The zombie
+        // then walked into the hedge until the watchdog despawned it
+        // (headless: 22-43 relocations from 48 zombies in 45s at silo 1).
+        // Candidates are tried in distance order and the first one the body
+        // can actually walk to wins; if none is in sight, the nearest by true
+        // distance does, which at worst is a step back onto the field.
+        const cand = [];
         for (let ox = -2; ox <= 2; ox++) {
             for (let oy = -2; oy <= 2; oy++) {
                 if (!ox && !oy) continue;
@@ -985,16 +996,31 @@ function navStepToward(x, y, field, wide) {
                 const ai = ay * navW + ax;
                 if (!pass[ai]) continue;
                 const d = field[ai];
-                if (d < 0 || d >= best) continue;
-                best = d; bx = ax; by = ay;
+                if (d < 0) continue;
+                cand.push({ ax: ax, ay: ay, d: d,
+                            e: Math.abs(ox) + Math.abs(oy) });   // cheap nearness tiebreak
             }
         }
-        if (bx < 0) return null;
-        return { x: bx * NAV_CELL + NAV_CELL / 2, y: by * NAV_CELL + NAV_CELL / 2 };
+        if (!cand.length) return null;
+        cand.sort(function (a, b) { return a.d - b.d || a.e - b.e; });
+        for (let i = 0; i < cand.length; i++) {
+            const c = cand[i];
+            const gx = c.ax * NAV_CELL + NAV_CELL / 2, gy = c.ay * NAV_CELL + NAV_CELL / 2;
+            if (navClearLine(x, y, gx, gy)) return { x: gx, y: gy };
+        }
+        let near = cand[0], nd = Infinity;
+        for (let i = 0; i < cand.length; i++) {
+            const c = cand[i];
+            const dd = Math.hypot(c.ax * NAV_CELL + NAV_CELL / 2 - x, c.ay * NAV_CELL + NAV_CELL / 2 - y);
+            if (dd < nd) { nd = dd; near = c; }
+        }
+        return { x: near.ax * NAV_CELL + NAV_CELL / 2, y: near.ay * NAV_CELL + NAV_CELL / 2 };
     }
 
     let curr = here;
-    let outX = -1, outY = -1;
+    // Every cell on the downhill walk, kept so the lookahead can be pulled
+    // back to the furthest one the body can actually SEE (below).
+    const path = [];
     for (let step = 0; step < NAV_LOOKAHEAD; step++) {
         let best = curr, bx = -1, by = -1;
         for (let ox = -1; ox <= 1; ox++) {
@@ -1011,11 +1037,28 @@ function navStepToward(x, y, field, wide) {
         }
         if (bx < 0) break;
         cx = bx; cy = by; curr = best;
-        outX = bx; outY = by;
+        path.push(bx, by);
         if (curr === 0) break;      // reached the target cell
     }
-    if (outX < 0) return null;
-    return { x: outX * NAV_CELL + NAV_CELL / 2, y: outY * NAV_CELL + NAV_CELL / 2 };
+    if (!path.length) return null;
+
+    // STRING-PULLING (2026-10-11). The 5-cell lookahead is what stops a big
+    // body flip-flopping on a cell boundary, but it is aimed at a point the
+    // body may not be able to see: round the corner of a wall piece it points
+    // THROUGH the corner, so the zombie can only creep along the wall at the
+    // free axis' share of its speed, trips the stuck heuristic, and is thrown
+    // the other way by the perpendicular slide. Headless at the silo-1
+    // hedges: a lone walker 20px below a gap ping-ponged for 8 seconds and
+    // was despawned. Walk back from the furthest point to the first one with
+    // a clear line; the adjacent cell is the floor, as it always was.
+    let k = path.length / 2 - 1;
+    while (k > 0) {
+        const px = path[k * 2] * NAV_CELL + NAV_CELL / 2;
+        const py = path[k * 2 + 1] * NAV_CELL + NAV_CELL / 2;
+        if (navClearLine(x, y, px, py)) break;
+        k--;
+    }
+    return { x: path[k * 2] * NAV_CELL + NAV_CELL / 2, y: path[k * 2 + 1] * NAV_CELL + NAV_CELL / 2 };
 }
 
 

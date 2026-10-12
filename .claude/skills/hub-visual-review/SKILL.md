@@ -99,7 +99,7 @@ Mark each one **pass / fail / deliberate deviation (dated) / n/a**.
 8. None of the §4.12 list: no CRT curvature, decorative dithering, chromatic aberration, 30fps cap
    or input lag.
 9. **Quantized light — a pillar, decided by the user 2026-10-09.** Wherever a game has light,
-   darkness, glow, fog, pools or falloff, it steps in flat bands (3–5) and never ramps smoothly.
+   darkness, glow, fog, pools or falloff, it steps in flat bands (3–7) and never ramps smoothly.
    This applies to cut-out darkness, additive pools, flashlights, sun shafts and vignettes alike.
    The light can still be raycast, coloured and dynamic; only the ramp is stepped. Bands should
    step in **both** directions a light spreads (along a beam and across it). Zombie Arcade is the
@@ -183,3 +183,4 @@ above.
 - 2026-10-09 — The first clash it caught was a real one: smooth light requested on 10-08 against
   §4.9, then reversed by the user to bands on 10-09. Lesson: raise the clash when the request
   comes in, before building, not afterwards. That cost a build-and-revert.
+- 2026-10-11 — Zombie: the user asked for softer light and it is checklist item 9's 'bands' pillar, so the clash was named in a proposal (`zombie/LIGHTING_PROPOSAL.md`) rather than built either way. Also: Browser-pane thumbnails and emulated viewports cannot judge in-world sprites or soft light; the panel layout was checkable at 1366x768, the world art only by code and headless state.

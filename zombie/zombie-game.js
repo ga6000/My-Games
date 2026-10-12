@@ -442,10 +442,11 @@ function engineerInGame() {
     return false;
 }
 
-// ARCADE: a flat 1.5s ("shorter revive time", 2026-10-07). The escalation
+// ARCADE: a flat 1.5s ("shorter revive time", 2026-10-07), then 0.75s after
+// the 2026-10-10 playtest ("revive time needs to be shorter"). The escalation
 // below resets with each round, and the arcade has no rounds, so it climbed
 // to its 6s cap and stayed there for the whole run.
-const ARC_REVIVE_MS = 1500;
+const ARC_REVIVE_MS = 750;
 
 function reviveMsRequired() {
     if (ZOMBIE_ARCADE) return ARC_REVIVE_MS;
@@ -865,6 +866,8 @@ const SCORE_WIN = 50000;
 function silosFilled() {
     let n = 0;
     for (let i = 0; i < siloFill.length; i++) if (siloFill[i] >= siloCapacity(i)) n++;
+    // Map 1's tanks still count once the arrays are map 2's.
+    if (ZOMBIE_ARCADE && arcLevelNo >= 2) n += arcL1Silos;
     return n;
 }
 
@@ -981,6 +984,8 @@ function resetGame() {
     uiScores.style.display = 'none';
     hudReset();
 
+    // ARCADE: a restart is always map 1 (a wipe on map 2 is game over).
+    if (ZOMBIE_ARCADE) { arcLevelNo = 1; arcL1Seconds = 0; arcL1Silos = 0; arcL2StartAt = 0; }
     generateLevel();
 }
 
@@ -1245,6 +1250,8 @@ function update(now, dt) {
         if (netIsHost) {
             updateArcadeWave(now, dt);
             arcadeExpireDrops(now);
+            arcadeUpdateTurrets(now, dt);
+            arcadeUpdateBoomBolts(now);
         }
     } else if (netIsHost && !floodActive) {
         if (roundPhase === "intermission" && now >= roundEndsAt) startRound(round + 1);
@@ -1307,6 +1314,8 @@ function update(now, dt) {
     updateRespawn(now);
 
     interpolateRemotes();
+    // ARCADE (guests): BOOMGUN bolts travel between snapshots.
+    if (ZOMBIE_ARCADE && !netIsHost) arcadeAdvanceBoomBolts();
     pruneRemotePlayers();
     broadcastPlayers();
     broadcastWorld();
@@ -1358,7 +1367,10 @@ function markHotZones() {
 }
 
 function updatePlayers(now, dt) {
-    if (ZOMBIE_ARCADE && arcadeIntroActive(now)) return;   // controls off for the intro
+    if (ZOMBIE_ARCADE && arcadeIntroActive(now)) {         // controls off for the intro
+        arcadeRunOn();                                      // ...but map 2 runs you onto the map
+        return;
+    }
     for (let i = players.length - 1; i >= 0; i--) {
         const p = players[i];
         // ARCADE: out through the gate -- the client walks you off the screen.
@@ -1414,6 +1426,7 @@ function updatePlayers(now, dt) {
         // hold LAST STAND, which is the whole of that perk.
         let fireKey = currentWeaponKey(p);
         if (p.downed) {
+            p.boomUntil = 0;     // the BOOMGUN does not survive a down
             if (netIsHost && p.bleedDeadline && now >= p.bleedDeadline) {
                 sendDeath(netIdFor(p));
                 killLocalPlayer(p);
@@ -1423,13 +1436,19 @@ function updatePlayers(now, dt) {
             if (!fireKey) continue;
         }
 
+        // ARCADE: the BOOMGUN replaces the gun in hand while it lasts.
+        if (ZOMBIE_ARCADE && boomActive(p, now)) { arcadeBoomTick(p, now, dt); continue; }
+
         // Shooting
         const w = WEAPONS[fireKey];
         let cooldown = (now < p.overclockUntil) ? Math.max(60, w.cooldown * 0.2) : w.cooldown;
         // CARD: OVERDRIVE, per stack.
         const od = cardLevel(p, "overdrive");
         if (od) cooldown *= [1, 0.65, 0.5, 0.4, 0.33, 0.28, 0.24][od];   // x4-x6: arcade (2026-10-08)
-        if (p.keys.shoot && now - p.lastShotTime > cooldown) {
+        // ARCADE: a JAM drop locks the taker's gun for a couple of seconds.
+        // ...and so does carrying an ARMED turret: the click places it instead.
+        if (p.keys.shoot && now - p.lastShotTime > cooldown && !(now < (p.jamUntil || 0)) &&
+            !(p.turretHeld && p.turretArmed)) {
             shoot(p, now, fireKey);
             p.lastShotTime = now;
         }
@@ -1471,10 +1490,46 @@ function advanceRemoteBullets() {
     }
 }
 
+// SEEKER: bend toward the nearest zombie ahead of the round, up to a turn
+// rate per step that rises with the stack. Nearest AHEAD (inside ~80 degrees
+// of the heading, 420px), never one it has already pierced, and speed is
+// preserved so a curve is not a slowdown. Runs on the host's copy AND the
+// shooter's prediction from the same zombie list, so the two stay close.
+const HOMING_TURN = [0, 0.03, 0.045, 0.06, 0.075, 0.09, 0.105];   // radians a step, by stack
+const HOMING_RANGE = 420;
+const HOMING_CONE = 1.4;
+
+function homeBullet(b) {
+    const turn = HOMING_TURN[Math.min(b.homing, HOMING_TURN.length - 1)];
+    const sp = Math.hypot(b.vx, b.vy);
+    if (sp < 0.01) return;
+    const heading = Math.atan2(b.vy, b.vx);
+    const bx = b.x + b.size / 2, by = b.y + b.size / 2;
+    let best = null, bestD = HOMING_RANGE * HOMING_RANGE, bestAng = 0;
+    for (let i = 0; i < zombies.length; i++) {
+        const z = zombies[i];
+        if (b.hitZ && b.hitZ.indexOf(z) !== -1) continue;
+        const dx = z.x + z.size / 2 - bx, dy = z.y + z.size / 2 - by;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= bestD) continue;
+        let diff = Math.atan2(dy, dx) - heading;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        if (Math.abs(diff) > HOMING_CONE) continue;
+        best = z; bestD = d2; bestAng = diff;
+    }
+    if (!best) return;
+    const step = Math.max(-turn, Math.min(turn, bestAng));
+    const a = heading + step;
+    b.vx = Math.cos(a) * sp;
+    b.vy = Math.sin(a) * sp;
+}
+
 function updateBullets(now) {
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         const kind = b.kind || "pistol";
+        // PERK: SEEKER. Steered before the step so the round bends in flight.
+        if (b.homing > 0) homeBullet(b);
         b.x += b.vx;
         b.y += b.vy;
         b.travelled += Math.hypot(b.vx, b.vy);
@@ -2147,6 +2202,7 @@ function updateZombies(now, dt) {
 
     for (let i = zombies.length - 1; i >= 0; i--) {
         const z = zombies[i];
+        if (z) { z.mx0 = z.x; z.my0 = z.y; }     // where this step started: separation's budget
         // A kill can now take OTHER zombies with it (ARC, BLASTCAP, a burn
         // death that sets one off), so the slot this loop is about to read
         // may already be gone.
@@ -2170,6 +2226,17 @@ function updateZombies(now, dt) {
         if (z.burnUntil && now < z.burnUntil) {
             damageZombie(i, WEAPONS.flamer.burn.dps * (dt / 1000), z.burnBy, now, "burn");
             if (zombies[i] !== z) continue;
+        }
+
+        // ARCADE: FREEZE. Held in place inside the zone: no pathing, no
+        // contact, no scream, and the watchdog is reset so thawing is not
+        // read as "stuck for 4 seconds".
+        if (ZOMBIE_ARCADE && arcadeFrozen(z, now)) {
+            z.stuck = 0;
+            z.noProgress = 0;
+            z.holding = true;
+            z.progX = z.x; z.progY = z.y; z.progAt = now;
+            continue;
         }
 
         // IDEA 12: screamers summon until killed, making them the
@@ -2237,7 +2304,14 @@ function updateZombies(now, dt) {
         const dy = goalY - zcy;
         const d = Math.hypot(dx, dy);
         if (d > 0) {
-            const speed = (baseSpeed + z.speedOffset) * z.speedMult;
+            // HARD RULE (2026-10-11, user: "zombie movement speed needs capped at
+            // player max speed ... virtually impossible to avoid getting triple
+            // tapped at the high levels"): no zombie WALKS faster than a player.
+            // The curve still rises, and the fast types hit the cap (a runner
+            // from wave level 18, a spawnling from 11), but nothing outruns you.
+            // Separation's push is held to the same budget (separateZombies).
+            // A zombie THROWN (launch phase) is not walking, and is exempt.
+            const speed = Math.min(PLAYER_SPEED, (baseSpeed + z.speedOffset) * z.speedMult);
             const direct = Math.atan2(dy, dx);
 
             // CHEWING comes before steering. A boarded window is the way
@@ -2331,7 +2405,29 @@ function updateZombies(now, dt) {
                 z.x + z.size <= WORLD_W && z.y + z.size <= WORLD_H) {
                 z.entered = true;
             }
-            moveWithCollisions(z, Math.cos(ang) * speed, Math.sin(ang) * speed, !!z.entered, true);
+            const wantX = Math.cos(ang) * speed, wantY = Math.sin(ang) * speed;
+            moveWithCollisions(z, wantX, wantY, !!z.entered, true);
+
+            // WALL-SLIDE AT FULL SPEED (2026-10-11). Axis-separated collision
+            // keeps only the free axis' share of the step, so a goal almost
+            // perpendicular to a wall (a zombie under the tip of a hedge,
+            // aiming at the gap beside it) crept along it at ~35% speed, tripped
+            // the stuck heuristic, and was thrown the other way by the
+            // perpendicular slide: 10px of oscillation, then despawned.
+            // Whatever speed was lost to the blocked axis goes to the free one.
+            // Not while chewing: a zombie on a window should stay on it.
+            if (!chewing) {
+                const gx = z.x - beforeX, gy = z.y - beforeY;
+                const got = Math.hypot(gx, gy);
+                if (got < speed * 0.9) {
+                    const rest = speed - got;
+                    if (Math.abs(gy) < Math.abs(wantY) * 0.25 && Math.abs(wantX) > 0.01) {
+                        moveWithCollisions(z, Math.sign(wantX) * rest, 0, !!z.entered, true);
+                    } else if (Math.abs(gx) < Math.abs(wantX) * 0.25 && Math.abs(wantY) > 0.01) {
+                        moveWithCollisions(z, 0, Math.sign(wantY) * rest, !!z.entered, true);
+                    }
+                }
+            }
 
             const moved = Math.hypot(z.x - beforeX, z.y - beforeY);
             if (moved >= speed * 0.34) {

@@ -437,7 +437,7 @@ function mapGoals() {
 // the gate, against the clock.
 function arcadeMapGoals() {
     const goals = [];
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < funnels.length; k++) {
         const where = funnels[k] ? zoneName(funnels[k].zone) : "";
         const full = siloFill[k] >= siloCapacity(k);
         goals.push({
@@ -584,6 +584,7 @@ function draw() {
     drawBarricades(inView);
     drawBlasts(now);
     drawZombies(now, inView);
+    if (ZOMBIE_ARCADE) { drawFreeze(now, inView); drawTurrets(now, inView); }
     if (ZOMBIE_ARCADE) arcadeDrawTall(now, inView);   // tanks and trees over what stands behind them
     drawBolts(now);
     drawBullets(inView);
@@ -602,6 +603,7 @@ function draw() {
     if (ZOMBIE_ARCADE) arcadeDrawLighting(); else drawLighting();
     if (ZOMBIE_ARCADE) {
         arcadeDrawLamps();                // the orange lamps, and their pools
+        drawBoomBolts(Date.now());        // over the darkness: it is the brightest thing there is
         arcadeDrawLight();                // daylight through the warehouse windows
     }
     if (ZOMBIE_ARCADE && !introOn) {
@@ -1984,13 +1986,30 @@ function drawTraps(now, inView) {
 // were 110x28, "awkwardly large at 4x+ the player's size". The frame colour
 // says who it is for: CYAN a gun, WORLD HUE a perk (both one taker, F),
 // AMBER the team (walk over). Blinks for its last few seconds.
-const DROP_FRAME = { gun: ICON_CYAN, perk: ICON_WORLD_HUE };
-const DROP_GLYPH = { ammo: "A", overclock: "O", rally: "R", fuel: "F", shock: "S" };
+const DROP_FRAME = { gun: ICON_CYAN, perk: ICON_WORLD_HUE, turret: ICON_CYAN, boomgun: "#FFE680" };
+const DROP_GLYPH = { ammo: "A", overclock: "O", rally: "R", fuel: "F", shock: "S", freeze: "Z", turret: "T", boomgun: "B",
+                     mud: "M", flare: "!", jam: "J" };
+// NEGATIVE drops (2026-10-11): signal RED, strobing, with the word above them.
+const HAZARD_LABEL = { mud: "SLOW", flare: "BAIT", jam: "JAM" };
 
 function drawDrop(pu, now) {
     const left = pu.until ? pu.until - now : DROP_LIFE_MS;
     if (left < DROP_BLINK_MS && (now % 260) < 110) return;
     const s = pu.size;
+    if (DROP_HAZARD[pu.type]) {
+        const on = (now % 440) < 220;
+        ctx.fillStyle = on ? "#FF2233" : "#2A0000";
+        ctx.fillRect(pu.x - 3, pu.y - 3, s + 6, s + 6);
+        ctx.fillStyle = on ? "#000000" : "#FF2233";
+        ctx.fillRect(pu.x, pu.y, s, s);
+        ctx.fillStyle = on ? "#FF2233" : "#FFFFFF";
+        ctx.font = "bold 18px Courier";
+        ctx.fillText(DROP_GLYPH[pu.type], pu.x + 7, pu.y + 19);
+        ctx.fillStyle = "#FF2233";
+        ctx.font = "bold 12px Courier";
+        ctx.fillText(HAZARD_LABEL[pu.type], pu.x - 2, pu.y - 7);
+        return;
+    }
     const frame = DROP_FRAME[pu.type] || COLOR_PICKUP;
     ctx.fillStyle = "#000000";
     ctx.fillRect(pu.x - 2, pu.y - 2, s + 4, s + 4);
@@ -2011,6 +2030,110 @@ function drawDrop(pu, now) {
         ctx.font = "bold 16px Courier";
         ctx.fillText(DROP_GLYPH[pu.type] || "?", pu.x + 7, pu.y + 18);
     }
+}
+
+// FREEZE (2026-10-11): a flat cyan field over the held ground, a hard ring at
+// its edge (two flat steps, no ramp -- the quantized-light pillar), and the
+// held zombies tinted. It blinks for its last second so the thaw is readable.
+function drawFreeze(now, inView) {
+    const f = freezeZone;
+    if (!f || now >= f.until) return;
+    if (!inView(f.x - f.r, f.y - f.r, f.r * 2, f.r * 2)) return;
+    const left = f.until - now;
+    if (left < 1000 && (now % 200) < 90) return;
+    ctx.fillStyle = "rgba(0,229,255,0.10)";
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(0,229,255,0.75)";
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(150,240,255,0.55)";
+    for (let i = 0; i < zombies.length; i++) {
+        const z = zombies[i];
+        if (Math.hypot(z.x + z.size / 2 - f.x, z.y + z.size / 2 - f.y) > f.r) continue;
+        ctx.fillRect(RETRO.snap(z.x, 4) - 1, RETRO.snap(z.y, 4) - 1, z.size + 2, z.size + 2);
+    }
+}
+
+// TURRETS: a flat square base, a barrel along the aim, an HP bar above and a
+// life bar below. Ghosted and blinking while it deploys.
+function drawTurrets(now, inView) {
+    for (let i = 0; i < arcTurrets.length; i++) {
+        const t = arcTurrets[i];
+        if (!inView(t.x - 30, t.y - 30, 60, 60)) continue;
+        const deploying = now < t.liveAt;
+        if (deploying && (now % 160) < 70) continue;
+        const x = Math.round(t.x), y = Math.round(t.y);
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(x - 12, y - 12, 24, 24);
+        ctx.fillStyle = deploying ? "#3A5A60" : ICON_CYAN;
+        ctx.fillRect(x - 10, y - 10, 20, 2);
+        ctx.fillRect(x - 10, y + 8, 20, 2);
+        ctx.fillRect(x - 10, y - 10, 2, 20);
+        ctx.fillRect(x + 8, y - 10, 2, 20);
+        ctx.fillStyle = "#16262A";
+        ctx.fillRect(x - 8, y - 8, 16, 16);
+        // the barrel, as flat 4px blocks along the aim
+        ctx.fillStyle = deploying ? "#3A5A60" : ICON_HOT;
+        for (let k = 1; k <= 4; k++) {
+            ctx.fillRect(Math.round(x + Math.cos(t.aim) * k * 5) - 2, Math.round(y + Math.sin(t.aim) * k * 5) - 2, 4, 4);
+        }
+        // HP above (amber, magenta when it is nearly gone), life below (cyan)
+        const hpf = Math.max(0, Math.min(1, t.hp / TURRET_HP));
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(x - 13, y - 20, 26, 5);
+        ctx.fillStyle = hpf < 0.3 ? "#FF2255" : "#FFB000";
+        ctx.fillRect(x - 12, y - 19, Math.round(24 * hpf), 3);
+        const lf = Math.max(0, Math.min(1, (t.until - now) / TURRET_LIFE_MS));
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(x - 13, y + 15, 26, 4);
+        ctx.fillStyle = ICON_CYAN;
+        ctx.fillRect(x - 12, y + 16, Math.round(24 * lf), 2);
+    }
+}
+
+// THE BOOMGUN BOLT: a long, thick, glowing orange line along its heading --
+// three flat layers (a wide dim orange halo, a hot orange body, a pale-yellow
+// core) and a dimmer tail behind it, so it reads as a round that is moving,
+// not a laser that is there. Drawn after the lighting so the dark does not
+// dim the brightest thing in the game. Flat fills only: no gradients.
+function drawBoomBolts(now) {
+    if (!boomBolts.length && !boomLocal.length) return;
+    ctx.save();
+    applyCameraTransform();
+    ctx.lineCap = "butt";
+    const draw = function (b) {
+        const sp = Math.hypot(b.vx, b.vy) || 1;
+        const ux = b.vx / sp, uy = b.vy / sp;
+        // GROWS OUT OF THE MUZZLE: the line is only as long as the bolt has
+        // travelled, so it is never drawn behind the gun it came from (the
+        // user: "the bullets are spawning behind the gun").
+        const len = Math.min(BOOM_DRAW_LEN, (b.travelled || 0) + 2);
+        // The head, then a thinner, dimmer tail behind it.
+        const parts = [[0, 1, 1], [1, 0.62, 0.5]];
+        for (let i = 0; i < parts.length; i++) {
+            const o = parts[i][0] * len, w = parts[i][1], a = parts[i][2];
+            if (i && (b.travelled || 0) < BOOM_DRAW_LEN) continue;     // no tail until the head has cleared the gun
+            const x1 = b.x - ux * o, y1 = b.y - uy * o;
+            const x0 = x1 - ux * len, y0 = y1 - uy * len;
+            const layers = [[7 * w, "rgba(255,120,20," + (0.3 * a) + ")"],
+                            [4 * w, "rgba(255,150,30," + (0.7 * a) + ")"],
+                            [2 * w, "rgba(255,226,150," + a + ")"]];
+            for (let k = 0; k < layers.length; k++) {
+                ctx.strokeStyle = layers[k][1];
+                ctx.lineWidth = Math.max(1.5, layers[k][0]);
+                ctx.beginPath();
+                ctx.moveTo(x0, y0);
+                ctx.lineTo(x1, y1);
+                ctx.stroke();
+            }
+        }
+        // A hard bright head.
+        ctx.fillStyle = "#FFF1C0";
+        ctx.fillRect(Math.round(b.x - 1), Math.round(b.y - 1), 3, 3);
+    };
+    for (let i = 0; i < boomBolts.length; i++) draw(boomBolts[i]);
+    for (let i = 0; i < boomLocal.length; i++) draw(boomLocal[i]);
+    ctx.restore();
 }
 
 function drawPickups(now, inView) {
@@ -2342,6 +2465,46 @@ function drawPlayerBody(p, now, name) {
                 RETRO.snap(p.y + p.size / 2 + (p.facingY * 22) - 4, 2),
                 8, 8
             );
+        }
+    }
+
+    // THE BOOMGUN (2026-10-11): a cannon HELD OUT IN FRONT of the player, off
+    // the square (it starts 9px from the centre; the square is 16 wide): a
+    // 30px body, 14px thick, amber rails, three barrel rings that flicker
+    // faster once spun up, and a kick back on each shot. (It was 56 x 22 and
+    // overlapped the player; the user asked for smaller and further forward.)
+    if (ZOMBIE_ARCADE && !downed && now < (p.boomUntil || 0)) {
+        const bcx = Math.round(p.x + p.size / 2), bcy = Math.round(p.y + p.size / 2);
+        const ang = Math.atan2(p.facingY || 0, p.facingX || 1);
+        const kick = (now - (p.lastShotTime || 0) < 90) ? -4 : 0;
+        const held = p.boomHeld || 0;
+        const ph = Math.floor(now / (held > 1000 ? 45 : 90)) % 2;
+        ctx.save();
+        ctx.translate(bcx, bcy);
+        ctx.rotate(ang);
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(7 + kick, -9, 36, 18);
+        ctx.fillStyle = "#3A2A10";
+        ctx.fillRect(9 + kick, -7, 32, 14);
+        ctx.fillStyle = "#FFB000";
+        ctx.fillRect(9 + kick, -7, 32, 3);
+        ctx.fillRect(9 + kick, 4, 32, 3);
+        for (let k = 0; k < 3; k++) {
+            ctx.fillStyle = ((k + ph) % 2) ? "#FFE680" : "#7A5A10";
+            ctx.fillRect(15 + kick + k * 8, -4, 5, 8);
+        }
+        if (kick) {
+            ctx.fillStyle = "#FFF1C0";
+            ctx.fillRect(41, -5, 8, 10);
+            ctx.fillStyle = "#FF8A1A";
+            ctx.fillRect(49, -8, 7, 16);
+        }
+        ctx.restore();
+        // the last 4s: it blinks, so the loss is not a surprise
+        if ((p.boomUntil - now) < 4000 && (now % 400) < 160) {
+            ctx.strokeStyle = "#FF2255";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(p.x - 5, p.y - 5, p.size + 10, p.size + 10);
         }
     }
 
@@ -3031,7 +3194,7 @@ function updateHud(now) {
     uiKills.innerText = String(kills);
     if (ZOMBIE_ARCADE) {
         // The run clock, against the 4:00 the swarm is built to win at.
-        const t = gameStarted ? Math.floor(arcadeElapsedS(now)) : 0;
+        const t = gameStarted ? Math.floor(arcadeRunSeconds(now)) : 0;
         uiRound.innerText = Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0") + "  LV " + round;
         if (!hudArcadeLabels) {
             hudArcadeLabels = true;
@@ -3154,16 +3317,24 @@ function hudObjective(now) {
 // "icons with a stack number for your perks next to it"). Each piece is
 // rewritten only when its signature changes.
 function updateLoadoutHud(me) {
-    const key = me.downed ? (downedWeaponKey(me) || "") : currentWeaponKey(me);
-    const w = WEAPONS[key];
+    // THE BOOMGUN stands in for the gun while it lasts: its icon in amber, the
+    // seconds left where the rounds go, and (below) no gun tile lit.
+    const boomLeft = (ZOMBIE_ARCADE && !me.downed) ? (me.boomUntil || 0) - Date.now() : 0;
+    const boom = boomLeft > 0;
+    const key = boom ? "boomgun" : (me.downed ? (downedWeaponKey(me) || "") : currentWeaponKey(me));
+    const w = boom ? { name: "BOOMGUN", infinite: true } : WEAPONS[key];
 
     const gunSig = key + (me.downed ? ":down" : "");
     if (gunSig !== hudGunSig) {
         hudGunSig = gunSig;
         if (w) {
-            uiGunIcon.src = iconUrl("gun", key, ICON_CYAN);
-            uiGunIcon.width = 24 * 4;
-            uiGunIcon.height = 8 * 4;
+            uiGunIcon.src = iconUrl("gun", key, boom ? "#FFB000" : ICON_CYAN);
+            // 2026-10-11 ("make guns bigger in side menu"): 6x in the arcade
+            // sidebar (was 4x), 4x on a narrow one so it still fits beside
+            // the round count.
+            const gs = ZOMBIE_ARCADE && sidebarWidth() >= 300 ? 6 : 4;
+            uiGunIcon.width = 24 * gs;
+            uiGunIcon.height = 8 * gs;
             uiGunIcon.style.visibility = "visible";
             uiGunName.innerText = w.name + (me.downed ? " — LAST STAND" : "");
         } else {
@@ -3172,21 +3343,33 @@ function updateLoadoutHud(me) {
         }
     }
 
-    const ammoSig = w ? (w.infinite ? "inf" : String(me.ammo[key])) : "";
+    const ammoSig = boom ? "boom" + Math.ceil(boomLeft / 1000)
+                  : (w ? (w.infinite ? "inf" : String(me.ammo[key])) : "");
     if (ammoSig !== hudAmmoSig) {
         hudAmmoSig = ammoSig;
-        uiAmmo.innerHTML = !w ? "--" : (w.infinite ? "&#8734;" : ammoSig);
-        const low = w && !w.infinite && me.ammo[key] <= Math.max(3, w.capacity * 0.15);
-        uiAmmo.className = low ? "low" : "";
+        if (boom) {
+            uiAmmo.innerHTML = Math.ceil(boomLeft / 1000) + "s";
+            uiAmmo.className = boomLeft < 4000 ? "low" : "";
+        } else {
+            uiAmmo.innerHTML = !w ? "--" : (w.infinite ? "&#8734;" : ammoSig);
+            const low = w && !w.infinite && me.ammo[key] <= Math.max(3, w.capacity * 0.15);
+            uiAmmo.className = low ? "low" : "";
+        }
     }
 
     // Every gun you own, with its number key; the one in your hands lit.
-    let strip = "";
+    // 2026-10-11: icons 3x (was 1x) with a legible key number, so the
+    // repertoire reads from the corner of the eye. The gun in hand is a
+    // filled cyan tile; guns you own but cannot fire are dimmed.
+    const ss = ZOMBIE_ARCADE && sidebarWidth() >= 300 ? 3 : 2;
+    // An armed turret is the thing "in hand": the gun tile is not lit too.
+    const armedTurret = !!(me.turretHeld && me.turretArmed);
+    let strip = "s" + ss + ":" + (me.turretHeld ? (me.turretArmed ? "T*" : "T") : "") + ":";
     for (let i = 0; i < WEAPON_KEYS.length; i++) {
         const k = WEAPON_KEYS[i];
         if (!ownsWeapon(me, k)) continue;
         const usable = weaponUsable(me, k);
-        strip += k + (k === key ? "*" : "") + (usable ? "" : "!") + ",";
+        strip += k + (k === key && !armedTurret ? "*" : "") + (usable ? "" : "!") + ",";
     }
     if (strip !== hudStripSig) {
         hudStripSig = strip;
@@ -3194,8 +3377,12 @@ function updateLoadoutHud(me) {
         for (let i = 0; i < WEAPON_KEYS.length; i++) {
             const k = WEAPON_KEYS[i];
             if (!ownsWeapon(me, k)) continue;
-            const cls = "slot" + (k === key ? " on" : "") + (weaponUsable(me, k) ? "" : " dry");
-            h += "<span class='" + cls + "'><i>" + (i + 1) + "</i>" + iconImg("gun", k, 1, k === key ? ICON_CYAN : "#5A8A96") + "</span>";
+            const cls = "slot" + (k === key && !armedTurret ? " on" : "") + (weaponUsable(me, k) ? "" : " dry");
+            h += "<span class='" + cls + "'><i>" + (i + 1) + "</i>" + iconImg("gun", k, ss, k === key && !armedTurret ? "#000000" : "#7FBFCC") + "</span>";
+        }
+        // A carried turret is a tile in the strip, lit while it is armed.
+        if (me.turretHeld) {
+            h += "<span class='slot turret" + (me.turretArmed ? " on" : "") + "'><i>T</i>TURRET</span>";
         }
         uiGunStrip.innerHTML = h;
     }
@@ -3462,7 +3649,9 @@ window.addEventListener('keydown', function (e) {
     // 1-7 pick a gun you own. Never spawns you: it is not a "join" key.
     if (key >= '1' && key <= '7') {
         const p = players[0];
-        if (p) selectWeapon(p, WEAPON_KEYS[key.charCodeAt(0) - 49]);
+        if (p) {
+            if (selectWeapon(p, WEAPON_KEYS[key.charCodeAt(0) - 49])) p.turretArmed = false;
+        }
         return;
     }
 
@@ -3470,6 +3659,13 @@ window.addEventListener('keydown', function (e) {
     // sequence, as asked. Below the manual/MISSION/mute gates, so those all
     // still work, and above everything that acts on the world.
     if (winSequenceRunning()) return;
+
+    // T: arm / stow a carried turret (ARCADE, 2026-10-11).
+    if (key === 't' && ZOMBIE_ARCADE) {
+        const tp = players[0];
+        if (tp && tp.turretHeld && !tp.downed) tp.turretArmed = !tp.turretArmed;
+        return;
+    }
 
     const move = MOVE_KEYS[key];
     if (!move && key !== 'f' && key !== 'e' && key !== 'q') return;
@@ -3521,6 +3717,11 @@ window.addEventListener('mousedown', function (e) {
     if (gameOver || uiWinShown) { requestReset(); return; }
     const p = players[0] || spawnPlayer();
     if (!p) return;
+    // An armed turret is placed by the click instead of firing.
+    if (e.button === 0 && ZOMBIE_ARCADE && p.turretHeld && p.turretArmed && !p.downed) {
+        arcadePlaceTurret(p);
+        return;
+    }
     if (e.button === 0) p.keys.shoot = true;
     else if (e.button === 1) { e.preventDefault(); pingFrom(p); }
 }, KEY_OPTS);

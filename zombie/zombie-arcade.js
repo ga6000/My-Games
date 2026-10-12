@@ -36,7 +36,7 @@ const ARC_RING_MIN = 640;         // spawn ring around a living player, just
 const ARC_RING_MAX = 900;         // past the edge of a 960x540 view
 const ARC_SEEN_HALF_W = VIEW_W * 0.62;
 const ARC_SEEN_HALF_H = VIEW_H * 0.62;
-const ARC_RESPAWN_MS = 15000;
+const ARC_RESPAWN_MS = 10000;     // 15s until 2026-10-11 ("shorten respawn after death to 10 seconds")
 const ARC_GATE_W = 212;           // the tunnel's inside width; the gate spans all of it
 const ARC_GATE_H = 66;
 const ARC_OUT_PAST = 100;         // px down the tunnel past the gate that counts as OUT
@@ -44,15 +44,43 @@ const ARC_OUT_PAST = 100;         // px down the tunnel past the gate that count
 let arcSpawnDebt = 0;             // HOST: fractional spawns owed
 let arcDiedAt = 0;                // this client: when its player bled out
 
-function arcadeElapsedS(now) {
+// Seconds PLAYED on this map (zero until its intro ends).
+function arcadePlayS(now) {
     return startTime ? Math.max(0, (now - startTime) / 1000) : 0;
+}
+
+// How fast the curve's clock runs against the played clock on THIS map
+// (2026-10-11). 1 on maps 1 and 2, so they are untouched. On the hard maps it
+// is the row's `pace` times the difficulty: the bot sweep found maps 3 and 4
+// are bound by the TIMELINE (a bot dies at ~3 minutes whatever the tanks cost,
+// when the wave level's HP and brutes catch up), so how slowly the curve
+// advances once you are IN the map is what makes them winnable, more than
+// where they start.
+function arcPace() {
+    const L = ARENA_LAYOUTS[arcLevelNo];
+    if (!L || !L.pace || !arcHardMap()) return 1;
+    return Math.max(0.2, L.pace * arcDifficulty);
+}
+
+// The curve's clock, T: seconds played plus this map's head start. The head
+// start is read LIVE from the difficulty (arcClockOffsetS), which is what lets
+// the dev panel's slider move the spawn and level curve mid-run.
+function arcadeElapsedS(now) {
+    return startTime ? arcadePlayS(now) * arcPace() + arcClockOffsetS() : 0;
 }
 
 // "3:12": the one way a run's time is written, on the win card, the down
 // card and the readout (2026-10-08: "getting downed should also read out
 // time similar to end game").
+// The run's time across BOTH maps: map 1's seconds plus map 2's, without the
+// 60s head start its clock is offset by (that offset sets the swarm, not the
+// run time). Cards and the cabinet read this; the wave reads arcadeElapsedS.
+function arcadeRunSeconds(now) {
+    return arcLevelNo >= 2 ? arcL1Seconds + arcadePlayS(now) : arcadePlayS(now);
+}
+
 function arcadeClock(now) {
-    const t = Math.floor(arcadeElapsedS(now));
+    const t = Math.floor(arcadeRunSeconds(now));
     return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
 }
 
@@ -60,12 +88,74 @@ function arcadeLevel(now) {
     return 1 + Math.floor(arcadeElapsedS(now) / ARC_LEVEL_S);
 }
 
-function arcadeSpawnRate(t) {
-    return ARC_RATE0 * Math.pow(2, t / ARC_DOUBLE_S) * (0.6 + 0.4 * teamSize());
+// BREATHING ROOM WITHOUT ROUNDS (2026-10-11, all three accepted):
+//   TIDE  the rate swells and ebbs +-35% on a 28s cycle over the exponential,
+//         so the overwhelm still lands at ~4:00 with air inside it.
+//   LULL  x0.4 for 8s after a tank fills and when the gate starts opening.
+//   EASE  a fast clear (5 kills in 3s) pushes the spawn debt negative, so a
+//         good clear buys a gap rather than the same pressure.
+const ARC_TIDE_AMP = 0.35;
+const ARC_TIDE_S = 28;
+const ARC_LULL_MS = 8000;
+const ARC_LULL_MULT = 0.4;
+const ARC_EASE_KILLS = 5;
+const ARC_EASE_WINDOW_MS = 3000;
+const ARC_EASE_DEBT = 3;
+let arcLullUntil = 0;             // HOST
+let arcKillTimes = [];            // HOST: recent kill times
+let arcEaseAt = 0;                // HOST: last ease, so it cannot chain
+let arcWasFull = [false, false, false];
+
+// THE BOSS WAVE (map 4). No tide, no lull, no ease: a CONSTANT horde of
+// walkers and runners (BOSS_HORDE_RATE a second, solo, scaled by team size,
+// held at the alive cap) and a SUPER SPLITTER every BOSS_SPLIT_EVERY_MS up to
+// BOSS_SPLIT_MAX alive (+1 per extra player). Nothing else spawns. HP and
+// speed still read the clock (map 4's head start is 240s). Its arrival lull
+// is the same one every map gets.
+const BOSS_HORDE_RATE = 6.5;
+const BOSS_SPLIT_EVERY_MS = 7000;
+const BOSS_SPLIT_MAX = 3;
+const BOSS_HAZARD_CHANCE = 0.1;   // x3.3 the normal 3%: "increased negative drops"
+const BOSS_HAZARD_MAX = 8;
+let arcBossDebt = 0;
+let arcBossSplitAt = 0;
+
+function arcadeBossWave(now, dt, cap, level) {
+    const ramp = arcadeL2Ramp(now);
+    arcBossDebt = Math.min(arcBossDebt + BOSS_HORDE_RATE * (0.6 + 0.4 * teamSize()) * ramp * arcDiffRate() * dt / 1000, 30);
+    while (arcBossDebt >= 1) {
+        if (zombies.length >= cap) { arcBossDebt = Math.min(arcBossDebt, 1); break; }
+        arcBossDebt -= 1;
+        const type = Math.random() < 0.3 ? "runner" : "walker";
+        const at = arcadeSpawnPoint(ZOMBIE_TYPES[type].size);
+        spawnZombieAt(type, level, at.x, at.y);
+    }
+    if (now >= arcBossSplitAt &&
+        countZombies("supersplit") < BOSS_SPLIT_MAX + teamSize() - 1 + Math.round((arcDifficulty - 1) * 2)) {
+        arcBossSplitAt = now + BOSS_SPLIT_EVERY_MS / arcDifficulty;
+        const at = arcadeSpawnPoint(ZOMBIE_TYPES.supersplit.size);
+        const z = spawnZombieAt("supersplit", level, at.x, at.y);
+        if (z) hostEvent(SND_ULTRA, z.x, z.y, 0);
+    }
+}
+
+// Every map after the first: a light lull on arrival, then an ease up onto the curve.
+function arcadeL2Ramp(now) {
+    if (arcLevelNo < 2 || !arcL2StartAt) return 1;
+    const since = now - arcL2StartAt;
+    if (since < L2_LULL_MS) return L2_LULL_MULT;
+    const k = Math.min(1, (since - L2_LULL_MS) / L2_RAMP_MS);
+    return L2_LULL_MULT + (1 - L2_LULL_MULT) * k * k * (3 - 2 * k);
+}
+
+function arcadeSpawnRate(t, now) {
+    const tide = 1 + ARC_TIDE_AMP * Math.sin(2 * Math.PI * t / ARC_TIDE_S);
+    const lull = now < arcLullUntil ? ARC_LULL_MULT : 1;
+    return ARC_RATE0 * Math.pow(2, t / ARC_DOUBLE_S) * (0.6 + 0.4 * teamSize()) * tide * lull * arcadeL2Ramp(now) * arcDiffRate();
 }
 
 function arcadeAliveCap() {
-    return ARC_CAP_BASE + ARC_CAP_PER * teamSize();
+    return Math.round((ARC_CAP_BASE + ARC_CAP_PER * teamSize()) * arcDiffCap());
 }
 
 // HOST, from startGame(): the chain begins where the arcade begins.
@@ -77,6 +167,14 @@ function arcadeStart(now) {
     // The run's clock starts when the intro ends (arcadeBeginIntro).
     startTime = now + ARC_INTRO_MS;
     arcKillsSinceDrop = 0;
+    arcLullUntil = 0;
+    arcKillTimes = [];
+    arcEaseAt = 0;
+    arcWasFull = [false, false, false];
+    arcTurrets = [];
+    freezeZone = null;
+    boomBolts = [];
+    boomLocal = [];
     generatorOn = true;
     genTripped = false;
     gateStage = GATE_STAGES;
@@ -89,7 +187,7 @@ function arcadeStart(now) {
 
 // HOST. Replaces the round flow in update(): no budget, no breather.
 function updateArcadeWave(now, dt) {
-    if (now < startTime) { roundPhase = "active"; return; }   // the intro
+    if (now < startTime || arcadeIntroActive(now)) { roundPhase = "active"; return; }   // the intro
     const t = arcadeElapsedS(now);
     const level = arcadeLevel(now);
     if (level !== round) {
@@ -103,7 +201,13 @@ function updateArcadeWave(now, dt) {
     roundPhase = "active";
 
     const cap = arcadeAliveCap();
-    arcSpawnDebt = Math.min(arcSpawnDebt + arcadeSpawnRate(t) * dt / 1000, 30);
+    if (arcLevelNo >= ARC_MAX_LEVEL) { arcadeBossWave(now, dt, cap, level); return; }
+    for (let i = 0; i < funnels.length; i++) {
+        const full = siloFill[i] >= siloCapacity(i);
+        if (full && !arcWasFull[i]) arcLullUntil = now + ARC_LULL_MS;     // a tank filled
+        arcWasFull[i] = full;
+    }
+    arcSpawnDebt = Math.min(arcSpawnDebt + arcadeSpawnRate(t, now) * dt / 1000, 30);
     while (arcSpawnDebt >= 1) {
         if (zombies.length >= cap) { arcSpawnDebt = Math.min(arcSpawnDebt, 1); break; }
         arcSpawnDebt -= 1;
@@ -182,7 +286,93 @@ function arcadeUpdateEscape() {
     if (!standing.length) return;
     for (let i = 0; i < standing.length; i++) if (!isOut(standing[i])) return;
     wonAboard = standing.map(function (t) { return t.id; });
+    // Each exit leads to the next map; the last one's ends the game.
+    if (ARENA_LAYOUTS[arcLevelNo + 1]) { arcadeBeginNextLevel(Date.now()); return; }
     triggerWin();
+}
+
+// HOST. Everyone is out of map 1: the second map starts for everyone.
+function arcadeBeginNextLevel(now) {
+    if (!ARENA_LAYOUTS[arcLevelNo + 1]) return;
+    // Playing seconds so far (this map's clock without its head start), and
+    // every tank filled so far.
+    const base = arcL1Seconds + arcadePlayS(now);
+    // silosFilled() already adds the tanks carried in from earlier maps.
+    arcadeEnterLevel(arcLevelNo + 1, now, [base, silosFilled()]);
+}
+
+// EVERY client, from the host's call or from a snapshot whose `lv` is ahead
+// of this client's. Same seed, so generateLevel() builds the same world with
+// the arena for `level`; nothing about the seed has to move.
+function arcadeEnterLevel(level, now, l1) {
+    arcL1Seconds = (l1 && l1[0]) || 0;
+    arcL1Silos = (l1 && l1[1]) || 0;
+    arcLevelNo = level;
+    generateLevel();
+    // The chain is given, as at the start of map 1.
+    generatorOn = true;
+    genTripped = false;
+    gateStage = GATE_STAGES;
+    funnelActive[0] = true;
+    if (sluiceGate) sluiceGate.open = true;
+    rebuildSolidIndex();
+    // A clean field.
+    zombies = [];
+    bullets = [];
+    remoteBullets = [];
+    pickups = [];
+    blasts = [];
+    decoys = [];
+    arcTurrets = [];
+    freezeZone = null;
+    boomBolts = [];
+    boomLocal = [];
+    arcHitState = {};
+    arcWasFull = new Array(funnels.length).fill(false);
+    if (netIsHost || !netOnline) {
+        arcSpawnDebt = 0;
+        arcKillsSinceDrop = 0;
+        arcLullUntil = 0;
+        arcKillTimes = [];
+        arcL2StartAt = now + ARC_INTRO2_MS;
+        // Elapsed reads L2_CLOCK_OFFSET_S when the run-on ends.
+        startTime = now + ARC_INTRO2_MS;      // played seconds; the head start is read live
+        arcBossDebt = 0;
+        arcBossSplitAt = now + ARC_INTRO2_MS + L2_LULL_MS;
+        round = 1;
+        roundPhase = "active";
+    }
+    // Your own player: back on its feet at the north fence, kit kept.
+    for (let i = 0; i < players.length; i++) {
+        const p = players[i];
+        p.x = WORLD_W / 2 - 8 + (Math.random() - 0.5) * 120;
+        p.y = ARENA.y + WALL_T + 30;
+        p.facingX = 0;
+        p.facingY = 1;
+        p.downed = false;
+        p.bleedDeadline = 0;
+        p.reviveProgress = 0;
+        p.exited = false;
+        p.keys = { up: false, down: false, left: false, right: false, shoot: false };
+        p.invulnUntil = now + ARC_INTRO2_MS + 3000;
+    }
+    camera.x = WORLD_W / 2;
+    camera.y = ARENA.y + 300;
+    arcadeBeginIntro(now, ARC_INTRO2_MS);
+    if (typeof showToast === "function") {
+        showToast((level >= ARC_MAX_LEVEL ? "FINAL SECTOR" : "SECTOR " + level) + " — " + funnels.length + " TANKS", 2400);
+    }
+}
+
+// Your players run south onto the map while the intro holds the controls.
+function arcadeRunOn() {
+    if (arcLevelNo < 2) return;
+    for (let i = 0; i < players.length; i++) {
+        const p = players[i];
+        p.facingX = 0;
+        p.facingY = 1;
+        moveWithCollisions(p, 0, PLAYER_SPEED, true, false);
+    }
 }
 
 // Every client, for its own player, from updatePlayers: once out, keep
@@ -211,6 +401,7 @@ function arcadeAtGate() {
 // The third tank: no train, no flood -- the wave is already a flood.
 function arcadeOpenGate() {
     escapeAt = Date.now() + ESCAPE_OPEN_MS;
+    arcLullUntil = Date.now() + ARC_LULL_MS;
     hostEvent(SND_SIREN, escapeRect ? escapeRect.x : WORLD_W / 2, escapeRect ? escapeRect.y : WORLD_H);
     if (typeof showToast === "function") {
         showToast("THE GATE IS OPENING — " + Math.round(ESCAPE_OPEN_MS / 1000) + "s — EVERYONE GETS OUT TOGETHER", 3600);
@@ -276,23 +467,42 @@ const OVERCLOCK_MS = 6000;
 // Weighted. FUEL only rolls while a tank is filling.
 const DROP_WEIGHTS = [
     ["gun", 30], ["perk", 24], ["ammo", 18], ["overclock", 8],
-    ["rally", 7], ["fuel", 7], ["shock", 6]
+    ["rally", 7], ["fuel", 7], ["shock", 6], ["freeze", 6], ["turret", 6], ["boomgun", 4]
 ];
 // The perks that still mean something here. CONDUCTOR made traps cheaper
 // and SCAVENGER made scrap; there are no traps, and nothing to spend.
 // DECOY is out with the ping it hung off (2026-10-07); ATTRACT is in.
 const DROP_PERKS = ["overdrive", "ricochet", "attract", "spite", "arc", "blastcap",
-                    "skewer", "laststand", "salvage"];
+                    "skewer", "laststand", "salvage", "seeker"];
 // By level: an early drop is a step up from the pistol, a late one is the
 // heavy kit. [minLevel, key, weight].
 const DROP_GUNS = [
     [1, "rifle", 4], [1, "shotgun", 4], [1, "smg", 3],
     [5, "sniper", 2], [7, "flamer", 2], [9, "rocket", 2]
 ];
-const DROP_TEAM = { ammo: true, overclock: true, rally: true, fuel: true, shock: true };
+// NEGATIVE DROPS (2026-10-11, "add negative drops to not pick up, like slowing
+// or other things"). They ride the same drop rows and the same one-taker
+// path as the good ones; what differs is that nobody wants them. Rolled
+// SEPARATELY from the good drops, so "drop rates are good" is untouched: a
+// hazard is extra clutter on the floor, not a share taken from a gun or perk.
+//   MUD   the taker is slowed
+//   FLARE the taker is the bait: a ring of zombies lands round them
+//   JAM   the taker's gun will not fire
+// ATTRACT never pulls them in: you have to actually step on one.
+const HAZARD_CHANCE = 0.03;       // per kill: about one every 33 kills
+const HAZARD_MAX_LIVE = 3;
+const HAZARD_LIFE_MS = 20000;
+const MUD_MS = 5000;
+const MUD_SPEED = 0.5;
+const JAM_MS = 2500;
+const FLARE_COUNT = 7;
+const DROP_HAZARD = { mud: true, flare: true, jam: true };
+const HAZARD_KINDS = ["mud", "flare", "jam"];
+const DROP_TEAM = { ammo: true, overclock: true, rally: true, fuel: true, shock: true, freeze: true };
 const DROP_NAME = { ammo: "AMMO — WHOLE TEAM", overclock: "OVERCLOCK — WHOLE TEAM",
                     rally: "RALLY — WHOLE TEAM UP", fuel: "FUEL +" + DROP_FUEL,
-                    shock: "SHOCKWAVE" };
+                    shock: "SHOCKWAVE", freeze: "FREEZE — WHOLE TEAM", turret: "TURRET — CLICK TO PLACE", boomgun: "BOOMGUN — 15s",
+                    mud: "MUD — DON'T STEP", flare: "FLARE — DON'T STEP", jam: "JAM — DON'T STEP" };
 
 let arcDropSeq = 0;
 let arcKillsSinceDrop = 0;
@@ -317,9 +527,35 @@ function fillingTank() {
 }
 
 // HOST, from damageZombie on every kill.
+function hazardsLive() {
+    let n = 0;
+    for (let i = 0; i < pickups.length; i++) if (DROP_HAZARD[pickups[i].type]) n++;
+    return n;
+}
+
 function arcadeMaybeDrop(x, y, now) {
     arcKillsSinceDrop++;
-    if (pickups.length >= DROP_MAX_LIVE) return;
+    // EASE: a fast clear buys a gap.
+    arcKillTimes.push(now);
+    while (arcKillTimes.length && now - arcKillTimes[0] > ARC_EASE_WINDOW_MS) arcKillTimes.shift();
+    if (arcKillTimes.length >= ARC_EASE_KILLS && now - arcEaseAt > ARC_EASE_WINDOW_MS) {
+        arcEaseAt = now;
+        arcKillTimes.length = 0;
+        arcSpawnDebt -= ARC_EASE_DEBT;
+    }
+    const boss = arcLevelNo >= ARC_MAX_LEVEL;
+    if (hazardsLive() < (boss ? BOSS_HAZARD_MAX : HAZARD_MAX_LIVE) &&
+        Math.random() < (boss ? BOSS_HAZARD_CHANCE : HAZARD_CHANCE)) {
+        pickups.push({
+            id: ++arcDropSeq,
+            x: Math.round(clamp(x - DROP_SIZE / 2, ARENA.x + 30, ARENA.x + ARENA.w - DROP_SIZE - 30)),
+            y: Math.round(clamp(y - DROP_SIZE / 2, ARENA.y + 30, ARENA.y + ARENA.h - DROP_SIZE - 30)),
+            size: DROP_SIZE, type: HAZARD_KINDS[Math.floor(Math.random() * HAZARD_KINDS.length)],
+            item: "", until: now + HAZARD_LIFE_MS
+        });
+    }
+    // Hazards do not count against the cap on the good ones.
+    if (pickups.length - hazardsLive() >= DROP_MAX_LIVE) return;
     if (arcKillsSinceDrop < DROP_PITY_KILLS && Math.random() > DROP_CHANCE) return;
     arcKillsSinceDrop = 0;
 
@@ -374,8 +610,12 @@ function dropRefusal(cards, d) {
 // Every client, for its own player: everything is walked over.
 function arcadeWalkOverDrops(p, now) {
     if (p.downed) return;
-    const d = dropTouching(p, ATTRACT_REACH[cardLevel(p, "attract")] || 0);
+    let d = dropTouching(p, ATTRACT_REACH[cardLevel(p, "attract")] || 0);
+    // A hazard has to be stood on: ATTRACT must not vacuum it up.
+    if (d && DROP_HAZARD[d.type]) d = dropTouching(p, 0);
     if (!d || dropRefusal(p.cards || [], d)) return;
+    // One turret in hand at a time; a second stays for a teammate.
+    if (d.type === "turret" && p.turretHeld) return;
     if (arcTakeAskedAt[d.id] && now - arcTakeAskedAt[d.id] < 400) return;
     arcTakeAskedAt[d.id] = now;
     requestBuy("drop", d.id, p);
@@ -391,7 +631,7 @@ function dropLabel(d) {
 function arcadeDropPrompt(p) {
     const d = dropTouching(p, 14);
     if (!d) return "";
-    const no = dropRefusal(p.cards || [], d);
+    const no = dropRefusal(p.cards || [], d) || (d.type === "turret" && p.turretHeld ? "TURRET HELD" : "");
     return no ? dropLabel(d) + " — " + no : "";
 }
 
@@ -416,8 +656,307 @@ function arcadeHostTake(msg) {
     } else if (d.type === "shock") {
         const taker = allTargets().filter(function (t) { return t.id === msg.id; })[0];
         if (taker) arcadeShockwave(taker.x + taker.size / 2, taker.y + taker.size / 2, Date.now());
+    } else if (d.type === "freeze") {
+        const taker = allTargets().filter(function (t) { return t.id === msg.id; })[0];
+        if (taker) arcadeFreeze(taker.x + taker.size / 2, taker.y + taker.size / 2, Date.now());
+    } else if (d.type === "flare") {
+        const taker = allTargets().filter(function (t) { return t.id === msg.id; })[0];
+        if (taker) arcadeFlare(taker.x + taker.size / 2, taker.y + taker.size / 2, Date.now());
     }
     return true;
+}
+
+// ---------------------------------------------------
+//   FREEZE, THE TANK PULSE, TURRETS (2026-10-11)
+// ---------------------------------------------------
+// FREEZE (a team drop): everything within FREEZE_R of the taker is held for
+// FREEZE_MS -- no pathing, no contact. It is crowd control that buys a
+// reload and a reposition rather than a kill, and it can still be shot.
+// One zone at a time (a new one replaces the old); it rides the snapshot as
+// `frz` so guests can draw the ring and tint the held zombies.
+const FREEZE_R = 560;
+const FREEZE_MS = 4000;
+let freezeZone = null;            // {x, y, r, until}
+
+function arcadeFreeze(cx, cy, now) {
+    freezeZone = { x: cx, y: cy, r: FREEZE_R, until: now + FREEZE_MS };
+    hostEvent(SND_ZAP, cx, cy);
+}
+
+function arcadeFrozen(z, now) {
+    if (!freezeZone || now >= freezeZone.until) return false;
+    return Math.hypot(z.x + z.size / 2 - freezeZone.x, z.y + z.size / 2 - freezeZone.y) <= freezeZone.r;
+}
+
+// THE TANK PULSE: throwing a full tank's switch (F at its base) wipes the
+// area round it. Removed outright rather than damaged: a SUPER SPLITTER
+// would otherwise throw its 20 spawnlings into the very crowd this clears.
+const PULSE_R = 620;
+
+function arcadeSiloPulse(i) {
+    const s = silos[i];
+    if (!s) return;
+    const cx = s.x + s.w / 2, cy = s.y + s.h;
+    let n = 0;
+    for (let k = zombies.length - 1; k >= 0; k--) {
+        const z = zombies[k];
+        if (Math.hypot(z.x + z.size / 2 - cx, z.y + z.size / 2 - cy) <= PULSE_R) {
+            zombies.splice(k, 1);
+            kills++;
+            n++;
+        }
+    }
+    hostEvent(SND_EXPLODE, cx, cy, PULSE_R);
+    addBlast(cx, cy, PULSE_R);
+    addShake(14);
+    if (typeof showToast === "function") showToast("TANK " + (i + 1) + " PULSE" + (n ? " — " + n + " CLEARED" : ""), 2000);
+}
+
+// THE BOOMGUN (2026-10-11): a temporary personal powerup. Taken from a drop,
+// it replaces your gun for BOOM_MS: a cannon held out in front of you that
+// needs a 1s spin up, never runs dry, and fires faster the longer the trigger
+// is held (up to a limit). Each shot is two things: a small shockwave that
+// throws close zombies back, and a BOLT -- a long, thick, glowing orange line
+// that travels like a bullet, stops at walls, and WIPES a wide strip round its
+// path as it goes, whether or not it touches anything head-on. It kicks the
+// screen.
+//
+// (Until 2026-10-11 later the shot was an instant beam. The user asked for
+// "a long line of glowing orange thick that behaves as a bullet".)
+//
+// The HOST owns the bolts (a guest sends `boom`), so kills are credited and
+// the ARC / BLASTCAP procs work. They ride the snapshot as `bb`, and guests
+// dead-reckon them between snapshots; a guest draws its OWN shot from a local
+// prediction and skips the host's copy.
+const BOOM_MS = 15000;
+const BOOM_SPIN_MS = 1000;        // trigger held this long before the first shot
+const BOOM_RAMP_MS = 5000;        // ...and this much longer to reach full rate
+const BOOM_CD_MAX = 520;          // ms between shots just after spin-up
+const BOOM_CD_MIN = 130;          // ...and at full spin
+const BOOM_RANGE = 980;
+const BOOM_SPEED = 28;            // px a step: ~1,700px/s, so a screen in under half a second
+const BOOM_HALF_W = 30;           // the wipe strip, either side of the bolt's path
+const BOOM_DMG = 120;
+const BOOM_PUSH_R = 150;
+const BOOM_MUZZLE = 46;           // where the bolt starts: out past the cannon's tip (it ends at ~43)
+// The drawn bolt is 1/5 of what it was (user, 2026-10-11: "about 1/5 the current
+// boomgun bullet size"): 112px long and 34/20/9 thick became ~24 and 7/4/2.
+const BOOM_DRAW_LEN = 24;         // the glowing line, along the heading, at full length
+let boomBolts = [];               // {id, x, y, vx, vy, owner, travelled, hit?} -- host sim / guest dead-reckoned
+let boomLocal = [];               // a guest's own predicted bolts (drawn, never damaging)
+let boomBoltSeq = 0;
+
+function boomActive(p, now) {
+    return !!p && !p.downed && now < (p.boomUntil || 0);
+}
+
+// One step of a bolt. Returns false when it is over (a wall, or its range).
+function boomStep(b) {
+    b.x += b.vx;
+    b.y += b.vy;
+    b.travelled += Math.hypot(b.vx, b.vy);
+    if (b.travelled >= BOOM_RANGE) return false;
+    return !bulletBlockedAt(b.x - 5, b.y - 5, 10);
+}
+
+// HOST, every step: advance each bolt and wipe what its path swept.
+function arcadeUpdateBoomBolts(now) {
+    for (let i = boomBolts.length - 1; i >= 0; i--) {
+        const b = boomBolts[i];
+        const x0 = b.x, y0 = b.y;
+        const alive = boomStep(b);
+        const sx = b.x - x0, sy = b.y - y0;
+        const sl2 = sx * sx + sy * sy || 1;
+        // Everything within BOOM_HALF_W of the segment it just crossed, once.
+        // COLLECT FIRST, then damage by object: a kill can take OTHER zombies
+        // with it (ARC, BLASTCAP, SPITE), so indices shift under a loop that
+        // damages as it goes. (Found by the bot playtest: zombies[k] was
+        // undefined and the throw would have frozen a live room.)
+        const victims = [];
+        for (let k = 0; k < zombies.length; k++) {
+            const z = zombies[k];
+            if (b.hit.indexOf(z) !== -1) continue;
+            const zx = z.x + z.size / 2, zy = z.y + z.size / 2;
+            const t = Math.max(0, Math.min(1, ((zx - x0) * sx + (zy - y0) * sy) / sl2));
+            if (Math.hypot(zx - (x0 + sx * t), zy - (y0 + sy * t)) > BOOM_HALF_W + z.size / 2) continue;
+            victims.push(z);
+        }
+        for (let v = 0; v < victims.length; v++) {
+            b.hit.push(victims[v]);
+            const k = zombies.indexOf(victims[v]);
+            if (k !== -1) damageZombie(k, BOOM_DMG, b.owner, now, "shot", b.vx, b.vy);
+        }
+        if (!alive) boomBolts.splice(i, 1);
+    }
+}
+
+// GUESTS, every step: dead-reckon the host's bolts between snapshots, and run
+// this client's own predicted ones.
+function arcadeAdvanceBoomBolts() {
+    for (let i = boomBolts.length - 1; i >= 0; i--) if (!boomStep(boomBolts[i])) boomBolts.splice(i, 1);
+    for (let i = boomLocal.length - 1; i >= 0; i--) if (!boomStep(boomLocal[i])) boomLocal.splice(i, 1);
+}
+
+// The cannon's own kick and flash, on every client, when a shot is heard.
+function boomKick(x, y) {
+    shakeNear(x, y, 9);
+}
+
+// HOST. Throws the close ones back, launches the bolt, tells everyone.
+function arcadeBoomResolve(owner, ox, oy, dx, dy, now) {
+    const dl = Math.hypot(dx, dy) || 1;
+    dx /= dl; dy /= dl;
+    for (let i = 0; i < zombies.length; i++) {
+        const z = zombies[i];
+        const zx = z.x + z.size / 2 - ox, zy = z.y + z.size / 2 - oy;
+        const d = Math.hypot(zx, zy);
+        if (d >= BOOM_PUSH_R) continue;
+        const sp = 8 * (1 - d / BOOM_PUSH_R) + 3;
+        z.launchUntil = now + 260;
+        z.lvx = (zx / (d || 1)) * sp;
+        z.lvy = (zy / (d || 1)) * sp;
+    }
+    boomBolts.push({ id: ++boomBoltSeq, x: ox + dx * BOOM_MUZZLE, y: oy + dy * BOOM_MUZZLE,
+                     vx: dx * BOOM_SPEED, vy: dy * BOOM_SPEED, owner: owner, travelled: 0, hit: [] });
+    if (boomBolts.length > 24) boomBolts.shift();
+    boomKick(ox, oy);
+    hostEvent(SND_BOOM, ox, oy, 0, owner);
+}
+
+// Every client, for its own player, every step. Spin-up and ramp live in
+// `boomHeld` (ms the trigger has been down): it climbs while held and drains
+// fast when released, so a brief let-go keeps most of the spin.
+function arcadeBoomTick(p, now, dt) {
+    const want = !!p.keys.shoot && !(now < (p.jamUntil || 0)) && !(p.turretHeld && p.turretArmed);
+    const full = BOOM_SPIN_MS + BOOM_RAMP_MS;
+    if (want) p.boomHeld = Math.min((p.boomHeld || 0) + dt, full);
+    else p.boomHeld = Math.max(0, (p.boomHeld || 0) - dt * 2.5);
+    if (!want || p.boomHeld < BOOM_SPIN_MS) return;
+    const k = Math.min(1, (p.boomHeld - BOOM_SPIN_MS) / BOOM_RAMP_MS);
+    const cd = BOOM_CD_MAX - (BOOM_CD_MAX - BOOM_CD_MIN) * k;
+    if (now - (p.boomLast || 0) < cd) return;
+    p.boomLast = now;
+    p.lastShotTime = now;
+    addShake(9 + 5 * k);
+    const ox = p.x + p.size / 2, oy = p.y + p.size / 2;
+    if (netIsHost || !netOnline) {
+        arcadeBoomResolve(netIdFor(p), ox, oy, p.facingX, p.facingY, now);
+    } else {
+        // Predicted locally the instant it fires; the host resolves the kills
+        // and its copy of this bolt is skipped when it arrives.
+        const dl = Math.hypot(p.facingX, p.facingY) || 1;
+        const dx = p.facingX / dl, dy = p.facingY / dl;
+        boomLocal.push({ id: -1, x: ox + dx * BOOM_MUZZLE, y: oy + dy * BOOM_MUZZLE,
+                         vx: dx * BOOM_SPEED, vy: dy * BOOM_SPEED, owner: netIdFor(p), travelled: 0 });
+        if (boomLocal.length > 12) boomLocal.shift();
+        localEvent(SND_BOOM, ox, oy, 0);
+        MP.send({ k: "boom", id: netIdFor(p), x: Math.round(ox), y: Math.round(oy), dx: +dx.toFixed(3), dy: +dy.toFixed(3) });
+    }
+}
+
+// TURRETS. Carried like a gun (`p.turretHeld`), ARMED on pickup so the next
+// click places it ("picked up like gun, placed on click"), T re-arms it and a
+// gun key disarms it. It lands at the cursor but never further than
+// TURRET_REACH from you, so putting it somewhere specific means going there
+// -- into the swarm -- and standing still while you do. It deploys for
+// TURRET_DEPLOY_MS, fires at the nearest zombie in sight for TURRET_LIFE_MS,
+// and zombies on top of it chew it down. Once placed, you can carry another.
+// The host owns the list; bullets are ordinary bullets owned by the placer,
+// so kills credit them and every client draws them with no new wire.
+const TURRET_REACH = 110;
+const TURRET_MIN = 38;
+const TURRET_DEPLOY_MS = 700;
+const TURRET_LIFE_MS = 15000;
+const TURRET_HP = 140;
+const TURRET_RATE_MS = 100;
+const TURRET_DMG = 2.5;
+const TURRET_RANGE = 460;
+const TURRET_MAX = 4;
+let arcTurrets = [];              // {id, x, y, owner, color, until, liveAt, hp, aim, lastShot}
+let arcTurretSeq = 0;
+
+// Every client, for its own player, on click.
+function arcadePlaceTurret(p) {
+    const cx = p.x + p.size / 2, cy = p.y + p.size / 2;
+    let dx = mouseX - cx, dy = mouseY - cy;
+    let d = Math.hypot(dx, dy);
+    if (d < 1) { dx = p.facingX; dy = p.facingY; d = 1; }
+    const r = Math.max(TURRET_MIN, Math.min(TURRET_REACH, d));
+    const x = Math.round(cx + dx / d * r), y = Math.round(cy + dy / d * r);
+    if (!inArena(x - 11, y - 11, 22) || blockedAtStatic(x - 11, y - 11, 22)) {
+        showToast("NO ROOM THERE", 900);
+        return false;
+    }
+    p.turretHeld = false;
+    p.turretArmed = false;
+    if (netIsHost || !netOnline) arcadeHostPlaceTurret(netIdFor(p), p.color, x, y);
+    else MP.send({ k: "turret", id: netIdFor(p), c: p.color, x: x, y: y });
+    localEvent(SND_BUY, x, y);
+    return true;
+}
+
+// HOST.
+function arcadeHostPlaceTurret(ownerId, color, x, y) {
+    if (!inArena(x - 11, y - 11, 22) || blockedAtStatic(x - 11, y - 11, 22)) return;
+    const now = Date.now();
+    while (arcTurrets.length >= TURRET_MAX) arcTurrets.shift();
+    arcTurrets.push({ id: ++arcTurretSeq, x: x, y: y, owner: ownerId, color: color || "#55FFFF",
+                      until: now + TURRET_DEPLOY_MS + TURRET_LIFE_MS, liveAt: now + TURRET_DEPLOY_MS,
+                      hp: TURRET_HP, aim: 0, lastShot: 0 });
+}
+
+// HOST, every step.
+function arcadeUpdateTurrets(now, dt) {
+    for (let i = arcTurrets.length - 1; i >= 0; i--) {
+        const t = arcTurrets[i];
+        if (now >= t.until || t.hp <= 0) {
+            arcTurrets.splice(i, 1);
+            hostEvent(SND_POP, t.x, t.y, 40);
+            continue;
+        }
+        if (now < t.liveAt) continue;
+        let best = null, bestD = TURRET_RANGE * TURRET_RANGE;
+        for (let k = 0; k < zombies.length; k++) {
+            const z = zombies[k];
+            const zx = z.x + z.size / 2 - t.x, zy = z.y + z.size / 2 - t.y;
+            const d2 = zx * zx + zy * zy;
+            // A zombie on the turret chews it.
+            if (d2 < (z.size / 2 + 14) * (z.size / 2 + 14) && !arcadeFrozen(z, now)) t.hp -= 0.6 * (dt / 16.7);
+            if (d2 < bestD) {
+                // In sight: the turret does not shoot through walls and trees.
+                if (!navClearLine(t.x, t.y, z.x + z.size / 2, z.y + z.size / 2)) continue;
+                best = z; bestD = d2;
+            }
+        }
+        if (!best || now - t.lastShot < TURRET_RATE_MS) continue;
+        t.lastShot = now;
+        const zx = best.x + best.size / 2 - t.x, zy = best.y + best.size / 2 - t.y;
+        const dd = Math.hypot(zx, zy) || 1;
+        t.aim = Math.atan2(zy, zx);
+        const sp = WEAPONS.smg.speed;
+        bullets.push({
+            x: t.x - 4, y: t.y - 4, vx: zx / dd * sp, vy: zy / dd * sp, size: 8,
+            dmg: TURRET_DMG, pierce: 0, bounces: 0, homing: 0, hitZ: [], travelled: 0,
+            range: TURRET_RANGE + 80, kind: "smg", ownerColor: t.color, owner: t.owner
+        });
+        hostEvent(SND_SHOT, t.x, t.y, WEAPON_KEYS.indexOf("smg"));
+    }
+}
+
+// HOST. FLARE: a ring of fast bodies lands 240-340px round the taker. Spawned
+// directly (not through the spawn ring) because the point is that it is
+// close, and the ring deliberately refuses anywhere near a player.
+function arcadeFlare(cx, cy, now) {
+    const lvl = arcadeLevel(now);
+    let made = 0;
+    for (let tries = 0; tries < FLARE_COUNT * 6 && made < FLARE_COUNT; tries++) {
+        const a = Math.random() * Math.PI * 2, r = 240 + Math.random() * 100;
+        const x = cx + Math.cos(a) * r - 8, y = cy + Math.sin(a) * r - 8;
+        if (!inArena(x, y, 20) || blockedAtStatic(x, y, 20)) continue;
+        const z = spawnZombieAt(made % 3 === 0 ? "runner" : "walker", lvl, x, y);
+        if (z) { z.entered = true; made++; }
+    }
+    hostEvent(SND_SCREAM, cx, cy);
 }
 
 // Throws everything near the taker outward, using the SUPER SPLITTER's own
@@ -454,6 +993,25 @@ function arcadeApplyTake(msg, now) {
         }
         localEvent(SND_BUY, x, y);
         showToast((p ? "YOU" : (who || "SOMEONE")) + " TOOK THE " + dropLabel({ type: "gun", item: msg.it }), 1600);
+    } else if (msg.t === "boomgun") {
+        if (p) {
+            p.boomUntil = now + BOOM_MS;
+            p.boomHeld = 0;
+            p.turretArmed = false;
+            showToast("BOOMGUN — HOLD TO SPIN UP", 2200);
+        } else {
+            showToast((who || "SOMEONE") + " HAS THE BOOMGUN", 1600);
+        }
+        localEvent(SND_BUY, x, y);
+    } else if (msg.t === "turret") {
+        if (p) {
+            p.turretHeld = true;
+            p.turretArmed = true;
+            showToast("TURRET — CLICK TO PLACE", 1800);
+        } else {
+            showToast((who || "SOMEONE") + " TOOK THE TURRET", 1400);
+        }
+        localEvent(SND_BUY, x, y);
     } else if (msg.t === "perk") {
         if (p && CARDS[msg.it] && !dropRefusal(p.cards, { type: "perk", item: msg.it })) p.cards.push(msg.it);
         localEvent(SND_CARD, x, y);
@@ -470,6 +1028,17 @@ function arcadeApplyTake(msg, now) {
         } else if (msg.t === "shock") {
             addShake(10);
             showToast("SHOCKWAVE", 1200);
+        } else if (msg.t === "freeze") {
+            showToast("FREEZE — " + (FREEZE_MS / 1000) + "s", 1400);
+        } else if (msg.t === "mud") {
+            if (p) { p.slowUntil = now + MUD_MS; showToast("MUD — SLOWED", 1600); }
+            else showToast((who || "SOMEONE") + " STEPPED IN MUD", 1400);
+        } else if (msg.t === "jam") {
+            if (p) { p.jamUntil = now + JAM_MS; showToast("JAMMED — GUN LOCKED", 1800); }
+            else showToast((who || "SOMEONE") + " JAMMED THEIR GUN", 1400);
+        } else if (msg.t === "flare") {
+            addShake(6);
+            showToast((p ? "YOU" : (who || "SOMEONE")) + " LIT A FLARE — THEY SEE US", 1800);
         }
     }
 }
@@ -528,7 +1097,13 @@ function separateZombies() {
         }
         if (!px && !py) continue;
         const len = Math.hypot(px, py);
-        const m = Math.min(SEP_MAX_PUSH, len * SEP_MAX_PUSH);
+        let m = Math.min(SEP_MAX_PUSH, len * SEP_MAX_PUSH);
+        // Never past the hard speed cap: a zombie that walked at the cap this
+        // step has no room left to be shoved forward.
+        if (a.mx0 !== undefined) {
+            const moved = Math.hypot(a.x - a.mx0, a.y - a.my0);
+            m = Math.min(m, Math.max(0, PLAYER_SPEED - moved));
+        }
         moveWithCollisions(a, (px / len) * m, (py / len) * m, !!a.entered, true);
     }
 }
@@ -548,12 +1123,116 @@ function separateZombies() {
 // Called at the end of openTheArena(). The rail goes here too --
 // "immediately after playtesting" was the user's plan for it, and the arena
 // has no room for it anyway.
-const ARENA_FUNNEL_R = 110;
+// 150 from 2026-10-11 ("silo funnels should be larger"); it was 110. The sets,
+// the lamps, the clear rects and the draw all read funnels[k].r, so this is
+// the one number. Funnel 2 moves up 80px with it so its warehouse (which
+// stands 300px below the funnel) keeps clear of the start point.
+const ARENA_FUNNEL_R = 150;
 // Offsets from the arena's centre, which is where players start. Laid out
 // like a BASEBALL FIELD (user, 2026-10-04): first at centre-left, second at
 // top-middle, third at centre-right, and the gate is home plate, south.
-const ARENA_FUNNELS = [[-1150, 0], [0, -600], [1100, 0]];   // pushed apart with the 33% bigger arena (2026-10-07)
+const ARENA_FUNNELS = [[-1150, 0], [0, -680], [1100, 0]];   // pushed apart with the 33% bigger arena (2026-10-07)
 const ARENA_GATE_DX = 0;          // the exit, in the south wall
+
+// ---------------------------------------------------
+//   THE TWO MAPS (2026-10-11, LEVEL_2_PROPOSAL.md; user: "level 2 and then
+//   the end of the game")
+// ---------------------------------------------------
+// Map 1 is the baseball diamond. Map 2 is a fixed "W" of FIVE tanks, entered
+// at the TOP of the arena (you run in from the north fence) with the gate
+// in the south wall, off to the east. The set types reuse the three
+// builders: hedge, warehouse, forest. Offsets are from the world centre, as
+// ARENA_FUNNELS always was, pulled in ~20% from the proposal's table
+// because the first measurement put the route at ~8,200px against map 1's
+// ~3,800 (a "session length" problem; see the proposal).
+//
+// The wave on map 2 reads the clock offset by L2_CLOCK_OFFSET_S, so map 2's
+// minute 2 is map 1's minute 3 and it follows the same curve after that
+// (user, 2026-10-11).
+// MAP 3 (7 tanks): a long concrete DIVIDER down the middle (a reservoir wall,
+// 480 x 1370, a 285px lane over its top and a ~490px pass under its foot, which
+// is also where tank 4 stands). Left half: forest, hedge, warehouse. Right
+// half: hedge, forest, hedge, and the gate in the south-east corner.
+// MAP 4, THE BOSS (10 tanks): an open map, no sets and no trees in the core,
+// ten tanks stacked tight in two rows of five, and a different wave
+// (arcadeBossWave): only SUPER SPLITTERS and a constant horde, with the
+// negative drops turned up. Beating it is the win.
+const ARENA_LAYOUTS = {
+    1: { funnels: ARENA_FUNNELS, gateDx: ARENA_GATE_DX, caps: [10, 15, 20], clock: 0,
+         sets: ["hedge", "warehouse", "forest"] },
+    2: { funnels: [[-1360, -750], [-560, 200], [200, -650], [800, 300], [1520, -700]], gateDx: 1360,
+         caps: [8, 10, 12, 14, 16], clock: 60,
+         sets: ["hedge", "warehouse", "forest", "hedge", "forest"] },
+    3: { funnels: [[-2000, -900], [-1100, -450], [-1500, 430], [120, 640], [1100, 380], [2000, -250], [1100, -700]],
+         // clock 120 -> 60 on 2026-10-11 ("scale back the map-starting time for 3 & 4"):
+         // the bot sweep survived 62-230s at 60 against 63-86s at 120.
+         // Tanks 8..16 -> 7..14 (-15%) and the curve at 0.5x inside the map, from
+         // the bot sweep: map 3 is bound by the timeline, so what helps is how
+         // slowly the wave level climbs once you are in it.
+         gateDx: 2000, caps: [7, 8, 10, 10, 12, 12, 14], clock: 60, pace: 0.5,
+         sets: ["forest", "hedge", "warehouse", "forest", "hedge", "forest", "hedge"],
+         divider: { x: -240, y: -950, w: 480, h: 1370 } },
+    4: { funnels: [[-1200, -250], [-600, -250], [0, -250], [600, -250], [1200, -250],
+                   [1200, 170], [600, 170], [0, 170], [-600, 170], [-1200, 170]],
+         // clock 240 -> 100 on 2026-10-11, same reason.
+         gateDx: -1200, caps: [6, 6, 6, 6, 7, 7, 7, 7, 8, 8], clock: 100, pace: 0.6,
+         sets: [], open: true, boss: true }
+};
+const ARC_MAX_LEVEL = 4;
+const L2_CLOCK_OFFSET_S = 60;     // kept: ARENA_LAYOUTS[2].clock; every map has its own now
+const ARC_INTRO2_MS = 2600;       // "SECTOR n": the run-on, controls off
+const L2_LULL_MS = 15000;         // a light lull on arrival...
+const L2_RAMP_MS = 20000;         // ...then it eases up to the curve
+const L2_LULL_MULT = 0.25;
+let arcLevelNo = 1;
+// What the finished maps left behind, for the run's time and score. (Named for
+// map 1; it has meant "every map before this one" since map 3.)
+let arcL1Seconds = 0;
+let arcL1Silos = 0;
+let arcL2StartAt = 0;             // HOST: when this map's intro ends
+
+// ---------------------------------------------------
+//   DIFFICULTY (2026-10-11, user: "a difficulty slider ... keeps 1 & 2 the
+//   near same but plays more with the difficulty of 3 & 4")
+// ---------------------------------------------------
+// One number, ARC_DIFF_DEFAULT (1.0) at the tick the game ships on. Maps 1 and
+// 2 barely move with it (the head start of map 2 by +-20% of the slider's
+// distance from default, the rate by +-10%); maps 3 and 4 take it whole: their
+// head start on the curve, the spawn rate, how many may be alive, and on the
+// boss how hard the horde and the super splitters come. Everything reads it
+// LIVE, so the slider in the dev panel reshapes the curve mid-run. It rides
+// the snapshot (`df`) so guests' clocks agree, and persists per browser.
+const ARC_DIFF_MIN = 0.5;
+const ARC_DIFF_MAX = 1.5;
+const ARC_DIFF_DEFAULT = 1.0;
+let arcDifficulty = (function () {
+    try {
+        const v = parseFloat(localStorage.getItem("zombie_arcade_difficulty"));
+        if (v >= ARC_DIFF_MIN && v <= ARC_DIFF_MAX) return v;
+    } catch (e) { /* private window: fine */ }
+    return ARC_DIFF_DEFAULT;
+})();
+
+function arcadeSetDifficulty(v) {
+    arcDifficulty = Math.max(ARC_DIFF_MIN, Math.min(ARC_DIFF_MAX, v));
+    try { localStorage.setItem("zombie_arcade_difficulty", String(arcDifficulty)); } catch (e) { /* ignore */ }
+    return arcDifficulty;
+}
+
+// Map 1 and 2 (the "near the same" half) versus maps 3 and 4 (the half the
+// slider is for).
+function arcHardMap() { return arcLevelNo >= 3; }
+function arcDiffRate() { return arcHardMap() ? arcDifficulty : 1 + 0.1 * (arcDifficulty - 1); }
+function arcDiffCap() { return arcHardMap() ? 0.7 + 0.3 * arcDifficulty : 1; }
+
+// This map's clock head start: map 2's minute 2 is map 1's minute 3 (user,
+// 2026-10-11), and each map after starts further up the same curve (the
+// `clock` of its layout row, scaled by the difficulty).
+function arcClockOffsetS() {
+    const L = ARENA_LAYOUTS[arcLevelNo];
+    if (!L || !L.clock) return 0;
+    return L.clock * (arcHardMap() ? arcDifficulty : 1 + 0.2 * (arcDifficulty - 1));
+}
 const ARENA_SILO_W = 70;          // the tank's FOOTPRINT, solid on every side
 const ARENA_SILO_H = 56;
 const ARENA_PIPE_RUN = 110;       // funnel rim to tank: room for the pipes to read
@@ -569,24 +1248,36 @@ function buildArcadeArena() {
     // The chain first: everything else is tested against it.
     funnelHalls = [];
     sluiceRoom = null;
-    for (let k = 0; k < 3; k++) {
-        const fx = cx + ARENA_FUNNELS[k][0], fy = cy + ARENA_FUNNELS[k][1];
+    const LAY = ARENA_LAYOUTS[arcLevelNo] || ARENA_LAYOUTS[1];
+    const nT = LAY.funnels.length;
+    funnels.length = nT;
+    silos.length = nT;
+    siloPipes.length = nT;
+    // The chain's state arrays are as long as the tanks (they were [x, x, x]).
+    funnelActive = new Array(nT).fill(false);
+    siloFill = new Array(nT).fill(0);
+    siloFlipped = new Array(nT).fill(false);
+    for (let k = 0; k < nT; k++) {
+        const fx = cx + LAY.funnels[k][0], fy = cy + LAY.funnels[k][1];
         funnels[k] = { x: fx, y: fy, r: ARENA_FUNNEL_R, zone: zoneOf(fx, fy) };
         silos[k] = { x: Math.round(fx + ARENA_FUNNEL_R + ARENA_PIPE_RUN), y: Math.round(fy - ARENA_SILO_H / 2),
                      w: ARENA_SILO_W, h: ARENA_SILO_H, zone: zoneOf(fx, fy) };
         siloPipes[k] = pipeBetween(funnels[k], silos[k]);
     }
     const wallY = A.y + A.h - WALL_T;
-    const gx = cx + ARENA_GATE_DX;
+    const gx = cx + LAY.gateDx;
     // FLUSH WITH THE SOUTH WALL and as wide as the tunnel behind it (2026-10-04:
     // "inset lower ... so that it's flush with south wall"; "extend the
     // sealed fence to the full width ... there are visually gaps").
     escapeRect = { x: Math.round(gx - ARC_GATE_W / 2), y: wallY, w: ARC_GATE_W, h: ARC_GATE_H };
 
-    const clear = [{ x: cx - 160, y: cy - 160, w: 320, h: 320 },
+    // Where you start: the middle on map 1, the north fence on map 2.
+    const startRect = arcLevelNo >= 2 ? { x: cx - 160, y: A.y, w: 320, h: 380 }
+                                       : { x: cx - 160, y: cy - 160, w: 320, h: 320 };
+    const clear = [startRect,
                    { x: escapeRect.x - ARENA_CLEAR, y: escapeRect.y - ARENA_CLEAR,
                      w: escapeRect.w + ARENA_CLEAR * 2, h: escapeRect.h + ARENA_CLEAR }];
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < nT; k++) {
         const f = funnels[k], s = silos[k];
         clear.push({ x: f.x - f.r - 40, y: f.y - f.r - 40, w: (s.x + s.w + 40) - (f.x - f.r - 40), h: f.r * 2 + 80 });
     }
@@ -635,7 +1326,7 @@ function buildArcadeArena() {
     // THE TANKS ARE SOLID OVER THEIR WHOLE DRAWN SHAPE (2026-10-04: "I
     // shouldn't be able to walk on top of the silos themselves at all") --
     // the footprint plus everything extruded above it.
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < nT; k++) {
         const s = silos[k];
         keepWalls.push({ x: s.x, y: s.y - SILO_LIFT, w: s.w, h: s.h + SILO_LIFT, silo: true });
     }
@@ -645,7 +1336,7 @@ function buildArcadeArena() {
     arenaTrees = [];
     arenaBushes = [];
     buildSiloSets(clear);
-    plantArenaTerrain(fits);
+    plantArenaTerrain(fits, !!LAY.open);
 
     if (typeof zfKeepPatches === "function") {
         zfKeepPatches(function (p) {
@@ -678,7 +1369,7 @@ function inArena(x, y, size) {
 // sidebar map, so all three always agree.
 function arcadeObjectiveTarget() {
     if (won) return null;
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < funnels.length; k++) {
         if (siloFlipped[k]) continue;
         if (siloReady(k)) {
             const s = silos[k];
@@ -812,7 +1503,7 @@ function arcadeDrawSidebar(now) {
         sideCanvas.height = wantH;
         sideStaticKey = "";
     }
-    const key = levelSeed + ":" + want;
+    const key = levelSeed + ":" + arcLevelNo + ":" + want;
     if (key !== sideStaticKey) { sideStatic = buildSideStatic(); sideStaticKey = key; }
 
     const g = sideCtx, k = want / ARENA.w;
@@ -875,9 +1566,12 @@ function arcadeDrawSidebar(now) {
     // Drops, so a callout has somewhere to point. No zombies, on request.
     for (let i = 0; i < pickups.length; i++) {
         const d = pickups[i];
-        g.fillStyle = d.type === "gun" ? ICON_CYAN : d.type === "perk" ? ICON_WORLD_HUE : COLOR_PICKUP;
+        g.fillStyle = DROP_HAZARD[d.type] ? "#FF2233" : d.type === "gun" ? ICON_CYAN : d.type === "perk" ? ICON_WORLD_HUE : COLOR_PICKUP;
         g.fillRect(X(d.x) - 2, Y(d.y) - 2, 4, 4);
     }
+
+    g.fillStyle = ICON_CYAN;
+    for (let i = 0; i < arcTurrets.length; i++) g.fillRect(X(arcTurrets[i].x) - 2, Y(arcTurrets[i].y) - 2, 5, 5);
 
     // Teammates, then you on top.
     for (const id in remotePlayers) {
@@ -977,13 +1671,14 @@ function arenaAddBush(x, y, rad, fits) {
 
 // The open patches and the scatter. arenaTrees / arenaBushes are reset by
 // buildArcadeArena, because the silo sets plant first.
-function plantArenaTerrain(fits) {
+function plantArenaTerrain(fits, open) {
     const A = ARENA;
     const tryTree = function (x, y) { return arenaPlaceTree(x, y, fits); };
     const addBush = function (x, y, rad) { arenaAddBush(x, y, rad, fits); };
 
-    // Dense patches.
-    for (let p = 0; p < ARENA_PATCHES; p++) {
+    // The boss map is OPEN: no patches and no scatter in the core (the edge
+    // forest below still stands, and the undergrowth).
+    for (let p = 0; p < (open ? 0 : ARENA_PATCHES); p++) {
         const px = A.x + 220 + MP.random() * (A.w - 440);
         const py = A.y + 200 + MP.random() * (A.h - 400);
         if (!fits({ x: px - 90, y: py - 90, w: 180, h: 180 })) continue;
@@ -997,7 +1692,7 @@ function plantArenaTerrain(fits) {
         }
     }
     // The sparse scatter between them.
-    for (let i = 0; i < 94; i++) {          // +10% (2026-10-04), scaled with the arena twice (2026-10-07)
+    for (let i = 0; i < (open ? 0 : 94); i++) {          // +10% (2026-10-04), scaled with the arena twice (2026-10-07)
         tryTree(A.x + 80 + MP.random() * (A.w - 160), A.y + 80 + MP.random() * (A.h - 160));
     }
     for (let i = 0; i < 128; i++) {         // +10%, then scaled with the arena twice
@@ -1148,19 +1843,22 @@ function arcadeUpdateGateBar() {
 // the middle of a fight is not an intro.
 const ARC_INTRO_MS = 11400;
 let arcIntroAt = 0;
+let arcIntroLen = ARC_INTRO_MS;
 
-function arcadeBeginIntro(now) {
+function arcadeBeginIntro(now, len) {
     arcIntroAt = now;
+    arcIntroLen = len || ARC_INTRO_MS;
     if (typeof releaseHeldKeys === "function") releaseHeldKeys();
 }
 
 function arcadeIntroActive(now) {
-    return arcIntroAt > 0 && (now || Date.now()) - arcIntroAt < ARC_INTRO_MS;
+    return arcIntroAt > 0 && (now || Date.now()) - arcIntroAt < arcIntroLen;
 }
 
 // From applyWorldSnapshot: a run already past its intro skips ours.
 function arcadeIntroSync(elapsedMs) {
-    if (elapsedMs > 1500 && arcadeIntroActive()) arcIntroAt = 0;
+    // Map 1's intro only: map 2's clock is offset by 60s on purpose.
+    if (arcLevelNo === 1 && elapsedMs > 1500 && arcadeIntroActive()) arcIntroAt = 0;
 }
 
 // The scale updateCamera() settles on, so the intro hands over without a jump.
@@ -1182,6 +1880,12 @@ function arcadeIntroShots() {
     const me = players[0] ? { x: players[0].x + 8, y: players[0].y + 8 } : c;
     const f = function (k) { return funnels[k] ? { x: funnels[k].x + 60, y: funnels[k].y } : c; };
     const gate = escapeRect ? { x: escapeRect.x + escapeRect.w / 2, y: escapeRect.y - 60 } : c;
+    if (arcLevelNo >= 2) {
+        return [
+            [0, 1300, me, "near", arcLevelNo >= ARC_MAX_LEVEL ? "FINAL SECTOR" : "SECTOR " + arcLevelNo],
+            [1300, ARC_INTRO2_MS, me, "near", funnels.length + " TANKS"]
+        ];
+    }
     return [
         [0, 1800, c, "fit", "ESCAPE"],
         [1800, 2800, me, "near", ""],
@@ -1670,9 +2374,11 @@ function arcadeDrawHurt(now) {
 // note in drawLighting() is about running it on the main canvas, where it
 // erases the world itself. On a layer that holds nothing but darkness,
 // removing alpha is exactly "letting light in".
-const LIGHT_TINT = "4,7,20";      // the night's colour: blue-black, not grey
-const LIGHT_OUTSIDE = 0.74;      // dusk: the sun the warehouse lets in
-const LIGHT_INSIDE = 0.95;        // the warehouse, away from the windows
+// 2026-10-11 (option A): deep blue, not near-black, so what is left in the
+// dark is a colour. Was "4,7,20".
+const LIGHT_TINT = "6,16,28";
+const LIGHT_OUTSIDE = 0.62;      // dusk (was 0.74 until 2026-10-11: "slightly too low")
+const LIGHT_INSIDE = 0.80;        // the warehouse, away from the windows (was 0.95: a void, racks vanished)
 const TORCH_RANGE = 640;          // flashlight reach
 const TORCH_HALF = 0.42;          // half the cone's angle, radians (~48 degrees across)
 const SELF_GLOW = 82;
@@ -1686,6 +2392,8 @@ let lightLayer = null;
 // solid rect in reach (and a hair either side, so the light slips round a
 // corner) plus a ring of fillers so the open edge stays round. Glass lets
 // light through; everything else solid stops it.
+const VIS_PENETRATION = 24;
+
 function visPoly(x, y, R) {
     const rs = [];
     for (let i = 0; i < walls.length; i++) {
@@ -1709,10 +2417,10 @@ function visPoly(x, y, R) {
     const pts = new Array(angs.length * 2);
     for (let n = 0; n < angs.length; n++) {
         const dx = Math.cos(angs[n]), dy = Math.sin(angs[n]);
-        let best = R;
+        let best = R, exitT = R, hit = false;
         for (let i = 0; i < rs.length; i++) {
             const w = rs[i];
-            let t0 = 0, t1 = best;
+            let t0 = 0, t1 = Infinity;
             if (dx !== 0) {
                 let a = (w.x - x) / dx, b = (w.x + w.w - x) / dx;
                 if (a > b) { const q = a; a = b; b = q; }
@@ -1727,10 +2435,16 @@ function visPoly(x, y, R) {
                 if (b < t1) t1 = b;
             } else if (y < w.y || y > w.y + w.h) continue;
             if (t0 > t1 || t0 < 0) continue;
-            if (t0 < best) best = t0;
+            if (t0 < best) { best = t0; exitT = t1; hit = true; }
         }
-        pts[n * 2] = x + dx * best;
-        pts[n * 2 + 1] = y + dy * best;
+        // LIT FACES (2026-10-11, LIGHTING_PROPOSAL option A): the ray goes on
+        // into the blocker by up to VIS_PENETRATION px, so the face of a hedge,
+        // rack, tank or tree that FACES the light is inside the lit polygon.
+        // Before, the polygon stopped at the near edge and the prop's own
+        // body was painted black: "can't see objects that block light".
+        const reach = hit ? Math.min(R, best + Math.min(VIS_PENETRATION, exitT - best)) : best;
+        pts[n * 2] = x + dx * reach;
+        pts[n * 2 + 1] = y + dy * reach;
     }
     return pts;
 }
@@ -1749,7 +2463,9 @@ function clipToPoly(g, pts) {
 // radius, light]. Hard steps are colour stops placed a hair apart. Shared by
 // every cut and every additive pool, so all the light in the game steps
 // alike.
-const ARC_LIGHT_BANDS = [[0.3, 1], [0.55, 0.66], [0.8, 0.36], [1, 0.12]];
+// 4 -> 7 steps on 2026-10-11 (LIGHTING_PROPOSAL option A): still flat bands, so
+// the quantized-light pillar holds, but each step is a third the size.
+const ARC_LIGHT_BANDS = [[0.15, 1], [0.3, 0.86], [0.45, 0.7], [0.6, 0.52], [0.75, 0.36], [0.9, 0.2], [1, 0.1]];
 function bandGradient(g, x, y, r, rgb, a) {
     const gr = g.createRadialGradient(x, y, 0, x, y, r);
     let from = 0;
@@ -1768,8 +2484,8 @@ function falloffGradient(g, x, y, r, a) { return bandGradient(g, x, y, r, "0,0,0
 // banded falloff. Their alphas compound under destination-out, so the beam
 // steps down sideways as well as along its length: 3 layers in the core,
 // 2 at the shoulder, 1 at the rim.
-const TORCH_LAYERS = [0.45, 0.85, 1.25];     // half-angle, as a multiple of TORCH_HALF
-const TORCH_LAYER_A = 0.63;                  // 1 - (1 - 0.63)^3 = 0.95 in the core
+const TORCH_LAYERS = [0.4, 0.7, 1.0, 1.3];   // half-angle, as a multiple of TORCH_HALF (4 from 3, 2026-10-11)
+const TORCH_LAYER_A = 0.53;                  // 1 - (1 - 0.53)^4 = 0.95 in the core
 function cutTorch(g, cx, cy, fx, fy, range) {
     const a = Math.atan2(fy, fx);
     for (let i = 0; i < TORCH_LAYERS.length; i++) {
@@ -2006,13 +2722,14 @@ function pushProp(kind, x, footY, w, fh, lift, extra) {
 
 // A rectangular hedge ring, with one gap on each side listed in `gaps`
 // ({ n, s, e, w }: 0..1 along that side).
-function hedgeRing(R, gaps) {
+function hedgeRing(R, gaps, gapW) {
     const T = HEDGE_T;
+    const GW = gapW || SET_GAP;
     const run = function (vertical, fixed, a0, a1, gapAt) {
         const parts = [];
         if (gapAt == null) parts.push([a0, a1]);
         else {
-            const g0 = a0 + (a1 - a0) * gapAt - SET_GAP / 2, g1 = g0 + SET_GAP;
+            const g0 = a0 + (a1 - a0) * gapAt - GW / 2, g1 = g0 + GW;
             if (g0 - a0 > 20) parts.push([a0, g0]);
             if (a1 - g1 > 20) parts.push([g1, a1]);
         }
@@ -2034,18 +2751,19 @@ function buildSiloSets(clear) {
     arenaProps = [];
     arenaWarehouse = null;
     arenaLamps = [];
-    if (funnels.length < 3) return;
+    if (funnels.length < 1) return;
+    const kindsL = (ARENA_LAYOUTS[arcLevelNo] || ARENA_LAYOUTS[1]).sets;
     // A lamp at every tank, beside its base (2026-10-08: "orangey light
     // sources ... at the silos").
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < funnels.length; k++) {
         const s = silos[k];
-        if (s) arenaLamps.push({ x: s.x + s.w + 30, y: s.y + s.h - 6, inside: k === 1 });
+        if (s) arenaLamps.push({ x: s.x + s.w + 30, y: s.y + s.h - 6, inside: kindsL[k] === "warehouse" });
     }
     // 2026-10-08: "slightly more light sources around silos 1 and 3, but also
     // at the start point". Lamps are light only: nothing solid is added.
     // (2026-10-08 later: silo 2 too -- inside the warehouse.)
-    for (let k = 0; k < 3; k++) {
-        const f = funnels[k], s = silos[k], ins = k === 1;
+    for (let k = 0; k < funnels.length; k++) {
+        const f = funnels[k], s = silos[k], ins = kindsL[k] === "warehouse";
         arenaLamps.push({ x: s.x - 28, y: s.y + s.h - 6, inside: ins });                 // tank, west foot
         arenaLamps.push({ x: s.x + s.w / 2, y: s.y - SILO_LIFT - 14, inside: ins });     // tank, top
         arenaLamps.push({ x: f.x, y: f.y - f.r - 34, inside: ins });                     // funnel, north
@@ -2060,18 +2778,46 @@ function buildSiloSets(clear) {
         fl(gx - escapeRect.w / 2 - 90, gy - 190); fl(gx + escapeRect.w / 2 + 90, gy - 190);
         fl(gx, gy - 270);
     }
-    const sx = WORLD_W / 2, sy = WORLD_H / 2;
+    // Where you start: the middle of the map, or (map 2) the north fence.
+    const sx = WORLD_W / 2, sy = arcLevelNo >= 2 ? ARENA.y + 220 : WORLD_H / 2;
     arenaLamps.push({ x: sx - 130, y: sy - 90, inside: false }, { x: sx + 130, y: sy - 90, inside: false },
                     { x: sx - 130, y: sy + 90, inside: false }, { x: sx + 130, y: sy + 90, inside: false });
 
+    // One builder per set kind, in tank order, so each claims its ground
+    // (`clear`) before the next looks for room.
+    // The DIVIDER first, so every set routes round it.
+    const LAYS = ARENA_LAYOUTS[arcLevelNo] || ARENA_LAYOUTS[1];
+    if (LAYS.divider) {
+        const D = LAYS.divider;
+        const dx0 = WORLD_W / 2 + D.x, dy0 = WORLD_H / 2 + D.y, lift = 44;
+        pushProp("divider", dx0, dy0 + D.h, D.w, D.h - lift, lift);
+        clear.push(grow({ x: dx0, y: dy0, w: D.w, h: D.h }, 60));
+    }
+    // Hedges, then the warehouse, then forests, whatever the tank order: the
+    // forests fill whatever ground is left, and a hedge ring planted after a
+    // forest would stand in its trees.
+    const kinds = LAYS.sets;
+    const builders = { hedge: buildHedgeSet, warehouse: buildWarehouseSet, forest: buildForestSet };
+    ["hedge", "warehouse", "forest"].forEach(function (kind) {
+        for (let k = 0; k < kinds.length; k++) if (kinds[k] === kind) builders[kind](k, clear);
+    });
+}
+
+// A HEDGE set: two rings and container stacks round tank k.
+function buildHedgeSet(k, clear) {
     // ---- SILO 1: two TIGHT hedge rings round the tank -- "localize hedges to
     // just immediate vicinity around silo 1 with less sprawl" -- gaps
     // staggered so you zig-zag in, and container stacks just outside.
-    const c1 = siloCluster(0);
-    const inner = grow(c1, 36);
-    const outer = grow(c1, 36 + HEDGE_T + SET_GAP);
-    hedgeRing(inner, { n: 0.72, s: 0.28, e: 0.5 });
-    hedgeRing(outer, { n: 0.22, s: 0.78, e: 0.82, w: 0.3 });
+    const c1 = siloCluster(k);
+    // OPENED UP 2026-10-11 ("remove tightness of hedges around the first silo
+    // and open up a little bit more"): the inner ring stands 100px off the
+    // cluster (was 36), the lanes between rings and every gap are 200 wide
+    // (was 130), and the inner ring now has a gap on all four sides.
+    const S1_GAP = 200;
+    const inner = grow(c1, 100);
+    const outer = grow(c1, 100 + HEDGE_T + S1_GAP);
+    hedgeRing(inner, { n: 0.72, s: 0.28, e: 0.5, w: 0.5 }, S1_GAP);
+    hedgeRing(outer, { n: 0.22, s: 0.78, e: 0.82, w: 0.3 }, S1_GAP);
     const outerGaps = [
         { x: outer.x + outer.w * 0.22, y: outer.y }, { x: outer.x + outer.w * 0.78, y: outer.y + outer.h },
         { x: outer.x + outer.w, y: outer.y + outer.h * 0.82 }, { x: outer.x, y: outer.y + outer.h * 0.3 }
@@ -2103,12 +2849,16 @@ function buildSiloSets(clear) {
         placed++;
     }
     clear.push(grow(outer, 40));
+}
 
+// A WAREHOUSE set: the big building with windows, doors and storage racking.
+// There is one warehouse at most on a map (arenaWarehouse is a singleton).
+function buildWarehouseSet(k, clear) {
     // ---- SILO 2: a BIG warehouse round the funnel and the tank, "more
     // pallets on a grid, think warehouse storage racking". Tall steel racks
     // stand in the two side bays (in columns, each split by the door band) and
     // in a row below the chain, with aisles a body can use between them.
-    const c2 = siloCluster(1);
+    const c2 = siloCluster(k);
     const W = { x: c2.x - WH_SIDE, y: c2.y - WH_TOP, w: c2.w + WH_SIDE * 2, h: c2.h + WH_TOP + WH_BOTTOM };
     const T = WALL_T;
     const doorY = Math.round(W.y + W.h / 2), door = 190;
@@ -2162,12 +2912,15 @@ function buildSiloSets(clear) {
         pushProp("rack", x, rowY + RACK_D, RACK_LEN, RACK_D, RACK_LIFT, { vertical: false, fill: MP.random() });
     }
     clear.push(grow(W, 40));
+}
 
+// A FOREST set: a dense, untidy forest round tank k.
+function buildForestSet(k, clear) {
     // ---- SILO 3: a dense, untidy forest -- "add more, and denser trees" --
     // of small trees, mostly on the side you arrive from, so the last tank is
     // reached THROUGH it. 44px canopies 80px apart: still over the 78px a
     // brute needs.
-    const c3 = siloCluster(2);
+    const c3 = siloCluster(k);
     const fits = function (r) {
         if (!inArenaRect(r)) return false;
         for (let i = 0; i < clear.length; i++) if (rectsOverlap(r, clear[i])) return false;
@@ -2227,6 +2980,18 @@ function drawSetProp(r) {
         for (let x = r.x + 4; x < r.x + r.w - 4; x += 11) {
             for (let y = fy - r.lift + 3; y < fy - r.lift + r.fh - 3; y += 9) ctx.fillRect(x + ((y / 9) % 2) * 4, y, 4, 3);
         }
+    } else if (r.kind === "divider") {
+        // THE DIVIDER: a concrete reservoir wall, long and tall. A pale top
+        // with a dashed centre line, a dark front face with ribs.
+        drawBlock(r, "#4A5056", "#25292E", "#0C0E10");
+        const top = fy - r.lift;
+        ctx.fillStyle = "#6A7178";
+        for (let y = top + 14; y < top + r.fh - 14; y += 36) ctx.fillRect(r.x + r.w / 2 - 3, y, 6, 18);
+        ctx.fillStyle = "#16191C";
+        const faceY = fy + r.fh - r.lift;
+        for (let x = r.x + 10; x < r.x + r.w - 6; x += 24) ctx.fillRect(x, faceY + 4, 3, r.lift - 8);
+        ctx.fillStyle = "#C8641E";
+        ctx.fillRect(r.x, top, r.w, 3);
     } else if (r.kind === "container") {
         drawBlock(r, r.hue[0], r.hue[1], "#000000");
         // Corrugation on the front face, and a seam between stacked boxes.

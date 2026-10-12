@@ -42,7 +42,7 @@ has one place to look. The page is **24 local scripts**.
 | **Win** | **Every player still standing must be inside the exit zone** (`arcadeUpdateEscape`). A downed teammate has to be revived or left. Anyone left gets no escape bonus (`wonAboard`, reusing the train's rule). The card reads THEY GOT OUT / LEFT BEHIND |
 | **Drops** | Replace the wall-buys, stations, crates, traps and levers (all cleared in `openTheArena`). Kinds: gun (by level), perk (9; CONDUCTOR and SCAVENGER are out), and the team drops AMMO, OVERCLOCK, RALLY, FUEL (+4 to the live tank) and SHOCKWAVE (the swarm thrown back through the SUPER SPLITTER's launch phase). Every drop is **24px**. The chance is 6% per kill, guaranteed within 25 kills. A drop lasts 25s, at most 6 are live, and they blink for the last 5s |
 | **One taker** | `requestBuy("drop", id)` → `arcadeHostTake` → `bought` → `arcadeApplyTake` on every client. So the host decides, and two players on one frame produce one taker. **Guns and perks need F**, so you can leave one for a teammate. Team drops are walked over. Full perk slots refuse the drop with "CALL IT OUT" |
-| **Respawn** | 15s after bleeding out, beside a standing teammate (`arcadeRespawnDue`, `arcadePlaceRespawn`) |
+| **Respawn** | 10s after bleeding out (15s until 2026-10-11), beside a standing teammate (`arcadeRespawnDue`, `arcadePlaceRespawn`) |
 | **Separation** | `separateZombies()`: a uniform 32px grid, a push capped at 1.4px/step, through `moveWithCollisions`. It skips flying and chewing zombies. **Zombies on their target are NOT exempt**: with them exempt, the whole cap stood in ONE 20px cell on the player |
 
 **Measured, headless in the real page (seed of the moment):**
@@ -56,10 +56,436 @@ has one place to look. The page is **24 local scripts**.
 - **Not measured:** a full winning run. The scripted kiting player is too weak to stand in for
   people (6–37 kills per 20s). The playtest is the measurement.
 
+> **2026-10-11:** the arcade now has TWO maps; the table above describes map 1. Map 2 is in "Seventh".
+
 **Not updated for the arcade yet:** the field manual still describes wall-buys, stations, crates
 and traps, and the horde switch and generator still stand in the map. Those are step 2e's trim.
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
+
+### Tenth: a hard speed cap, a difficulty slider, and a bot that plays (2026-10-11, last)
+
+The user: *"zombie movement speed needs capped at player max speed. It makes getting tripple tapped at
+the high levels virtually impossible ... This should be a hard rule"*, *"scale back the map-starting time
+for 3 & 4"*, and *"playtest yourself ... if not, or if your tests are not felt to be accurate or true to
+human players, then create a difficulty slider ... in the dev menu"*. Both were done: the slider is
+built AND the playtest was run, and the playtest says it cannot stand in for a person (below).
+
+**1. THE HARD SPEED CAP.** `updateZombies`: `speed = min(PLAYER_SPEED, (base + offset) * mult)`. No
+zombie WALKS faster than a player (4 px/step). The curve still rises and the fast types simply hit the
+cap: a runner from wave level 18, a spawnling from 11. **Separation is held to the same budget**
+(`separateZombies` skips any push the zombie's own step has no room for, via `z.mx0/my0`), because a
+push stacked on a capped step would have been a second way to outrun a player. A zombie THROWN (the
+launch phase) is not walking and is exempt. Measured at wave level 51 (uncapped: runner 5.33, spawnling
+6.11): **exactly 4.00px a step, alone and inside a packed crowd of 60.** A scout (4.4) can now outrun
+everything; nobody else can be caught from behind by a straight chase.
+
+**2. THE DIFFICULTY SLIDER** (`arcDifficulty`, 0.50 to 1.50, default 1.00; the dev panel's top row,
+ticks CASUAL / EASY / DEFAULT / HARD / BRUTAL, double-click or click DEFAULT to reset). Everything reads
+it LIVE, so dragging it mid-run reshapes the curve at once (checked in the page: on map 3, T 120 -> 60 /
+180, spawn rate 1.42 -> 0.29 / 4.19, alive cap 90 -> 77 / 103). Persisted per browser
+(`zombie_arcade_difficulty`), mirrored to guests on the snapshot (`df`), and **host-only**.
+
+| What it scales | Maps 1 and 2 ("near the same") | Maps 3 and 4 |
+|---|---|---|
+| head start on the curve (`ARENA_LAYOUTS[n].clock`) | map 2 only, +-20% of the slider's distance from default | x D |
+| the curve's speed inside the map (`pace`) | 1 | `pace` x D (0.5 x D on map 3, 0.6 x D on the boss, at default) |
+| spawn rate | +-10% | x D |
+| alive cap | 1 | x (0.7 + 0.3 D) |
+| boss horde rate / super-splitter interval and cap | n/a | rate x D, interval / D, cap +round(2(D-1)) |
+
+- **`arcadePlayS` and `arcadeElapsedS` are different things now.** Play seconds count from the end of the
+  map's intro; `T` (the curve's clock) = play seconds x `arcPace()` + `arcClockOffsetS()`. Both read the
+  slider live. `startTime` is the intro's end, not shifted by the head start, which is what makes it live.
+- **The head starts were scaled back:** map 3 120 -> **60s**, the boss 240 -> **100s**. Map 3's tanks also went 8/10/12/12/14/14/16 -> **7/8/10/10/12/12/14** (-15%).
+- **`pace` is new**, and it exists because of what the playtest found (next): the hard maps are bound by
+  the timeline, not by tank cost.
+- A dev-panel **slider widget** now exists in `shared/devtools.js` (`{slider, min, max, step, def, value,
+  ticks, format, onInput}`); `onInput` fires on every move.
+
+**3. THE BOT PLAYTEST** (`scripts/zombie-bot-playtest.js` + `scripts/zombie-bot.inc.js`). A scripted
+player runs the real game code headless at ~20x real time (a fake clock, `update()` at 60Hz) and touches
+only what a player can: keys, the pointer, F, the turret click. Three skill profiles (reaction 330 / 180
+/ 100ms, aim error 5 / 2.5 / 1 degrees). It steers by the game's own flow field, kites by repulsion,
+picks a gun by range, holds fire off the funnel when a tank is filling, takes good drops and dodges
+hazards. **It found two real bugs on the way** (below).
+
+**What the bot can and cannot tell you.** It is a RELATIVE instrument and a pessimist about
+tactics: it plays solo (a group revives, and has more guns), it cannot read a crowd or choose a fight, it
+dies to being boxed in where a person would burn a powerup, and it never learns a map. It has **no
+panic, no boredom and perfect bookkeeping**, which cut the other way. So: its win rates are NOT human win
+rates. What it IS good for is "setting X is harder than setting Y", and "this part of this map is a wall".
+The user's own condition for the slider ("if your tests are not felt to be accurate") is met, which is
+why the slider exists regardless of what the bot says.
+
+**What it found** (solo bot, `good` and `expert` profiles, 2 to 3 seeds each; every number is a bot's, see
+above). Each row is one setting against the others:
+
+| Setting | Result |
+|---|---|
+| Map 1, default, 6 runs | **0 clears.** All died at 68 to 222s with 1 to 3 of 3 tanks (best: expert, 3 tanks at 210s). A person clears this map: a bot dying here is the bot's flaw, which is why its absolute numbers are a floor, not a rate |
+| Map 3 head start 60 / 90 / 120s | survived **63-230s / 112-162s / 63-86s**: lower is monotonically better |
+| Map 3 slider 0.5 / 0.75 / 1.0 (head start 60) | **0 / 0 / 0 wins in 4 each**; survived 200-334 / 148-240 / 117-204s |
+| Map 3 tank sizes, full vs -30% | 1 to 5 of 7 new tanks vs 4 to 6 of 7, **both dying at ~160-240s**: the wall is the clock, not the cost |
+| Map 3 curve speed (`pace`) 0.6 / 0.45 | 0 of 4 / **1 of 4 cleared** (the first clear anywhere on map 3: 383s, then died on the boss at 232s) |
+| Boss slider 0.75 / 1.0 / 1.25 / 1.5 (head start 100) | **3 / 1 / 1 / 0 wins in 4**: the slider moves it the right way |
+| Boss `pace` 0.6 / 0.45 (D 1.0) | **1 of 4 each** (the 0.45 set also had a run alive and still fighting at the 14-minute cap): the boss's horde is constant, so the curve's speed barely matters there |
+
+| **The SHIPPED defaults** (head starts 60 / 100s, map 3 pace 0.5 and tanks -15%, boss pace 0.6, slider 1.00) | **Starting on map 3: 2 of the 3 finished runs won maps 3 AND 4** (253s + 250s, 341s + 252s); one died on map 3 at 181s; one run was still going when this was written. **Starting on the boss: 3 of 4 won** (258 / 354 / 480s), one died at 78s |
+
+**So, in the bot's terms: map 3 was the wall and the boss the easier of the two; at the shipped
+defaults the wall is down.** The head start,
+the slider and the tank sizes each nudge map 3; the curve's speed is what finally cleared it. **Defaults
+chosen from this:** head starts 60 / 100s, map 3 `pace` 0.5 and tanks 7/8/10/10/12/12/14 (-15%), boss
+`pace` 0.6, slider 1.00. Reproduce any row with `node scripts/zombie-bot-playtest.js --skill good
+--start-map 3 --diff 1 --pace3 0.5 --seed 3` (see the script's header for every flag).
+
+
+**4. Two real bugs the bot found.**
+
+- **`arcadeUpdateBoomBolts` read `zombies[k]` after a kill had shrunk the array** (an ARC / BLASTCAP
+  chain takes OTHER zombies with it), so `z` was `undefined` and the host's update threw. On a live room
+  that is the host loop dying and every guest freezing (the old `relocateZombie` failure mode). Fixed by
+  collecting the victims first and damaging by object.
+- **The `endgameObjective` "SILO N FULL" and the funnel hold logic were fine; the bot's greedy
+  steering was not.** (A bot bug, noted so it is not mistaken for a game one: it could not get round the
+  hedge rings until it used the flow field.)
+
+### Ninth: maps 3 and 4 (the boss), and a smaller Boomgun bolt (2026-10-11, last)
+
+The user: *"level 2 worked flawlessly"*, then a **third map with 7 silos and a large middle dividing
+element**, and a **fourth, "boss", map: more open, 10 tightly stacked silos, only super splitters and a
+constant horde, increased negative drops; beating it is a win.** So the run is now **four maps** and the
+win moved to the end of map 4 (`ARC_MAX_LEVEL`). Supersedes "map 2's exit ends the game" in "Seventh".
+
+| Map | Tanks (kills) | Layout | Clock head start | Gate |
+|---|---|---|---|---|
+| 1 | 3 (10/15/20) | the diamond: hedge, warehouse, forest | 0 | south-centre |
+| 2 | 5 (8/10/12/14/16) | a "W": hedge, warehouse, forest, hedge, forest | 60s | dx +1360 |
+| **3** | **7** (~~8/10/12/12/14/14/16~~ **7/8/10/10/12/12/14**) | **a 480 x 1370 concrete DIVIDER down the middle** (a 285px lane over its top, a ~490px pass under its foot where tank 4 stands). Left half: forest, hedge, warehouse; the pass: forest; right half: hedge, forest, hedge | ~~120s~~ **60s** ("Tenth") | dx +2000 (south-east) |
+| **4 (boss)** | **10** (6/6/6/6/7/7/7/7/8/8) | **open**: two rows of five stacked 600px apart, no sets, no scatter or patch trees in the core (the edge forest stands) | ~~240s~~ **100s** ("Tenth") | dx -1200 (under the last tank) |
+
+How it is built (all in `ARENA_LAYOUTS` and `zombie-arcade.js`):
+
+- **A layout row now carries** `funnels`, `gateDx`, `caps`, `clock`, `sets`, and optionally `divider`,
+  `open`, `boss`. `arcClockOffsetS()` reads the row; `L2_CLOCK_OFFSET_S` is kept only as a name.
+  The pattern the user set holds: each map starts a further 60s up the same curve.
+- **The exit hands over to the next row** (`arcadeBeginNextLevel`), or wins on the last. The run time is
+  summed across maps (`arcL1Seconds` = playing seconds so far; the name is a leftover) and the tanks
+  filled so far are credited (`arcL1Silos`; `silosFilled()` already adds them, which a first version
+  double-counted: caught by the flow test as 3 -> 11 instead of 3 -> 8).
+- **The divider** is `pushProp("divider", ...)` (a solid prop, `kind: "divider"`, drawn in
+  `drawSetProp`), built first so every set routes round it, with a 60px `clear` margin.
+- **Set build order is hedge, then warehouse, then forests, whatever the tank order.** A forest planted
+  before a hedge ring left the ring standing in its trees.
+- **THE BOSS WAVE** (`arcadeBossWave`, map 4 only): no tide, no lull after a tank fills, no ease. A
+  **constant horde** of walkers (70%) and runners (30%) at `BOSS_HORDE_RATE` 6.5/s solo, scaled by team
+  size and held at the alive cap, and a **SUPER SPLITTER every 7s** up to `BOSS_SPLIT_MAX` (3, +1 per
+  extra player) alive. Nothing else spawns. It has the same arrival lull every map after the first has,
+  then it is constant.
+- **Negative drops on the boss map:** 10% a kill (was 3%), up to 8 live (was 3). The good drops are
+  untouched.
+- **Intro:** "SECTOR 2", "SECTOR 3", "FINAL SECTOR", then "N TANKS". Dev panel: GO TO LEVEL 2 became
+  **NEXT LEVEL** (`arcadeBeginNextLevel`).
+
+**Measured, headless:** every map over 12 seeds, both nav grids: **0.0000% unreachable arena cells, every
+tank, switch strip and the gate reachable, nothing solid outside the fence** (map 1 unchanged at
+0.0435% / 0.0055%). The pathing sim at every tank of map 3 (7) and map 4 (6 of 10): 0 relocations except
+1 to 3 on a tank the 28 zombies were piled on (the crowd on the target, not geometry). The 4-map flow:
+heads start 0/60/120/240, run time 100/200/300/400s, tanks credited 3/8/15, `won` only after map 4. The
+boss wave over 30s unkilled: 3 super splitters (the cap) plus ~65 walkers and ~25 runners at the alive
+cap (90); hazards after 400 kills: 3 on map 1 (cap 3), 8 on the boss (cap 8). Live page: jumped 2 -> 3 -> 4,
+divider built and drawn, bolts flying, no console errors.
+
+**Not known, and it is the point of the next playtest:** map 3 starts at 120s and map 4 at 240s, so the
+swarm is at the alive cap from the first seconds of each; whether map 3 and the boss are winnable, and for
+how long a run lasts (~6 to 10 minutes), is a guess. The levers are `clock`, `caps`, `BOSS_HORDE_RATE`,
+`BOSS_SPLIT_*` and `BOSS_HAZARD_*`.
+
+**The Boomgun bolt, again:** drawn at **1/5 of its size** (`BOOM_DRAW_LEN` 112 -> 24; the three layers
+34/20/9 -> 7/4/2; the head 10 -> 3), and it **grows out of the muzzle** (`len = min(24, travelled + 2)`,
+no tail until it has cleared the gun) instead of trailing back behind it, which is what read as "spawning
+behind the gun". `BOOM_MUZZLE` 42 -> 46 (the cannon ends at ~43). The `travelled` distance now rides the
+snapshot row (`bb`'s 7th element) so a guest's copy does not flicker. **The wipe strip (60px) did not
+change**: a tiny bolt still clears a wide path; if that reads wrong, shrink `BOOM_HALF_W`.
+
+### Eighth: the Boomgun is a bolt now, and a smaller cannon (2026-10-11, after the map 2 build)
+
+Asked for: *"a bit smaller, more in front of the player / off of the player square, and instead of
+shooting lasers, a long line of glowing orange thick that behaves as a bullet."* **This supersedes
+the instant beam in "Sixth" item 5.** Spin-up (1s), the rate climb (520 to 130ms), no ammo, the
+push-back, the screen kick and the 15s are all unchanged.
+
+- **The cannon** is 30px long and 14px thick (was 56 x 22), and starts 9px out from the player's
+  centre, so it sits in front of the square instead of overlapping it. Amber rails, three barrel
+  rings, a short orange flash on a shot.
+- **The shot is a bolt.** `arcadeBoomResolve` (host) throws close zombies back and launches an entry in
+  `boomBolts` from `BOOM_MUZZLE` (42px) out: `BOOM_SPEED` 28px a step (~1,700px/s), `BOOM_RANGE` 980.
+  It **travels**, **stops at a wall** (`bulletBlockedAt`), and **pierces everything**: each step
+  `arcadeUpdateBoomBolts` takes every zombie within `BOOM_HALF_W` (30px) + its radius of the segment
+  the bolt just crossed, once, for 120 damage through `damageZombie` (kills credit the owner;
+  ARC / BLASTCAP fire). So it wipes a 60px strip as it passes without needing a direct hit, but not
+  before it arrives: nothing dies at the instant of firing.
+- **Drawn** by `drawBoomBolts` after the lighting: a 112px line along the heading in three flat layers
+  (a dim orange halo, a hot orange body, a pale-yellow core), a thinner dimmer second segment behind
+  it as a tail, and a hard 10px head. No gradients.
+- **Wire:** the host sends `bb: [[id, x, y, vx, vy, owner]]` on the snapshot. Guests dead-reckon the
+  bolts every step (`arcadeAdvanceBoomBolts`, from `update()`). A guest draws its OWN shot from a local
+  prediction (`boomLocal`, never damaging) and skips the host's copy by owner id. `SND_BOOM` now carries
+  no geometry (arg 0): it is the sound and the kick. `boomBeams`, `addBoomBeam` and `drawBoomBeams` are
+  gone.
+- **Verified headless** (strip of three walkers, one off-line, one near, one behind): the three in the
+  strip die as it passes, the others live, the near one is thrown, the bolt ends at 35 steps (980 / 28),
+  and ends at ~308px when a wall is 350px out, sparing a zombie behind the wall. **Not seen by eye.**
+
+### Seventh: lighting option A, MAP 2, a cleaned-out dev panel (2026-10-11, last)
+
+The user chose lighting **A**, accepted a longer full run, and gave the map 2 clock rule. Plans:
+`LIGHTING_PROPOSAL.md` and `LEVEL_2_PROPOSAL.md` (both now built; their headers say so).
+
+**1. Lighting, option A** (all in `zombie-arcade.js`):
+
+- **Lit faces.** `visPoly()` lets each ray run on INTO the blocker it hit by up to `VIS_PENETRATION`
+  (24px), so the face of a hedge, rack, tank or tree that faces the light is inside the lit polygon.
+  Before, the polygon stopped at the near edge and the prop's own body was painted black. The cause
+  was that props are raycast as their WHOLE drawn rectangle.
+- **A floor under the dark.** `LIGHT_OUTSIDE` 0.74 to 0.62, `LIGHT_INSIDE` 0.95 to 0.80, and the tint
+  `4,7,20` to `6,16,28`, so what is left in the dark is deep blue, not a void.
+- **Seven bands, not four** (`ARC_LIGHT_BANDS`), and four flashlight layers (`TORCH_LAYERS`,
+  `TORCH_LAYER_A` .53 so the core is still ~0.95). Still flat steps, so the quantized-light pillar
+  (checklist item 9) holds. No dithering.
+- **Not judged by a human.** I looked at frames in the Browser pane (the pane crops and throttles),
+  which is the limit the visual-review skill warns about. B (smooth the world light) is still one
+  gradient change away if seven bands still read as hard.
+
+**2. MAP 2 (`ARENA_LAYOUTS[2]`).** After map 1's exit, everyone arrives at the north fence of a second
+arena and the run continues; **map 2's exit ends the game**.
+
+| | |
+|---|---|
+| Layout | a fixed "W" of 5 tanks, offsets from the world centre: (-1360,-750) hedge, (-560,200) **warehouse**, (200,-650) forest, (800,300) hedge, (1520,-700) forest. Gate at dx +1360 in the south wall |
+| Tank sizes | 8 / 10 / 12 / 14 / 16 kills (map 1 is 10 / 15 / 20), read through `siloCapacity()` |
+| Entry | you spawn at the north fence and **run south** for the 2.6s intro (`arcadeRunOn`, controls off), the camera on you, captions "SECTOR 2" and "5 TANKS" |
+| Kit | carried over: guns, ammo, perks, powerups. Downed players are stood up at the entry; anyone dead respawns through the normal 10s path beside a teammate |
+| Clock | **offset by 60s** (`L2_CLOCK_OFFSET_S`): at the end of the run-on `arcadeElapsedS` reads 60, so **map 2's minute 2 is map 1's minute 3** and it follows the same curve after (rate, mix and HP all read the same clock). Measured: +120s = 180s, rate 11.17/s on both |
+| Arrival | `arcadeL2Ramp`: x0.25 for 15s, then a smoothstep up over 20s. Nothing spawns during the run-on (`arcadeIntroActive` guards the wave) |
+| Run time | `arcadeRunSeconds` = map 1's seconds + map 2's past the offset; the cards and the cabinet read it. The wave reads `arcadeElapsedS` |
+| Wipe | **game over**, as on map 1. A restart is always map 1 (`resetGame` sets `arcLevelNo = 1`). *(There are four maps now; see "Ninth".)* |
+| Score | map 1's filled tanks still count (`arcL1Silos` added in `silosFilled`) |
+
+How it is built, so it is not re-broken:
+
+- **`buildSiloSets` is now a dispatcher** over `buildHedgeSet(k)`, `buildWarehouseSet(k)` and
+  `buildForestSet(k)`, one per tank in layout order. Each claims its ground (`clear`) before the next
+  looks. Map 1 still builds hedge, warehouse, forest, identically.
+- **Every "three tanks" assumption became `funnels.length`**: the arena builder, the objective beacon,
+  the lull latch, the side-panel goals (`arcadeMapGoals`), the endgame objective line and the lamps.
+  `funnelActive`, `siloFill` and `siloFlipped` are resized in `buildArcadeArena`, because `[x, x, x]`
+  made `siloFill[3] < cap` false forever.
+- **The seed does not change between maps.** `arcadeEnterLevel(level, now, l1)` runs on every client:
+  it sets `arcLevelNo`, calls `generateLevel()` (same seed, so the same world with map 2's arena),
+  re-gives the chain, clears the field and puts players at the entry. The host calls it from
+  `arcadeUpdateEscape`; a guest calls it from `applyWorldSnapshot` when the snapshot's **`lv`** is
+  ahead of its own. `lv` and `l1` ([map 1 seconds, tanks]) ride every snapshot, so a client that missed
+  the moment still catches up. Anything keyed on the level seed alone is stale across maps: the sidebar
+  map cache now includes the level number.
+- `arcadeIntroSync` (a guest skipping a run already in progress) is map 1 only; map 2's clock is
+  offset on purpose and would have skipped the run-on every time.
+
+**Measured over 12 seeds, headless** (`scripts/measure-zombie-nav.js` measures from the keep and means
+nothing on a fenced arena; the in-arena version is in the session scratchpad):
+
+| | tight grid | wide grid | targets |
+|---|---|---|---|
+| map 1 (unchanged) | 0.0435% | 0.0055% | all reachable |
+| **map 2** | **0.0000%** | **0.0000%** | all 5 tanks, 5 switch strips and the gate reachable; nothing solid outside the fence |
+
+Pathing sim (a target at each map-2 tank, 36 zombies released outside): **0 relocations, 36/36
+arriving, on all five tanks, two seeds**. The route is ~7,800px of straight lines (~33s of running)
+against map 1's ~3,800 (~16s). The user accepted the longer full run and asked that playtesting
+decide; offsets can be pulled in from `ARENA_LAYOUTS[2]` alone.
+
+**3. The dev panel was cleaned out** (`zombie-dev.js`, and a generic `icon` on `shared/devtools.js`
+buttons). New: **BOOMGUN**, **TURRET**, **FREEZE**, **GO TO LEVEL 2**, and **one button per perk that
+can drop here, each with its icon** (ten: OVERDRIVE, RICOCHET, ATTRACT, SPITE, ARC, BLASTCAP, SKEWER,
+LAST STAND, SALVAGE, SEEKER). Each press adds a stack up to x6. **Removed as obsolete:** FREE BUYS (and
+the `hostHandleBuy` / `nearestPrompt` wrappers), ROUND +1, END ROUND, +500 SCRAP, LIGHTS, TRIP
+GENERATOR, CALL THE HORDE, OPEN SLUICE, START FLOOD, NEXT PERK. SCAVENGER, CONDUCTOR and DECOY get no
+button (they cannot drop). The state readout lost the round, budget, lights, "perks on map" and
+super-splitter rows and gained the map, tanks, clock, spawn rate, powerups and held kit. NO ZOMBIES is
+kept, wrapping `spawnZombie` / `spawnZombieAt`, because the sandbox and map editor read its flag.
+
+### Sixth: seeker rounds, three crowd tools, the Boomgun, tide and lull (2026-10-11, later)
+
+The user answered the previous round's questions and accepted its recommendations
+(`../HUB_1_0_PLAN.md` 2m / 2n). **Proposals only, not built:** `LIGHTING_PROPOSAL.md` and
+`LEVEL_2_PROPOSAL.md`.
+
+**1. SEEKER perk: rounds curve to the nearest zombie, and it stacks.** `CARDS.seeker`, appended to
+`CARD_KEYS` (index 12; icon in `zombie-icons.js`), in `DROP_PERKS`. `homeBullet()` in
+`zombie-game.js` runs before each step: nearest zombie within 420px **and within ~80 degrees of the
+heading** (so it never U-turns), never one the round has already pierced, speed preserved. Turn rate
+per step by stack: `HOMING_TURN` = 0 / .03 / .045 / .06 / .075 / .09 / .105 rad (1.7 to 6 degrees).
+
+- Applied at the muzzle like SKEWER and RICOCHET (`b.homing`, and `hm` on the `shoot` message), so
+  the host's copy of a guest's shot curves too. Not rockets or flame.
+- Headless, a round fired 28 degrees off a zombie 300px away: x0 and x1 (before the curve was raised
+  from .02) missed; x3 and x6 hit.
+
+**2. The tank pulse.** F at a full tank's base (`flipSilo`) now calls `arcadeSiloPulse(i)`: every
+zombie within `PULSE_R` (620px) of the tank is **removed outright** (a SUPER SPLITTER would otherwise
+throw its 20 spawnlings into the crowd the pulse is clearing), with a blast and a toast. Three
+guaranteed crowd-clears per run.
+
+**3. FREEZE (team drop).** `arcadeFreeze`: everything within `FREEZE_R` (560px) of the taker is
+held for `FREEZE_MS` (4s). Skipped before pathing, scream and contact in `updateZombies`
+(`arcadeFrozen`), watchdog reset so a thaw is not read as "stuck". One zone at a time; it rides the
+snapshot as `frz: [x, y, r, ms left]` so guests draw the ring and tint the held zombies. Still
+shootable.
+
+**4. TURRET (carried like a gun, placed on click).** A drop, taken by walking over it. It is
+`p.turretHeld` and **armed** on pickup: the next left click places it (`arcadePlaceTurret`), `T`
+re-arms / stows it, and a gun key disarms it. It lands at the cursor but never further than
+`TURRET_REACH` (110px) from you, so a specific spot means going there, into the swarm. It deploys for
+0.7s (ghosted), then fires at the nearest zombie in sight for 15s; zombies standing on it chew its
+140 HP. Once placed, you can carry another; **you cannot pick up a second while holding one**.
+
+- The host owns `arcTurrets`; a guest sends `{k: "turret", id, c, x, y}`. Turret rounds are ordinary
+  bullets owned by the placer (SMG shape, 2.5 dmg every 100ms, no homing), so kills credit them and
+  there is no new bullet wire. Snapshot field `tu`: `[id, x, y, ms left, hp, aim x100, ms to live]`.
+- Max 4 live; the oldest goes first.
+- Headless: 6 zombies in range, 3 left after 8s with HP untouched.
+
+**5. THE BOOMGUN (a 15s personal powerup).** A drop (weight 4). While `p.boomUntil` runs it replaces
+your gun:
+
+- **A big visible cannon** drawn on the player (`drawPlayerBody`): a 22px-thick body, amber rails,
+  three barrel rings that flicker faster once spun up, a kick back on each shot. Teammates see it
+  (`bm`, ms left, on the `players` payload). It blinks red for its last 4s.
+- **Spin-up 1s**: `p.boomHeld` climbs while the trigger is down. Letting go drains it at 2.5x, so a
+  brief release keeps most of the spin. **The longer you hold, the faster it fires**, from a shot every
+  520ms down to **130ms** over the next 5s. No ammo.
+- **Each shot** (`arcadeBoomResolve`, host): zombies within 150px that are not in the beam are
+  **thrown back** (the SUPER SPLITTER launch phase); everything within 34px either side of a 980px
+  beam, wall-stopped, takes 120 damage **without needing a hit**, through `damageZombie` as a `shot`
+  (so kills credit the owner and ARC / BLASTCAP fire). Then a screen kick, 9 to 14 shake.
+- *(Superseded the same day, see "Eighth": the shot is a travelling bolt, not an instant beam.)* **The tracer** is an event (`SND_BOOM`, arg = length x 1000 + angle in degrees), drawn by
+  `drawBoomBeams` as three flat layers (amber / yellow / white) **after the lighting**, so the dark
+  does not dim the brightest thing in the game. A guest predicts its own beam at once; the host's
+  echo is skipped by owner id, like every other own-action sound.
+- Measured: first shot at 985ms, gaps 485 / 451 / 417 / 401 ... 133ms; 3 of 5 zombies in the strip
+  died and the 2 off it were spared; the near one was thrown.
+- A down ends it. The HUD swaps the gun for a BOOMGUN icon in amber and the seconds left where the
+  rounds go (magenta under 4s). **Not verified by a human, and not with two real clients.**
+
+**6. Breathing room without rounds** (`arcadeSpawnRate(t, now)`):
+
+| | |
+|---|---|
+| TIDE | the rate x (1 + 0.35 sin(2 pi T / 28s)) over the exponential, so ~14s swells and ~14s ebbs; the 4:00 overwhelm is unchanged |
+| LULL | x0.4 for 8s after a tank fills (latched per tank in `arcWasFull`) and when the gate starts opening |
+| EASE | 5 kills inside 3s push the spawn debt down by 3 (it can go negative, which is the gap); not more than once per 3s |
+
+**7. Ammo hand-over.** A gun that runs dry now goes to the **most powerful gun you still have
+rounds for** (`WEAPON_POWER`: rocket, flamer, sniper, shotgun, SMG, rifle, pistol), not the next in key
+order and not straight to the pistol. `currentWeaponKey` does the same if ammo is removed any other
+way. Arcade only; the walled build keeps the old order.
+
+**New wire, all appended:** zombie rows are `[x, y, type, flash, nid, ...]` (see the fifth playtest);
+`world` gains `frz` and `tu`; `shoot` gains `hm`; `players` gains `bm`; relay kinds `turret` and
+`boom`; `PICKUP_TYPES` gains `freeze`, `turret`, `boomgun`; `SND_BOOM = 26`.
+
+### Fifth playtest: guest flashing, hedge pathing, negative drops, a readable panel (2026-10-11)
+
+From a friends' session (3–10 players): guests saw *"dozens of zombie shapes flashing all over
+the screen"* (near-unplayable); zombies *"get stuck in place and then despawn ... can't navigate
+around the corners"* at the hedges. Both were reproduced and fixed. Plan, verification list and
+open questions: `../HUB_1_0_PLAN.md` "2m".
+
+**1. The guest flashing: zombies are matched by a stable id now.** `applyWorldSnapshot` matched
+snapshot rows to the guest's zombies **by array index**, and the host `splice`s a zombie out on
+every kill, so every zombie after it inherited its neighbour's previous position and lerped across
+the screen. The wire row is now `[x, y, type, flash ms, nid, burn ms?, launch ms?, lvx, lvy]`.
+
+- `nid` is assigned lazily in `broadcastWorld` (`z.nid || (z.nid = ++zNidSeq)`), so no spawn site
+  has to know. `zNidSeq` lives in `zombie-entities.js`.
+- A guest keeps the max `nid` it has seen, so a promoted host never reuses a live id.
+- **Burn moved from index 4 to index 5** and the launch triple from 5–7 to 6–8. The burn slot is
+  pushed as 0 when only the launch is present. Anything reading zombie rows by position must use
+  the new layout (nothing else in the repo does; checked).
+- Verified by replaying two snapshots across a mid-array kill: every survivor keeps its own `x`.
+  *Not* verified between two real clients on a network.
+
+**2. Hedge pathing: three causes, all in code that every zombie shares.** Reproduced headless with
+the repo's own `scripts/zombie-headless.js`: a target stands at funnel 1, 48 zombies are released
+600px out, 45 simulated seconds. Before: **22–43 relocations (despawns) and ~30 of 48 arriving.**
+After: **0 relocations, 48 of 48.** Same on funnels 2 and 3 (0–1 in 120 zombies).
+
+- **Off-field recovery had no line of sight** (`navStepToward`, the `here < 0` branch). It took the
+  lowest field distance within ±2 cells — nearly always the cell *beyond the wall* the body is
+  pressed against, since a wall off the 20px lattice (a 24px hedge, a 40px tree) blocks a cell that
+  overhangs it and so puts a flush body's centre in a blocked cell. It now tries candidates in
+  distance order and takes the first with `navClearLine`. **The pathfinding section's item 3 says
+  recovery needs line of sight; this had silently regressed.**
+- **The 5-cell lookahead is string-pulled.** The point the zombie steers at is the furthest path
+  cell with a clear line; the adjacent cell is the floor. Before, round a wall piece's tip it
+  pointed *through* the corner.
+- **A blocked step spends its lost speed on the free axis** (`updateZombies`, after
+  `moveWithCollisions`; not while chewing). Axis-separated collision kept only the free axis's
+  share, so a goal nearly perpendicular to a wall crept at ~35% speed, tripped the stuck heuristic,
+  and the perpendicular slide threw it the other way — a lone walker 20px under a gap tip
+  oscillated 10px for 8s and was despawned.
+- **Not changed, and worth knowing:** walls are still off the lattice. Snapping hedge rings to 20px
+  would remove the trigger for cause 1 and was left out because the line-of-sight fix is general
+  (trees, containers, racks all have the same property). If a new off-lattice prop reports stuck
+  zombies, snap it before touching the nav code.
+- The headless sim itself is in no repo script yet. It is ~40 lines over `zombie-headless.js`
+  (`spawnZombieAt`, override `allTargets`, set `won = true` so touches are inert, call
+  `updateZombies` at 1000/60ms). Worth promoting to `scripts/` if pathing is touched again.
+
+**3. Numbers.** Revive **0.75s** (`ARC_REVIVE_MS`, was 1.5s). Respawn **10s** (`ARC_RESPAWN_MS`,
+was 15s). Funnel radius **150** (`ARENA_FUNNEL_R`, was 110; area ×1.86); funnel 2 sits at -680
+instead of -600 so its warehouse (300px below the funnel) keeps clear of the start. Measured over
+12 seeds after: every tank, switch strip and the gate reachable on both grids; arena cells
+unreachable 0.044% tight, 0.006% wide.
+
+**4. Silo 1's hedges opened up.** Inner ring 100px off the tank (was 36), every gap and the lane
+between the rings 200px (was 130), and the inner ring now has a gap on all four sides. `hedgeRing`
+takes a gap width. The other two sets are untouched.
+
+**5. Negative drops (`HAZARD_*`, `DROP_HAZARD` in `zombie-arcade.js`).** Walked over like any drop
+and decided by the host through the same one-taker path, but bad for the taker:
+
+| | Effect | Where it lands |
+|---|---|---|
+| MUD | taker at 50% speed for 5s | `p.slowUntil`, read in `playerSpeed` |
+| JAM | taker's gun will not fire for 2.5s | `p.jamUntil`, checked in `updatePlayers`' shoot gate |
+| FLARE | 7 zombies (a third runners) land 240–340px round the taker | host, `arcadeFlare` |
+
+- **Rolled separately from the good drops** (3% a kill, max 3 live, 20s life) so "drop rates are
+  good" is untouched — a hazard is extra, not a share taken from a gun or perk. They do not count
+  against `DROP_MAX_LIVE`.
+- **ATTRACT never pulls one in** (`arcadeWalkOverDrops` re-tests a hazard at pad 0).
+- Drawn strobing red with the word above (SLOW / BAIT / JAM), red on the minimap. `PICKUP_TYPES`
+  gained `mud`, `flare`, `jam` **on the end** (the index is the wire value).
+- Hazard frequency was confirmed as right (user, 2026-10-11).
+- **Not verified in a real run with a group.** A zombie-spawning drop on a guest's take depends on
+  the host running `arcadeHostTake`, which is the same path FUEL and SHOCKWAVE use.
+
+**6. The panel reads from the corner of the eye.** All in `Zombie.html` + `updateLoadoutHud`.
+
+- Gun in hand: icon 6x (4x under a 300px sidebar), name on its own line, ammo 52px.
+- Gun strip: icons 3x (2x narrow) with a 13px key number; the gun in hand is a **filled cyan tile**
+  with a black icon, guns you cannot fire are dimmed. Wraps.
+- **Perk tiles wrap** (`#perks { flex-wrap }`). Six 46px tiles in a fixed row ran past the
+  sidebar's `overflow: hidden`, which is why they "flowed off screen".
+- Objective 15px → **24px bold** with an amber bar; the checklist 13 → 17px and **hidden under
+  900px tall**; stats are one wrapped paragraph; HI-SCORE and 1UP share a row.
+- Checked at **1366×768** with all 7 guns and 6 perks: everything fits. **Not checked at 1080p.**
+
+**7. "Increase bullet curving?"** Nothing in this game curved a bullet, so nothing was built that
+round. *(Answered the same day: "add bullet curving towards nearest enemy ... this also can stack".
+Built as the SEEKER perk; see "Sixth" above.)*
 
 ### Smooth light, lit intro, more lamps (2026-10-08, later)
 
@@ -166,7 +592,7 @@ below. The manual's code is still loaded, just unreachable.)*
     refused perk only "SLOTS FULL".
   - `ARC_HIT_BUFFER = false` still restores the one-touch down exactly. The `hit` relay message
     carries the new level (`l`).
-- **Revive is a flat 1.5s** (`ARC_REVIVE_MS`). The old escalation resets per round, and the arcade
+- **Revive is a flat 1.5s** (`ARC_REVIVE_MS`) *(0.75s since 2026-10-11)*. The old escalation resets per round, and the arcade
   has no rounds, so it had climbed to its 6s cap and stayed there all run.
 - **Blackouts are off** in the arcade: no darkening, no monochrome, no card.
 - **The ping is off** (`pingFrom` returns), and **DECOY** is out of the drop pool with it.
@@ -1745,7 +2171,7 @@ a different bug. Recorded because every one of these is easy to reintroduce:
    centre makes a 20px wall *invisible*, because it falls in the gap between two adjacent cell
    centres. The field then flowed straight through solid geometry and confidently steered zombies
    into walls. `rebuildNavGrid` now tests the **whole cell**, padded by half a zombie.
-3. **Off-field recovery needs line-of-sight.** A zombie pressed flat against a wall sits in a cell
+3. **Off-field recovery needs line-of-sight.** *(It had silently regressed by 2026-10-10 and is restored: see "Fifth playtest", item 2.)* A zombie pressed flat against a wall sits in a cell
    the BFS never reached; the recovery search then picked the lowest-distance cell nearby — which
    could be on the *far side of a closed door*, 20px away. `navClearLine` prevents that.
 
@@ -2651,4 +3077,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 77c9ddac | 2026-10-08 -->
+<!-- doc-sync: 82a2825f | 2026-10-12 -->

@@ -520,6 +520,20 @@ overdraw — cheaper and better. Persistence at 0.18 turns a flock into light tr
 the game already wants to be. The poster child for this guide. **Effort: S.**
 
 ### 6.3 Zombie — `zombie/` · **RASTER** · anchor: *Berzerk* (1980)
+
+> **2026-10-11 status (visual review of the sixth playtest round):** new in-world art is flat and
+> on-system: the turret (square base, flat barrel blocks, HP bar), the freeze field (one flat
+> alpha fill and a hard ring, held zombies tinted flat), hazard drops (strobing signal red), and the
+> Boomgun (a 14px cannon held out in front, and a long orange three-layer flat bolt drawn after the
+> lighting). No gradient was
+> added. **Open tension, not decided:** the user finds the quantized light too harsh; see
+> `zombie/LIGHTING_PROPOSAL.md`. Checklist item 9 of `hub-visual-review` (bands) is untouched until
+> the user chooses.
+>
+> **2026-10-11 (later): the user chose option A and it is built.** Seven flat bands (was four), a
+> flashlight of four layers, the ambient lifted to 0.62 / 0.80 and tinted deep blue (6,16,28), and
+> visibility rays that run 24px into the blocker so its lit face shows. Still stepped, so the
+> pillar holds; the old 4-band numbers (0.3/.55/.8/1) in this section are superseded.
 The interesting case. `ambientDarkness()` produces a smooth radial gradient; the era had none.
 
 **Quantize the ramp into four bands** — lit / near / far / ambient — computed from the *same*

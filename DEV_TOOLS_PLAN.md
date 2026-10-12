@@ -153,3 +153,15 @@ Already pauses while its log is up (`gcLogOpen` gates `gameLoop`); that stays.
   checker resolves those across the page, so they must be listed **after** the game's files
 - `node scripts/check-identity-parity.js` — untouched, but it is in the gate
 - `node scripts/check-doc-sync.js --update` after reading what the change invalidated
+
+> **2026-10-11 (Zombie):** the panel was cleaned out and gained per-perk buttons. `shared/devtools.js`
+> actions now take an optional `icon` (an image URL, drawn pixelated before the label). Zombie lost
+> FREE BUYS and nine other round / scrap / generator / sluice / flood items, which no longer exist in the
+> arcade; see `zombie/CLAUDE.md` "Seventh".
+>
+> **2026-10-11 (later):** Zombie's GO TO LEVEL 2 became NEXT LEVEL (maps 1 to 4).
+>
+> **2026-10-11 (very last):** `shared/devtools.js` actions can now be a SLIDER
+> (`{slider: true, label, hint, min, max, step, def, value(), ticks: [{v, label}], format(v), onInput(v)}`):
+> ticks are clickable, the default tick is marked, double-click resets, and `onInput` runs on every move so
+> what it drives updates live. Zombie's DIFFICULTY is the first.

@@ -235,6 +235,22 @@
         "#dev-panel .dv-btn.dv-danger{color:var(--sig-magenta,#FF2E88);",
         "border-color:var(--sig-magenta,#FF2E88);}",
         "#dev-panel .dv-btn.dv-danger:hover{background:rgba(255,46,136,0.16);}",
+        "#dev-panel .dv-slider{flex:1 1 100%;border:1px solid var(--phos-dim,#2E3A34);border-radius:6px;",
+        "padding:8px 12px 6px;margin:2px 0;}",
+        "#dev-panel .dv-slider .dv-srow{display:flex;align-items:baseline;gap:10px;}",
+        "#dev-panel .dv-slider .dv-sname{color:var(--sig-cyan,#00E5FF);letter-spacing:1px;}",
+        "#dev-panel .dv-slider .dv-sval{color:var(--sig-amber,#FFB000);font-size:15px;min-width:5ch;}",
+        "#dev-panel .dv-slider .dv-shint{margin-left:auto;font-size:10px;color:var(--phos-dim,#2E3A34);}",
+        "#dev-panel .dv-slider input[type=range]{width:100%;margin:6px 0 0;accent-color:var(--sig-cyan,#00E5FF);}",
+        "#dev-panel .dv-ticks{position:relative;height:30px;margin:0 8px;}",
+        "#dev-panel .dv-tick{position:absolute;top:0;transform:translateX(-50%);text-align:center;",
+        "font-size:10px;line-height:1.25;color:var(--phos-dim,#2E3A34);white-space:pre;cursor:pointer;}",
+        "#dev-panel .dv-tick:before{content:'';display:block;width:1px;height:7px;margin:0 auto 2px;",
+        "background:var(--phos-mid,#8FA89C);}",
+        "#dev-panel .dv-tick.dv-def{color:var(--sig-amber,#FFB000);}",
+        "#dev-panel .dv-tick.dv-def:before{height:11px;width:2px;background:var(--sig-amber,#FFB000);}",
+        "#dev-panel .dv-btn .dv-ico{height:22px;width:auto;image-rendering:pixelated;",
+        "image-rendering:crisp-edges;vertical-align:middle;margin-right:7px;}",
         "#dev-panel .dv-btn .dv-sub{display:block;font-size:10px;",
         "color:var(--phos-dim,#2E3A34);letter-spacing:0;}",
         "#dev-panel pre{margin:0;font-family:var(--font-ui,'Courier New'),monospace;",
@@ -257,9 +273,18 @@
         return h;
     }
 
-    function mkButton(label, fn, sub, danger) {
+    // `icon` is optional: an image URL (a data: URL is fine) drawn before the
+    // label, pixelated. Added 2026-10-11 for Zombie's per-perk buttons.
+    function mkButton(label, fn, sub, danger, icon) {
         var b = document.createElement("button");
         b.className = "dv-btn" + (danger ? " dv-danger" : "");
+        if (icon) {
+            var im = document.createElement("img");
+            im.className = "dv-ico";
+            im.alt = "";
+            im.src = icon;
+            b.appendChild(im);
+        }
         b.appendChild(document.createTextNode(label));
         if (sub) {
             var s = document.createElement("span");
@@ -344,6 +369,72 @@
         buildActions();
     }
 
+    // A SLIDER action (2026-10-11): { slider: true, label, hint, min, max, step,
+    // value: fn() -> number, def: number (the shipped value),
+    // ticks: [{ v, label }], format: fn(v) -> string, onInput: fn(v) -> string|undefined }.
+    // onInput runs on every move, so what it drives updates LIVE; the note
+    // goes to the log only when the thumb is released. Double-click, or click
+    // the DEFAULT tick, to return to `def`.
+    function mkSlider(a) {
+        var wrap = document.createElement("div");
+        wrap.className = "dv-slider";
+        var row = document.createElement("div");
+        row.className = "dv-srow";
+        var name = document.createElement("span");
+        name.className = "dv-sname";
+        name.textContent = a.label || "slider";
+        var val = document.createElement("span");
+        val.className = "dv-sval";
+        var hint = document.createElement("span");
+        hint.className = "dv-shint";
+        hint.textContent = a.hint || "";
+        row.appendChild(name);
+        row.appendChild(val);
+        row.appendChild(hint);
+        var input = document.createElement("input");
+        input.type = "range";
+        input.min = a.min;
+        input.max = a.max;
+        input.step = a.step || 0.05;
+        var fmt = typeof a.format === "function" ? a.format : function (v) { return String(v); };
+        function cur() { return typeof a.value === "function" ? a.value() : a.def; }
+        function show(v) { val.textContent = fmt(v); }
+        input.value = cur();
+        show(parseFloat(input.value));
+        var ticks = document.createElement("div");
+        ticks.className = "dv-ticks";
+        (a.ticks || []).forEach(function (t) {
+            var el = document.createElement("span");
+            el.className = "dv-tick" + (t.v === a.def ? " dv-def" : "");
+            el.style.left = ((t.v - a.min) / (a.max - a.min) * 100) + "%";
+            el.textContent = t.label;
+            el.addEventListener("click", function () { set(t.v, true); }, listenOpts);
+            ticks.appendChild(el);
+        });
+        function set(v, announce) {
+            input.value = v;
+            var n = parseFloat(input.value);
+            show(n);
+            var r;
+            try { r = a.onInput ? a.onInput(n) : undefined; }
+            catch (e) { pushError("slider", (a.label || "slider") + ": " + (e && e.message ? e.message : String(e))); }
+            if (announce) { note((a.label || "slider") + " " + fmt(n) + (typeof r === "string" ? " — " + r : "")); render(); }
+        }
+        input.addEventListener("input", function () { set(parseFloat(input.value), false); }, listenOpts);
+        input.addEventListener("change", function () { set(parseFloat(input.value), true); }, listenOpts);
+        input.addEventListener("dblclick", function () { set(a.def, true); }, listenOpts);
+        // The panel re-reads the live value every render, so a change made
+        // elsewhere (a guest's snapshot, a restart) shows up here too.
+        wrap.__sync = function () {
+            var v = cur();
+            if (document.activeElement !== input && parseFloat(input.value) !== v) { input.value = v; show(v); }
+        };
+        wrap.appendChild(row);
+        wrap.appendChild(input);
+        wrap.appendChild(ticks);
+        return wrap;
+    }
+
     function buildActions() {
         if (!actionsEl) return;
         actionsEl.innerHTML = "";
@@ -355,11 +446,13 @@
             return;
         }
         cfg.actions.forEach(function (action) {
+            if (action.slider) { actionsEl.appendChild(mkSlider(action)); return; }
             actionsEl.appendChild(mkButton(
                 action.label || "?",
                 function () { runAction(action); },
                 action.hint,
-                !!action.danger
+                !!action.danger,
+                action.icon
             ));
         });
     }
@@ -409,6 +502,7 @@
 
     function render() {
         if (!panel) return;
+        if (actionsEl) Array.prototype.forEach.call(actionsEl.querySelectorAll(".dv-slider"), function (w) { if (w.__sync) w.__sync(); });
         var rows = reportRows();
         stateEl.textContent = stateText(rows);
         errorsEl.textContent = errorText();
