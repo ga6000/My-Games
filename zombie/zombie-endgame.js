@@ -407,6 +407,8 @@ function siloReady(i) {
 function flipSilo(i) {
     if (!siloReady(i)) return false;
     siloFlipped[i] = true;
+    // The switch going over: a heavy thunk, and the lever's fall (arcade).
+    if (ZOMBIE_ARCADE && silos[i]) hostEvent(SND_THUNK, silos[i].x + silos[i].w / 2, silos[i].y + silos[i].h, i);
     // ARCADE (2026-10-11, "shockwave should occur on hitting F at silo that
     // wipes the area"): throwing the switch clears the swarm round the tank.
     if (ZOMBIE_ARCADE && typeof arcadeSiloPulse === "function") arcadeSiloPulse(i);

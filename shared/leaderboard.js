@@ -53,6 +53,8 @@
     var gameId = null;
     var collectionName = "scores";
     var writer = null;          // set once the SDK is up
+    var reader = null;          // likewise: game id -> Promise of a query snapshot
+    var waiting = [];           // callbacks held until the SDK is up (or known not to be)
     var state = "idle";         // idle | loading | ready | unavailable
     var queue = [];
     var warned = false;
@@ -118,11 +120,22 @@
              * still accept writes, and a failed sign-in should degrade to
              * "writes may be rejected", not "leaderboard is dead".
              */
+            var authDone = Promise.resolve();
             try {
-                authMod.signInAnonymously(authMod.getAuth(app)).catch(function (err) {
+                authDone = authMod.signInAnonymously(authMod.getAuth(app)).catch(function (err) {
                     note("anonymous auth failed; writes may be rejected by rules", err);
                 });
             } catch (e) { /* auth module shape changed; not fatal */ }
+
+            // Reads wait for the sign-in (a rules setup that needs auth to read
+            // needs it settled), and use only an equality filter, so no
+            // composite index is needed: the same query leaderboard.html runs.
+            reader = function (game) {
+                return authDone.then(function () {
+                    return fsMod.getDocs(fsMod.query(fsMod.collection(db, collectionName),
+                        fsMod.where("game", "==", String(game)), fsMod.limit(5000)));
+                });
+            };
 
             writer = function (doc) {
                 var data = {
@@ -139,6 +152,7 @@
             };
             state = "ready";
             flush();
+            release();
         }).catch(function (err) {
             // The expected path on file://, and on any machine with no network.
             unavailable(err && err.message ? err.message : String(err));
@@ -148,7 +162,9 @@
     function unavailable(why) {
         state = "unavailable";
         writer = null;
+        reader = null;
         queue.length = 0;
+        release();
         note("score submission is off (this is expected on file:// — open over http(s) to record scores)", why);
     }
 
@@ -285,6 +301,45 @@
         for (var i = 0; i < pending.length; i++) write(pending[i]);
     }
 
+    function release() {
+        var held = waiting;
+        waiting = [];
+        for (var i = 0; i < held.length; i++) held[i]();
+    }
+
+    /*
+     * The best score on record for a game: Promise of { player, score } or
+     * null (nothing recorded, or no Firestore: file://, offline). Added
+     * 2026-10-12 for Zombie's HI-SCORE, which is the world's, not this
+     * browser's. One read of the game's rows -- call it once per page, not per
+     * frame. `minScore` drops rows that are not run scores (Zombie's oldest
+     * rows stored the round reached in `score`); a row with a `round` field is
+     * always a run score.
+     */
+    function top(game, minScore) {
+        var g = game || gameId;
+        var floor = Number(minScore) || 0;
+        return new Promise(function (resolve) {
+            function go() {
+                if (state !== "ready" || !reader || !g) { resolve(null); return; }
+                reader(g).then(function (snap) {
+                    var best = null;
+                    snap.forEach(function (d) {
+                        var v = d.data();
+                        var s = Number(v.score);
+                        if (!isFinite(s)) return;
+                        if (v.round == null && s < floor) return;
+                        if (!best || s > best.score) best = { player: String(v.player || "Anonymous"), score: s };
+                    });
+                    resolve(best);
+                }).catch(function () { resolve(null); });
+            }
+            if (state === "idle") preload();
+            if (state === "ready" || state === "unavailable") go();
+            else waiting.push(go);
+        });
+    }
+
     function available() { return state === "ready"; }
     function status() { return state; }
 
@@ -309,6 +364,7 @@
         configure: configure,
         preload: preload,
         submit: submit,
+        top: top,
         available: available,
         status: status,
         debug: debug,

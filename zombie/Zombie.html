@@ -80,6 +80,9 @@
         #gunStrip i { font-style: normal; font-size: 13px; font-weight: bold; color: var(--sig-cyan); }
         /* WRAPS (2026-10-11): six tiles in a fixed row ran off the edge of
            the sidebar, which clips. */
+        /* A stored RALLY (2026-10-12): solo, it is kept for when you go down. */
+        #rallyTag { display: none; color: var(--sig-amber); font-size: 13px; font-weight: bold; letter-spacing: 2px;
+            border: 2px solid var(--sig-amber); padding: 2px 8px; margin-bottom: 8px; width: fit-content; }
         #perks { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; max-width: 100%; }
         #perks .perk {
             position: relative; width: 48px; height: 48px;
@@ -366,6 +369,13 @@
            objective are what the eye needs, and they were being clipped. */
         #sidebar .cab-pair { display: flex; justify-content: space-between; gap: 12px; }
         #sidebar .cab-pair .cab-v { margin-top: 0; font-size: 20px; }
+        /* Whose score it is, beside the label (2026-10-12), and the session's
+           best on its own line under the pair. */
+        #sidebar .cab-nm { color: #FFE033; font-size: 11px; letter-spacing: 1px; font-weight: bold;
+            display: inline-block; max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+        #sidebar .cab-sess { display: flex; align-items: baseline; gap: 8px; }
+        #sidebar .cab-sess .cab-l { font-size: 11px; letter-spacing: 2px; }
+        #sidebar .cab-sess .cab-v { margin: 0 0 0 auto; font-size: 16px; }
         #sidebar .cab-radar { border: 3px solid #E8E8E8; padding: 3px; background: #000; align-self: stretch; }
         #sidebar .cab-row { display: flex; justify-content: space-between; align-items: flex-end; }
         #sidebar .cab-cond { font-size: 26px; font-weight: bold; letter-spacing: 3px; }
@@ -406,10 +416,30 @@
         /* "Remove start dialog ... just replace with 'click to start'"
            (2026-10-04): no box, blinking cabinet text. */
         body.arcade #startprompt {
-            background: none; border: none; padding: 0;
+            background: rgba(0,0,0,0.62); border: none; padding: 22px 34px;
             color: #FFFFFF; font-size: 34px; font-weight: bold; letter-spacing: 6px;
-            text-shadow: 3px 3px 0 #000; animation: cabBlink 1s steps(1) infinite;
+            text-shadow: 3px 3px 0 #000;
         }
+        /* THE READY SCREEN (2026-10-13): a square per player in the party,
+           blank until they click, then ticked in their colour. */
+        #startprompt .lb-head { font-size: 22px; letter-spacing: 8px; color: var(--phos-mid); margin-bottom: 16px; }
+        #startprompt .lb-row { display: flex; justify-content: center; gap: 22px; margin-bottom: 18px; flex-wrap: wrap; }
+        #startprompt .lb-slot { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        #startprompt .lb-box {
+            position: relative; width: 78px; height: 78px; box-sizing: border-box;
+            border: 5px solid #5A5A5A; background: #000;
+        }
+        #startprompt .lb-box.ready { border-color: var(--pc, #55FFFF); }
+        #startprompt .lb-box.ready::after {
+            content: ""; position: absolute; left: 50%; top: 44%; width: 22px; height: 40px;
+            border: solid var(--pc, #55FFFF); border-width: 0 9px 9px 0;
+            transform: translate(-50%, -50%) rotate(45deg);
+        }
+        #startprompt .lb-name { font-size: 13px; letter-spacing: 2px; color: var(--phos-mid); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #startprompt .lb-hint { font-size: 24px; letter-spacing: 6px; color: #FFFFFF; }
+        #startprompt .lb-hint.blink { animation: cabBlink 1s steps(1) infinite; }
+        /* The attract run is not your run: its stats, objective and checklist stay out of the panel. */
+        body.demo #ui, body.demo #sideNext, body.demo #sideGoals { visibility: hidden; }
         /* Everything that centred on the window now centres on the play area. */
         body.arcade #spectate, body.arcade #netlost, body.arcade #zonename,
         body.arcade #prompt, body.arcade #toast, body.arcade #roundcard,
@@ -448,6 +478,7 @@
             <div id="gunStrip"></div>
         </div>
         <div id="perks"></div>
+        <div id="rallyTag">RALLY STORED</div>
     </div>
 
     <div id="spectate">
@@ -551,9 +582,10 @@
          here on -- AESTHETIC_GUIDE.md, "The cabinet panel". -->
     <div id="sidebar">
         <div class="cab-pair">
-            <div><div class="cab-l">HI-SCORE</div><div class="cab-v" id="cabHi">0</div></div>
+            <div><div class="cab-l">HI-SCORE <span class="cab-nm" id="cabHiName"></span></div><div class="cab-v" id="cabHi">0</div></div>
             <div><div class="cab-l">1UP</div><div class="cab-v" id="cabScore">0</div></div>
         </div>
+        <div class="cab-sess"><span class="cab-l">SESSION BEST</span><span class="cab-nm" id="cabSessName"></span><span class="cab-v" id="cabSess">0</span></div>
         <div class="cab-radar"><canvas id="sidemap" width="240" height="140"></canvas></div>
         <div class="cab-row">
             <div><div class="cab-l">CONDITION</div><div class="cab-cond green" id="cabCond">GREEN</div></div>
@@ -617,6 +649,10 @@
 <script src="zombie-render.js"></script>
 <!-- LAST: it reads names every file above declares, and registers only. -->
 <script src="zombie-dev.js"></script>
+<!-- The lobby (2026-10-13): the attract run and the party ready screen that
+     stand in front of every run. After the dev panel, before the sandbox and
+     editor, which switch it off by URL. -->
+<script src="zombie-lobby.js"></script>
 <!-- The stamp sandbox (2026-09-26): ?sandbox=1#stamp=... drops a
      drawing into the real map. After zombie-dev.js, whose NO ZOMBIES
      flag it sets, and it wraps spawnPlayer rather than editing it. -->

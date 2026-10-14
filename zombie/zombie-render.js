@@ -607,7 +607,9 @@ function draw() {
         arcadeDrawLight();                // daylight through the warehouse windows
     }
     if (ZOMBIE_ARCADE && !introOn) {
-        arcadeDrawBeacon(now);
+        // Not on the start card (2026-10-12: "turn off the silo 0/10 throbbing
+        // on the start screen"): there is no objective until there is a run.
+        if (gameStarted) arcadeDrawBeacon(now);
         arcadeDrawHurt(now);              // the one-hit buffer's red
     }
     drawOffscreenMarkers(now);
@@ -617,6 +619,8 @@ function draw() {
     // behind ESC or with the minimap up.
     if (!ZOMBIE_ARCADE) drawNextGoal();   // ARCADE: the sidebar says NEXT
     if (ZOMBIE_ARCADE) arcadeDrawIntroText(now);
+    // ARCADE: the map-change / restart fade, over the caption and bars too.
+    if (ZOMBIE_ARCADE) arcadeDrawFade(now);
     // THE FADE (2026-09-19): after the walk out, everything goes. Last, and
     // over the lighting and the minimap, because it is the screen going
     // dark, not the world going dark -- the DOM HUD is faded with it in
@@ -626,6 +630,8 @@ function draw() {
         ctx.fillStyle = "rgba(0,0,0," + winFade.toFixed(3) + ")";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
+    // The final win: fireworks on the black.
+    if (ZOMBIE_ARCADE && won && winFade >= 1) arcadeDrawFireworks(now);
     updateHud(now);
 }
 
@@ -695,7 +701,7 @@ function drawWalls(inView) {
         const w = walls[i];
         if (!inView(w.x, w.y, w.w, w.h)) continue;
         // ARCADE: trees and tanks are drawn tall later; the gate's art covers its bar.
-        if (w.tree || w.silo || w.gateBar || w.setProp || w.window) continue;
+        if (w.tree || w.silo || w.gateBar || w.entryBar || w.setProp || w.window) continue;
         // Sampled at the CENTRE. A boundary wall is centred on the line
         // between two sectors, so its own corner can sit in either one and
         // sampling x,y made a run flicker between two palettes along its
@@ -1001,6 +1007,69 @@ function drawEndgame(now, inView) {
     // --- the way out ---
     if (escapeRect && inView(escapeRect.x - 20, escapeRect.y - 20, escapeRect.w + 40, escapeRect.h + 40)) {
         drawEscapeGate(now);
+    }
+    // --- the way in (maps after the first) ---
+    if (ZOMBIE_ARCADE && entryRect && inView(entryRect.x - 20, 0, entryRect.w + 40, entryRect.y + entryRect.h + 20)) {
+        drawEntryGate(now);
+    }
+}
+
+// THE WAY IN (2026-10-12). The tunnel stub behind the north fence, the sign on
+// it, and a heavy slab that drops across the opening once you are through.
+// Flat fills only, like the exit gate beside it.
+function drawEntryGate(now) {
+    const r = entryRect;
+    const f = arcadeEntryFrac(now);
+    const bottom = r.y + r.h;
+    // The tunnel floor, from the top of the world to the gate.
+    ctx.fillStyle = "#08080B";
+    ctx.fillRect(r.x, 0, r.w, bottom);
+    // Flat bands darker toward the far end: it goes on.
+    ctx.fillStyle = "#050507";
+    ctx.fillRect(r.x, 0, r.w, Math.max(0, r.y - 300));
+    ctx.fillStyle = "#06060A";
+    ctx.fillRect(r.x, Math.max(0, r.y - 300), r.w, 90);
+    // The road comes out of the tunnel.
+    arcadeDrawRoadsIn(r.x, 0, r.w, bottom);
+    // Chevrons pointing the way in (south), in the tunnel.
+    ctx.fillStyle = "#1F3A44";
+    for (let i = 0; i < 3; i++) {
+        const cy = r.y - 52 - i * 34;
+        const cx = r.x + r.w / 2;
+        ctx.beginPath();
+        ctx.moveTo(cx - 22, cy);
+        ctx.lineTo(cx, cy + 12);
+        ctx.lineTo(cx + 22, cy);
+        ctx.lineTo(cx + 22, cy - 7);
+        ctx.lineTo(cx, cy + 5);
+        ctx.lineTo(cx - 22, cy - 7);
+        ctx.closePath();
+        ctx.fill();
+    }
+    // The sign.
+    ctx.font = "bold 12px Courier";
+    ctx.textAlign = "center";
+    const label = "PREVIOUS LEVEL";
+    const lw = ctx.measureText(label).width + 12;
+    const lx = r.x + r.w / 2, ly = ARENA.y - 168;
+    ctx.fillStyle = "rgba(6,6,6,0.8)";
+    ctx.fillRect(Math.round(lx - lw / 2), ly - 11, Math.round(lw), 15);
+    ctx.fillStyle = "#6E8A94";
+    ctx.fillText(label, lx, ly);
+    ctx.textAlign = "left";
+    // The rails the slab runs in.
+    ctx.fillStyle = "#1C1C20";
+    ctx.fillRect(r.x - 7, r.y - 4, 7, r.h + 8);
+    ctx.fillRect(r.x + r.w, r.y - 4, 7, r.h + 8);
+    // The slab, dropping from the top of the opening.
+    const slabH = Math.round(r.h * f);
+    if (slabH > 0) {
+        ctx.fillStyle = "#2B2B2E";
+        ctx.fillRect(r.x, r.y, r.w, slabH);
+        ctx.fillStyle = "#3A3A3F";
+        for (let yy = r.y + 6; yy < r.y + slabH - 4; yy += 12) ctx.fillRect(r.x + 3, Math.round(yy), r.w - 6, 4);
+        ctx.fillStyle = f < 1 ? "#6E6E52" : "#4A4A4E";     // the leading edge, bright while it moves
+        ctx.fillRect(r.x, r.y + slabH - 4, r.w, 4);
     }
 }
 
@@ -3182,14 +3251,18 @@ function updateHud(now) {
     // The readout goes out with the world (2026-09-19). Written only while
     // the sequence is running or has just ended, so this is not a style
     // write on every ordinary frame.
-    if (winFade > 0 || hudFaded) {
-        const o = (1 - winFade).toFixed(3);
+    // ARCADE: a map change or restart fades it with the canvas (same value).
+    const hudFade = Math.max(winFade, ZOMBIE_ARCADE ? arcadeFadeAlpha(now) : 0);
+    if (hudFade > 0 || hudFaded) {
+        const o = (1 - hudFade).toFixed(3);
         if (uiHudRoot) uiHudRoot.style.opacity = o;
         if (uiLoadout) uiLoadout.style.opacity = o;
-        hudFaded = winFade > 0;
+        hudFaded = hudFade > 0;
     }
 
-    uiTime.innerText = Math.max(0, Math.floor((now - startTime) / 1000)) + "s";   // the arcade intro runs before T=0
+    // The clock stops where the run ended (a loss at runEndAt, a win at winSeqAt).
+    const clockNow = gameOver && runEndAt ? Math.min(now, runEndAt) : won && winSeqAt ? Math.min(now, winSeqAt) : now;
+    uiTime.innerText = Math.max(0, Math.floor((clockNow - startTime) / 1000)) + "s";   // the arcade intro runs before T=0
     uiZombies.innerText = String(zombies.length);
     uiKills.innerText = String(kills);
     if (ZOMBIE_ARCADE) {
@@ -3222,10 +3295,10 @@ function updateHud(now) {
     }
 
     const me = players[0];
-    uiLoadout.style.display = me ? '' : 'none';
+    uiLoadout.style.display = (me && !zDemo) ? '' : 'none';    // the attract run's kit is not yours
     if (me) {
         updateLoadoutHud(me);
-        const prompt = me.downed ? "" : nearestPrompt(me);
+        const prompt = (me.downed || zDemo) ? "" : nearestPrompt(me);
         uiPrompt.innerText = prompt;
         uiPrompt.style.display = prompt ? 'block' : 'none';
     } else {
@@ -3276,7 +3349,11 @@ function updateHud(now) {
     // game -- the readout ended up being the thing you spent the blitz
     // looking at. The card stays (you still want to know the round rolled);
     // the table goes, and the same numbers are on the end card anyway.
-    if (roundPhase === "intermission" && !intensified) {
+    if (zDemo) {
+        // The attract run is not a run: no ROUND 76 banner over the ready screen.
+        uiRoundCard.style.display = 'none';
+        uiScores.style.display = 'none';
+    } else if (roundPhase === "intermission" && !intensified) {
         const left = Math.max(0, Math.ceil((roundEndsAt - now) / 1000));
         uiRoundCard.innerHTML = "ROUND " + round + " CLEARED" +
             "<div style='font-size:20px;color:#55FF55'>NEXT IN " + left + "</div>";
@@ -3646,6 +3723,14 @@ window.addEventListener('keydown', function (e) {
         return;
     }
 
+    // BEFORE A RUN (zombie-lobby.js): the ready screen owns the keyboard. Enter
+    // and Space tick your square; nothing else gets through, so nobody walks or
+    // fires -- or switches the attract run's gun -- until the party is ready.
+    if (typeof lobbyBlocks === "function" && lobbyBlocks()) {
+        if (key === 'enter' || key === ' ') lobbyClick();
+        return;
+    }
+
     // 1-7 pick a gun you own. Never spawns you: it is not a "join" key.
     if (key >= '1' && key <= '7') {
         const p = players[0];
@@ -3682,7 +3767,7 @@ window.addEventListener('keydown', function (e) {
 // of a free-spinning wheel is a dozen events.
 let wheelAt = 0;
 window.addEventListener('wheel', function (e) {
-    if (codexOpen || helpOpen || winSequenceRunning()) return;
+    if (codexOpen || helpOpen || winSequenceRunning() || (typeof lobbyBlocks === "function" && lobbyBlocks())) return;
     const p = players[0];
     if (!p || !e.deltaY) return;
     const now = Date.now();
@@ -3692,7 +3777,7 @@ window.addEventListener('wheel', function (e) {
 }, { signal: zSignal(), passive: true });
 
 window.addEventListener('keyup', function (e) {
-    if (codexOpen || helpOpen || winSequenceRunning()) return;
+    if (codexOpen || helpOpen || winSequenceRunning() || (typeof lobbyBlocks === "function" && lobbyBlocks())) return;
     const p = players[0];
     if (!p) return;
     const move = MOVE_KEYS[e.key.toLowerCase()];
@@ -3710,6 +3795,8 @@ window.addEventListener('mousedown', function (e) {
     // Clicks belong to the manual's tabs while it is open -- otherwise
     // every tab press also fires the gun. The ESC dialog likewise.
     if (codexOpen || helpOpen || winSequenceRunning()) return;
+    // The ready screen: a click ticks your square (and unlocks the audio).
+    if (typeof lobbyBlocks === "function" && lobbyBlocks()) { lobbyClick(); return; }
     // `|| uiWinShown` fixes a real bug found 2026-09-19: the WIN card says
     // "Click anywhere to run it again" and could not be clicked. A win sets
     // `won`, never `gameOver`, so this only ever tested the LOSING card --
@@ -3727,7 +3814,7 @@ window.addEventListener('mousedown', function (e) {
 }, KEY_OPTS);
 
 window.addEventListener('mouseup', function (e) {
-    if (codexOpen || helpOpen || winSequenceRunning()) return;
+    if (codexOpen || helpOpen || winSequenceRunning() || (typeof lobbyBlocks === "function" && lobbyBlocks())) return;
     const p = players[0];
     if (!p) return;
     if (e.button === 0) p.keys.shoot = false;
@@ -3762,7 +3849,11 @@ function stepSimulation(now, maxSteps) {
     } else {
         zSimAcc -= steps * Z_STEP_MS;
     }
-    for (let i = 0; i < steps; i++) update(now - (steps - 1 - i) * Z_STEP_MS, Z_STEP_MS);
+    for (let i = 0; i < steps; i++) {
+        const t = now - (steps - 1 - i) * Z_STEP_MS;
+        if (zDemo) demoUpdate(t, Z_STEP_MS);        // the attract run (zombie-lobby.js)
+        else update(t, Z_STEP_MS);
+    }
     return steps;
 }
 
@@ -3809,14 +3900,16 @@ function gameLoop(ts) {
     zFrameCount++;                             // drives the flicker budget
 
     stepSimulation(now, Z_MAX_STEPS);
+    if (typeof lobbyFrame === "function") lobbyFrame(now);     // the ready screen, before a run
     // Driven from the LOOP, not from update(): update() returns early while
     // netLost, and a connection that drops during the walk-out must not
     // leave the world frozen half-faded with no card ever arriving.
     updateWinSequence(now);
     updateIntensifyAnnounce(now);
     updateHordeCall(now);
-    // ARCADE: the intro flies the camera itself.
-    if (!(ZOMBIE_ARCADE && arcadeIntroCamera(now))) updateCamera(cameraTargets());
+    // ARCADE: the intro flies the camera itself, and before a run it rests on
+    // the whole arena (the flythrough's first frame).
+    if (!(ZOMBIE_ARCADE && (arcadeIntroCamera(now) || arcadeIdleCamera()))) updateCamera(cameraTargets());
     draw();
 
     // Sustained audio is driven from state every frame rather than from

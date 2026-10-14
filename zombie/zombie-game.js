@@ -14,6 +14,9 @@ let gameOver = false;
 // its run twice. resetGame() clears it so a replay can post again.
 let zLbSubmitted = false;
 let gameStarted = false;
+// The attract run before a run begins (zombie-lobby.js). Declared here so the
+// files before it (audio, toasts, the end cards) can mute themselves for it.
+let zDemo = false;
 let startTime = 0;
 let kills = 0;
 let lastSpawnTime = 0;
@@ -553,6 +556,7 @@ function nameForNetId(id) {
 }
 
 function showToast(text, ms) {
+    if (zDemo) return;
     uiToast.innerText = text;
     uiToast.style.display = 'block';
     toastUntil = Date.now() + ms;
@@ -735,7 +739,7 @@ function winSequenceRunning() {
 let uiWinShown = false;
 
 function triggerWin() {
-    if (won || gameOver) return;
+    if (won || gameOver || zDemo) return;
     won = true;
     winSeqAt = Date.now();
     winPullPx = 0;
@@ -764,7 +768,9 @@ function triggerWin() {
 function updateWinSequence(now) {
     if (!winSeqAt || uiWinShown) return;
     winPullPx = 0;
-    winFade = 0;
+    // ARCADE: the final win goes to black (stepped), and the card and the
+    // fireworks come up on it.
+    winFade = ZOMBIE_ARCADE ? arcadeWinFade(now - winSeqAt) : 0;
     if (now - winSeqAt >= ALT_WIN_CARD_DELAY_MS) showWinCard();
 }
 
@@ -778,7 +784,8 @@ function showWinCard() {
     // -- the train is still accelerating away with the team on it, which is
     // the whole ending. Setting the fade here was what blacked it out behind
     // the score even after updateWinSequence stopped raising it.
-    winFade = 0;
+    // ARCADE is the exception: the card sits on black, over the fireworks.
+    winFade = ZOMBIE_ARCADE ? 1 : 0;
     uiWin.style.display = 'block';
     // Same ending, two readings of it. Whoever was standing on the train when
     // it took the tunnel got out; whoever was not watched it go.
@@ -807,6 +814,7 @@ function showWinCard() {
 function triggerGameOver() {
     if (gameOver) return;
     gameOver = true;
+    if (zDemo) return;                // the attract run restarts itself; no card, no score
     zAwaitRespawn = false;
     const at = players[0] || { x: WORLD_W / 2, y: WORLD_H / 2 };
     localEvent(SND_GAMEOVER, at.x, at.y);
@@ -942,6 +950,7 @@ function resetGame() {
     // The win sequence, or a restart clicked during one leaves the world
     // half-faded and the local player drawn 600px south of themselves.
     winSeqAt = 0;
+    if (ZOMBIE_ARCADE) arcadeFireworksReset();
     runEndAt = 0;
     winPullPx = 0;
     winFade = 0;
@@ -987,6 +996,11 @@ function resetGame() {
     // ARCADE: a restart is always map 1 (a wipe on map 2 is game over).
     if (ZOMBIE_ARCADE) { arcLevelNo = 1; arcL1Seconds = 0; arcL1Silos = 0; arcL2StartAt = 0; }
     generateLevel();
+    // The world has just been swapped under the card: come up from black onto
+    // the establishing shot rather than cutting to it.
+    if (ZOMBIE_ARCADE) arcadeResetTransition(Date.now());
+    // A fresh ready screen and a fresh attract run behind it.
+    if (typeof lobbyOnReset === "function") lobbyOnReset();
 }
 
 // ---------------------------------------------------
@@ -1247,6 +1261,7 @@ function update(now, dt) {
     }
     if (ZOMBIE_ARCADE) {
         arcadeUpdateGateBar();
+        arcadeEntryTick(now);
         if (netIsHost) {
             updateArcadeWave(now, dt);
             arcadeExpireDrops(now);
@@ -1368,7 +1383,7 @@ function markHotZones() {
 
 function updatePlayers(now, dt) {
     if (ZOMBIE_ARCADE && arcadeIntroActive(now)) {         // controls off for the intro
-        arcadeRunOn();                                      // ...but map 2 runs you onto the map
+        arcadeRunOn(now);                                   // ...but map 2 runs you onto the map
         return;
     }
     for (let i = players.length - 1; i >= 0; i--) {
@@ -2527,6 +2542,8 @@ function downPlayer(target, now) {
     if (target.local) {
         const p = target.ref;
         if (p.downed || now < p.invulnUntil) return;
+        // A stored RALLY catches the fall when nobody else is standing.
+        if (ZOMBIE_ARCADE && arcadeStoredRally(target, now)) return;
         p.downed = true;
         p.bleedDeadline = now + bleedMs;
         p.reviveProgress = 0;

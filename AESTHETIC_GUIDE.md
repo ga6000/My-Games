@@ -586,6 +586,12 @@ run `check-global-collisions.js` after.
 > **view** rather than to their sector, which is what lets the crane be visible from the sector
 > next door. Any game here with structures can use all three tomorrow.
 
+> **2026-10-12 (transitions):** every map change and restart now happens under a stepped fade, the
+> camera never cuts in view, and the later maps open with a flythrough of their own. The fades are
+> **8 flat steps**, not a smooth ramp, so the quantized-light pillar (checklist item 9) is kept
+> for a screen fade too; `ARC_FADE_STEPS` is the switch if it should be smooth. Details and
+> measured speeds: `zombie/CLAUDE.md` "Eleventh".
+
 ### 6.4 RD Arena — `rd-arena/RDArena.html` · **RASTER** · anchor: *Space Invaders* (1978)
 **The best discovery in this review.** The flesh field is already thresholded at `gridB > 0.3`,
 already filled in a single flat colour (`#4a0404`), and already lives on a 400×400 grid. It is
@@ -994,4 +1000,4 @@ this is precisely the kind of cross-cutting root-level plan the 2026-09-02 audit
 - **Whether every game should convert at all.** Desert Robot Blaster and Wasteland Train Sim are
   Unity candidates; spending a session restyling them may be wasted.
 
-<!-- doc-sync: 0e946089 | 2026-09-25 -->
+<!-- doc-sync: c7e88a1f | 2026-10-13 -->

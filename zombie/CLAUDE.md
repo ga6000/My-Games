@@ -63,6 +63,270 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Thirteenth: an attract run and a party ready screen (2026-10-13)
+
+Closes `../HUB_RETROSPECTIVE.md` §5 item 2 (arcade-side playtest fixes). **`zombie-lobby.js`**, script #25,
+after `zombie-dev.js`; **"CLICK TO START" is gone.**
+
+- **The attract run (`zDemo`).** Before a run, behind the ready screen, map 3 runs on the curve's **15:00**
+  mark (`DEMO_CLOCK_S`; read live from the difficulty) with a scripted survivor: every gun, every drop-perk x3,
+  the Boomgun on a 24s cycle, turrets placed into crowds, no aim error, steering by the map's own flow field.
+  **It never dies and ignores the objective**: it is untouchable (`invulnUntil` held) because its job is to be
+  watched. It runs the game's REAL `update()` on this client alone: for each step `netOnline` is false and
+  this client is its own host, so nothing reaches the room, and the game's net code otherwise sees a page that
+  has not started. **Muted for it** (`zDemo` is read by `playEvent`, `showToast`, `triggerGameOver`,
+  `triggerWin`, the cabinet's score and the loadout panel), and its stats, objective and checklist are hidden
+  (`body.demo`). It is rebuilt when the room's seed lands (`lobbyLevelRebuilt`) and restarts itself if it ever
+  ends.
+- **The ready screen.** A square per player in the party (`MP.peers()`, or one when alone), blank until
+  that player clicks (or presses Enter or Space), then ticked in their colour; "WAITING FOR PLAYERS n/m";
+  when every square is ticked everyone starts together. The tick rides relay as `{k: "ready"}` (the sender's
+  socket id is the key; re-sent every 1.5s and whenever the party changes, so a message sent before a friend's
+  page was listening is not lost). **Nothing else works before the party is ready**: movement, fire, gun keys,
+  the wheel and the mouse buttons are gated in `zombie-render.js` (`lobbyBlocks`), Esc, M and N still work.
+  The click is also the browser's **audio unlock** (`initAudio`), which is the box "click to start" used to
+  tick. Starting = `lobbyBegin()`: the same full `resetGame()` a restart does (so nothing of the attract run
+  survives) and then `spawnPlayer()` -> `startGame()`. A restart goes back through the screen (everyone ticks
+  again).
+- **A friend joining a run in progress is not gated** (nobody to wait for): the first host snapshot that
+  arrives while this page has not started (`lobbyRunSeen`) turns the card into CLICK TO JOIN.
+- **Off** for the map editor, the stamp sandbox, `?nolobby=1`, and the headless harness (it reports itself as
+  "node"), so the bot, the camera check and the map checks are unchanged.
+- **Verified:** in the page, solo (a key starts nothing; the click ticks; the run begins on map 1 with a
+  clean pistol-only player and the demo gone) and a stubbed four-player party (four squares; 3 of 4 holds;
+  4 of 4 starts; three `ready` messages sent). **Not verified:** two real clients, the server's peer list
+  carrying `name` and `color` as read here (it is what `mp-core` stores), or the attract run's feel over a
+  long idle (it reaches ~285 kills in six simulated seconds).
+
+### Twelfth: roads, one giant silo, spawnlings, session best, flythrough sounds (2026-10-12, later)
+
+The user asked for six things in one message. Closes `../HUB_RETROSPECTIVE.md` §5 item 2 (arcade-side playtest fixes).
+
+- **Roads (`arenaRoads`, `arcadePlanRoads`), reworked later the same day.** One continuous road from the
+  spawn (map 1) or the entry tunnel (maps 2 and 3) through the arena and down the exit's tunnel, now limited
+  to **0/45/90/135/180 degrees** (the unit checks every segment). The road is planned FIRST, before the tanks
+  exist ("the road should look like it came before the things"): an octilinear A* (8 headings, a heavy cost
+  per bend, so it is the straight line from the way in to the exit and bends only to slip between the
+  structures) over the sets' footprints taken from the layout; a 90 degree change is two 45s. The structures
+  it cannot pass cleanly are then **nudged** (`relax`): a set too near the road climbs away from it 20px at a
+  time in whichever of eight directions helps most, and whatever it lands on gives way (forest, then hedge,
+  then warehouse and the divider). Plan, nudge, plan again, twice; two readings of "keep clear" are tried and
+  the better wins. **The tank's position in the layout moves** (`plan.offs`), so the funnel, tank and set all
+  move together; map 3's divider moves too (`arenaDividerOff`). The corridor goes into `clear` before anything
+  is built, so trees, containers and landmarks keep off it as well. Typical nudges: tens of px; the worst
+  measured is a forest ~400px (it has no outline of its own). Map 2's hedge sits over the exit, so its road
+  loops round the east side. 40px grid, ~0.3s a plan on maps 2 and 3. Visual only. Drawn in
+  `arcadeDrawGround`, again over the entry tunnel's floor (`arcadeDrawRoadsIn`), and on the sidebar map.
+  Map 4's hand-laid road has its 90 degree corners chamfered at 45 (`arcadeChamfer`).
+- **Map 4 (`giant: true` in its layout row).** The rows moved apart (-250/+170 -> -470/+400) to make room
+  for **one giant tank** between them (`giantSilo`, `buildGiantSilo`, `drawGiantSilo`): ten bays, each
+  with its own gauge, 130px tall. **The ten funnels and their quotas (6/6/6/6/7/7/7/7/8/8) are unchanged**;
+  every funnel pipes into the tank. `silos[k]` is still bay k (so the beacon, pulse, prompts and sidebar
+  work untouched) and carries `use`, the whole base, so a full funnel's switch is thrown from anywhere
+  along it. Only one solid is built. The pulse therefore always goes off at the hub.
+  The road is hand-laid here: a stem from the entry, a **split north of the block, one half down each side
+  (x = +-1540), both rejoin south of it** and go to the exit at dx -1200.
+- **Cover on map 4 (`arcadeBuildBossCover`).** Eight listed pieces mirrored about the centre line = 16
+  containers and concrete walls, in the band between the rows and in the gaps between funnels; the left side
+  differs by two nudges and the hues so it is "almost" symmetrical. A landmark the seed happened to
+  put on the road is removed.
+- **Spawnlings on the boss map.** A second stream beside walkers and runners at `BOSS_SPAWNLING_MULT` (2) x
+  the runner share of the horde, i.e. 0.6 x `BOSS_HORDE_RATE`, same cap, same ramp. It is *on top of* the
+  horde (walkers and runners are unchanged). Read "spawns" as the splitter's spawnling (`ZOMBIE_TYPES.spawnling`).
+- **HI-SCORE is the world's, read from Firebase** (`LB.top("zombie", 50)`, once per page; `shared/leaderboard.js`
+  gained `top`, a read of the game's rows with the same equality filter `leaderboard.html` uses). It shows
+  the holder's name beside the label. `localStorage` is now only the fallback for a page with no Firestore
+  (file://, offline) and for a run that has just beaten the board, shown at once. **SESSION BEST** sits under
+  it (`sessionStorage`, counted live; a new tab starts again). Rows with no `round` and a score under 50 are
+  the oldest round-as-score rows and are skipped, the rule `leaderboard.html` uses.
+- **A red handle switch at the base of every tank** (`drawLeverSwitch`, `arcadeLeverFrac`; map 4 has ten, one
+  per bay). A plate on the face with a slot and a pivot bolt, a fat red arm and grip; **up until the tank's
+  switch is thrown, then it falls** over 420ms with a little overshoot and a settle, and a lamp goes amber
+  when the tank is full and waiting, green when pumped. The throw is **`SND_THUNK`** (27, appended; arg = tank
+  index), sent by the host from `flipSilo`: a deep thump, a clank and a scrape, and it times the lever's fall
+  on every client. A client that joins with a tank already pumped sees the lever down, not falling. The
+  sight-glass moved to the left of the face to make room.
+- **Drops no longer overlap** (`arcadeDropSpot`, `DROP_APART` 44px): a drop lands at the nearest spot, in
+  rings outward, that keeps clear of every drop already standing, so a hazard can never sit under a good
+  drop. When the ground is full there is no drop and the pity counter keeps its count. Forced 400 drops on
+  one spot headless: nearest pair 45px.
+- **The final win ends on fireworks** (`arcadeWinFade`, `arcadeDrawFireworks`): the walk-out plays, the screen
+  goes to black in stepped fades (0.6s to 1.7s after `triggerWin`), and rockets and flat square sparks burst on
+  the black from then; the win card comes up at 2.6s over them (`winFade` stays 1 in the arcade). Cosmetic,
+  per client. Only the last map's exit ends a run, so only the final win does this.
+- **The run clock stops when the run ends**: `arcadePlayS` clamps to `runEndAt` (a loss) or `winSeqAt` (a win),
+  and the TIME ALIVE line does the same. It had kept counting under the game-over card.
+- **A stored RALLY, solo only** (`arcadeStoredRally`, `p.rallyStored`, `soloRun()`): taking a RALLY with nobody
+  else in the room keeps it (one slot; the sidebar shows RALLY STORED). The moment you would go down with
+  nobody else standing it is spent: you are stood back up with 3s untouchable and the tank pulse
+  (`arcadePulseAt`, 620px) clears the swarm round you. Take another to have it again. With a team a RALLY is
+  the team revive as before. **Read as: the stored rally revives you too** (a shockwave on its own would only
+  have cleared the crowd for the death card).
+- **Flythrough sounds** (`arcadeIntroSfx`, from `arcadeIntroCamera`; voices at the end of `zombie-audio.js`):
+  a whoosh as each shot that moves or zooms the camera begins, a ding per TANK n hold (the SAME note every
+  time since the later round), a low dong on the gate hold (louder, with its octave and partials above it so
+  a small speaker can play it: the 147Hz sine was inaudible). Driven from the shot list, so they cannot drift from the picture.
+
+**Verified:** headless, 5 seeds x 4 maps: 0 unreachable arena cells, every funnel, switch strip and gate
+reachable, roads clear of structures except the squeezes above; `zombie-camera-check`, the collision,
+undefined-global and map-feature checks pass; a 6-minute bot run on map 4 fills 4 tanks through the giant
+silo with no errors; in the page, frames of maps 3 and 4 and the sound schedule (whoosh/ding/dong order).
+**Not verified:** by ear, by a human, or two real clients. The map 4 intro grew 18.1 -> 18.7s (rows moved).
+The road reads dim under the night light on purpose; brighten `#3B3B3D` in `arcadeDrawRoads` if wanted.
+
+### Eleventh: a flythrough for every map, and no hard cuts (2026-10-12)
+
+The user: *"add level start animations for levels after 1 also, assure visual transitions are not
+jumpy/jarring/or teleporting the camera for all."* Closes `../HUB_RETROSPECTIVE.md` §5 item 2
+(arcade-side playtest fixes). **Supersedes** the 2.6s "SECTOR n" run-on in "Seventh" and "Ninth".
+
+**The rule:** a hard change of world (a restart, a map change, a late joiner catching up) happens
+**under black**. The screen fades out before it and in after it, and the camera is placed where the
+next shot starts while nothing can be seen. All in `zombie-arcade.js` ("FADES" and "THE INTRO").
+
+**What was jumping, measured** (headless, real camera code, 1100x700 canvas, seed 22352). The
+"After" column is `node scripts/zombie-camera-check.js`, which holds EVERY map to map 1's limits
+(pan 1.8 screen widths a second, zoom 2.2 e-folds a second, 600ms on each tank), and fails if a
+hand-over steps or the swap lands on anything but a black frame. "Before" is the same measurement over `git show HEAD`:
+
+| | Before | After |
+|---|---|---|
+| Map 1 flythrough, peak pan | 2,869 px/s (2.6 screen widths a second) | 1,760 px/s |
+| Map 1 flythrough, peak zoom | 2.84 e-folds/s | 2.00 |
+| Map 2+ intro | a 2.6s run-on; camera **teleported 273px** on its first frame, and ignored the arena clamp | one flythrough for every map (whole map, then TANK 1, 2, ...), 13.7 to 18.1s with the tank count, the cut hidden under black |
+| The swap itself | the world replaced in one frame, camera set to a fixed point | fade out 800ms, swap on a fully black frame, fade in 700ms |
+| Follow camera, target 2,000px away | **240px** in its first frame | 36px (`CAM_MAX_STEP`) |
+| Hand-over, intro to follow | 0 px (map 1) | 0 px, all four maps (one shared clamp) |
+
+**The flythrough, FOURTH PASS (2026-10-12, later): one shot list for every map.** The user: *"revise
+all animations to start at whole map zoomed out with 'x silos to fill' -> Tank 1 -> tank 2 ... so on
+so we see 'Tank 1'."* Map 1's hand-written shot list is gone, and so is the separate later-map
+generator: **`arcadeIntroShotList()` builds the list for every map**, and `arcadeShotCamera` is the
+one camera. (The history, so it is not repeated: the first pass zoomed while panning; the second
+flew a route at one zoom; the third made maps 2 to 4 match map 1's per-silo timing, which the user
+called "great".)
+
+| Beat | Time | Caption |
+|---|---|---|
+| The whole map, zoomed out | `ARC_INTRO_WIDE_MS` 1.5s | **"N SILOS TO FILL"**, 72px, cyan |
+| **One move: zoom straight into tank 1**, then hold | 1.5s to 2.6s, then **1.0s** | none, then **"TANK 1"** |
+| Every other tank | move, then **0.6s** (`ARC_INTRO_HOLD_MS`) | "TANK 2", "TANK 3", ... |
+| The exit | move, then 1.2s | "INITIATE GATE OPEN — ESCAPE" |
+| Home | move (the way home is timed to the longest) | none |
+
+- **Gone from map 1:** the "ESCAPE" caption (the wide shot now says the job) and the "YOU" beat
+  (a zoom to you, 0.8s, and its arrow). **Gone from later maps:** "SECTOR n" / "FINAL SECTOR" (the
+  wide caption is now the silo count) and the numbered tank markers. All four are one line each in
+  `arcadeIntroShotList` if wanted back; a sector label could ride the wide caption as a second line.
+- **Timing is map 1's** for the first tank (1.0s) and the rest (0.6s). Moves average
+  `ARC_INTRO_SPEED` 1,450 px/s (map 1's moves ran 1,100 to 1,670), clamped 550ms to 1.5s.
+- **The first zoom goes straight into silo 1** (2026-10-12, fifth pass: *"it seems to first zoom in
+  the exact middle of the screen after saying the number of silos. it should just first zoom into
+  the first silo"*). It had been an in-place zoom at the arena's middle followed by a pan, which I
+  chose because zooming while panning 2,000px at map 1's 1.5s measured 2.1 to 2.4 screen widths a
+  second. It is one move again, made safe two ways: (1) its time is `dist / ARC_INTRO_ZOOMIN_SPEED`
+  (1,000 px/s), clamped 1.5 to 2.6s, so the pan that rides along with the zoom stays at map 1's
+  pace; (2) **a move that changes the zoom never pulls back** (`arcadeShotCamera`'s swoop is only
+  for moves at one zoom), because zoom in and then out while panning is what read as a bug.
+  `scripts/zombie-camera-check.js` asserts the move ends on tank 1 and has no frame of zoom-out.
+- **The host's clock** now starts after `arcIntroMs()` (it was a constant 11,400ms for map 1), so
+  `arcadeStart`, `arcadeEnterLevel` and the camera all read the same function.
+- **Measured** (`scripts/zombie-camera-check.js`, 1100px canvas, same limits for every map): peak
+  pan 1.39 / 1.43 / 1.56 / 1.49 screen widths/s on maps 1 to 4, zoom 1.80 / 1.94 / 1.90 / 1.64
+  e-folds/s, hand-over to following under 0.1px, and every map opens on `fit` with "N SILOS TO
+  FILL" and has "TANK 1" to "TANK n" at 1.0s then 0.6s.
+- **LENGTH:** map 1 **10.0s**, map 2 **13.7s**, map 3 **17.2s**, the boss **18.1s** (5, 7 and 10
+  tanks). It is the tank count: each tank after the first costs a move plus a 0.6s hold. Not
+  skippable yet (`IDEAS_INBOX.md`). Knobs: `ARC_INTRO_HOLD_MS`, `ARC_INTRO_SPEED`, `ARC_INTRO_WIDE_MS`.
+
+**Map 1's shots keep the user's timeline and shape** and gained three things (`arcadeShotCamera`):
+zoom in log space (a linear scale ramp spends its first half looking twice as fast), a long move
+**pulls back in its middle** (the swoop: `ARC_SWOOP_*`, never below 0.6x, because a deeper dip trades
+a slow pan for a fast zoom, measured), and the same arena clamp the follow camera uses
+(`clampCameraCentre`, `zombie-core.js`). The wide hold gave 500ms to a 5x zoom-in; it has 1.5s now
+from the same total (ESCAPE hold 1.8 to 1.3s).
+
+**The map change** (`arcadeBeginNextLevel` is now only the START):
+
+1. Everyone is out: `arcLeaveAt` is set, the walk-out keeps playing, `ARC_LEAVE_MS` 1.1s, fading to
+   black over the last `ARC_LEAVE_FADE_MS` 0.8s.
+2. `arcadeLeaveTick` (from `arcadeUpdateEscape`) swaps the world on a fully black frame.
+3. `arcadeEnterLevel` starts the flythrough and a `ARC_FADE_IN_MS` 0.7s fade up.
+- **Wire:** the snapshot gains **`lq`** (ms until the swap, a duration, 0 when no change is under
+  way), so guests fade out with the host. A guest that missed it holds black past the deadline until
+  `lv` arrives, and gives up after 5s.
+- **A client that did not see the leave** (joined mid-map, or a late snapshot) gets no 8s of "no
+  controls in the middle of a fight": just the 0.7s fade up and the toast. `cinematic` in
+  `arcadeEnterLevel`.
+- The dev panel's NEXT LEVEL goes through the same two steps.
+
+**The first zoom is smooth now** (2026-10-12, *"between the n silos to fill onto the first silo, it's
+kind of jolty"*). Measured through the wide-shot -> silo 1 move: **3 to 7 screen widths/s^2 of
+acceleration, a spike ~300ms in**. Cause: at the wide zoom the view is TALLER than the arena's
+camera bounds (the 700px-tall window shows 3,150 world px against bounds of 2,685), so the clamp
+pins the camera to the bounds' middle on that axis until the zoom brings the view inside, then
+releases it onto the path. Fixed in `arcadeShotCamera`: (1) it interpolates between the CLAMPED
+start and end views; (2) a zoom moves the centre by how far the view's WIDTH has closed (1/scale),
+which holds one world point still on screen and makes the pan even; (3) `arcadeAxisProgress()`
+holds an axis at the bounds' middle until the view fits and then eases away from rest, so the
+clamp never has to move the view mid-zoom. After: **0.65 / 0.95 / 1.21 / 0.68** on maps 1 to 4, and
+`arcIntroClampDelta` (px the clamp moved the view) reads 0.0. The move got a 2.0s minimum
+(`ARC_INTRO_ZOOMIN_MIN_MS`): at 1.5s map 2 peaked at 1.7. `scripts/zombie-camera-check.js` asserts
+both numbers.
+
+**THE WAY IN** (2026-10-12, *"a 'Previous level: tunnel' that has the player enter into the arena
+with an open gate, but then the gate closes behind them"*). Every map after the first has a tunnel
+stub in its NORTH fence, mirroring the exit (`entryRect`, built in `buildArcadeArena`):
+
+- **Geometry:** a 212px opening (`ARC_GATE_W`) at the world's centre between two columns, tunnel
+  walls up to the top of the world and a cap, and a solid `entryBar` filling the gate. The bar has its
+  own flag: `arcadeUpdateGateBar` removes every `gateBar` wall when the EXIT opens, and must not
+  take this one. `check-map-features.js` skips `entryBar` like `gateBar`.
+- **Arrival:** a client that saw the map change spawns **inside the tunnel** (`ARC_ENTRY_SPAWN_BACK`
+  120px north of the fence) with the bar removed (`arcadeEntryOpen`), the flythrough ends on you
+  there, and the run-on (`ARC_RUNON_MS` **1.0s**, was 0.7: 240px, tunnel + gate + in) walks you
+  through.
+- **Closing:** `arcadeEntryTick` (with `arcadeUpdateGateBar`, every step, every client) shuts it
+  when the flythrough ends and none of that client's players is still in or north of the gate; the
+  bar goes solid at once and the slab drops over `ARC_ENTRY_CLOSE_MS` 0.6s (`drawEntryGate`), with a
+  door sound and a shake. A stalled client is moved inside after 5s rather than shut in.
+- **No message and no host involvement:** each client does it off its own flythrough (players and
+  their collision are client-owned). Not `markNavDirty()`: nothing walks the tunnel, so the nav grid
+  keeps the shut gate. **A catch-up client** (no flythrough) spawns inside the fence with the gate
+  already shut.
+- **The tunnel:** floor, flat bands darker toward the far end, three chevrons pointing in, a
+  **"PREVIOUS LEVEL"** plate, rails for the slab, and flood lights either side of the gate inside
+  the fence.
+- **Verified headless** (`scripts/zombie-camera-check.js`, "way in"): map 1 has none; maps 2 to 4
+  start in the tunnel with the gate open, the run-on puts you 100px past the gate's inner face, it
+  shuts, and 1.5s of walking north is blocked. **Seen in the page** (still frames, console clean).
+  **Not verified:** the arrival in motion, or with two clients.
+
+**Nothing throbs on the start card** (2026-10-12, on request): the in-world objective beacon (the
+pulsing ring and "TANK 1  0/10") is drawn only once `gameStarted`, and the sidebar map's blinking
+funnel rings and pulsing objective ring hold still until then.
+
+**A run's start and a restart**: `arcadeIdleCamera` rests the camera on the whole arena at the
+flythrough's first shot while there is no run and no player, so CLICK TO START has nothing to cut
+from; `resetGame` fades up from black over the regenerated level (`arcadeResetTransition`).
+
+**Smaller ones:** letterbox bars slide in and out over 450ms (they popped off in one frame as the
+controls came back); the loadout HUD fades with the canvas through the same value; the camera
+follow is capped at `CAM_MAX_STEP` (36 world px a frame; walking is 4 and a run's own lag ~33, so
+normal play is untouched).
+
+**Fades are STEPPED** (`ARC_FADE_STEPS` 8, ~100ms a step), per checklist item 9 (nothing ramps).
+That is a call: the old `winFade` is smooth. `ARC_FADE_STEPS = 0` gives a smooth ramp.
+
+**Verified:** headless, over the page's own scripts: all four maps' flythroughs (above); the swap
+frame and the frame before it are both fully black; a double trigger is ignored; the real
+`arcadeUpdateEscape` path goes 1 -> leaving -> 2; a catch-up guest skips the cinematic and a guest
+that saw `lq` plays it; the idle camera equals the flythrough's frame 0; `scripts/zombie-bot-playtest.js
+--start-map 2` runs clean. In the page: no console errors across start, a forced map change and
+the sweep. **Not verified:** motion by eye (the Browser pane delivers ~1 frame/s here, so frames
+were judged for content only), two real clients, or 144Hz. The bot's `survived` numbers shift by
+the longer intros (~5s a map of no-control time); they were never wall-clock.
+
 ### Tenth: a hard speed cap, a difficulty slider, and a bot that plays (2026-10-11, last)
 
 The user: *"zombie movement speed needs capped at player max speed. It makes getting tripple tapped at
@@ -185,7 +449,7 @@ How it is built (all in `ARENA_LAYOUTS` and `zombie-arcade.js`):
   then it is constant.
 - **Negative drops on the boss map:** 10% a kill (was 3%), up to 8 live (was 3). The good drops are
   untouched.
-- **Intro:** "SECTOR 2", "SECTOR 3", "FINAL SECTOR", then "N TANKS". Dev panel: GO TO LEVEL 2 became
+- **Intro:** "SECTOR 2", "SECTOR 3", "FINAL SECTOR", then "N TANKS" *(superseded 2026-10-12: a full flythrough, see "Eleventh")*. Dev panel: GO TO LEVEL 2 became
   **NEXT LEVEL** (`arcadeBeginNextLevel`).
 
 **Measured, headless:** every map over 12 seeds, both nav grids: **0.0000% unreachable arena cells, every
@@ -265,7 +529,7 @@ arena and the run continues; **map 2's exit ends the game**.
 |---|---|
 | Layout | a fixed "W" of 5 tanks, offsets from the world centre: (-1360,-750) hedge, (-560,200) **warehouse**, (200,-650) forest, (800,300) hedge, (1520,-700) forest. Gate at dx +1360 in the south wall |
 | Tank sizes | 8 / 10 / 12 / 14 / 16 kills (map 1 is 10 / 15 / 20), read through `siloCapacity()` |
-| Entry | you spawn at the north fence and **run south** for the 2.6s intro (`arcadeRunOn`, controls off), the camera on you, captions "SECTOR 2" and "5 TANKS" |
+| Entry | you spawn at the north fence and **run south** for the 2.6s intro (`arcadeRunOn`, controls off), the camera on you, captions "SECTOR 2" and "5 TANKS" *(superseded 2026-10-12: "Eleventh")* |
 | Kit | carried over: guns, ammo, perks, powerups. Downed players are stood up at the entry; anyone dead respawns through the normal 10s path beside a teammate |
 | Clock | **offset by 60s** (`L2_CLOCK_OFFSET_S`): at the end of the run-on `arcadeElapsedS` reads 60, so **map 2's minute 2 is map 1's minute 3** and it follows the same curve after (rate, mix and HP all read the same clock). Measured: +120s = 180s, rate 11.17/s on both |
 | Arrival | `arcadeL2Ramp`: x0.25 for 15s, then a smoothstep up over 20s. Nothing spawns during the run-on (`arcadeIntroActive` guards the wave) |
@@ -3077,4 +3341,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 82a2825f | 2026-10-12 -->
+<!-- doc-sync: 77617a76 | 2026-10-13 -->

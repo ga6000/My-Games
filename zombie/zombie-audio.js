@@ -252,6 +252,7 @@ const SND_GEN_TRIP = 23;     // a Blackout takes the generator down
 const SND_DECOY = 24;        // a ping became a lure
 const SND_SIREN = 25;        // the intensify switch: the horde is called
 const SND_BOOM = 26;         // BOOMGUN shot; arg = beam length x 1000 + angle in degrees
+const SND_THUNK = 27;        // a tank's switch thrown; arg = tank index (it also times the lever's fall)
 
 // IDEA 40: every gun already has its own screen-shake kick; this is the
 // matching voice. Indexed by WEAPON_KEYS (zombie-core.js) so it can ride in
@@ -370,6 +371,9 @@ function sirenCall() {
 }
 
 function playEvent(code, x, y, arg) {
+    // The lever's fall is timed from this event on every client, heard or not.
+    if (code === SND_THUNK && typeof arcadeLeverThrown === "function") arcadeLeverThrown(arg || 0);
+    if (zDemo) return;                // the attract run is silent
     if (!audioCtx || audioMuted) return;
     // "sound & player input should stop at this time" (2026-09-19). The walk
     // out is silent apart from the score's own win cue, which musicEnd()
@@ -387,6 +391,14 @@ function playEvent(code, x, y, arg) {
     const p = place.pan;
 
     switch (code) {
+        case SND_THUNK:
+            // A heavy lever going over: a deep thump through the floor, a steel
+            // clank on top, and a short scrape of the arm in its slot.
+            tone(72, 30, "sine", 0.5, 0.75 * g, p);
+            tone(155, 58, "square", 0.13, 0.26 * g, p);
+            tone(560, 330, "triangle", 0.1, 0.18 * g, p);
+            noise(0.16, 0.5 * g, 240, 1.1, p);
+            break;
         case SND_BOOM:
             // A heavy thump, a falling saw and a bright crack on top.
             noise(0.3, 0.6 * g, 170, 0.8, p);
@@ -660,3 +672,75 @@ function stopReadoutHum() {
 }
 
 loadAudioPrefs();
+
+
+// ---------------------------------------------------
+//   THE FLYTHROUGH (2026-10-12)
+// ---------------------------------------------------
+// "Dings at each silo when showing it, and a dong at the exit gate, and then a
+// whoosh with each zoom/pan." Fired by arcadeIntroSfx as each shot begins.
+// Not positional: the camera is the listener.
+// A bell: a clean sine, a pinch of its inharmonic partial, a short click of
+// attack. The SAME note on every tank (2026-10-12: "make them all the same
+// tone instead of increasing tone each time").
+function sndIntroDing() {
+    const f = 1174.66;                       // D6
+    tone(f, f * 0.997, "sine", 0.9, 0.17, 0);
+    tone(f * 2.76, f * 2.76, "sine", 0.32, 0.05, 0);
+    tone(f * 2, f * 2, "triangle", 0.18, 0.05, 0);
+}
+
+// The gate's dong: the end of the list, and it has to be HEARD. It was a
+// 147Hz sine at 0.26, which small speakers do not reproduce at all
+// (2026-10-12: "not audible I don't think"). Now the weight sits at 196Hz with
+// its octave and partials above it (so a laptop speaker has something to
+// play), louder, longer, struck with a hit of noise and again a beat later.
+function sndIntroDong() {
+    tone(196, 190, "sine", 2.6, 0.5, 0);
+    tone(392, 384, "triangle", 1.8, 0.28, 0);
+    tone(588, 578, "sine", 1.2, 0.16, 0);
+    tone(784, 770, "sine", 0.8, 0.1, 0);
+    noise(0.14, 0.45, 700, 0.9, 0);
+    // The second strike, a beat on: noise() and tone() start now, so the echo is
+    // a lower, quieter pair that overlaps the first rather than a delayed copy.
+    tone(131, 126, "sine", 2.0, 0.28, 0);
+}
+
+// Air over the camera: band-passed noise whose centre rises and falls across
+// the move, swelling in the middle. `ms` is the shot's length.
+function sndIntroWhoosh(ms) {
+    if (!audioCtx || audioMuted) return;
+    try {
+        const dur = Math.max(0.35, Math.min(1.6, ms / 1000));
+        const n = Math.floor(audioCtx.sampleRate * dur);
+        const buf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        const bp = audioCtx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.Q.value = 1.4;
+        const t = audioCtx.currentTime;
+        bp.frequency.setValueAtTime(260, t);
+        bp.frequency.exponentialRampToValueAtTime(1900, t + dur * 0.45);
+        bp.frequency.exponentialRampToValueAtTime(380, t + dur);
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.2, t + dur * 0.4);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        src.connect(bp);
+        bp.connect(g);
+        g.connect(audioMaster);
+        src.start(t);
+        src.stop(t + dur + 0.02);
+    } catch (e) { /* audio is never worth breaking a frame over */ }
+}
+
+// A firework's burst on the win screen: a soft thump with a crackle of high
+// ticks after it. Quiet, because there are several a second and the score's
+// win cue is still ringing under them.
+function sndFirework() {
+    tone(150 + Math.random() * 60, 55, "sine", 0.22, 0.14, 0);
+    noise(0.18, 0.12, 2400 + Math.random() * 1500, 0.8, 0);
+}

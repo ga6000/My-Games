@@ -192,6 +192,12 @@ function zDestroy() {
 // them would yank the view across the map.
 const CAM_LERP = 0.12;        // position smoothing per frame
 const CAM_SCALE_LERP = 0.06;  // zoom smoothing; only moves on window resize now
+// The most the follow camera may travel in one 60Hz frame (world px). An
+// exponential lerp moves a fixed FRACTION of the distance, so a target that
+// jumps 2000px (a spectate switch, a respawn across the map) used to open with
+// a 240px whip in its first frame. Walking is 4px a frame and the lerp's own
+// lag at a run is ~33px, so this never touches normal play.
+const CAM_MAX_STEP = 36;
 
 // Punchy, not woozy: a low cap with a fast falloff reads as impact,
 // while a high cap with slow decay reads as motion sickness.
@@ -272,25 +278,36 @@ function updateCamera(targets) {
     const wantScale = Math.min(canvas.width / needW, canvas.height / needH);
     camera.scale += (wantScale - camera.scale) * CAM_SCALE_LERP;
 
-    const halfW = (canvas.width / camera.scale) / 2;
-    const halfH = (canvas.height / camera.scale) / 2;
+    const want = clampCameraCentre(cx, cy, camera.scale);
 
-    // Don't show the void outside the world. If the view is wider than
-    // the world itself, centre instead of clamping (clamp() would get a
-    // lo > hi range and pin to the wrong edge).
-    // ARCADE: the bounds are the arena, not the world.
+    let dx = (want.x - camera.x) * CAM_LERP;
+    let dy = (want.y - camera.y) * CAM_LERP;
+    const step = Math.sqrt(dx * dx + dy * dy);
+    if (step > CAM_MAX_STEP) { dx *= CAM_MAX_STEP / step; dy *= CAM_MAX_STEP / step; }
+    camera.x += dx;
+    camera.y += dy;
+
+    if (camera.shake > 0) camera.shake *= SHAKE_DECAY;
+    if (camera.shake < 0.35) camera.shake = 0;
+}
+
+// Where the camera may sit, given where it wants to look and its zoom.
+// Don't show the void outside the world. If the view is wider than the
+// world itself, centre instead of clamping (clamp() would get a lo > hi
+// range and pin to the wrong edge). ARCADE: the bounds are the arena, not
+// the world. ONE copy: the follow camera and the arcade's intro flythrough
+// both read it, so the intro hands over to following without a jump.
+function clampCameraCentre(cx, cy, scale) {
+    const halfW = (canvas.width / scale) / 2;
+    const halfH = (canvas.height / scale) / 2;
     const bx0 = ZOMBIE_ARCADE ? ARENA.x - ARENA_CAM_PAD : 0;
     const by0 = ZOMBIE_ARCADE ? ARENA.y - ARENA_CAM_PAD : 0;
     const bw = ZOMBIE_ARCADE ? ARENA.w + ARENA_CAM_PAD * 2 : WORLD_W;
     const bh = ZOMBIE_ARCADE ? ARENA.h + ARENA_CAM_PAD * 2 : WORLD_H;
-    const wantX = (halfW * 2 >= bw) ? bx0 + bw / 2 : clamp(cx, bx0 + halfW, bx0 + bw - halfW);
-    const wantY = (halfH * 2 >= bh) ? by0 + bh / 2 : clamp(cy, by0 + halfH, by0 + bh - halfH);
-
-    camera.x += (wantX - camera.x) * CAM_LERP;
-    camera.y += (wantY - camera.y) * CAM_LERP;
-
-    if (camera.shake > 0) camera.shake *= SHAKE_DECAY;
-    if (camera.shake < 0.35) camera.shake = 0;
+    return {
+        x: (halfW * 2 >= bw) ? bx0 + bw / 2 : clamp(cx, bx0 + halfW, bx0 + bw - halfW),
+        y: (halfH * 2 >= bh) ? by0 + bh / 2 : clamp(cy, by0 + halfH, by0 + bh - halfH)
+    };
 }
 
 function applyCameraTransform() {

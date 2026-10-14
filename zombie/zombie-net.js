@@ -141,6 +141,13 @@ MP.connect({
         // The seed only becomes known here, so the level built at page
         // load came from a throwaway local seed. Rebuild it.
         generateLevel();
+        if (typeof lobbyLevelRebuilt === "function") lobbyLevelRebuilt();
+        if (typeof lobbyPeersChanged === "function") lobbyPeersChanged();
+    },
+
+    // The party changes while the ready screen is up: who is here, who ticked.
+    onPeerJoin: function () {
+        if (typeof lobbyPeersChanged === "function") lobbyPeersChanged();
     },
 
     onPeerSync: function () {
@@ -156,6 +163,7 @@ MP.connect({
         // would read a null id and a stale seed.
         netIsHost = MP.isHost();
         if (MP.selfId && MP.selfId !== netPrefix) netPrefix = MP.selfId;
+        if (typeof lobbyPeersChanged === "function") lobbyPeersChanged();
 
         // 2026-09-07 -- THE MID-GAME MAP WIPE.
         //
@@ -194,6 +202,7 @@ MP.connect({
 
         MP.reseed(want);
         generateLevel();
+        if (typeof lobbyLevelRebuilt === "function") lobbyLevelRebuilt();
     },
 
     onHostChange: function (nowHost) {
@@ -206,6 +215,7 @@ MP.connect({
     // reconnecting comes back on a NEW socket a few seconds later. Away, not
     // deleted; pruneRemotePlayers removes them if the grace runs out.
     onPeerLeave: function (peer) {
+        if (typeof lobbyPeersChanged === "function") lobbyPeersChanged();
         if (!peer) return;
         const now = Date.now();
         Object.keys(remotePlayers).forEach(function (id) {
@@ -236,9 +246,15 @@ MP.connect({
         netIsHost = !netLost;               // holding: nobody here simulates
     },
 
-    onMessage: function (msg) {
+    onMessage: function (msg, from) {
         if (!msg || !msg.k) return;
         const now = Date.now();
+
+        // The ready screen (zombie-lobby.js): a teammate ticked their square.
+        if (msg.k === "ready") {
+            if (typeof lobbyOnReady === "function") lobbyOnReady(from);
+            return;
+        }
 
         if (msg.k === "players") {
             (msg.list || []).forEach(function (rp) {
@@ -433,6 +449,9 @@ MP.connect({
 //   SNAPSHOT
 // ---------------------------------------------------
 function applyWorldSnapshot(msg, now) {
+    // A run is under way and this page has not started: it is a late joiner,
+    // not a party member to wait for (zombie-lobby.js).
+    if (!gameStarted && typeof lobbyRunSeen === "function") lobbyRunSeen();
     // GEOMETRY FIRST. The host is already the authority on doors,
     // barricades, crates and barrels; making it the authority on the
     // seed those indices refer to closes the last gap. A client that
@@ -447,6 +466,11 @@ function applyWorldSnapshot(msg, now) {
     if (ZOMBIE_ARCADE && typeof msg.df === "number") arcDifficulty = msg.df;
     if (ZOMBIE_ARCADE && typeof msg.lv === "number" && msg.lv > arcLevelNo) {
         arcadeEnterLevel(msg.lv, now, msg.l1 || [0, 0]);
+    }
+    // ARCADE: the host has begun a map change; fade out with it (`lq` is ms
+    // until the swap, a duration like every other clock on the wire).
+    if (ZOMBIE_ARCADE && !netIsHost && typeof msg.lq === "number" && msg.lq > 0 && !arcLeaveEndAt) {
+        arcLeaveEndAt = now + msg.lq;
     }
     if (typeof msg.ls === "number") {
         hostLevelSeed = msg.ls;
@@ -839,6 +863,7 @@ function broadcastWorld() {
         // missed the transition catches up from the next snapshot.
         lv: ZOMBIE_ARCADE ? arcLevelNo : 1,
         df: ZOMBIE_ARCADE ? arcDifficulty : 1,
+        lq: (ZOMBIE_ARCADE && arcLeaveAt) ? Math.max(1, Math.round(arcLeaveEndAt - now)) : 0,
         l1: (ZOMBIE_ARCADE && arcLevelNo >= 2) ? [Math.round(arcL1Seconds * 10) / 10, arcL1Silos] : 0,
 
         // The Blood Silo chain. All small integers; `esc` is a REMAINING

@@ -217,6 +217,11 @@ Ordered easiest → hardest. This ordering is also the recommended build order.
 > **Also 2026-10-11 (very last):** `world` gains `df`, the host's difficulty (0.50 to 1.50). Guests only
 > mirror it so their clock and level readouts agree; the host is the only thing that spawns.
 >
+> **Also 2026-10-12:** `world` gains `lq`, the milliseconds until the host swaps to the next map (a
+> duration, 0 when no change is under way). It starts when everyone is out of the gate, about 1.1s
+> before `lv` moves, so guests fade to black in step with the host; a guest that never sees it (joined
+> mid-map) skips the new map's flythrough and just fades up. See `zombie/CLAUDE.md` "Eleventh".
+>
 > **The 2026-09-19 map revamp changed nothing on the wire, on purpose.** Zombie's nine sectors are
 > painted into a 12×9 grid now instead of being a 3×3 of rectangles, and the perimeter, landmarks
 > and per-sector floors are all new — but the map is still built by every client from one server
@@ -700,4 +705,4 @@ Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: 25b71349 | 2026-10-12 -->
+<!-- doc-sync: c7e88a1f | 2026-10-13 -->

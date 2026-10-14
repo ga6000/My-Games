@@ -23,6 +23,9 @@ Game tags: `hub-zombie`, `long-game`, `hub` (the board itself), `<game-folder>`.
 - 2026-10-11 · hub-zombie · Zombies standing on an active funnel take damage over time, so the funnel itself is crowd control
 - 2026-10-11 · hub-zombie · A throwable on G (frag/stun) with its own small ammo that AMMO drops refill — the one skill-action crowd tool
 
+- 2026-10-12 · hub-zombie · Let any key skip a map's flythrough (local only; the host clock already waits for it). Worth more now: maps 2 to 4 run 14.5 to 18.7s — `zombie/CLAUDE.md` "Eleventh"
+- 2026-10-12 · hub-zombie · The objective beacon and the hurt frame still pop in the frame the intro ends; give them a stepped fade-in too — `zombie/zombie-render.js` `introOn`
+
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)

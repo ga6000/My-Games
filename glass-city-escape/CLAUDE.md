@@ -647,4 +647,4 @@ says the same thing.
 **Level generation uses `MP.random()`, never `Math.random()`** — a stray `Math.random()` in
 `gc-world.js` means two players race different cities.
 
-<!-- doc-sync: 07babfc3 | 2026-09-25 -->
+<!-- doc-sync: 07babfc3 | 2026-10-13 -->
