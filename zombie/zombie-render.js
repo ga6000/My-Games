@@ -3441,7 +3441,11 @@ function updateLoadoutHud(me) {
     const ss = ZOMBIE_ARCADE && sidebarWidth() >= 300 ? 3 : 2;
     // An armed turret is the thing "in hand": the gun tile is not lit too.
     const armedTurret = !!(me.turretHeld && me.turretArmed);
-    let strip = "s" + ss + ":" + (me.turretHeld ? (me.turretArmed ? "T*" : "T") : "") + ":";
+    // The Boomgun: a tile while there is fuel, in hand or banked.
+    const boomFuel = ZOMBIE_ARCADE ? boomFuelMs(me, Date.now()) : 0;
+    const boomOut = boom;
+    let strip = "s" + ss + ":" + (me.turretHeld ? (me.turretArmed ? "T*" : "T") : "") +
+                (boomFuel > 0 ? ":B" + (boomOut ? "*" : "") + Math.ceil(boomFuel / 1000) : "") + ":";
     for (let i = 0; i < WEAPON_KEYS.length; i++) {
         const k = WEAPON_KEYS[i];
         if (!ownsWeapon(me, k)) continue;
@@ -3460,6 +3464,9 @@ function updateLoadoutHud(me) {
         // A carried turret is a tile in the strip, lit while it is armed.
         if (me.turretHeld) {
             h += "<span class='slot turret" + (me.turretArmed ? " on" : "") + "'><i>T</i>TURRET</span>";
+        }
+        if (boomFuel > 0) {
+            h += "<span class='slot turret" + (boomOut ? " on" : "") + "'><i>B</i>BOOM " + Math.ceil(boomFuel / 1000) + "s</span>";
         }
         uiGunStrip.innerHTML = h;
     }
@@ -3749,6 +3756,13 @@ window.addEventListener('keydown', function (e) {
     if (key === 't' && ZOMBIE_ARCADE) {
         const tp = players[0];
         if (tp && tp.turretHeld && !tp.downed) tp.turretArmed = !tp.turretArmed;
+        return;
+    }
+
+    // B or 8: the Boomgun in or out of your hands (its fuel is banked while it is out).
+    if ((key === 'b' || key === '8') && ZOMBIE_ARCADE) {
+        const bp = players[0];
+        if (bp) arcadeBoomToggle(bp, Date.now());
         return;
     }
 

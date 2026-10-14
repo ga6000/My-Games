@@ -412,6 +412,7 @@ function arcadeEnterLevel(level, now, l1) {
         p.reviveProgress = 0;
         p.exited = false;
         p.keys = { up: false, down: false, left: false, right: false, shoot: false };
+        arcadeBoomCarry(p, now);          // the Boomgun's fuel crosses the map change
         p.invulnUntil = now + intro2 + 3000;
     }
     if (cinematic) {
@@ -881,6 +882,71 @@ function boomActive(p, now) {
     return !!p && !p.downed && now < (p.boomUntil || 0);
 }
 
+// THE BOOMGUN IS A GUN YOU CARRY, AND ITS AMMO IS ITS TIME (2026-10-13: "allow
+// for boomgun to be 'unequipped' by switching to another gun. boom gun's ammo
+// in effect is its duration. this can stack. ammo should carry across levels").
+// Two numbers on the player, both ms of fuel:
+//   boomUntil   when it is IN HAND: the deadline (what the renderer, the wire
+//               `bm` and boomActive() already read), draining in real time
+//   boomStore   what is banked while it is NOT in hand: it does not drain
+// Picking one up ADDS BOOM_MS (stacks, up to BOOM_MAX_MS) and equips it.
+// Switching to another gun (keys 1-7, the wheel) banks what is left; B or 8
+// takes it back out. A map change and a down bank it too, and a map change
+// puts it back in your hand when the flythrough ends (boomResume).
+const BOOM_MAX_MS = 90000;
+
+function boomFuelMs(p, now) {
+    return Math.max(0, (p.boomUntil || 0) - now) + (p.boomStore || 0);
+}
+
+function arcadeBoomGrant(p, now) {
+    const total = Math.min(BOOM_MAX_MS, boomFuelMs(p, now) + BOOM_MS);
+    p.boomStore = 0;
+    p.boomUntil = now + total;
+    p.boomHeld = 0;
+    p.turretArmed = false;
+    return total;
+}
+
+// Bank what is left and put it away.
+function arcadeBoomUnequip(p, now) {
+    if (!p) return;
+    const left = Math.max(0, (p.boomUntil || 0) - now);
+    if (left > 0) p.boomStore = Math.min(BOOM_MAX_MS, (p.boomStore || 0) + left);
+    p.boomUntil = 0;
+    p.boomHeld = 0;
+}
+
+function arcadeBoomEquip(p, now) {
+    if (!p || p.downed || !(p.boomStore > 0)) return false;
+    p.boomUntil = now + p.boomStore;
+    p.boomStore = 0;
+    p.boomHeld = 0;
+    p.turretArmed = false;
+    return true;
+}
+
+// B or 8: take it out, or put it away.
+function arcadeBoomToggle(p, now) {
+    if (!p || p.downed) return;
+    if (boomActive(p, now)) arcadeBoomUnequip(p, now);
+    else if (arcadeBoomEquip(p, now)) showToast("BOOMGUN — " + Math.ceil(p.boomUntil / 1000 - now / 1000) + "s", 1400);
+}
+
+// A map change: bank it now (the flythrough is not fuel), and hand it back
+// when the controls come back.
+function arcadeBoomCarry(p, now) {
+    if (boomActive(p, now)) p.boomResume = true;
+    arcadeBoomUnequip(p, now);
+}
+
+// Every step, own players only, from updatePlayers.
+function arcadeBoomResume(p, now) {
+    if (!p.boomResume || arcadeIntroActive(now) || now < arcIntroAt + arcIntroLen) return;
+    p.boomResume = false;
+    arcadeBoomEquip(p, now);
+}
+
 // One step of a bolt. Returns false when it is over (a wall, or its range).
 function boomStep(b) {
     b.x += b.vx;
@@ -1126,10 +1192,8 @@ function arcadeApplyTake(msg, now) {
         showToast((p ? "YOU" : (who || "SOMEONE")) + " TOOK THE " + dropLabel({ type: "gun", item: msg.it }), 1600);
     } else if (msg.t === "boomgun") {
         if (p) {
-            p.boomUntil = now + BOOM_MS;
-            p.boomHeld = 0;
-            p.turretArmed = false;
-            showToast("BOOMGUN — HOLD TO SPIN UP", 2200);
+            const total = arcadeBoomGrant(p, now);
+            showToast(total > BOOM_MS ? "BOOMGUN +" + (BOOM_MS / 1000) + "s — " + Math.round(total / 1000) + "s" : "BOOMGUN — HOLD TO SPIN UP", 2200);
         } else {
             showToast((who || "SOMEONE") + " HAS THE BOOMGUN", 1600);
         }

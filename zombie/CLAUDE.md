@@ -63,6 +63,19 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Thirteenth, addendum: the Boomgun is carried, and its ammo is its time (2026-10-13)
+
+`p.boomUntil` is still the in-hand deadline (the renderer, the wire `bm` and `boomActive()` read it);
+**`p.boomStore`** banks the fuel while it is out of your hands and does not drain. Picking one up **adds**
+`BOOM_MS` (stacks to `BOOM_MAX_MS` 90s) and equips it (`arcadeBoomGrant`). **Switching to another gun** (keys
+1-7, the wheel: `selectWeapon` / `cycleWeapon`) banks what is left; **B or 8** takes it back out
+(`arcadeBoomToggle`); the gun strip shows a BOOM tile with its seconds whether in hand or banked. **A map
+change and a down bank it** (`arcadeBoomCarry`; a map change hands it back when the flythrough ends,
+`boomResume` / `arcadeBoomResume`). Previously it expired on a down and ran down through every
+flythrough. **Turrets:** one carried at a time was already the rule (`TURRET HELD` refuses a second pickup);
+unchanged. Headless: grant 15s, 5s used, switch banks 10s, 20s idle keeps 10s, B restores it, a second
+pickup stacks to 25s, 9 pickups cap at 90s, a map change banks 20s and gives 20s back.
+
 ### Thirteenth: an attract run and a party ready screen (2026-10-13)
 
 Closes `../HUB_RETROSPECTIVE.md` §5 item 2 (arcade-side playtest fixes). **`zombie-lobby.js`**, script #25,
@@ -3341,4 +3354,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 77617a76 | 2026-10-13 -->
+<!-- doc-sync: 015050ff | 2026-10-14 -->

@@ -1441,7 +1441,7 @@ function updatePlayers(now, dt) {
         // hold LAST STAND, which is the whole of that perk.
         let fireKey = currentWeaponKey(p);
         if (p.downed) {
-            p.boomUntil = 0;     // the BOOMGUN does not survive a down
+            if (p.boomUntil) arcadeBoomUnequip(p, now);     // a down puts the BOOMGUN away; its fuel is kept
             if (netIsHost && p.bleedDeadline && now >= p.bleedDeadline) {
                 sendDeath(netIdFor(p));
                 killLocalPlayer(p);
@@ -1452,6 +1452,7 @@ function updatePlayers(now, dt) {
         }
 
         // ARCADE: the BOOMGUN replaces the gun in hand while it lasts.
+        if (ZOMBIE_ARCADE) arcadeBoomResume(p, now);
         if (ZOMBIE_ARCADE && boomActive(p, now)) { arcadeBoomTick(p, now, dt); continue; }
 
         // Shooting

@@ -520,4 +520,4 @@ for, which is the design. Un-voting re-locked it; re-voting opened it. All three
 and landed in Zombie. Alone in a room, one vote opens it. A second player joining re-locked it on
 the first player's screen. Looked at, 1280×720: the dimmed button reads as *waiting*, not broken.
 
-<!-- doc-sync: c7e88a1f | 2026-10-13 -->
+<!-- doc-sync: 4603554d | 2026-10-14 -->

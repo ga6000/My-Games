@@ -431,6 +431,7 @@ function weaponUsable(p, key) {
 function selectWeapon(p, key) {
     if (!p || !weaponUsable(p, key)) return false;
     p.weapon = key;
+    if (ZOMBIE_ARCADE && typeof arcadeBoomUnequip === "function") arcadeBoomUnequip(p, Date.now());   // another gun: the Boomgun is banked
     return true;
 }
 
@@ -467,6 +468,7 @@ function cycleWeapon(p, dir) {
     const k = nextUsableWeapon(p, currentWeaponKey(p), dir < 0 ? -1 : 1);
     if (k === currentWeaponKey(p)) return false;
     p.weapon = k;
+    if (ZOMBIE_ARCADE && typeof arcadeBoomUnequip === "function") arcadeBoomUnequip(p, Date.now());
     return true;
 }
 

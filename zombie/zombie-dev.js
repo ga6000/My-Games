@@ -179,10 +179,8 @@ var zDevActions = [
         fn: function () {
             const p = zDevPlayer();
             if (!p) return "no local player";
-            p.boomUntil = Date.now() + BOOM_MS;
-            p.boomHeld = 0;
-            p.turretArmed = false;
-            return "15s — spin up takes 1s, then it climbs to a shot every " + BOOM_CD_MIN + "ms";
+            const total = arcadeBoomGrant(p, Date.now());
+            return Math.round(total / 1000) + "s banked (stacks) — spin up takes 1s, then it climbs to a shot every " + BOOM_CD_MIN + "ms";
         }
     },
     {
