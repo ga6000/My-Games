@@ -321,7 +321,10 @@ let hudSeenPower = false;       // the first time the lights come on this run
 let hudAbsentUntil = 0;         // ...the absent perks are announced until then
 
 function hudReset() {
-    hudGunSig = hudAmmoSig = hudStripSig = hudPerkSig = "";
+    // "?" not "": an empty perk set computes to "", so "" would match and leave
+    // the previous run's tiles on screen until a perk changed the signature.
+    hudGunSig = hudAmmoSig = hudStripSig = "";
+    hudPerkSig = "?";
     hudSeenPower = false;
     hudAbsentUntil = 0;
     helpSig = "";
@@ -438,7 +441,7 @@ function mapGoals() {
 function arcadeMapGoals() {
     const goals = [];
     for (let k = 0; k < funnels.length; k++) {
-        const where = funnels[k] ? zoneName(funnels[k].zone) : "";
+        const where = "";                 // the sector names are the walled build's
         const full = siloFill[k] >= siloCapacity(k);
         goals.push({
             text: "Charge fuel tank " + (k + 1),
@@ -453,8 +456,8 @@ function arcadeMapGoals() {
     goals.push({
         text: "Get everyone out of the south gate",
         short: "EVERYONE TO THE GATE",
-        where: zoneAt(escapeRect),
-        note: "it opens " + Math.round(ESCAPE_OPEN_MS / 1000) + "s after tank 3 — every player still standing has to be there",
+        where: "",
+        note: "it opens " + Math.round(ESCAPE_OPEN_MS / 1000) + "s after the last tank — every player still standing has to be there",
         progress: escapeAt ? (escapeOpen() ? g.at + "/" + g.of : Math.ceil((escapeAt - Date.now()) / 1000) + "s") : "",
         done: won
     });
@@ -490,9 +493,89 @@ function renderHelp(force) {
 
     // The one goal that cannot be done alone, said plainly.
     const alone = !netOnline || teamSize() < 2;
-    uiGoalNote.innerHTML = (alone && gateStage < GATE_STAGES)
-        ? "The sluice gate needs <b>two players</b>. Alone, a run is survival until you go down."
-        : "Round " + round + (roundPhase === "intermission" ? " — breather" : "") + ".";
+    uiGoalNote.innerHTML = ZOMBIE_ARCADE
+        ? "Only survivors at the gate count. Revive a teammate or leave them."
+        : (alone && gateStage < GATE_STAGES)
+            ? "The sluice gate needs <b>two players</b>. Alone, a run is survival until you go down."
+            : "Round " + round + (roundPhase === "intermission" ? " — breather" : "") + ".";
+}
+
+// THE PICKUP GUIDE (2026-10-13): every drop in the ESC menu -- what it looks
+// like, what it does, a line of flavour. Built once (it never changes).
+const GUIDE_TEAM = [
+    ["AMMO", "A", "#FFB000", "Refills every gun the whole team owns.", "Somebody left the crate unlocked. Somebody always does."],
+    ["OVERCLOCK", "O", "#FFB000", "The whole team fires and moves faster for 6 seconds.", "Don't ask what's in the needle."],
+    ["RALLY", "R", "#FFB000", "Stands a downed teammate back up. Alone, it is stored and saves you once.", "Get up. Nobody told you that you could stop."],
+    ["FUEL", "F", "#FFB000", "Adds 4 kills to the tank that is filling.", "It's mostly what's left of the last crowd."],
+    ["SHOCKWAVE", "S", "#FFB000", "A blast that throws the swarm back from you.", "The ground remembers every step taken on it."],
+    ["FREEZE", "Z", "#FFB000", "Holds everything near you still for 4 seconds.", "They stop. They don't stop watching."],
+    ["TURRET", "T", "#00E5FF", "Carried, then placed with a click. Shoots nearby zombies for 15 seconds.", "It doesn't get tired. It doesn't get scared either."],
+    ["BOOMGUN", "B", "#FFE680", "A cannon that gets faster the longer you hold the trigger. Its ammo is its time.", "Subtle was never on the shelf."]
+];
+const GUIDE_HAZARD = [
+    ["MUD", "M", "Slows you to half speed for 5 seconds.", "The road is not what it was."],
+    ["FLARE", "!", "A ring of zombies lands around you.", "Somebody wants you found."],
+    ["JAM", "J", "Your gun will not fire for 2.5 seconds.", "Something got into the action."]
+];
+const GUIDE_GUNS = {
+    rifle:   "Steady, accurate, dependable. Takes anything it's given.",
+    shotgun: "A wide spread at close range. Make them come to you.",
+    smg:     "A needle stream. Burns ammo faster than you can count it.",
+    sniper:  "One long line through everything in it.",
+    flamer:  "Holds a lit trigger. Anything touched keeps burning.",
+    rocket:  "A direct hit and a wide blast. Clears a corner."
+};
+const GUIDE_PERK_FLAVOR = {
+    overdrive: "Past the red line is where it gets honest.",
+    ricochet:  "Nothing here stays where you put it.",
+    attract:   "It pulls, quietly, the way a drain does.",
+    spite:     "If they're going to take you, they're taking something too.",
+    arc:       "One goes. The next one feels it.",
+    blastcap:  "The last thing a zombie does is get loud.",
+    skewer:    "Why stop at one.",
+    laststand: "Down is a position. It is not a verdict.",
+    salvage:   "You'd be amazed what comes back off a body.",
+    seeker:    "You pointed. It took the rest personally."
+};
+let guideBuilt = false;
+function renderPickupGuide() {
+    if (guideBuilt) return;
+    const box = document.getElementById('itemList');
+    if (!box) return;
+    guideBuilt = true;
+    const row = function (icon, name, does, flavor, cls) {
+        return "<div class='it " + (cls || "") + "'><span class='ico'>" + icon + "</span><span class='itx'><b>" + name +
+               "</b><span class='does'>" + does + "</span><span class='flv'>" + flavor + "</span></span></div>";
+    };
+    const glyph = function (g, col) {
+        return "<span class='glyph' style='border-color:" + col + ";color:" + col + "'>" + g + "</span>";
+    };
+    let h = "<div class='itsec'>PERKS &mdash; red border, a colour of their own &mdash; hold up to " + CARD_SLOTS + ", each stacks to x" + CARD_MAX_STACK + "</div>";
+    for (let i = 0; i < DROP_PERKS.length; i++) {
+        const k = DROP_PERKS[i], c = CARDS[k];
+        if (!c) continue;
+        const tint = PERK_TINT[k] || "#552200";
+        const tile = "<span class='tile' style='background:" + tint + ";border-color:" + ICON_WORLD_HUE + "'>" +
+                     iconImg("perk", k, 3, "#FFFFFF") + "</span>";
+        h += row(tile, c.name, c.blurb + ". " + c.detail, GUIDE_PERK_FLAVOR[k] || "");
+    }
+    h += "<div class='itsec'>GUNS &mdash; cyan border &mdash; one taker, walk over it</div>";
+    for (let i = 0; i < DROP_GUNS.length; i++) {
+        const k = DROP_GUNS[i][1], w = WEAPONS[k];
+        if (!w) continue;
+        h += row("<span class='tile' style='background:#000;border-color:" + ICON_CYAN + "'>" + iconImg("gun", k, 2, ICON_CYAN) + "</span>", w.name, "Drops from level " + DROP_GUNS[i][0] + " on.", GUIDE_GUNS[k] || "");
+    }
+    h += "<div class='itsec'>TEAM &amp; SPECIAL &mdash; amber border, cyan for the turret, yellow for the Boomgun</div>";
+    for (let i = 0; i < GUIDE_TEAM.length; i++) {
+        const t = GUIDE_TEAM[i];
+        h += row(glyph(t[1], t[2]), t[0], t[3], t[4]);
+    }
+    h += "<div class='itsec' style='color:#FF2233'>HAZARDS &mdash; do not step</div>";
+    for (let i = 0; i < GUIDE_HAZARD.length; i++) {
+        const t = GUIDE_HAZARD[i];
+        h += row(glyph(t[1], "#FF2233"), t[0], t[2], t[3], "haz");
+    }
+    box.innerHTML = h;
 }
 
 function releaseHeldKeys() {
@@ -506,6 +589,7 @@ function openHelp() {
     helpOpen = true;
     releaseHeldKeys();
     uiHelp.classList.add('open');
+    renderPickupGuide();
     renderHelp(true);
 }
 
@@ -567,6 +651,7 @@ function draw() {
     drawGenerator(inView, now);
     drawCardStations(inView, now);
     drawWallBuys(inView);
+    if (ZOMBIE_ARCADE) drawTrays(inView);
     drawPickups(now, inView);
     drawDecoys(now);
     drawWalls(inView);
@@ -584,6 +669,7 @@ function draw() {
     drawBarricades(inView);
     drawBlasts(now);
     drawZombies(now, inView);
+    if (ZOMBIE_ARCADE) arcadeDrawBandOver(now, inView);
     if (ZOMBIE_ARCADE) { drawFreeze(now, inView); drawTurrets(now, inView); }
     if (ZOMBIE_ARCADE) arcadeDrawTall(now, inView);   // tanks and trees over what stands behind them
     drawBolts(now);
@@ -600,7 +686,7 @@ function draw() {
     const introOn = ZOMBIE_ARCADE && arcadeIntroActive(now);
     // ARCADE: its own light (daylight outside, a dark warehouse, real windows).
     // 2026-10-08: the intro shows the lighting too (it used to skip it).
-    if (ZOMBIE_ARCADE) arcadeDrawLighting(); else drawLighting();
+    if (ZOMBIE_ARCADE) { arcadeDrawLighting(); arcadeDrawBladeShade(); } else drawLighting();
     if (ZOMBIE_ARCADE) {
         arcadeDrawLamps();                // the orange lamps, and their pools
         drawBoomBolts(Date.now());        // over the darkness: it is the brightest thing there is
@@ -701,7 +787,7 @@ function drawWalls(inView) {
         const w = walls[i];
         if (!inView(w.x, w.y, w.w, w.h)) continue;
         // ARCADE: trees and tanks are drawn tall later; the gate's art covers its bar.
-        if (w.tree || w.silo || w.gateBar || w.entryBar || w.setProp || w.window) continue;
+        if (w.tree || w.silo || w.gateBar || w.entryBar || w.setProp || w.window || w.zpass) continue;
         // Sampled at the CENTRE. A boundary wall is centred on the line
         // between two sectors, so its own corner can sit in either one and
         // sampling x,y made a run flicker between two palettes along its
@@ -1221,11 +1307,76 @@ function drawSiloPipes(now, inView) {
     }
 }
 
+// A pulse (tank switch, stored rally) reads as WIND, not a ring: short curved
+// streaks swept round the centre while the whole front rolls outward.
+// Flat strokes only (no gradients), whole-pixel widths.
+function drawWindBlast(b, t) {
+    const r = b.r * (0.12 + 0.88 * t);
+    const fade = Math.max(0, 1 - t * t);
+    const STREAKS = 28;
+    ctx.lineCap = "butt";
+    for (let i = 0; i < STREAKS; i++) {
+        const k = (i * 0.618034) % 1;                   // stable per-streak jitter
+        const rr = r * (0.55 + 0.45 * k);
+        const a0 = (i / STREAKS) * Math.PI * 2 + t * 2.4 + k * 3;
+        const len = 0.22 + 0.2 * k;
+        ctx.globalAlpha = fade * (0.35 + 0.5 * k);
+        ctx.strokeStyle = k > 0.6 ? "#FFFFFF" : "#BFE3EE";
+        ctx.lineWidth = k > 0.5 ? 3 : 2;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, rr, a0, a0 + len);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+}
+
+// The pixel skull: 8x8, flat white, shot upward off the player on a stored
+// RALLY. `rallySkulls` entries are {x, y, born}; expiry is by clock.
+const SKULL_ROWS = [
+    "..XXXX..",
+    ".XXXXXX.",
+    "XXXXXXXX",
+    "X..XX..X",
+    "X..XX..X",
+    "XXXXXXXX",
+    ".XXXXXX.",
+    ".X.XX.X.",
+];
+const SKULL_LIFE_MS = 1400;
+const SKULL_RISE_PX = 260;
+function drawRallySkulls(now) {
+    if (typeof rallySkulls === "undefined") return;
+    for (let i = rallySkulls.length - 1; i >= 0; i--) {
+        const s = rallySkulls[i];
+        const t = (now - s.born) / SKULL_LIFE_MS;
+        if (t > 1) { rallySkulls.splice(i, 1); continue; }
+        if (t < 0) continue;
+        const e = 1 - (1 - t) * (1 - t);                // fast off, slows as it climbs
+        const px = 5;
+        const x0 = Math.round(s.x - 4 * px);
+        const y0 = Math.round(s.y - e * SKULL_RISE_PX - 4 * px);
+        ctx.globalAlpha = t < 0.7 ? 1 : Math.max(0, (1 - t) / 0.3);
+        ctx.fillStyle = "#FFFFFF";
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (SKULL_ROWS[r][c] === "X") ctx.fillRect(x0 + c * px, y0 + r * px, px, px);
+            }
+        }
+        ctx.fillStyle = "#000000";                      // eyes read as holes
+        ctx.globalAlpha = ctx.globalAlpha;
+        ctx.fillRect(x0 + 1 * px, y0 + 3 * px, 2 * px, 2 * px);
+        ctx.fillRect(x0 + 5 * px, y0 + 3 * px, 2 * px, 2 * px);
+        ctx.globalAlpha = 1;
+    }
+}
+
 function drawBlasts(now) {
+    drawRallySkulls(now);
     for (let i = 0; i < blasts.length; i++) {
         const b = blasts[i];
         const t = (now - b.born) / b.life;
         if (t < 0 || t > 1) continue;
+        if (b.wind) { drawWindBlast(b, t); continue; }
         const r = b.r * (0.25 + 0.75 * t);
 
         ctx.globalAlpha = Math.max(0, 1 - t);
@@ -2055,6 +2206,11 @@ function drawTraps(now, inView) {
 // were 110x28, "awkwardly large at 4x+ the player's size". The frame colour
 // says who it is for: CYAN a gun, WORLD HUE a perk (both one taker, F),
 // AMBER the team (walk over). Blinks for its last few seconds.
+// The colour inside a perk's red border: one per perk, dark enough that the
+// white icon reads on every one.
+const PERK_TINT = { overdrive: "#9A5A00", ricochet: "#00667A", attract: "#7A1F7A", spite: "#5A2AA0", arc: "#1F4FB0",
+                    blastcap: "#A03A00", skewer: "#2A7A2A", laststand: "#8A1A2A", salvage: "#5A6A1A", seeker: "#006A5A",
+                    scavenger: "#6A5A20", decoy: "#4A4A6A", conductor: "#3A5A8A" };
 const DROP_FRAME = { gun: ICON_CYAN, perk: ICON_WORLD_HUE, turret: ICON_CYAN, boomgun: "#FFE680" };
 const DROP_GLYPH = { ammo: "A", overclock: "O", rally: "R", fuel: "F", shock: "S", freeze: "Z", turret: "T", boomgun: "B",
                      mud: "M", flare: "!", jam: "J" };
@@ -2080,20 +2236,34 @@ function drawDrop(pu, now) {
         return;
     }
     const frame = DROP_FRAME[pu.type] || COLOR_PICKUP;
+    // PERKS HOVER (2026-10-13): a whole-pixel bob over a flat shadow that
+    // narrows as the drop rises. Collision stays on the ground rect.
+    const isPerk = pu.type === "perk";
+    const bob = isPerk ? Math.round(3 + Math.sin(now / 260 + (pu.id || 0)) * 3) : 0;   // 0..6px up
+    const py = pu.y - bob;
+    if (isPerk) {
+        const sh = Math.max(4, Math.round(s * (0.9 - bob * 0.04)));
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(Math.round(pu.x + (s - sh) / 2), pu.y + s + 3, sh, 5);
+    }
     ctx.fillStyle = "#000000";
-    ctx.fillRect(pu.x - 2, pu.y - 2, s + 4, s + 4);
+    ctx.fillRect(pu.x - 2, py - 2, s + 4, s + 4);
+    if (isPerk) {                       // the perk's own colour inside the border
+        ctx.fillStyle = PERK_TINT[pu.item] || "#552200";
+        ctx.fillRect(pu.x, py, s, s);
+    }
     ctx.fillStyle = frame;
-    ctx.fillRect(pu.x - 2, pu.y - 2, s + 4, 2);
-    ctx.fillRect(pu.x - 2, pu.y + s, s + 4, 2);
-    ctx.fillRect(pu.x - 2, pu.y, 2, s);
-    ctx.fillRect(pu.x + s, pu.y, 2, s);
+    ctx.fillRect(pu.x - 2, py - 2, s + 4, 2);
+    ctx.fillRect(pu.x - 2, py + s, s + 4, 2);
+    ctx.fillRect(pu.x - 2, py, 2, s);
+    ctx.fillRect(pu.x + s, py, 2, s);
     const icon = pu.type === "gun" ? gunIcon(pu.item, ICON_CYAN)
-               : pu.type === "perk" ? perkIcon(pu.item, ICON_WORLD_HUE) : null;
+               : isPerk ? perkIcon(pu.item, "#FFFFFF") : null;
     if (icon) {
         // Fit the bitmap inside the frame at a whole-pixel scale.
         const k = Math.max(1, Math.floor(Math.min((s - 2) / icon.width, (s - 2) / icon.height)));
         const w = icon.width * k, h = icon.height * k;
-        ctx.drawImage(icon, Math.round(pu.x + (s - w) / 2), Math.round(pu.y + (s - h) / 2), w, h);
+        ctx.drawImage(icon, Math.round(pu.x + (s - w) / 2), Math.round(py + (s - h) / 2), w, h);
     } else {
         ctx.fillStyle = frame;
         ctx.font = "bold 16px Courier";
@@ -2203,6 +2373,48 @@ function drawBoomBolts(now) {
     for (let i = 0; i < boomBolts.length; i++) draw(boomBolts[i]);
     for (let i = 0; i < boomLocal.length; i++) draw(boomLocal[i]);
     ctx.restore();
+}
+
+// THE START TRAYS: a concrete slab with a lip, and a recess shaped like the
+// perk it holds (a flat dark silhouette of the icon), so it reads empty or full.
+let traySilCache = {};
+function traySilhouette(item) {
+    if (traySilCache[item]) return traySilCache[item];
+    const ic = perkIcon(item, "#FFFFFF");
+    if (!ic) return null;
+    const c = document.createElement("canvas");
+    c.width = ic.width; c.height = ic.height;
+    const g = c.getContext("2d");
+    g.drawImage(ic, 0, 0);
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = "#26262A";
+    g.fillRect(0, 0, c.width, c.height);
+    traySilCache[item] = c;
+    return c;
+}
+
+function drawTrays(inView) {
+    if (!arcadeHasStart()) return;
+    for (let i = 0; i < TRAY_SLOTS; i++) {
+        const slot = arcadeTraySlot(i), s = TRAY_SIZE, x = slot.x - s / 2, y = slot.y - s / 2;
+        if (!inView(x, y, s, s)) continue;
+        let item = "";
+        for (let q = 0; q < arcTrays.length; q++) if (arcTrays[q].x === slot.x) item = arcTrays[q].item;
+        ctx.fillStyle = "#2E2E31";                         // the slab's drop shadow
+        ctx.fillRect(x + 4, y + 6, s, s);
+        ctx.fillStyle = "#8C8C90";                         // lit lip
+        ctx.fillRect(x, y, s, s);
+        ctx.fillStyle = "#6A6A6E";
+        ctx.fillRect(x + 3, y + 3, s - 6, s - 6);
+        ctx.fillStyle = "#4C4C50";                         // the recess floor
+        ctx.fillRect(x + 8, y + 8, s - 16, s - 16);
+        const sil = item ? traySilhouette(item) : null;
+        if (sil) {
+            const k = Math.max(1, Math.floor((PERK_DROP_SIZE - 2) / Math.max(sil.width, sil.height)));
+            const w = sil.width * k, h = sil.height * k;
+            ctx.drawImage(sil, Math.round(slot.x - w / 2), Math.round(slot.y - h / 2), w, h);
+        }
+    }
 }
 
 function drawPickups(now, inView) {
@@ -3913,6 +4125,7 @@ function gameLoop(ts) {
     zLastDraw = now;
     zFrameCount++;                             // drives the flicker budget
 
+    if (typeof inputFrame === "function") inputFrame(now);     // pad + touch (zombie-input.js), read by the step below
     stepSimulation(now, Z_MAX_STEPS);
     if (typeof lobbyFrame === "function") lobbyFrame(now);     // the ready screen, before a run
     // Driven from the LOOP, not from update(): update() returns early while

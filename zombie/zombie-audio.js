@@ -744,3 +744,128 @@ function sndFirework() {
     tone(150 + Math.random() * 60, 55, "sine", 0.22, 0.14, 0);
     noise(0.18, 0.12, 2400 + Math.random() * 1500, 0.8, 0);
 }
+
+// ---------------------------------------------------
+//   BLACKOUT SOUNDS (2026-10-13)
+// ---------------------------------------------------
+// Two non-positional voices straight to the master bus (like the siren): the
+// power is the whole map's, not a place. The SURGE grows -- a rising saw with
+// a mains hum under it and a faster and faster flutter -- and the OUTAGE is
+// the cut: a click, a falling whine and a low thud as everything spins down.
+function sndPowerSurge(ms) {
+    if (!audioCtx || audioMuted) return;
+    try {
+        const t0 = audioCtx.currentTime, d = ms / 1000;
+        const out = audioCtx.createGain();
+        out.gain.setValueAtTime(0.0001, t0);
+        out.gain.exponentialRampToValueAtTime(0.32, t0 + d);
+        out.gain.setValueAtTime(0.0001, t0 + d + 0.02);
+        out.connect(audioMaster);
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.setValueAtTime(400, t0);
+        lp.frequency.exponentialRampToValueAtTime(5200, t0 + d);
+        lp.connect(out);
+        const saw = audioCtx.createOscillator();
+        saw.type = "sawtooth";
+        saw.frequency.setValueAtTime(55, t0);
+        saw.frequency.exponentialRampToValueAtTime(880, t0 + d);
+        saw.connect(lp);
+        saw.start(t0); saw.stop(t0 + d + 0.05);
+        const hum = audioCtx.createOscillator();      // the mains, swelling
+        hum.type = "square";
+        hum.frequency.setValueAtTime(60, t0);
+        hum.frequency.linearRampToValueAtTime(120, t0 + d);
+        const hg = audioCtx.createGain();
+        hg.gain.value = 0.5;
+        hum.connect(hg); hg.connect(lp);
+        hum.start(t0); hum.stop(t0 + d + 0.05);
+        // The flutter: amplitude chopped faster as it grows.
+        const lfo = audioCtx.createOscillator();
+        lfo.frequency.setValueAtTime(5, t0);
+        lfo.frequency.exponentialRampToValueAtTime(38, t0 + d);
+        const lg = audioCtx.createGain();
+        lg.gain.value = 0.35;
+        lfo.connect(lg); lg.connect(out.gain);
+        lfo.start(t0); lfo.stop(t0 + d + 0.05);
+    } catch (e) { /* audio is never worth a throw */ }
+}
+
+function sndPowerOut() {
+    if (!audioCtx || audioMuted) return;
+    try {
+        const t0 = audioCtx.currentTime;
+        const out = audioCtx.createGain();
+        out.gain.setValueAtTime(0.5, t0);
+        out.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.6);
+        out.connect(audioMaster);
+        const whine = audioCtx.createOscillator();    // spin-down
+        whine.type = "sawtooth";
+        whine.frequency.setValueAtTime(700, t0);
+        whine.frequency.exponentialRampToValueAtTime(34, t0 + 1.3);
+        const wl = audioCtx.createBiquadFilter();
+        wl.type = "lowpass";
+        wl.frequency.setValueAtTime(3000, t0);
+        wl.frequency.exponentialRampToValueAtTime(120, t0 + 1.3);
+        whine.connect(wl); wl.connect(out);
+        whine.start(t0); whine.stop(t0 + 1.7);
+        const thud = audioCtx.createOscillator();     // the breaker
+        thud.type = "sine";
+        thud.frequency.setValueAtTime(95, t0);
+        thud.frequency.exponentialRampToValueAtTime(28, t0 + 0.35);
+        const tg = audioCtx.createGain();
+        tg.gain.setValueAtTime(0.9, t0);
+        tg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+        thud.connect(tg); tg.connect(audioMaster);
+        thud.start(t0); thud.stop(t0 + 0.55);
+        const clk = audioCtx.createOscillator();      // the click
+        clk.type = "square";
+        clk.frequency.value = 1900;
+        const cg = audioCtx.createGain();
+        cg.gain.setValueAtTime(0.25, t0);
+        cg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.04);
+        clk.connect(cg); cg.connect(audioMaster);
+        clk.start(t0); clk.stop(t0 + 0.05);
+    } catch (e) { /* ignore */ }
+}
+
+// Power coming back: a rising whine and a swelling hum with a relay clunk,
+// stuttered like the lights are. Straight to the master bus.
+function sndPowerUp(ms) {
+    if (!audioCtx || audioMuted) return;
+    try {
+        const t0 = audioCtx.currentTime, d = ms / 1000 + 0.25;
+        const out = audioCtx.createGain();
+        out.gain.setValueAtTime(0.0001, t0);
+        out.gain.exponentialRampToValueAtTime(0.3, t0 + d * 0.8);
+        out.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.3);
+        out.connect(audioMaster);
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = "lowpass";
+        lp.frequency.setValueAtTime(200, t0);
+        lp.frequency.exponentialRampToValueAtTime(4000, t0 + d);
+        lp.connect(out);
+        const o = audioCtx.createOscillator();
+        o.type = "sawtooth";
+        o.frequency.setValueAtTime(40, t0);
+        o.frequency.exponentialRampToValueAtTime(520, t0 + d);
+        o.connect(lp);
+        o.start(t0); o.stop(t0 + d + 0.35);
+        const lfo = audioCtx.createOscillator();      // the stutter
+        lfo.frequency.value = 14;
+        const lg = audioCtx.createGain();
+        lg.gain.value = 0.25;
+        lfo.connect(lg); lg.connect(out.gain);
+        lfo.start(t0); lfo.stop(t0 + d + 0.35);
+        const clunk = audioCtx.createOscillator();    // the breaker closing
+        clunk.type = "sine";
+        clunk.frequency.setValueAtTime(70, t0 + d);
+        clunk.frequency.exponentialRampToValueAtTime(40, t0 + d + 0.2);
+        const cg = audioCtx.createGain();
+        cg.gain.setValueAtTime(0.0001, t0);
+        cg.gain.setValueAtTime(0.7, t0 + d);
+        cg.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.3);
+        clunk.connect(cg); cg.connect(audioMaster);
+        clunk.start(t0); clunk.stop(t0 + d + 0.35);
+    } catch (e) { /* ignore */ }
+}

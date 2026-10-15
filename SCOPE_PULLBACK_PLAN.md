@@ -19,6 +19,10 @@ are run after each phase.
 
 ## 1. Mobile support: switched off, not deleted-with-prejudice
 
+> **2026-10-14: ZOMBIE has gamepad and phone touch controls again**, on the user's request
+> (`zombie/INPUT_PLAN.md`, `zombie/zombie-input.js`). That is Zombie only; the rest of this section
+> still describes the other cards.
+
 The friend group is not on mobile. Two games carry real mobile control schemes; every
 other game carries nothing but a `<meta name="viewport">` tag.
 

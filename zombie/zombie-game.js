@@ -146,7 +146,9 @@ const EVENT_CAP = 10;
 let blasts = [];
 
 function addBlast(x, y, radius) {
-    blasts.push({ x: x, y: y, r: radius || 190, born: Date.now(), life: 420 });
+    // A tank pulse (radius PULSE_R) is drawn as wind and lingers longer.
+    const wind = typeof PULSE_R !== "undefined" && radius === PULSE_R;
+    blasts.push({ x: x, y: y, r: radius || 190, born: Date.now(), life: wind ? 800 : 420, wind: wind });
     if (blasts.length > 24) blasts.shift();
 }
 
@@ -1421,6 +1423,12 @@ function updatePlayers(now, dt) {
             const len = Math.hypot(vx, vy);
             vx = (vx / len) * speed;
             vy = (vy / len) * speed;
+        }
+        // A stick or touch pad (zombie-input.js): analog, magnitude 0..1. It
+        // never overrides the walk-out, which owns p.keys once you are through.
+        if (p.moveVec && !p.exited && (p.moveVec.x || p.moveVec.y)) {
+            vx = p.moveVec.x * speed;
+            vy = p.moveVec.y * speed;
         }
 
         moveWithCollisions(p, vx, vy, true, false);

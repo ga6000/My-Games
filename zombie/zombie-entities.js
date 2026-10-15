@@ -171,10 +171,10 @@ function zombieDisplayName(key) {
 // station prompt no longer prints either -- the playtest found a sentence
 // on a world prompt hard to read mid-fight -- so each perk carries an
 // ICON instead (zombie-icons.js), and the words live in the field manual.
-// ARCADE: six (2026-10-07, "allow for stacking up to 6 perks") -- six
-// different perks held at once. Each perk's own stack still tops out at x3
+// ARCADE: four (2026-10-13, "reduce max pick-up perks to 4"; six from
+// 2026-10-07) -- four different perks held at once. Each perk's own stack still tops out at x3
 // (CARD_MAX_STACK): every per-stack table is written to x3.
-const CARD_SLOTS = ZOMBIE_ARCADE ? 6 : 3;
+const CARD_SLOTS = ZOMBIE_ARCADE ? 4 : 3;
 const CARDS = {
     overdrive: { name: "OVERDRIVE",  cost: 11000, blurb: "FIRE RATE UP",
                  detail: "Shot cooldown x0.65 / x0.5 / x0.4 — roughly +55% / +100% / +150% fire rate." },
@@ -321,6 +321,12 @@ function spawnPlayer(keepCards) {
 
         keys: { up: false, down: false, left: false, right: false, shoot: false }
     };
+
+    // ARCADE MAP 1: you start on the strip under the trays, spread across it.
+    if (ZOMBIE_ARCADE && typeof arcadeHasStart === "function" && arcadeHasStart() && !keepCards) {
+        p.x = WORLD_W / 2 + (hashToUnit(netToken) - 0.5) * 300 - 8;
+        p.y = WORLD_H / 2 + START_SPAWN_DY;
+    }
 
     // A FRIEND JOINING A RUN IN PROGRESS (2026-09-19: "welcoming to other
     // friends joining in mid game"). They used to appear at the keep, alone,

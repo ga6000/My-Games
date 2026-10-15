@@ -188,8 +188,102 @@ function arcadeAliveCap() {
     return Math.round((ARC_CAP_BASE + ARC_CAP_PER * teamSize()) * arcDiffCap());
 }
 
+// ---------------------------------------------------
+//   BLACKOUT (2026-10-13)
+// ---------------------------------------------------
+// Back in the arcade ("add power outage sound, a growing power surge right
+// before it, all lights die except flashlight, ambient drops to 10%").
+// CADENCE (2026-10-13): one or two outages a run, at random. The marks are
+// run-seconds (summed across maps), drawn at the start of the run: the first
+// 25-90s in, a second (50%) 60-150s after it. Each lasts BO_OUT_MS.
+//
+//   SURGE   BO_SURGE_MS: the lights brighten and stutter, the surge sound grows
+//   OUTAGE  BO_OUT_MS: every lamp, sun shaft, drop glow and the exit flood is
+//           dead; the ambient is BO_AMBIENT (10%) light; flashlights stay
+//   RESTORE BO_RESTORE_MS: the power stutters back on, with a power-up sound
+//
+// The HOST schedules it and sends `bo: [id, ms to outage, ms to end]` (remaining
+// durations, never timestamps); every client derives the phase from its own
+// clock and plays the two sounds itself, once each per id.
+const BO_SURGE_MS = 1800;
+const BO_OUT_MS = 15000;
+const BO_RESTORE_MS = 900;
+const BO_AMBIENT = 0.10;
+let boId = 0, boOutAt = 0, boEndAt = 0;
+let boMarks = [];                 // HOST: run-seconds still to come
+let boSurgePlayed = false, boOutPlayed = false, boUpPlayed = false;
+
+// Clears an event under way (a map change, a restart); the run's marks stay.
+function arcadeBlackoutReset() {
+    boOutAt = boEndAt = 0;
+    boSurgePlayed = boOutPlayed = boUpPlayed = false;
+}
+
+// HOST, from arcadeStart: draw this run's outages.
+function arcadeBlackoutPlan() {
+    boMarks = [25 + Math.random() * 65];
+    if (Math.random() < 0.5) boMarks.push(boMarks[0] + 60 + Math.random() * 90);
+}
+
+// HOST, from updateArcadeWave (after the intro).
+function arcadeBlackoutSchedule(now) {
+    if (typeof zDemo !== "undefined" && zDemo) { boOutAt = boEndAt = 0; return; }   // no outages in the attract run
+    if (!boMarks.length || boEndAt > now || arcadeRunSeconds(now) < boMarks[0]) return;
+    boMarks.shift();
+    boId++;
+    boSurgePlayed = boOutPlayed = boUpPlayed = false;
+    boOutAt = now + BO_SURGE_MS;
+    boEndAt = boOutAt + BO_OUT_MS;
+}
+
+// Guest, from a world snapshot.
+function arcadeBlackoutApply(bo, now) {
+    if (!Array.isArray(bo) || bo.length < 3) return;
+    if (bo[0] !== boId) { boId = bo[0]; boSurgePlayed = boOutPlayed = boUpPlayed = false; }
+    boOutAt = now + bo[1];
+    boEndAt = now + bo[2];
+}
+
+function arcadeBlackoutWire(now) {
+    return (boEndAt > now) ? [boId, Math.round(boOutAt - now), Math.round(boEndAt - now)] : 0;
+}
+
+// 0 none, 1 surge, 2 outage, 3 restoring.
+function arcadeBlackoutPhase(now) {
+    if (typeof zDemo !== "undefined" && zDemo) return 0;
+    if (!boEndAt || now >= boEndAt) return 0;
+    if (now < boOutAt - BO_SURGE_MS) return 0;
+    if (now < boOutAt) return 1;
+    if (now < boEndAt - BO_RESTORE_MS) return 2;
+    return 3;
+}
+
+// Every client, every frame from the lighting pass: the two sounds, once.
+// A client that arrives mid-event does not get a late surge or a late click.
+function arcadeBlackoutSounds(now) {
+    if (typeof zDemo !== "undefined" && zDemo) { boOutAt = boEndAt = 0; return; }   // no outages in the attract run
+    if (!boEndAt) return;
+    const surgeAt = boOutAt - BO_SURGE_MS;
+    if (!boSurgePlayed && now >= surgeAt) {
+        boSurgePlayed = true;
+        if (now - surgeAt < 500 && typeof sndPowerSurge === "function") sndPowerSurge(BO_SURGE_MS);
+    }
+    if (!boOutPlayed && now >= boOutAt) {
+        boOutPlayed = true;
+        if (now - boOutAt < 500 && typeof sndPowerOut === "function") sndPowerOut();
+    }
+    const upAt = boEndAt - BO_RESTORE_MS;
+    if (!boUpPlayed && now >= upAt) {
+        boUpPlayed = true;
+        if (now - upAt < 500 && typeof sndPowerUp === "function") sndPowerUp(BO_RESTORE_MS);
+    }
+}
+
 // HOST, from startGame(): the chain begins where the arcade begins.
 function arcadeStart(now) {
+    arcadeBlackoutReset();
+    arcadeBlackoutPlan();
+    arcTrays = [];
     arcSpawnDebt = 0;
     arcDiedAt = 0;
     arcDropSeq = 0;
@@ -213,6 +307,7 @@ function arcadeStart(now) {
     rebuildSolidIndex();
     round = 1;
     roundPhase = "active";
+    if (arcLevelNo <= 1) arcadePlaceTrays(now);
 }
 
 // HOST. Replaces the round flow in update(): no budget, no breather.
@@ -229,6 +324,7 @@ function updateArcadeWave(now, dt) {
         }
     }
     roundPhase = "active";
+    arcadeBlackoutSchedule(now);
 
     const cap = arcadeAliveCap();
     if (arcLevelNo >= ARC_MAX_LEVEL) { arcadeBossWave(now, dt, cap, level); return; }
@@ -258,6 +354,16 @@ function arcadeSpawnPoint(size) {
     const targets = livingTargets();
     if (!targets.length) return { x: ARENA.x + 40, y: ARENA.y + 40 };
     const anchor = targets[Math.floor(Math.random() * targets.length)];
+    // THE GRASS: some of the swarm walks in out of the tall grass at the east
+    // and west edges, level with the target they are heading for.
+    if (Math.random() < BAND_SPAWN_CHANCE) {
+        const e = arcadeBandEdges();
+        const west = Math.random() < 0.5;
+        const depth = 40 + Math.random() * 280;
+        const x = west ? e.west - depth - size : e.east + depth;
+        const y = clamp(anchor.y + (Math.random() - 0.5) * 900, ARENA.y + 60, ARENA.y + ARENA.h - 60 - size);
+        if (x > 20 && x + size < WORLD_W - 20 && !blockedAt(x, y, size, true)) return { x: x, y: y };
+    }
     for (let tries = 0; tries < 14; tries++) {
         const a = Math.random() * Math.PI * 2;
         const r = ARC_RING_MIN + Math.random() * (ARC_RING_MAX - ARC_RING_MIN);
@@ -362,6 +468,8 @@ function arcadeEnterLevel(level, now, l1) {
     arcLeaveAt = 0;
     arcLeaveEndAt = 0;
     arcLevelNo = level;
+    arcadeBlackoutReset();
+    arcTrays = [];
     generateLevel();
     const intro2 = cinematic ? arcIntroMs() : 0;
     // The chain is given, as at the start of map 1.
@@ -526,6 +634,10 @@ function arcadePlaceRespawn(p, now) {
 // before you do. A perk you have no slot for is NOT taken; it stays on the
 // ground for someone who can use it.
 const DROP_SIZE = 24;
+// PERKS ARE BIGGER (2026-10-13, "increase perk pick up size so they are more
+// discernable"): the 24px frame fits the icon at 2x; 40px fits it at 3x.
+const PERK_DROP_SIZE = 30;      // 40 until 2026-10-13 later ("25% smaller")
+function dropSizeFor(type) { return type === "perk" ? PERK_DROP_SIZE : DROP_SIZE; }
 const DROP_LIFE_MS = 25000;
 const DROP_BLINK_MS = 5000;       // blinks for its last 5s
 const DROP_MAX_LIVE = 10;
@@ -611,7 +723,7 @@ function hazardsLive() {
 // bad drops are under good drops"). A drop lands at the nearest spot, walking
 // outward in rings, that keeps DROP_APART from every drop already standing;
 // when the ground round it is full there is no drop.
-const DROP_APART = 44;            // centre to centre: a 24px drop and a gap you can read
+const DROP_APART = 52;            // centre to centre: a 24px drop and a gap you can read
 function arcadeDropSpot(x, y) {
     const lo = [ARENA.x + 30, ARENA.y + 30];
     const hi = [ARENA.x + ARENA.w - DROP_SIZE - 30, ARENA.y + ARENA.h - DROP_SIZE - 30];
@@ -671,8 +783,63 @@ function arcadeMaybeDrop(x, y, now) {
     }
     pickups.push({
         id: ++arcDropSeq, x: spot.x, y: spot.y,
-        size: DROP_SIZE, type: type, item: item, until: now + DROP_LIFE_MS
+        size: dropSizeFor(type), type: type, item: item, until: now + DROP_LIFE_MS
     });
+}
+
+// ---------------------------------------------------
+//   THE START TRAYS (2026-10-13)
+// ---------------------------------------------------
+// "At beginning of game drop 1 perk per player below players on concrete trays
+// at the start of the road that are shaped for the perks." A row of concrete
+// trays just south of the spawn, one per player, each carrying a different
+// perk that does not expire (until 0) and each with a recess shaped like its
+// perk, so an emptied tray still says what stood there. The HOST picks them
+// and sends `tr` [x, y, CARD_KEYS index]; the perk itself is an ordinary drop,
+// so the one-taker path and the 4-slot refusal apply unchanged.
+const TRAY_SIZE = 56;
+const TRAY_GAP = 72;
+const TRAY_SLOTS = 8;             // the pedestal has room for eight players
+let arcTrays = [];                // [{x, y, item}] centres (occupied slots only)
+
+// THE START (2026-10-13): map 1 opens on a pedestal flush under the warehouse,
+// eight perk trays below it, a spawn strip below those, and a fountain south of
+// that with the road looping round it as a roundabout. All of it is a fixed
+// offset from the world centre (the warehouse stands at the same place on
+// every seed), so every client agrees without any message.
+const START_PED_TOP = -190;       // pedestal top, from the world centre's y (the warehouse's south face is at -230)
+const START_PED_FP = 40;          // its footprint depth; 20 more is drawn lift
+const START_PED_LIFT = 20;
+const START_PED_HALF_W = 312;
+const START_SPAWN_DY = START_PED_TOP + 12;   // players appear ON the pedestal
+const FOUNTAIN_DY = 170;          // fountain centre, below the world centre
+const FOUNTAIN_HALF = 48;         // its solid body is 96px square
+const ROUNDABOUT_R = 110;         // road centre line round it
+function arcadeHasStart() { return ZOMBIE_ARCADE && arcLevelNo <= 1; }
+function arcadeStartTrayY() { return WORLD_H / 2 + START_PED_TOP + START_PED_FP + START_PED_LIFT + 46; }
+function arcadeTraySlot(i) { return { x: Math.round(WORLD_W / 2 + (i - (TRAY_SLOTS - 1) / 2) * TRAY_GAP), y: Math.round(arcadeStartTrayY()) }; }
+function arcadeRoundaboutPts(cx, fy) {
+    const pts = [];
+    for (let k = 0; k <= 48; k++) {
+        const a = Math.PI / 2 + (k / 48) * Math.PI * 2;      // from the south, all the way round
+        pts.push([Math.round(cx + Math.cos(a) * ROUNDABOUT_R), Math.round(fy + Math.sin(a) * ROUNDABOUT_R)]);
+    }
+    return pts;
+}
+
+// HOST, from arcadeStart on map 1.
+function arcadePlaceTrays(now) {
+    arcTrays = [];
+    const n = Math.max(1, Math.min(TRAY_SLOTS, teamSize()));
+    const pool = DROP_PERKS.slice();
+    const first = Math.floor((TRAY_SLOTS - n) / 2);          // centred on the pedestal
+    for (let i = 0; i < n && pool.length; i++) {
+        const item = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+        const slot = arcadeTraySlot(first + i), x = slot.x, y = slot.y;
+        arcTrays.push({ x: x, y: y, item: item });
+        pickups.push({ id: ++arcDropSeq, x: x - PERK_DROP_SIZE / 2, y: y - PERK_DROP_SIZE / 2,
+                       size: PERK_DROP_SIZE, type: "perk", item: item, until: 0 });
+    }
 }
 
 // HOST, every step: drops that nobody took go away.
@@ -801,19 +968,17 @@ function arcadeSiloPulse(i) {
 // The pulse itself: everything within PULSE_R of (cx, cy) removed, with the
 // blast and the toast. A tank's switch throws it, and so does a stored RALLY.
 function arcadePulseAt(cx, cy, label) {
-    let n = 0;
     for (let k = zombies.length - 1; k >= 0; k--) {
         const z = zombies[k];
         if (Math.hypot(z.x + z.size / 2 - cx, z.y + z.size / 2 - cy) <= PULSE_R) {
             zombies.splice(k, 1);
             kills++;
-            n++;
         }
     }
     hostEvent(SND_EXPLODE, cx, cy, PULSE_R);
     addBlast(cx, cy, PULSE_R);
     addShake(14);
-    if (typeof showToast === "function") showToast(label + (n ? " — " + n + " CLEARED" : ""), 2000);
+    if (typeof showToast === "function") showToast(label, 2000);
 }
 
 // A STORED RALLY (2026-10-12: "allow on single player to 'Store' one rally so
@@ -840,8 +1005,11 @@ function arcadeStoredRally(target, now) {
     p.invulnUntil = Math.max(p.invulnUntil || 0, now + STORED_RALLY_SAFE_MS);
     p.hurtAt = 0;
     arcadePulseAt(p.x + (p.size || 16) / 2, p.y + (p.size || 16) / 2, "RALLY");
+    rallySkulls.push({ x: p.x + (p.size || 16) / 2, y: p.y, born: Date.now() });
     return true;
 }
+// Pixel skulls rising off a spent stored RALLY (drawn by drawRallySkulls).
+var rallySkulls = [];
 const STORED_RALLY_SAFE_MS = 3000;
 
 // THE BOOMGUN (2026-10-11): a temporary personal powerup. Taken from a drop,
@@ -1513,7 +1681,7 @@ function buildArcadeArena() {
 
     // Where you start: the middle on map 1, the north fence on map 2.
     const startRect = arcLevelNo >= 2 ? { x: cx - 160, y: A.y, w: 320, h: 380 }
-                                       : { x: cx - 160, y: cy - 160, w: 320, h: 320 };
+                                       : { x: cx - 340, y: cy + START_PED_TOP - 10, w: 680, h: -START_PED_TOP + FOUNTAIN_DY + ROUNDABOUT_R + 90 };
     const clear = [startRect,
                    { x: escapeRect.x - ARENA_CLEAR, y: escapeRect.y - ARENA_CLEAR,
                      w: escapeRect.w + ARENA_CLEAR * 2, h: escapeRect.h + ARENA_CLEAR }];
@@ -1577,8 +1745,10 @@ function buildArcadeArena() {
     arcEntryClosedAt = 0;
     keepWalls.push.apply(keepWalls, north);
     keepWalls.push(
-        { x: A.x, y: A.y, w: T, h: A.h, perim: true },
-        { x: A.x + A.w - T, y: A.y, w: T, h: A.h, perim: true },
+        // The HARD BOUNDARY, where the fence always stood: players stop here
+        // (zombies pass). The tall grass lies INSIDE it and tapers away.
+        { x: A.x, y: A.y, w: T, h: A.h, perim: true, zpass: true },
+        { x: A.x + A.w - T, y: A.y, w: T, h: A.h, perim: true, zpass: true },
         { x: A.x, y: wallY, w: x0 - A.x, h: T, perim: true },
         { x: x1, y: wallY, w: A.x + A.w - x1, h: T, perim: true },
         { x: Math.round(x0 - ESCAPE_JAMB), y: wallY - 14, w: ESCAPE_JAMB, h: T + 28, column: true },
@@ -1608,6 +1778,10 @@ function buildArcadeArena() {
     arenaTrees = [];
     arenaBushes = [];
     buildSiloSets(clear);
+    if (arcLevelNo <= 1) {
+        // The pedestal, flush under the warehouse; and the fountain, south of it.
+        pushProp("fountain", cx - FOUNTAIN_HALF, cy + FOUNTAIN_DY + FOUNTAIN_HALF, FOUNTAIN_HALF * 2, FOUNTAIN_HALF * 2, 0);
+    }
     plantArenaTerrain(fits, !!LAY.open);
 
     if (typeof zfKeepPatches === "function") {
@@ -2007,7 +2181,7 @@ function arcadePlanRoads(LAY, cx, cy) {
     const C = ROAD_CELL;
     const cols = Math.ceil(A.w / C) + 1, rows = Math.ceil(A.h / C) + 1;
     // On the lattice (see ROAD_OX), so a vertical leg is exactly vertical.
-    const start = arcLevelNo >= 2 ? [cx, A.y + 80] : [cx, cy + 5];
+    const start = arcLevelNo >= 2 ? [cx, A.y + 80] : [cx, cy + FOUNTAIN_DY + ROUNDABOUT_R];
     const goal = [gx, wallY - 105];
     const inside = function (b) {
         return b.x >= A.x + WALL_T + 8 && b.y >= A.y + WALL_T + 8 && b.x + b.w <= A.x + A.w - WALL_T - 8 && b.y + b.h <= A.y + A.h - WALL_T - 8;
@@ -2157,7 +2331,13 @@ function arcadePlanRoads(LAY, cx, cy) {
     // keep a full margin where there is room. The better result wins.
     const a = attempt(ROAD_EDGE), b = attempt(ROAD_NEED);
     const best = b.score < a.score ? b : a;
-    return { offs: best.offs, div: best.div, roads: [{ pts: lead.concat(best.mid, tail) }] };
+    const roads = [{ pts: lead.concat(best.mid, tail) }];
+    if (arcLevelNo <= 1) {
+        // The road turns into a roundabout round the fountain.
+        const fy = cy + FOUNTAIN_DY;
+        roads.push({ pts: arcadeRoundaboutPts(cx, fy) });   // a closed loop: nothing leads north
+    }
+    return { offs: best.offs, div: best.div, roads: roads };
 }
 
 // Cut every 90 degree corner of an axis-aligned polyline with a 45 degree
@@ -2700,6 +2880,266 @@ function arcadeDrawGround(vr) {
     ctx.restore();
     arcadeDrawSetFloors();
     arcadeDrawRoads();
+    arcadeDrawBands(vr);
+    if (arcadeHasStart()) arcadeDrawPedestal();
+}
+
+// THE PEDESTAL: walkable ground, a raised-looking slab. Not a collision.
+function arcadeDrawPedestal() {
+    const x = WORLD_W / 2 - START_PED_HALF_W, y = WORLD_H / 2 + START_PED_TOP, w = START_PED_HALF_W * 2;
+    ctx.fillStyle = "rgba(0,0,0,0.42)";
+    ctx.fillRect(x + 6, y + 8, w, START_PED_FP + START_PED_LIFT);
+    ctx.fillStyle = "#5A5A5E";                                   // front face
+    ctx.fillRect(x, y + START_PED_FP, w, START_PED_LIFT);
+    ctx.fillStyle = "#8C8C90";                                   // top
+    ctx.fillRect(x, y, w, START_PED_FP);
+    ctx.fillStyle = "#6A6A6E";                                   // a notch above each tray
+    for (let i = 0; i < TRAY_SLOTS; i++) ctx.fillRect(arcadeTraySlot(i).x - 20, y + 6, 40, START_PED_FP - 12);
+    ctx.fillStyle = "#C8641E";
+    ctx.fillRect(x, y, w, 3);
+}
+
+// ---------------------------------------------------
+//   THE TALL-GRASS BANDS (2026-10-13)
+// ---------------------------------------------------
+// East and west of the fence is tall grass, not a wall: players are stopped at
+// the fence line (the "player-collision edge"), zombies are not (`zpass`), and
+// the band is where some of them spawn, so they walk in out of the grass. The
+// north and south walls are drawn across the bands as one continuous wall.
+// Outward from the fence the grass goes dark in stepped bands: a hard step at
+// the edge, then a slow fade to black at the world's edge.
+const BAND_FADE_STEPS = 24;
+const BAND_SPAWN_CHANCE = 0.4;
+// The boundary is HARD, where the fence always stood: players cannot pass it.
+// The grass is full at and beyond it and tapers away INWARD over about seven
+// trees' width (BAND_TAPER), its reach varied by large-scale noise so no edge
+// shows. A zombie shows 30% of its height at the boundary and all of it where
+// the grass ends, on a straight line between (arcadeBandVisible).
+const BAND_TAPER = 420;
+const BAND_CELL = 22;
+function arcadeBandEdges() {
+    return { west: ARENA.x + WALL_T, east: ARENA.x + ARENA.w - WALL_T };
+}
+
+// Smooth value noise on a coarse lattice (hash corners, smoothstep between).
+function arcadeNoise2(x, y, scale) {
+    const gx = x / scale, gy = y / scale;
+    const ix = Math.floor(gx), iy = Math.floor(gy);
+    const fx = gx - ix, fy = gy - iy;
+    const h = function (i, j) { return (((i * 374761393) ^ (j * 668265263)) >>> 0) % 1000 / 1000; };
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    const top = h(ix, iy) * (1 - sx) + h(ix + 1, iy) * sx;
+    const bot = h(ix, iy + 1) * (1 - sx) + h(ix + 1, iy + 1) * sx;
+    return top * (1 - sy) + bot * sy;
+}
+
+// How far inside the boundary a point is (0 at or beyond it).
+function arcadeBandInward(x) {
+    const e = arcadeBandEdges();
+    if (x <= e.west || x >= e.east) return 0;
+    return Math.min(x - e.west, e.east - x);
+}
+
+// 0..1 grass density at a world point: full at and beyond the boundary,
+// tapering to nothing BAND_TAPER inside it, the reach varied by noise.
+function arcadeBandDensity(x, y) {
+    const d = arcadeBandInward(x);
+    if (d >= BAND_TAPER) return 0;
+    const t = 1 - d / BAND_TAPER;
+    const base = t * t * (3 - 2 * t);
+    const n = arcadeNoise2(x + 5000, y, 300) * 0.65 + arcadeNoise2(x, y + 9000, 110) * 0.35;
+    return Math.max(0, Math.min(1, base * 1.15 + (n - 0.5) * 0.95 * Math.min(1, base * 2.5)));
+}
+
+// How much of a zombie standing at x shows: 30% at the boundary (and
+// beyond), a steady line up to 100% where the grass ends BAND_TAPER inside.
+const BAND_VIS_EDGE = 0.30;
+function arcadeBandVisible(x) {
+    const d = arcadeBandInward(x);
+    return BAND_VIS_EDGE + (1 - BAND_VIS_EDGE) * Math.min(1, d / BAND_TAPER);
+}
+
+// 0.3..1: how tall the blades stand at x. Full height at the boundary, down
+// to a third of it where the grass ends.
+function arcadeBandTall(x) {
+    return 0.3 + 0.7 * Math.max(0, 1 - arcadeBandInward(x) / BAND_TAPER);
+}
+
+function arcadeBandBlade(c, r) {
+    const h = ((c * 73856093) ^ (r * 19349663)) >>> 0;
+    return { h: h, x: c * BAND_CELL + (h % 17), y: r * BAND_CELL + ((h >> 5) % 17), bh: 12 + ((h >> 9) % 14), p: ((h >> 14) % 100) / 100 };
+}
+
+function arcadeDrawBands(vr) {
+    const A = ARENA, e = arcadeBandEdges();
+    const y0 = Math.max(A.y, vr.y), y1 = Math.min(A.y + A.h, vr.y + vr.h);
+    if (y1 <= y0) return;
+    // The lawn runs out to the world's edge on both sides.
+    const lawn = [[0, A.x], [A.x + A.w, WORLD_W]];
+    for (let s = 0; s < 2; s++) {
+        const x0 = Math.max(lawn[s][0], vr.x), x1 = Math.min(lawn[s][1], vr.x + vr.w);
+        if (x1 <= x0) continue;
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.fillStyle = arenaGrassPattern;
+        ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+        ctx.restore();
+    }
+    // The tall grass: a flat tint per cell and blades, both by density.
+    // A dry golden-green, not the lawn's green and not the trees' dark one.
+    const SH = ["#8E8A2A", "#B5A93C", "#CDBE52", "#A39A30"];
+    const spans = [[0, e.west + BAND_TAPER], [e.east - BAND_TAPER, WORLD_W]];
+    for (let s = 0; s < 2; s++) {
+        const x0 = Math.max(spans[s][0], vr.x, 0), x1 = Math.min(spans[s][1], vr.x + vr.w, WORLD_W);
+        if (x1 <= x0) continue;
+        const c0 = Math.floor(x0 / BAND_CELL), c1 = Math.floor(x1 / BAND_CELL);
+        const r0 = Math.floor(y0 / BAND_CELL), r1 = Math.floor(y1 / BAND_CELL);
+        for (let r = r0; r <= r1; r++) {
+            for (let c = c0; c <= c1; c++) {
+                const dn = arcadeBandDensity(c * BAND_CELL + BAND_CELL / 2, r * BAND_CELL + BAND_CELL / 2);
+                if (dn <= 0.02) continue;
+                ctx.fillStyle = "rgba(150,135,30," + (0.34 * dn).toFixed(2) + ")";
+                ctx.fillRect(c * BAND_CELL, r * BAND_CELL, BAND_CELL, BAND_CELL);
+                const b = arcadeBandBlade(c, r);
+                if (b.p > dn) continue;
+                const bh = b.bh * arcadeBandTall(b.x);
+                ctx.fillStyle = SH[(b.h >> 3) & 3];
+                ctx.fillRect(b.x, b.y - bh, 3, bh);
+                ctx.fillRect(b.x + 4, b.y - bh * 0.7, 3, bh * 0.7);
+            }
+        }
+    }
+    // The north and south walls, continuous across the bands.
+    const wy = escapeRect ? escapeRect.y : A.y + A.h - WALL_T;
+    const rows = [A.y, wy];
+    for (let i = 0; i < rows.length; i++) {
+        for (let s = 0; s < 2; s++) {
+            const sx0 = s === 0 ? 0 : A.x + A.w, sx1 = s === 0 ? A.x : WORLD_W;
+            if (sx1 < vr.x || sx0 > vr.x + vr.w) continue;
+            ctx.fillStyle = COLOR_WALL;
+            ctx.fillRect(sx0, rows[i], sx1 - sx0, WALL_T);
+            ctx.fillStyle = COLOR_WALL_LIT;
+            ctx.fillRect(sx0, rows[i], sx1 - sx0, 2);
+        }
+    }
+}
+
+// AFTER the lighting (world space): the blades again as dark silhouettes over
+// whatever is lit, so a flashlight beam is broken up by the grass it passes
+// through and the light reads as filtering between the blades.
+function arcadeDrawBladeShade() {
+    if (!canvas.width) return;
+    const vr = viewRect(), A = ARENA, e = arcadeBandEdges();
+    const y0 = Math.max(A.y, vr.y), y1 = Math.min(A.y + A.h, vr.y + vr.h);
+    if (y1 <= y0) return;
+    // Anything standing here is NOT under the grass: trees, props, tanks,
+    // players and zombies keep their light and their colour.
+    const occ = [];
+    const addOcc = function (x, y, w, h) {
+        if (x + w > vr.x && x < vr.x + vr.w && y + h > vr.y - 60 && y < vr.y + vr.h) occ.push([x - 6, y - 24, x + w + 6, y + h + 6]);
+    };
+    for (let i = 0; i < arenaTrees.length; i++) { const t = arenaTrees[i]; addOcc(t.x - 18, t.y - 40, t.w + 36, t.h + 40); }
+    for (let i = 0; i < arenaProps.length; i++) { const r = arenaProps[i]; addOcc(r.x, r.y, r.w, r.h); }
+    for (let i = 0; i < silos.length; i++) { const s0 = silos[i]; if (s0) addOcc(s0.x, s0.y - SILO_LIFT, s0.w, s0.h + SILO_LIFT); }
+    for (let i = 0; i < zombies.length; i++) addOcc(zombies[i].x, zombies[i].y, zombies[i].size, zombies[i].size);
+    for (let i = 0; i < players.length; i++) addOcc(players[i].x, players[i].y, players[i].size, players[i].size);
+    for (const id in remotePlayers) {
+        if (Object.prototype.hasOwnProperty.call(remotePlayers, id)) addOcc(remotePlayers[id].x, remotePlayers[id].y, 16, 16);
+    }
+    const covered = function (x, y) {
+        for (let i = 0; i < occ.length; i++) {
+            const o = occ[i];
+            if (x >= o[0] && x <= o[2] && y >= o[1] && y <= o[3]) return true;
+        }
+        return false;
+    };
+    ctx.save();
+    applyCameraTransform();
+    const spans = [[0, e.west + BAND_TAPER], [e.east - BAND_TAPER, WORLD_W]];
+    for (let s = 0; s < 2; s++) {
+        const x0 = Math.max(spans[s][0], vr.x, 0), x1 = Math.min(spans[s][1], vr.x + vr.w, WORLD_W);
+        if (x1 <= x0) continue;
+        const c0 = Math.floor(x0 / BAND_CELL), c1 = Math.floor(x1 / BAND_CELL);
+        const r0 = Math.floor(y0 / BAND_CELL), r1 = Math.floor(y1 / BAND_CELL);
+        for (let r = r0; r <= r1; r++) {
+            for (let c = c0; c <= c1; c++) {
+                const dn = arcadeBandDensity(c * BAND_CELL + BAND_CELL / 2, r * BAND_CELL + BAND_CELL / 2);
+                if (dn <= 0.05) continue;
+                const b = arcadeBandBlade(c, r);
+                if (b.p > dn) continue;
+                const bh = b.bh * arcadeBandTall(b.x);
+                if (covered(b.x + 2, b.y - bh / 2)) continue;
+                // A little denser than the ground blades: it is what the beam must get through.
+                ctx.fillStyle = "rgba(0,10,0," + (0.35 + 0.35 * dn).toFixed(2) + ")";
+                ctx.fillRect(b.x - 1, b.y - bh - 2, 5, bh + 2);
+                ctx.fillRect(b.x + 4, b.y - bh * 0.7 - 2, 4, bh * 0.7 + 2);
+            }
+        }
+    }
+    ctx.restore();
+}
+
+// IN FRONT OF THE ZOMBIES (world space): individual blades whose roots are
+// below a zombie's feet are drawn over it, so it walks BETWEEN the blades --
+// the ones behind it were already drawn with the ground. Blade height follows
+// the grass: tall at the boundary, short where it thins out.
+const BAND_FRONT_CELL = 8;
+function arcadeDrawBandFront(inView) {
+    const SH = ["#8E8A2A", "#B5A93C", "#CDBE52", "#A39A30"];
+    const seen = {};
+    const F = BAND_FRONT_CELL;
+    for (let i = 0; i < zombies.length; i++) {
+        const z = zombies[i];
+        if (!inView(z.x, z.y, z.size, z.size)) continue;
+        const cxz = z.x + z.size / 2;
+        if (arcadeBandDensity(cxz, z.y + z.size) < 0.04) continue;
+        const feet = RETRO.snap(z.y, 4) + z.size, zx = RETRO.snap(z.x, 4);
+        const c0 = Math.floor((zx - 10) / F), c1 = Math.floor((zx + z.size + 10) / F);
+        const r0 = Math.floor((feet - 3) / F), r1 = Math.floor((feet + 34) / F);
+        for (let r = r0; r <= r1; r++) {
+            for (let c = c0; c <= c1; c++) {
+                const key = c * 100003 + r;
+                if (seen[key]) continue;
+                seen[key] = 1;
+                const h = ((c * 73856093) ^ (r * 19349663)) >>> 0;
+                const bx = c * F + (h % 6), by = r * F + ((h >> 4) % 7);
+                if (by < feet - 2) continue;                          // behind the zombie: already drawn
+                const dn = arcadeBandDensity(bx, by);
+                if (((h >> 9) % 100) / 100 > dn * 1.1) continue;
+                const bh = (16 + ((h >> 13) % 30)) * arcadeBandTall(bx);
+                ctx.fillStyle = SH[(h >> 3) & 3];
+                ctx.fillRect(bx, by - bh, 4, bh);
+                ctx.fillRect(bx + 3, by - bh * 0.75, 3, bh * 0.75);
+                ctx.fillStyle = "#6E6A22";                             // a dark root
+                ctx.fillRect(bx, by - 3, 6, 3);
+            }
+        }
+    }
+}
+
+// Over the world after the zombies: the blades in front of them, then the
+// darkness toward the world's edge.
+function arcadeDrawBandOver(now, inView) {
+    const A = ARENA, e = arcadeBandEdges();
+    arcadeDrawBandFront(inView);
+    // The darkness: nothing at the fence, rising in fine steps to the world's
+    // edge, so there is no step to see where the grass thins out.
+    const vr = viewRect();
+    const bands = [[0, e.west, -1], [e.east, WORLD_W, 1]];
+    for (let b = 0; b < 2; b++) {
+        const lo = bands[b][0], hi = bands[b][1], span = hi - lo, step = span / BAND_FADE_STEPS;
+        for (let k = 0; k < BAND_FADE_STEPS; k++) {
+            // k = 0 is the strip nearest the fence.
+            const a0 = bands[b][2] < 0 ? hi - (k + 1) * step : lo + k * step;
+            const x0 = Math.max(a0, vr.x), x1 = Math.min(a0 + step, vr.x + vr.w);
+            if (x1 <= x0) continue;
+            const y0 = Math.max(A.y, vr.y), y1 = Math.min(A.y + A.h, vr.y + vr.h);
+            if (y1 <= y0) continue;
+            const f = (k + 1) / BAND_FADE_STEPS;
+            ctx.fillStyle = "rgba(0,0,0," + (0.97 * f * f).toFixed(3) + ")";
+            ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+        }
+    }
 }
 
 // Lighter and yellower than the canopies, and a third their size, so a
@@ -2941,6 +3381,7 @@ function arcadeDrawFade(now) {
 
 // Reset on a restart (resetGame).
 function arcadeResetTransition(now) {
+    arcadeBlackoutReset();
     arcLeaveAt = 0;
     arcLeaveEndAt = 0;
     arcIntroAt = 0;
@@ -3092,7 +3533,7 @@ function arcadeIntroShotList(hold, me) {
     // Where you start, for timing the move home: the north fence on the later
     // maps (arcadeEnterLevel), the middle of the world on the first.
     const home = arcLevelNo >= 2 ? { x: WORLD_W / 2, y: ARENA.y - ARC_ENTRY_SPAWN_BACK + 8 }
-                                 : { x: WORLD_W / 2, y: WORLD_H / 2 + 60 };
+                                 : { x: WORLD_W / 2, y: WORLD_H / 2 + (arcLevelNo <= 1 ? START_SPAWN_DY : 60) };
     const tanks = [];
     for (let k = 0; k < funnels.length; k++) if (funnels[k]) tanks.push({ x: funnels[k].x + 60, y: funnels[k].y });
     const shots = [];
@@ -3849,18 +4290,38 @@ function arcadeDrawLighting() {
     g.setTransform(s, 0, 0, s, canvas.width / 2 - camera.x * s, canvas.height / 2 - camera.y * s);
     const vr = viewRect();
 
-    g.fillStyle = "rgba(" + LIGHT_TINT + "," + LIGHT_OUTSIDE + ")";
+    // BLACKOUT: the ambient and which lights are alive come from the phase.
+    const boNow = Date.now();
+    arcadeBlackoutSounds(boNow);
+    const boPhase = arcadeBlackoutPhase(boNow);
+    let dOut = LIGHT_OUTSIDE, dIn = 1 - LIGHT_INSIDE, lightsDead = false;
+    if (boPhase === 1) {                      // the surge: brighter and stuttering
+        const k = 1 - (boOutAt - boNow) / BO_SURGE_MS;
+        const flick = (k > 0.45 && Math.floor(boNow / 55) % 2) ? 0 : 1;
+        const m = 1 - 0.55 * k * flick;
+        dOut *= m; dIn *= m;
+    } else if (boPhase === 2 || boPhase === 3) {
+        const t = boPhase === 3 ? (boNow - (boEndAt - BO_RESTORE_MS)) / BO_RESTORE_MS : 0;
+        const lit = boPhase === 3 && Math.floor(t * 6) % 2 === 1;
+        if (!lit) { dOut = 1 - BO_AMBIENT; dIn = BO_AMBIENT; lightsDead = true; }
+    }
+    g.fillStyle = "rgba(" + LIGHT_TINT + "," + dOut.toFixed(3) + ")";
     g.fillRect(vr.x, vr.y, vr.w, vr.h);
     const W = arenaWarehouse;
-    if (W) {
-        // Topped up to LIGHT_INSIDE: 1 - (1 - out)(1 - extra) = inside.
-        const extra = 1 - (1 - LIGHT_INSIDE) / (1 - LIGHT_OUTSIDE);
+    if (W && !lightsDead) {
+        // Topped up to inside: 1 - (1 - out)(1 - extra) = inside light.
+        const extra = Math.max(0, 1 - dIn / (1 - dOut));
         g.fillStyle = "rgba(" + LIGHT_TINT + "," + extra.toFixed(3) + ")";
         g.fillRect(W.x, W.y, W.w, W.h);
     }
 
     g.globalCompositeOperation = "destination-out";
-    if (W) {
+    if (lightsDead) {
+        // Everything but flashlights is dead: no sun shafts, lamps, drop glow
+        // or exit flood. (Their polys go too, so the additive pass skips them.)
+        sunLights = [];
+        for (let i = 0; i < arenaLamps.length; i++) arenaLamps[i].poly = null;
+    } else if (W) {
         // The dusk sun is a real light, just outside each window and door
         // and low to the west. Raycast, so it only comes in through the
         // openings and falls across the floor as a shaft where the walls and
@@ -3887,7 +4348,7 @@ function arcadeDrawLighting() {
             g.restore();
         }
     } else sunLights = [];
-    for (let i = 0; i < arenaLamps.length; i++) {
+    for (let i = 0; i < arenaLamps.length && !lightsDead; i++) {
         const l = arenaLamps[i];
         const LR = l.r || LAMP_RADIUS;
         if (l.x < vr.x - LR || l.x > vr.x + vr.w + LR ||
@@ -3899,11 +4360,11 @@ function arcadeDrawLighting() {
         cutGlow(g, l.x, l.y, LR, l.cool ? 0.95 : 0.85);
         g.restore();
     }
-    for (let i = 0; i < pickups.length; i++) {
+    for (let i = 0; i < pickups.length && !lightsDead; i++) {
         const d = pickups[i];
         cutGlow(g, d.x + d.size / 2, d.y + d.size / 2, 42, 0.6);
     }
-    if (escapeAt) {
+    if (escapeAt && !lightsDead) {
         cutGlow(g, escapeRect.x + escapeRect.w / 2, escapeRect.y + 20, 200, escapeOpen() ? 0.85 : 0.5);
     }
     // Teammates: a glow, and their flashlight along their own aim.
@@ -4125,8 +4586,15 @@ function buildSiloSets(clear) {
     }
     // Where you start: the middle of the map, or (map 2) the north fence.
     const sx = WORLD_W / 2, sy = arcLevelNo >= 2 ? ARENA.y + 220 : WORLD_H / 2;
-    arenaLamps.push({ x: sx - 130, y: sy - 90, inside: false }, { x: sx + 130, y: sy - 90, inside: false },
-                    { x: sx - 130, y: sy + 90, inside: false }, { x: sx + 130, y: sy + 90, inside: false });
+    if (arcLevelNo <= 1) {
+        // Round the fountain, clear of the road ring.
+        const fy = WORLD_H / 2 + FOUNTAIN_DY;
+        arenaLamps.push({ x: sx - 215, y: fy - 70, inside: false }, { x: sx + 215, y: fy - 70, inside: false },
+                        { x: sx - 215, y: fy + 70, inside: false }, { x: sx + 215, y: fy + 70, inside: false });
+    } else {
+        arenaLamps.push({ x: sx - 130, y: sy - 90, inside: false }, { x: sx + 130, y: sy - 90, inside: false },
+                        { x: sx - 130, y: sy + 90, inside: false }, { x: sx + 130, y: sy + 90, inside: false });
+    }
 
     // One builder per set kind, in tank order, so each claims its ground
     // (`clear`) before the next looks for room.
@@ -4227,6 +4695,27 @@ function buildWarehouseSet(k, clear) {
     };
     strip(W.y, 1);
     strip(W.y + W.h - T, -1);
+    // AN INTENTIONAL OPENING in the south wall, straight above the start
+    // (map 1): the walls and any window across it are cut away, and a lamp
+    // either side marks it.
+    let openX0 = 0, openX1 = 0;
+    if (arcLevelNo <= 1) {
+        const oy = W.y + W.h - T, ocx = WORLD_W / 2;
+        openX0 = ocx - 95; openX1 = ocx + 95;
+        for (let i = walls.length - 1; i >= 0; i--) {
+            const w = walls[i];
+            if (!(w.building && w.y === oy && w.h === T)) continue;
+            if (w.x + w.w <= openX0 || w.x >= openX1) continue;
+            walls.splice(i, 1);
+            if (w.window) {
+                for (let q = windows.length - 1; q >= 0; q--) if (windows[q].x === w.x && windows[q].y === w.y) windows.splice(q, 1);
+            } else {
+                if (w.x < openX0) walls.push({ x: w.x, y: w.y, w: openX0 - w.x, h: T, building: true });
+                if (w.x + w.w > openX1) walls.push({ x: openX1, y: w.y, w: w.x + w.w - openX1, h: T, building: true });
+            }
+        }
+        arenaLamps.push({ x: openX0 - 14, y: oy + T + 10, inside: false }, { x: openX1 + 14, y: oy + T + 10, inside: false });
+    }
     const side = function (x, dir) {
         walls.push({ x: x, y: W.y + T, w: T, h: doorY - door / 2 - (W.y + T), building: true });
         walls.push({ x: x, y: doorY + door / 2, w: T, h: W.y + W.h - T - (doorY + door / 2), building: true });
@@ -4255,6 +4744,7 @@ function buildWarehouseSet(k, clear) {
     const rowY = c2.y + c2.h + 70 + RACK_LIFT;            // footprint top
     const rowX0 = c2.x - 40, rowX1 = c2.x + c2.w + 40;
     for (let x = rowX0; x + RACK_LEN <= rowX1; x += RACK_LEN + SET_GAP) {
+        if (openX1 && x < openX1 + 30 && x + RACK_LEN > openX0 - 30) continue;     // keep the opening's way in clear
         pushProp("rack", x, rowY + RACK_D, RACK_LEN, RACK_D, RACK_LIFT, { vertical: false, fill: MP.random() });
     }
     clear.push(grow(W, 40));
@@ -4318,8 +4808,68 @@ function drawBlock(r, top, front, line) {
     }
 }
 
+// THE FOUNTAIN: a round basin with moving water -- rings spreading from the
+// spout and jets arcing out and falling back. Flat squares and strokes only.
+function drawFountain(r) {
+    const now = Date.now();
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2, R = r.w / 2;
+    ctx.fillStyle = "rgba(0,0,0,0.42)";
+    ctx.beginPath(); ctx.arc(cx + 6, cy + 6, R, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#8C8C90";
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#5A5A5E";
+    ctx.beginPath(); ctx.arc(cx, cy, R - 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#256BAE";
+    ctx.beginPath(); ctx.arc(cx, cy, R - 10, 0, Math.PI * 2); ctx.fill();
+    // Ripples travelling out from the spout.
+    for (let k = 0; k < 3; k++) {
+        const t = ((now / 1400) + k / 3) % 1;
+        ctx.globalAlpha = (1 - t) * 0.8;
+        ctx.strokeStyle = "#8FD3FF";
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cx, cy, 6 + t * (R - 18), 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    // Jets: each droplet climbs and falls on its own arc.
+    ctx.fillStyle = "#E8F8FF";
+    for (let j = 0; j < 8; j++) {
+        const a = j * Math.PI / 4;
+        for (let d = 0; d < 3; d++) {
+            const t = ((now / 900) + j * 0.11 + d / 3) % 1;
+            const out = 6 + t * (R - 16);
+            const lift = Math.sin(Math.PI * t) * 20;
+            ctx.fillRect(Math.round(cx + Math.cos(a) * out - 1.5), Math.round(cy + Math.sin(a) * out * 0.8 - lift - 1.5), 3, 3);
+        }
+    }
+    // The spout, and its plume going up and breaking.
+    ctx.fillStyle = "#B8B8BC";
+    ctx.fillRect(cx - 6, cy - 6, 12, 12);
+    ctx.fillStyle = "#4C4C50";
+    ctx.fillRect(cx - 3, cy - 3, 6, 6);
+    for (let d = 0; d < 4; d++) {
+        const t = ((now / 600) + d / 4) % 1;
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(Math.round(cx - 2 + Math.sin(d * 2 + now / 300) * 3), Math.round(cy - 6 - t * 26), 3, 4);
+    }
+}
+
 function drawSetProp(r) {
     const fy = r.y + r.h - r.fh;
+    if (r.kind === "fountain") { drawFountain(r); return; }
+    if (r.kind === "pedestal") {
+        // THE PEDESTAL: a long concrete plinth under the warehouse; a lit top,
+        // a dark front face, and a notch above each of the eight trays.
+        drawBlock(r, "#8C8C90", "#5A5A5E", "#26262A");
+        const top = fy - r.lift;
+        ctx.fillStyle = "#6A6A6E";
+        for (let i = 0; i < TRAY_SLOTS; i++) {
+            const s = arcadeTraySlot(i);
+            ctx.fillRect(s.x - 20, top + 6, 40, r.fh - 12);
+        }
+        ctx.fillStyle = "#C8641E";
+        ctx.fillRect(r.x, top, r.w, 3);
+        return;
+    }
     if (r.kind === "hedge") {
         drawBlock(r, "#2F5A22", "#1A3814", null);
         ctx.fillStyle = "#3E7230";

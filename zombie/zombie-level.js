@@ -488,7 +488,8 @@ function gridKey(cx, cy) {
 }
 
 function solidRectsFor(forZombie) {
-    const out = walls.slice();
+    // `zpass` walls (the arcade's east and west fence) stop players only.
+    const out = forZombie ? walls.filter(function (w) { return !w.zpass; }) : walls.slice();
     for (let i = 0; i < doors.length; i++) if (!doors[i].open) out.push(doors[i]);
     for (let i = 0; i < barricades.length; i++) {
         if (!forZombie || barricades[i].hp > 0) out.push(barricades[i]);
@@ -547,7 +548,7 @@ function rebuildSolidIndex() {
 function refreshNavRegion(r) {
     if (!navPassable || !r) return;
 
-    const rects = walls.slice();
+    const rects = walls.filter(function (w) { return !w.zpass; });
     for (let i = 0; i < doors.length; i++) if (!doors[i].open) rects.push(doors[i]);
     const grid = buildGrid(rects);
 
@@ -794,7 +795,7 @@ function rebuildNavGrid() {
     navPassable = new Uint8Array(navW * navH);
     navPassableTight = new Uint8Array(navW * navH);
 
-    const rects = walls.slice();
+    const rects = walls.filter(function (w) { return !w.zpass; });
     for (let i = 0; i < doors.length; i++) if (!doors[i].open) rects.push(doors[i]);
     const grid = buildGrid(rects);
 

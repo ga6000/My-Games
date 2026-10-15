@@ -62,6 +62,9 @@ let demoState = null;               // the AI's own memory
 // ---------------------------------------------------
 //   THE PARTY
 // ---------------------------------------------------
+// zombie-input.js supplies the real one ("CLICK" / "TAP" / "PRESS A").
+function lobbyVerb() { return typeof inputVerb === "function" ? inputVerb() : "CLICK"; }
+
 function lobbySelfKey() {
     return (typeof MP !== "undefined" && MP.selfId) ? MP.selfId : "solo";
 }
@@ -137,7 +140,14 @@ function lobbyRunSeen() {
 // From generateLevel callers in zombie-net.js that run before a run starts:
 // the map under the demo has just been rebuilt from another seed.
 function lobbyLevelRebuilt() {
-    if (zDemo && !lobbyBusy) demoStart(true);     // its bodies stand in the old map
+    if (!zDemo || lobbyBusy) return;
+    // Its bodies stand in the old map. Re-seat the attract run on the new one
+    // WITHOUT resetGame(): that fades up from black, which read as the demo
+    // "not starting" for the 2-3s the room takes to hand over its seed.
+    zombies = []; bullets = []; remoteBullets = []; pickups = []; blasts = []; decoys = [];
+    arcTurrets = []; boomBolts = []; boomLocal = []; freezeZone = null;
+    players.length = 0;
+    demoStart(false);
 }
 
 // resetGame() ran (a restart, or our own begin): a fresh ready screen.
@@ -182,13 +192,13 @@ function lobbyRender(party, allReady) {
     let n = 0;
     for (let i = 0; i < party.length; i++) if (lobbyReady[party[i].id]) n++;
     const sig = party.map(function (m) { return m.id + m.name + m.color + (lobbyReady[m.id] ? 1 : 0); }).join("|") +
-                "#" + lobbyRunLive + meReady + allReady;
+                "#" + lobbyRunLive + meReady + allReady + lobbyVerb();
     if (sig === lobbySig) return;
     lobbySig = sig;
     if (lobbyRunLive) {
         head.textContent = "A RUN IS UNDER WAY";
         row.innerHTML = "";
-        hint.textContent = "CLICK TO JOIN";
+        hint.textContent = lobbyVerb() + " TO JOIN";
         hint.className = "lb-hint blink";
         return;
     }
@@ -203,7 +213,7 @@ function lobbyRender(party, allReady) {
     row.innerHTML = html;
     if (allReady) { hint.textContent = "STARTING"; hint.className = "lb-hint"; }
     else if (meReady) { hint.textContent = "WAITING FOR PLAYERS  " + n + "/" + party.length; hint.className = "lb-hint"; }
-    else { hint.textContent = "CLICK TO READY"; hint.className = "lb-hint blink"; }
+    else { hint.textContent = lobbyVerb() + " TO READY"; hint.className = "lb-hint blink"; }
 }
 
 // Every frame, from the game loop, before the world draws.

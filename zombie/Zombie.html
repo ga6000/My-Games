@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Zombie Arcade</title>
 
     <!-- The shared token layer (AESTHETIC_GUIDE.md 2 and 3), loaded BEFORE this
@@ -264,6 +264,16 @@
         .hp-keys { line-height: 1.85; }
         .hp-keys .k { color: var(--sig-cyan); white-space: nowrap; }
         .hp-note { margin-top: 12px; color: #7FBF7F; font-size: 12px; }
+        #itemList { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px 22px; }
+        #itemList .itsec { grid-column: 1 / -1; color: var(--sig-cyan); letter-spacing: 2px; font-size: 12px; margin-top: 8px; border-bottom: 1px solid #10300F; padding-bottom: 3px; }
+        #itemList .it { display: flex; gap: 10px; align-items: flex-start; }
+        #itemList .ico { flex: none; width: 72px; display: flex; justify-content: center; padding-top: 2px; }
+        #itemList .tile { display: inline-flex; align-items: center; justify-content: center; border: 3px solid; padding: 4px; }
+        #itemList .glyph { width: 30px; height: 30px; border: 3px solid; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 17px; background: #000; }
+        #itemList .itx b { display: block; color: #E8FFF4; letter-spacing: 1px; font-size: 13px; }
+        #itemList .does { display: block; color: #9BE39B; font-size: 12px; }
+        #itemList .flv { display: block; color: #6FA06F; font-style: italic; font-size: 12px; }
+        #itemList .haz b { color: #FF5566; }
         #goalList { list-style: none; margin: 0; padding: 0; }
         #goalList li {
             display: flex; align-items: flex-start; gap: 11px;
@@ -507,9 +517,7 @@
 
     <!-- Trimmed 2026-09-18: the controls and rules moved into the ESC dialog
          (#help), which also carries the map's goals. -->
-    <div id="startprompt">
-        CLICK TO START
-    </div>
+    <div id="startprompt"></div>
 
     <!-- ESC: goals (a checklist ticked from live state) + how to play. -->
     <div id="help">
@@ -527,22 +535,25 @@
           <div class="hp-h">CONTROLS</div>
           <span class="k">W A S D</span> move &middot; <span class="k">MOUSE</span> aim &middot;
           <span class="k">LEFT CLICK</span> shoot<br>
-          <span class="k">F</span> use / buy &middot;
-          <span class="k">Q</span> or <span class="k">MIDDLE CLICK</span> ping<br>
-          <span class="k">1&ndash;7</span> or <span class="k">WHEEL</span> switch guns<br>
+          <span class="k">F</span> throw a full tank&rsquo;s switch &middot;
+          drops are taken by walking over them<br>
+          <span class="k">1&ndash;7</span> or <span class="k">WHEEL</span> switch guns &middot;
+          <span class="k">B</span> Boomgun &middot; <span class="k">T</span> turret<br>
           <span class="k">M</span> minimap &amp; stats &middot; <span class="k">N</span> mute &middot;
           <span class="k">ESC</span> this screen
           <div class="hp-h" style="margin-top:16px">HOW IT WORKS</div>
-          The map is dark. Find the <span class="k">GENERATOR</span> and start it.<br>
-          Revive downed teammates by standing next to them.<br>
-          Scrap is shared &mdash; spend it together.<br>
-          Bleed out while a teammate is up and you are back at the next breather.
-          If everyone is down at once, the run is over.<br>
-          The <span class="k">FIELD MANUAL</span> (the terminal in the keep, <span class="k">F</span>)
-          has every gun, perk, class and enemy.
+          Kill zombies standing <span class="k">ON</span> a funnel to fill its tank, then throw the
+          tank&rsquo;s switch. The last tank opens the gate.<br>
+          Every survivor has to reach the gate. Revive a downed teammate by standing beside them.<br>
+          Alone, a <span class="k">RALLY</span> is stored and stands you back up once.<br>
+          Perks and guns have one taker: call it out before you step on it.
+        </div>
+        <div class="hp-col hp-items" style="flex-basis:100%">
+          <div class="hp-h">PICKUPS</div>
+          <div id="itemList"></div>
         </div>
       </div>
-      <div class="cx-foot">The round does not pause while this is open. ESC closes it.</div>
+      <div class="cx-foot">The run does not pause while this is open. ESC closes it.</div>
     </div>
 
     <div id="codex">
@@ -653,6 +664,7 @@
      stand in front of every run. After the dev panel, before the sandbox and
      editor, which switch it off by URL. -->
 <script src="zombie-lobby.js"></script>
+<script src="zombie-input.js"></script>
 <!-- The stamp sandbox (2026-09-26): ?sandbox=1#stamp=... drops a
      drawing into the real map. After zombie-dev.js, whose NO ZOMBIES
      flag it sets, and it wraps spawnPlayer rather than editing it. -->

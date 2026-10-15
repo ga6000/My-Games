@@ -63,6 +63,148 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Fifteenth: gamepad and phone controls (2026-10-14)
+
+User request; plan in `INPUT_PLAN.md`. **Reverses the 2026-09-04 "mobile switched off" decision for
+Zombie only** (`../SCOPE_PULLBACK_PLAN.md` §1). Closes no `HUB_RETROSPECTIVE.md` §5 item.
+All of it is **`zombie-input.js`**, script #26 (page is **26 local scripts**), driven by one
+`inputFrame(now)` call in `gameLoop` *before* the simulation step. Deleting its tag removes it.
+
+- **It never fights keyboard and mouse.** Movement goes in **`p.moveVec`** (analog, 0..1; read in
+  `updatePlayers`, ignored once `p.exited` so the walk-out still owns `p.keys`). Aim writes
+  `mouseX/mouseY` only while a stick is deflected (a point 240 world px out; only the direction
+  matters). Fire writes `p.keys.shoot` on this module's own edges only.
+- **Buttons call the keys' own functions** behind the same gates (manual, ESC dialog, reconnect hold,
+  ready screen, walk-out): `inpAction()` mirrors the key handler's order.
+- **Pad (standard mapping):** left stick move, right stick aim, **RT / RB / LT fire**, A use (also
+  READY, and restart on the end cards), B Boomgun, X arm / stow / place turret, Y next gun, LB
+  previous gun, Start ESC dialog (B / A / Start closes it), D-pad moves if no stick is held. Polled,
+  not event-driven; the first connected pad is kept until it disconnects. Non-standard mappings are
+  best-effort (axes 0-3, buttons by index).
+- **Touch:** `#touchui` over the play area. Floating left stick moves; floating right stick aims and
+  **auto-fires past 35% travel**; buttons USE, `< GUN`, `GUN >`, and BOOM / TURRET (shown only while
+  you hold fuel / a turret; TURRET reads PLACE once armed); MENU top-left. Any tap ticks READY or
+  restarts from an end card. Shown when `(pointer: coarse)` or on the first touch pointer; hidden
+  while a pad is the last input. Portrait shows a "turn your phone" card.
+- **Phone layout:** `body.touch` narrows the cabinet panel to 152px (`--side-w`), hides HI-SCORE /
+  SESSION BEST / the goal list / the stats line, and shrinks the objective, so gun and ammo still
+  fit at 844x390. The first touch asks for fullscreen and a landscape lock (silently refused where
+  unsupported, e.g. iPhone Safari).
+- **End-card guard:** a pad or touch restart is ignored for 1.2s after the card appears, because a
+  held trigger or auto-fire stick would otherwise skip it. The mouse path is unchanged.
+- **Ready screen** reads CLICK / TAP / PRESS A (`inputVerb()`, via `lobbyVerb()`).
+- **Verified:** headless in the page with a faked `navigator.getGamepads` (A readies and starts; stick
+  moves full and half speed; right stick aims; RT fires and releases; an idle pad leaves a held W
+  alone; Y cycles; Start / B open and close the dialog) and dispatched touch pointer events at an
+  844x390 emulated viewport (tap readies; stick moves; right stick aims and fires, releasing stops).
+  Collision, undefined-global and camera checks pass. **Not verified:** real controller hardware, a
+  real phone, two clients, or pointer capture on iOS. The Browser pane draws no frames here, so the
+  loop was stepped by hand.
+- **Known rough edges:** the end cards still say "Click anywhere"; the gun strip still shows key
+  letters (T, B) on touch; the in-game ESC dialog's controls text lists keyboard only.
+
+### Fourteenth: blackout, perk trays, wind pulses, a pickup guide (2026-10-13, later)
+
+Closes `../HUB_RETROSPECTIVE.md` §5 item 2 (arcade-side playtest fixes). User notes, in order.
+
+- **The perk HUD no longer shows the last run's perks after a restart.** `hudReset` set `hudPerkSig`
+  to `""`, which is also what an empty perk set computes to, so the tiles were never redrawn.
+  It resets to `"?"` now (`zombie-render.js`).
+- **Pulses are wind, not a ring.** A tank pulse and a stored RALLY (`arcadePulseAt`, radius
+  `PULSE_R`) draw as 28 curved streaks swept round the centre while the front rolls out
+  (`drawWindBlast`, flagged in `addBlast` by `radius === PULSE_R`, so guests get it from
+  `SND_EXPLODE`). 800ms. **No "N CLEARED" in the toast.** On a solo stored RALLY a 8x8 pixel
+  skull also rises ~260px off the player (`rallySkulls`, `drawRallySkulls`; local to the client
+  that spent it, which is the solo one).
+- **BLACKOUT is back (`zombie-arcade.js`, "BLACKOUT").** One or two outages a run, drawn in
+  `arcadeStart` (`arcadeBlackoutPlan`): the first 25-90 run-seconds in, a second (50%) 60-150s
+  after it. Each: SURGE `BO_SURGE_MS` 1.8s (lights brighten and stutter, `sndPowerSurge`), OUTAGE
+  `BO_OUT_MS` 15s (`sndPowerOut`; lamps, sun shafts, drop glow and the exit flood dead; ambient is
+  `BO_AMBIENT` 10% light; flashlights stay), RESTORE `BO_RESTORE_MS` 0.9s (stutters back on,
+  `sndPowerUp`). **Host schedules; the snapshot carries `bo: [id, ms to outage, ms to end]`**
+  (durations). Every client derives the phase and plays the sounds once per id, and a late
+  joiner gets no stale sound. A map change or restart clears the event, not the run's marks.
+  **Off in the attract run** (`zDemo`). The sounds are non-positional, at the end of
+  `zombie-audio.js`. Not heard or seen by a human.
+- **Four perk slots** (`CARD_SLOTS`, was six). Each perk still stacks to x6.
+- **Perk drops are 30px** (`PERK_DROP_SIZE`; the rest stay 24), colour-filled per perk
+  (`PERK_TINT`) inside the red border, **hovering** 0-6px in whole pixels over a flat shadow.
+  Hit boxes stay on the ground. `DROP_APART` 44 -> 52.
+- **Start trays** (`arcadePlaceTrays`, map 1 only): one concrete tray per player in the room at
+  the start, in a row 120px south of the spawn, each holding a different perk drop that never
+  expires (`until: 0`) and a recess shaped like the perk (`drawTrays`). Host-picked; the snapshot
+  carries `tr: [[x, y, CARD_KEYS index]]`. A late joiner gets no tray. **Not checked that the row
+  is clear of structures on every seed** - move `cy` if one is not.
+- **ESC menu (`#help`, `renderPickupGuide`).** A PICKUPS section: every perk (tile in its own
+  colour, effect numbers, a flavour line), gun and team/hazard drop. The stale walled-build text
+  is gone (generator, scrap, breather, field manual, ping, sector names on the goals).
+  Still non-pausing.
+- **THE START: pedestal, eight trays, fountain, roundabout (map 1 only).** Offsets from the world
+  centre, so every client agrees with no message (`arcadeStartLayout` constants, `START_*`,
+  `FOUNTAIN_*`, `ROUNDABOUT_R`): a solid concrete **pedestal** 624x60 flush under the warehouse's
+  south face (cy-230 - verified the same on every seed tried), **eight tray slots** below it (always
+  drawn; only the first n of the room are filled, centred, `arcadeTraySlot`), a spawn strip below
+  those (`START_SPAWN_DY`, players spread across it), and a **fountain** (solid 96px, animated
+  ripples and arcing jets, `drawFountain`) centred 170 south of the world centre with the **road
+  looping round it** at radius 110: the road now starts at the ring's south point, the ring is a
+  closed polyline, and a short spur runs up to the spawn strip. The four start lamps moved out
+  beside the fountain. Replaces the earlier 56px trays at cy+120. Checked headless on 4 seeds
+  (no tree or wall in the complex besides the warehouse's own south wall; map-feature check
+  clean; a bot run reaches map 2). **Not seen by eye, and the roundabout is not nav-measured.**
+- **THE START, REVISED (same day).** The pedestal is **ground, not a collision** (drawn in the ground
+  pass, `arcadeDrawPedestal`) and **you spawn on it** (`START_SPAWN_DY`); it and the trays moved 40px
+  south (`START_PED_TOP` -190) clear of the warehouse. The roundabout is a closed loop with **no road
+  leading north**. **An opening is cut in the warehouse's south wall** (190px, straight above the
+  start; windows across it removed, a lamp each side, racks kept off it) in `buildWarehouseSet`.
+- **TALL-GRASS BANDS (`arcadeDrawBands`, `arcadeDrawBandOver`, all four maps).** The east and west
+  fence segments are `zpass`: they stop **players only** (`solidRectsFor(true)`, `rebuildNavGrid` and
+  `refreshNavRegion` skip them), are not drawn as walls, and the 400px band beyond is tall grass.
+  The north and south walls are drawn continuous across the bands. 40% of arcade spawns
+  (`BAND_SPAWN_CHANCE`, in `arcadeSpawnPoint`) land in the band, level with a target, and walk in;
+  while outside they are covered from the feet up by blades (more the deeper they are). Everything
+  in the band goes dark outward in 10 stepped bands: a hard step at the fence, a slow fade to
+  black. Bullets pass the side fence (they use the zombie grid). Verified headless: zombies pass
+  and players do not on both sides, the nav field crosses the fence, the opening is walkable and the
+  wall beside it is not; a bot run on map 1 completes. **Not seen by eye.**
+- **GRASS TAPERS, AND IS WALKABLE (supersedes the hard-edged bands above).** `arcadeBandDensity`: 1 on
+  the old fence line, easing to 0 by `BAND_TAPER` (420px, ~7 trees) on BOTH sides, pushed in and out
+  by two octaves of large-scale value noise (`arcadeNoise2`), so no edge shows. Tint and blades are
+  per 22px cell by that density; the dark fade is 24 fine steps with no step at the fence. **Players
+  now stop `BAND_WALK` (300px) past the fence line** (the `zpass` wall moved out; zombies still ignore
+  it), so the grass can be walked. **Flashlight filtering:** `arcadeDrawBladeShade` redraws the blades
+  as dark silhouettes AFTER the lighting pass, so the beam is broken up by the grass. Zombies hide by
+  local density, inside the arena too. Measured headless: density 1 / 1 / .45 / .07 / 0 at 0 / 100 /
+  200 / 300 / 420px out. **Not seen by eye.**
+- **GRASS, CORRECTED (supersedes the two band paragraphs above).** The boundary is **hard again, on
+  the original fence line** (`zpass` walls back at `A.x` / `A.x + A.w - T`: players cannot walk off the
+  side; zombies and the nav field still cross). The grass lies **inside** it: full at and beyond the
+  boundary, tapering to 0 by `BAND_TAPER` (420px) inward with noise. **Zombie visibility is a straight
+  line in height:** `arcadeBandVisible` = 30% of the body at the boundary (and beyond), 100% where the
+  grass ends (measured 0.30 / 0.47 / 0.65 / 0.82 / 1.00 at 0 / 105 / 210 / 315 / 420px in). The
+  flashlight still filters through the blades (`arcadeDrawBladeShade`). Not seen by eye.
+- **Grass layering and colour (same day, later).** The grass is a dry golden-green (`#8E8A2A`..`#CDBE52`,
+  zombie cover to match), distinct from the lawn and the trees. The flashlight-filter blades
+  (`arcadeDrawBladeShade`, drawn after the lighting) skip any blade standing under a tree, prop,
+  tank, zombie or player, so grass is no longer drawn on top of things. Ground blades were already
+  in the ground pass, under everything.
+- **GRASS IS INDIVIDUAL BLADES NOW (supersedes the per-zombie cover in the paragraphs above).**
+  `arcadeDrawBandFront` draws real blades **in front of** each zombie in the grass: for every zombie,
+  the blades on an 8px lattice whose roots lie below its feet (up to 34px) are drawn over it, so it
+  walks between them; blades rooted behind it were already drawn with the ground. Density is still
+  `arcadeBandDensity`. **Blade height falls with distance from the boundary** (`arcadeBandTall`: x1.0 at
+  the boundary to x0.3 where the grass ends), for the ground blades, the flashlight-shade blades and the
+  front blades alike. The old solid green rectangle over a zombie and the straight-line visibility
+  (`arcadeBandVisible`, now unused) are gone, so how hidden a zombie is comes out of the blades'
+  density and height rather than a number. Not seen by eye.
+- **The attract run no longer restarts from black when the room's seed lands**
+  (`lobbyLevelRebuilt` re-seats it with no `resetGame`). The hard-coded "CLICK TO START" was removed
+  from `Zombie.html`; `zombie-lobby.js` writes the card.
+- **Not verified:** any of the above by eye or by ear; two real clients; the tray row's clearance.
+  A headless bot run completes (map 2 reached, no errors).
+
+> **Superseded by the above:** "Sixth" item 5 / "Seventh" -> six perk slots (now four); the toast
+> in "Tenth/Twelfth" that read "RALLY - N CLEARED".
+
 ### Thirteenth, addendum: the Boomgun is carried, and its ammo is its time (2026-10-13)
 
 `p.boomUntil` is still the in-hand deadline (the renderer, the wire `bm` and `boomActive()` read it);
@@ -1118,6 +1260,7 @@ revision of this table fixed an earlier count of 7 that omitted `zombie-audio.js
 | 9b | `zombie-floors.js` | Per-zone floor textures + grime noise map. Declares only; builds lazily on first draw |
 | 10 | `zombie-render.js` | Draw, HUD, minimap, input, **boots the loop** |
 | 11 | `zombie-dev.js` | Dev-panel registration: the state readout and the playtest buttons. **Last** — it reads names every file above declares, registers, and (since 2026-09-18) wraps `hostHandleBuy`/`spawnZombie`/`spawnZombieAt`/`nearestPrompt` for the FREE BUYS / NO ZOMBIES toggles — see "Controls" |
+| 14 | `zombie-input.js` | **Gamepad + touch** (2026-10-14): the pad poll, the touch overlay and its CSS, `inputFrame`. After `zombie-lobby.js`; read by one line in `gameLoop`. See "Fifteenth" |
 
 | 13 | `zombie-mapedit.js` | **The map editor** (2026-09-26), opened by double-clicking `map-editor.html`, which redirects to `Zombie.html?editor=1&solo=1`: it takes the page over — the whole map, SPACE to flip between a schematic PLAN and the game's own `draw()`, click to place a building, E to export. Last, because it drives everything above it |
 | 12 | `zombie-sandbox.js` | **The stamp sandbox** (2026-09-26): `?sandbox=1&solo=1#stamp=...` drops a drawing into the real map and stands the player at its door. **After `zombie-dev.js`**, whose NO ZOMBIES flag `&zombies=0` sets, and it wraps `spawnPlayer` rather than editing it. Regenerates the level once at boot, because `zombie-game.js` has already built one by the time this file runs |
@@ -3354,4 +3497,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 015050ff | 2026-10-14 -->
+<!-- doc-sync: f2f5ca24 | 2026-10-15 -->

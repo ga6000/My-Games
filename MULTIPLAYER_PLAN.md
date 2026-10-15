@@ -698,6 +698,14 @@ and can friends join mid-game?") that apply to any game on this server:
 
 Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)".
 
+### Zombie Arcade, 2026-10-13 - new snapshot fields (all durations or small arrays)
+
+`bo: [id, ms to outage, ms to end]` (the blackout; 0 when none) and `tr: [[x, y, CARD_KEYS index]]`
+(the start-of-run perk trays, host-picked, map 1). Both are state, not events, so a guest that
+misses a packet heals on the next one; each client plays the blackout's sounds off its own clock.
+The pulse wind needs nothing new: `SND_EXPLODE` with radius `PULSE_R` is drawn as wind by every
+client. See `zombie/CLAUDE.md` "Fourteenth".
+
 ## 6. Verification per game
 - `node scripts/check-global-collisions.js` (mp-core.js adds a global to every page that loads it)
 - Two browser windows, same room code → same world, both players visible
@@ -705,4 +713,4 @@ Detail and measurements: `zombie/CLAUDE.md` → "Connection trouble (2026-09-19)
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: 4603554d | 2026-10-14 -->
+<!-- doc-sync: d3b9d2e9 | 2026-10-15 -->

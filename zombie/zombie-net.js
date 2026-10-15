@@ -464,6 +464,10 @@ function applyWorldSnapshot(msg, now) {
     // ARCADE: map 2 begins. The level number comes first: the seed does not
     // move between maps, so it is `lv` that makes this client rebuild.
     if (ZOMBIE_ARCADE && typeof msg.df === "number") arcDifficulty = msg.df;
+    if (ZOMBIE_ARCADE && !netIsHost && msg.bo) arcadeBlackoutApply(msg.bo, now);
+    if (ZOMBIE_ARCADE && !netIsHost) {
+        arcTrays = (msg.tr || []).map(function (t) { return { x: t[0], y: t[1], item: CARD_KEYS[t[2]] || "" }; });
+    }
     if (ZOMBIE_ARCADE && typeof msg.lv === "number" && msg.lv > arcLevelNo) {
         arcadeEnterLevel(msg.lv, now, msg.l1 || [0, 0]);
     }
@@ -536,7 +540,7 @@ function applyWorldSnapshot(msg, now) {
         const item = type === "gun" ? WEAPON_KEYS[pu[4]] : type === "perk" ? CARD_KEYS[pu[4]] : "";
         // A promoted host must not hand out an id that is already live.
         if (ZOMBIE_ARCADE && pu[3] > arcDropSeq) arcDropSeq = pu[3];
-        return { x: pu[0], y: pu[1], size: DROP_SIZE, type: type, id: pu[3], item: item || "",
+        return { x: pu[0], y: pu[1], size: dropSizeFor(type), type: type, id: pu[3], item: item || "",
                  until: deadlineFrom(pu[5] || 0, now) };
     });
 
@@ -863,6 +867,8 @@ function broadcastWorld() {
         // missed the transition catches up from the next snapshot.
         lv: ZOMBIE_ARCADE ? arcLevelNo : 1,
         df: ZOMBIE_ARCADE ? arcDifficulty : 1,
+        bo: ZOMBIE_ARCADE ? arcadeBlackoutWire(now) : 0,
+        tr: ZOMBIE_ARCADE ? arcTrays.map(function (t) { return [t.x, t.y, CARD_KEYS.indexOf(t.item)]; }) : 0,
         lq: (ZOMBIE_ARCADE && arcLeaveAt) ? Math.max(1, Math.round(arcLeaveEndAt - now)) : 0,
         l1: (ZOMBIE_ARCADE && arcLevelNo >= 2) ? [Math.round(arcL1Seconds * 10) / 10, arcL1Silos] : 0,
 
