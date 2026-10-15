@@ -713,4 +713,4 @@ client. See `zombie/CLAUDE.md` "Fourteenth".
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
-<!-- doc-sync: d3b9d2e9 | 2026-10-15 -->
+<!-- doc-sync: 6d8958b0 | 2026-10-15 -->

@@ -2595,6 +2595,7 @@ function buildSideStatic() {
 
 function arcadeDrawSidebar(now) {
     if (!sideCtx) return;
+    if (typeof inputHidesRadar === "function" && inputHidesRadar()) return;   // phone: the radar is hidden
     const bar = document.getElementById("sidebar");
     const want = Math.max(120, (bar ? bar.clientWidth : 240) - 24 - 12);   // the radar frame
     const wantH = Math.round(want * ARENA.h / ARENA.w);
@@ -3415,7 +3416,9 @@ function arcadeNormalScale() {
     const aspect = canvas.width / Math.max(1, canvas.height);
     if (needW / needH < aspect) needW = needH * aspect;
     else needH = needW / aspect;
-    return Math.min(canvas.width / needW, canvas.height / needH);
+    // zombie-input.js: a touch screen is zoomed in a little more.
+    const boost = typeof inputZoomBoost === "function" ? inputZoomBoost() : 1;
+    return Math.min(canvas.width / needW, canvas.height / needH) * boost;
 }
 
 function arcadeFitScale() {

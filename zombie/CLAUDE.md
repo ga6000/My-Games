@@ -100,8 +100,44 @@ All of it is **`zombie-input.js`**, script #26 (page is **26 local scripts**), d
   Collision, undefined-global and camera checks pass. **Not verified:** real controller hardware, a
   real phone, two clients, or pointer capture on iOS. The Browser pane draws no frames here, so the
   loop was stepped by hand.
-- **Known rough edges:** the end cards still say "Click anywhere"; the gun strip still shows key
-  letters (T, B) on touch; the in-game ESC dialog's controls text lists keyboard only.
+- **Phone fixes, same day, after a real-phone test (iPhone Safari and Chrome).**
+  - **Select All / Copy on a long press.** `Zombie.html` had only the unprefixed `user-select: none`,
+    which Safari ignores; the prefixed `-webkit-user-select` and `-webkit-touch-callout` are on
+    `html, body` and `*` now (page and injected CSS), plus `selectstart` and `gesturestart` are cancelled.
+  - **Buttons dead while a stick thumb was down.** Per-element pointer handlers (with pointer capture on
+    the stick zones) were replaced by ONE set of `touchstart/move/end/cancel` handlers on `#touchui`
+    that classifies every touch itself (a `.tb` button, or the left / right half). Each touch is tracked
+    by its own identifier, so a stick and a button work together. `preventDefault` on `touchstart` is
+    also what suppresses iOS's selection, magnifier and pinch from a held thumb. **Verified headless
+    with synthetic multi-touch** (stick held; USE, NEXT, PREV and TURRET all fire; stick still held);
+    **not re-verified on the phone.**
+  - **Browser bars taking 20-30% of the screen.** No web API can hide Safari's bars on iPhone. Opened
+    **from the Home Screen** the page runs with none (`apple-mobile-web-app-capable`, `zombie.webmanifest`
+    with `display: fullscreen` and landscape). The ready screen shows a dismissible "SHARE > ADD TO HOME
+    SCREEN" tip on iOS when not already installed (`zombie_a2hs_hint` in `localStorage`). Android Chrome
+    still gets the first-touch fullscreen request. Safe-area insets pad the overlay and the panel.
+    **No icon yet**: the Home Screen icon is a page screenshot until an `apple-touch-icon` exists.
+  - The BOOM / TURRET buttons no longer show on the ready screen (the attract-run survivor holds both).
+- **Phone fit (2026-10-15, from a screenshot).** All in `zombie-input.js`'s injected CSS plus two hooks in
+  `arcadeNormalScale` / `arcadeDrawSidebar`:
+  - **Minimap gone on touch** (`body.touch .cab-radar`, and `arcadeDrawSidebar` returns early via
+    `inputHidesRadar()`). Panel narrowed 152 -> **132px**; gun, strip and perks right-aligned; the
+    loadout compacted (gun icon 72x24, rounds 28px, perk tiles 27px). Under 340px of height the CONDITION
+    row, the NEXT / CONDITION labels and the gun name also go. Checked at 844x390 and 667x320: panel
+    `scrollHeight == clientHeight` (nothing clipped).
+  - **Zoom x1.2 on touch** (`INP_ZOOM_BOOST`, via `inputZoomBoost()` in `arcadeNormalScale`): the
+    follow camera and every "near" flythrough shot. The wide "fit" shot is untouched. 0.722 -> 0.866 at
+    712x390. Everything that reads the view (spawn-outside-view, drop culling) uses `camera.scale`, so it
+    follows.
+  - **Toast, prompt, end cards, ready card, banners and the ESC dialog** are capped to the play area
+    (`100vw - --side-w`) and wrap; the ESC dialog is inset to it and scrolls. **Not changed:** the ESC
+    dialog's controls text still lists keyboard keys only.
+- **Leftovers closed (2026-10-15).** The ESC dialog shows the touch controls on a phone (the keyboard
+  lines are hidden under `body.touch`) and a one-line CONTROLLER mapping everywhere; the two end cards
+  read Click / Tap / Press A to restart (`.rv` / `.ra`, set by `inpEndCardWords`); the gun strip drops
+  its key numbers and T / B letters on touch; the Home Screen icon exists (`zombie-icon-180/192/512.png`,
+  a flat ember "Z" on black, listed in `zombie.webmanifest` and as `apple-touch-icon`).
+  **Still rough:** the perk tiles are 27px on a phone (32px would force a second row at ~320px tall).
 
 ### Fourteenth: blackout, perk trays, wind pulses, a pickup guide (2026-10-13, later)
 
@@ -3497,4 +3533,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: f2f5ca24 | 2026-10-15 -->
+<!-- doc-sync: 421f57ba | 2026-10-15 -->

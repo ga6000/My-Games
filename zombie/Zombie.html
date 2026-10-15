@@ -3,6 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- Opened from the Home Screen these run with no browser chrome (iPhone
+         Safari has no Fullscreen API; this is the only way to hide its bars). -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Zombie">
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="zombie.webmanifest">
+    <link rel="apple-touch-icon" href="zombie-icon-180.png">
     <title>Zombie Arcade</title>
 
     <!-- The shared token layer (AESTHETIC_GUIDE.md 2 and 3), loaded BEFORE this
@@ -23,6 +32,11 @@
             cursor: crosshair;
             font-family: 'Courier New', Courier, monospace;
             user-select: none;
+            /* Safari needs the prefixed forms: without them a long press on a
+               phone selects text and shows Select All / Copy. */
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
         }
         canvas { display: block; image-rendering: pixelated; }
 
@@ -263,6 +277,10 @@
         .hp-h { color: #FFFFFF; letter-spacing: 3px; font-size: 13px; margin: 2px 0 10px; }
         .hp-keys { line-height: 1.85; }
         .hp-keys .k { color: var(--sig-cyan); white-space: nowrap; }
+        .hp-keys .touch-only { display: none; }
+        body.touch .hp-keys .touch-only { display: block; }
+        body.touch .hp-keys .kb-only { display: none; }
+        .hp-keys .pad-line { margin-top: 10px; color: #7FBF7F; font-size: 12px; line-height: 1.6; }
         .hp-note { margin-top: 12px; color: #7FBF7F; font-size: 12px; }
         #itemList { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px 22px; }
         #itemList .itsec { grid-column: 1 / -1; color: var(--sig-cyan); letter-spacing: 2px; font-size: 12px; margin-top: 8px; border-bottom: 1px solid #10300F; padding-bottom: 3px; }
@@ -533,6 +551,7 @@
         </div>
         <div class="hp-col hp-keys">
           <div class="hp-h">CONTROLS</div>
+          <div class="kb-only">
           <span class="k">W A S D</span> move &middot; <span class="k">MOUSE</span> aim &middot;
           <span class="k">LEFT CLICK</span> shoot<br>
           <span class="k">F</span> throw a full tank&rsquo;s switch &middot;
@@ -541,6 +560,22 @@
           <span class="k">B</span> Boomgun &middot; <span class="k">T</span> turret<br>
           <span class="k">M</span> minimap &amp; stats &middot; <span class="k">N</span> mute &middot;
           <span class="k">ESC</span> this screen
+          </div>
+          <div class="touch-only">
+          <span class="k">LEFT THUMB</span> move &middot; <span class="k">RIGHT THUMB</span> aim,
+          and it fires while pushed<br>
+          <span class="k">USE</span> throw a full tank&rsquo;s switch &middot;
+          drops are taken by walking over them<br>
+          <span class="k">&lt; GUN</span> / <span class="k">GUN &gt;</span> switch guns &middot;
+          <span class="k">BOOM</span> &middot; <span class="k">TURRET</span> appear when you hold one<br>
+          <span class="k">MENU</span> this screen
+          </div>
+          <div class="pad-line">
+          <span class="k">CONTROLLER</span> left stick move &middot; right stick aim &middot;
+          <span class="k">RT</span> / <span class="k">RB</span> fire &middot; <span class="k">A</span> use &middot;
+          <span class="k">Y</span> / <span class="k">LB</span> guns &middot; <span class="k">B</span> Boomgun &middot;
+          <span class="k">X</span> turret &middot; <span class="k">START</span> this screen
+          </div>
           <div class="hp-h" style="margin-top:16px">HOW IT WORKS</div>
           Kill zombies standing <span class="k">ON</span> a funnel to fill its tank, then throw the
           tank&rsquo;s switch. The last tank opens the gate.<br>
@@ -578,14 +613,14 @@
         <span id="winHead">YOU GOT OUT.</span><br>
         <span style="font-size:22px;color:var(--phos-hot);" id="winSub">ESCAPED ON ROUND <span id="winRound">0</span></span><br>
         <div class="runscore" id="winScore"></div>
-        <span style="font-size:20px;color:var(--sig-cyan);">Click anywhere to run it again</span>
+        <span style="font-size:20px;color:var(--sig-cyan);"><span class="rv">Click</span><span class="ra"> anywhere</span> to run it again</span>
     </div>
 
     <div id="gameover">
         EVERYONE WENT DOWN.<br>
         <span style="font-size: 22px; color: var(--phos-hot);" id="overSub">SURVIVED TO ROUND <span id="finalRound">0</span></span><br>
         <div class="runscore" id="overScore"></div>
-        <span style="font-size: 22px; color: var(--sig-cyan);">Click anywhere to restart</span>
+        <span style="font-size: 22px; color: var(--sig-cyan);"><span class="rv">Click</span><span class="ra"> anywhere</span> to restart</span>
     </div>
 
     <!-- THE CABINET PANEL (2026-10-04): Bosconian's right-hand panel,

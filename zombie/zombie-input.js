@@ -56,9 +56,16 @@ let inpFiring = false;             // the combined state this module last applie
 let inpEndSince = 0;
 let inpLastPlayer = null;
 let inpFsTried = false;
+let inpHintGone = false;           // the add-to-home-screen tip was dismissed
 let inpTouchUi = null;             // {root, zones, sticks, buttons}
 
 // "CLICK" / "TAP" / "PRESS A": the verb for the ready screen and end cards.
+// A little closer on a phone: the 960x540 desktop window shows a world the
+// thumbs and a small screen cannot read.
+const INP_ZOOM_BOOST = 1.2;
+function inputZoomBoost() { return inpTouchLayout ? INP_ZOOM_BOOST : 1; }
+function inputHidesRadar() { return inpTouchLayout; }
+
 function inputVerb() {
     if (inpKind === "pad") return "PRESS A";
     if (inpKind === "touch") return "TAP";
@@ -75,6 +82,11 @@ function inpWorldBlocked() {
 // handler's gates, in the same order.
 function inpAction(act) {
     initAudio();
+    if (act === "hint") {                              // dismiss the install tip, for good
+        try { localStorage.setItem("zombie_a2hs_hint", "1"); } catch (e) { /* private mode */ }
+        inpHintGone = true;
+        return;
+    }
     if (codexOpen) { if (act === "use" || act === "menu" || act === "back") closeCodex(); return; }
     if (helpOpen) { if (act === "use" || act === "menu" || act === "back") closeHelp(); return; }
     if (netLost) {
@@ -229,12 +241,66 @@ const INP_CSS =
     "@media (orientation:portrait){body.touch #touchrotate{display:flex}}" +
     // The cabinet panel is the one thing that must shrink on a phone: it was
     // sized for a desktop (240px minimum) and would take half a landscape phone.
-    "body.arcade.touch{--side-w:152px}" +
-    "body.touch #sidebar{padding:8px;gap:6px}" +
+    "body.arcade.touch{--side-w:132px}" +
+    "body.touch #sidebar{padding:6px;gap:5px}" +
+    // The minimap is unreadable at phone scale, so it goes (its draw is skipped too).
+    "body.touch #sidebar .cab-radar{display:none}" +
+    // Gun strip and perks hug the right edge of the panel.
+    "body.touch #sidebar #loadout{width:100%;align-items:flex-end}" +
+    "body.touch #sidebar #gun,body.touch #sidebar #perks{width:100%;justify-content:flex-end;align-items:flex-end}" +
+    // The loadout, compacted so gun, rounds, strip and four perks all fit in a
+    // phone's ~300-390px of height (CSS beats the icons' width/height attributes).
+    "body.touch #sidebar #gunIcon{width:72px;height:24px;margin-bottom:2px}" +
+    "body.touch #sidebar #ammoBig{font-size:28px}" +
+    "body.touch #sidebar #gunName{font-size:12px;letter-spacing:1px}" +
+    "body.touch #sidebar #gunStrip{gap:3px;margin-top:4px;justify-content:flex-end}" +
+    "body.touch #sidebar #gunStrip .slot{padding:1px 3px;gap:2px}" +
+    "body.touch #sidebar #gunStrip i{font-size:11px}" +
+    "body.touch #sidebar #gunStrip .slot.turret{font-size:11px}" +
+    "body.touch #sidebar #gunStrip i{display:none}" +
+    "body.touch #sidebar #perks{gap:6px 6px;margin-bottom:6px}" +
+    "body.touch #sidebar #perks .perk{width:27px;height:27px}" +
+    "body.touch #sidebar #perks .perk img{width:19px;height:19px}" +
+    "body.touch #sidebar #perks .perk b{font-size:10px;right:-4px;bottom:-7px;padding:0 2px}" +
+    // A short phone (Safari with its bars up is ~300px tall): drop what the
+    // objective and the lives blocks already say, so the loadout is never clipped.
+    "@media (max-height:340px){body.touch #sidebar .cab-row,body.touch #sidebar .cab-l,body.touch #sidebar #gunName{display:none}" +
+    "body.touch #sidebar #objective{font-size:11px}body.touch #sidebar #perks{margin-bottom:2px}}" +
     "body.touch #sidebar .cab-pair,body.touch #sidebar .cab-sess,body.touch #sideGoals,body.touch #sidebar #ui{display:none}" +
     "body.touch #sidebar #objective{font-size:13px;line-height:1.25;border-left-width:3px;padding-left:6px}" +
     "body.touch #sidebar .cab-cond{font-size:18px}" +
-    "body.touch,body.touch canvas{touch-action:none;overscroll-behavior:none}";
+    "body.touch,body.touch canvas{touch-action:none;overscroll-behavior:none}" +
+    // Cards, toasts and the ESC dialog were sized for a desktop window and ran
+    // off a phone; they now fit the play area (the window minus the panel).
+    "body.touch #toast{top:40px;font-size:15px;letter-spacing:1px;line-height:1.3;width:max-content;" +
+    "max-width:calc(100vw - var(--side-w) - 28px);text-align:center;white-space:normal;box-sizing:border-box}" +
+    "body.touch #prompt{font-size:13px;bottom:66px;width:max-content;max-width:calc(100vw - var(--side-w) - 28px);" +
+    "text-align:center;box-sizing:border-box}" +
+    "body.touch #win,body.touch #gameover{font-size:22px;padding:10px 14px;line-height:1.25;" +
+    "max-width:calc(100vw - var(--side-w) - 20px);max-height:calc(100vh - 12px);overflow:hidden;box-sizing:border-box}" +
+    "body.touch .runscore{font-size:11px;margin:6px auto 4px;line-height:1.35}" +
+    "body.touch .runscore .total{font-size:20px}" +
+    "body.touch #startprompt{max-width:calc(100vw - var(--side-w) - 20px);padding:10px 14px;font-size:13px;" +
+    "box-sizing:border-box}" +
+    "body.touch #startprompt .lb-head{font-size:14px;letter-spacing:3px;margin-bottom:8px}" +
+    "body.touch #startprompt .lb-row{gap:12px;margin-bottom:8px}" +
+    "body.touch #startprompt .lb-hint{font-size:15px;letter-spacing:3px}" +
+    "body.touch #spectate,body.touch #netlost,body.touch #zonename,body.touch #roundcard{" +
+    "max-width:calc(100vw - var(--side-w) - 20px);box-sizing:border-box;font-size:14px}" +
+    "body.touch #help{inset:auto;left:6px;top:6px;bottom:6px;right:calc(var(--side-w) + 6px);font-size:12px}" +
+    "body.touch .hp-body{gap:10px;padding:8px 10px}" +
+    "body.touch .hp-col{flex:1 1 180px;min-width:0}" +
+    "body.touch #itemList{grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px 12px}" +
+    "body.touch #itemList .ico{width:48px}" +
+    // Safari ignores the unprefixed user-select and shows Select All / Copy on a
+    // long press; it needs the -webkit- forms, on everything.
+    "html,body,body *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;" +
+    "-webkit-tap-highlight-color:transparent}" +
+    // Notch and home-bar insets (non-zero only in landscape standalone).
+    "#touchui{left:env(safe-area-inset-left,0px)}" +
+    "body.touch #sidebar{padding-right:calc(8px + env(safe-area-inset-right,0px))}" +
+    "#touchui .tb.hint{bottom:auto;top:8px;left:50%;transform:translateX(-50%);height:auto;padding:6px 10px;" +
+    "font-size:12px;white-space:nowrap;border-color:#FFE033;color:#FFE033;opacity:.9}";
 
 function inpBuildUi() {
     const st = document.createElement("style");
@@ -248,6 +314,7 @@ function inpBuildUi() {
         "<div class='ts tl'><div class='tk'></div></div>" +
         "<div class='ts tr'><div class='tk'></div></div>" +
         "<button class='tb menu' data-a='menu'>MENU</button>" +
+        "<button class='tb hint hide' data-a='hint'>FULL SCREEN: SHARE &gt; ADD TO HOME SCREEN &nbsp;[X]</button>" +
         "<button class='tb' data-a='prev' style='left:calc(50% - 150px)'>&lt; GUN</button>" +
         "<button class='tb use' data-a='use' style='left:calc(50% - 82px)'>USE</button>" +
         "<button class='tb' data-a='next' style='left:calc(50% - 14px)'>GUN &gt;</button>" +
@@ -262,7 +329,8 @@ function inpBuildUi() {
 
     const sig = { signal: zSignal() };
     const sticks = { L: root.querySelector(".tl"), R: root.querySelector(".tr") };
-    inpTouchUi = { root: root, sticks: sticks, boom: root.querySelector("[data-a=boom]"), turret: root.querySelector("[data-a=turret]") };
+    inpTouchUi = { root: root, sticks: sticks, boom: root.querySelector("[data-a=boom]"),
+                   turret: root.querySelector("[data-a=turret]"), hint: root.querySelector("[data-a=hint]") };
 
     function home(which) {
         const r = root.getBoundingClientRect();
@@ -279,56 +347,84 @@ function inpBuildUi() {
         if (inpTouch.R.id === null) home("R");
     }, sig);
 
-    function bindZone(zoneEl, which) {
-        const s = inpTouch[which], base = sticks[which], knob = base.querySelector(".tk");
-        zoneEl.addEventListener("pointerdown", function (e) {
-            if (e.pointerType === "mouse") return;            // a mouse on a touch laptop: the mouse handlers own it
-            e.preventDefault();
-            inpTouchActive();
-            if (s.id !== null) return;
-            s.id = e.pointerId; s.dx = s.dy = 0;
-            const r = root.getBoundingClientRect();
-            s.ox = e.clientX; s.oy = e.clientY;
-            base.style.left = (e.clientX - r.left - INP_STICK_PX) + "px";
-            base.style.top = (e.clientY - r.top - INP_STICK_PX) + "px";
-            base.classList.add("on");
-            try { zoneEl.setPointerCapture(e.pointerId); } catch (err) { /* old browsers */ }
-            inpAction("tap");                                  // READY and the end cards take any tap
-        }, { signal: zSignal(), passive: false });
-        zoneEl.addEventListener("pointermove", function (e) {
-            if (e.pointerId !== s.id) return;
-            e.preventDefault();
-            let dx = e.clientX - s.ox, dy = e.clientY - s.oy;
-            const m = Math.hypot(dx, dy);
-            if (m > INP_STICK_PX) { dx = dx / m * INP_STICK_PX; dy = dy / m * INP_STICK_PX; }
-            s.dx = dx; s.dy = dy;
-            knob.style.transform = "translate(" + dx + "px," + dy + "px)";
-        }, { signal: zSignal(), passive: false });
-        const up = function (e) {
-            if (e.pointerId !== s.id) return;
-            s.id = null; s.dx = s.dy = 0;
-            base.classList.remove("on");
-            home(which);
-            initAudio();                                       // touch activation lands on release
-            inpTryFullscreen();
-        };
-        zoneEl.addEventListener("pointerup", up, sig);
-        zoneEl.addEventListener("pointercancel", up, sig);
-    }
-    bindZone(root.querySelector(".tz-l"), "L");
-    bindZone(root.querySelector(".tz-r"), "R");
+    // ONE set of touch-event handlers on the overlay, classifying every touch
+    // itself (a button, or the left / right half). This replaced per-element
+    // pointer handlers, which on iOS stopped the buttons working while a stick
+    // thumb was down: touch events are the one multi-touch API every phone
+    // browser agrees on. preventDefault on touchstart is also what stops iOS
+    // from starting a text selection, the Select All / Copy callout, a
+    // magnifier or a pinch from a held thumb.
+    const knobs = { L: sticks.L.querySelector(".tk"), R: sticks.R.querySelector(".tk") };
+    const heldBtn = {};                                    // touch id -> button element
 
-    const btns = root.querySelectorAll(".tb");
-    for (let i = 0; i < btns.length; i++) {
-        const b = btns[i];
-        b.addEventListener("pointerdown", function (e) {
-            if (e.pointerType === "mouse") return;
-            e.preventDefault();
-            inpTouchActive();
-            inpAction(b.getAttribute("data-a"));
-        }, { signal: zSignal(), passive: false });
-        b.addEventListener("pointerup", function () { initAudio(); inpTryFullscreen(); }, sig);
+    function stickDown(which, t) {
+        const s = inpTouch[which], base = sticks[which];
+        const r = root.getBoundingClientRect();
+        s.id = t.identifier; s.dx = s.dy = 0; s.ox = t.clientX; s.oy = t.clientY;
+        base.style.left = (t.clientX - r.left - INP_STICK_PX) + "px";
+        base.style.top = (t.clientY - r.top - INP_STICK_PX) + "px";
+        base.classList.add("on");
     }
+    function stickRelease(which) {
+        const s = inpTouch[which];
+        s.id = null; s.dx = s.dy = 0;
+        sticks[which].classList.remove("on");
+        home(which);
+    }
+    function onStart(e) {
+        e.preventDefault();
+        inpTouchActive();
+        const r = root.getBoundingClientRect();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            const btn = (t.target && t.target.closest) ? t.target.closest(".tb") : null;
+            if (btn) {
+                heldBtn[t.identifier] = btn;
+                btn.classList.add("down");
+                inpAction(btn.getAttribute("data-a"));
+                continue;
+            }
+            inpAction("tap");                              // READY and the end cards take any tap
+            const which = (t.clientX - r.left) < r.width / 2 ? "L" : "R";
+            if (inpTouch[which].id === null) stickDown(which, t);
+        }
+    }
+    function onMove(e) {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            for (const which of ["L", "R"]) {
+                const s = inpTouch[which];
+                if (s.id !== t.identifier) continue;
+                let dx = t.clientX - s.ox, dy = t.clientY - s.oy;
+                const m = Math.hypot(dx, dy);
+                if (m > INP_STICK_PX) { dx = dx / m * INP_STICK_PX; dy = dy / m * INP_STICK_PX; }
+                s.dx = dx; s.dy = dy;
+                knobs[which].style.transform = "translate(" + dx + "px," + dy + "px)";
+            }
+        }
+    }
+    function onEnd(e) {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const id = e.changedTouches[i].identifier;
+            if (heldBtn[id]) { heldBtn[id].classList.remove("down"); delete heldBtn[id]; }
+            if (inpTouch.L.id === id) stickRelease("L");
+            if (inpTouch.R.id === id) stickRelease("R");
+        }
+        initAudio();                                       // touch activation lands on release
+        inpTryFullscreen();
+    }
+    const tOpts = { signal: zSignal(), passive: false };
+    root.addEventListener("touchstart", onStart, tOpts);
+    root.addEventListener("touchmove", onMove, tOpts);
+    root.addEventListener("touchend", onEnd, tOpts);
+    root.addEventListener("touchcancel", onEnd, tOpts);
+
+    // Belt and braces for the selection / callout / pinch paths touch events
+    // do not cover (a long press on the sidebar, a gesture that starts off the overlay).
+    document.addEventListener("selectstart", function (e) { e.preventDefault(); }, { signal: zSignal() });
+    document.addEventListener("gesturestart", function (e) { e.preventDefault(); }, { signal: zSignal(), passive: false });
 }
 
 // The first touch turns the touch layout on (and a pad's hidden overlay back on).
@@ -336,8 +432,17 @@ function inpTouchActive() {
     if (inpKind !== "touch" || !inpTouchLayout) { inpKind = "touch"; inpTouchLayout = true; inpSyncUi(); }
 }
 
+// "Click anywhere to restart" / "Tap anywhere ..." / "Press A to ..." on both end cards.
+function inpEndCardWords() {
+    const verb = inpKind === "pad" ? "Press A" : (inpKind === "touch" ? "Tap" : "Click");
+    const vs = document.querySelectorAll(".rv"), as = document.querySelectorAll(".ra");
+    for (let i = 0; i < vs.length; i++) vs[i].textContent = verb;
+    for (let i = 0; i < as.length; i++) as[i].style.display = inpKind === "pad" ? "none" : "";
+}
+
 function inpSyncUi() {
     if (!inpTouchUi) return;
+    inpEndCardWords();
     document.body.classList.toggle("touch", inpTouchLayout);
     inpTouchUi.root.classList.toggle("pad", inpKind === "pad");
     if (inpTouch.L.id === null) inpTouchUi.home("L");        // laid out while display:none, so re-home now
@@ -357,6 +462,24 @@ function inpTryFullscreen() {
             if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(function () {});
         }).catch(function () {});
     } catch (e) { /* not available */ }
+}
+
+// iOS gives a web page no way to hide Safari's address bar, and has no
+// Fullscreen API on iPhone. Opened from the Home Screen it runs with no browser
+// chrome at all (apple-mobile-web-app-capable in Zombie.html), so the tip shows
+// on the ready screen until dismissed.
+function inpWantsHomeHint() {
+    if (inpHintGone || !inpTouchLayout) return false;
+    if (typeof lobbyBlocks !== "function" || !lobbyBlocks()) return false;
+    const ua = navigator.userAgent || "";
+    const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (!ios) return false;
+    if (navigator.standalone) return false;
+    try {
+        if (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) return false;
+        if (localStorage.getItem("zombie_a2hs_hint") === "1") { inpHintGone = true; return false; }
+    } catch (e) { /* storage blocked: show it */ }
+    return true;
 }
 
 // ---------------------------------------------------
@@ -388,10 +511,15 @@ function inputFrame(now) {
     const p = players[0];
     if (p !== inpLastPlayer) { inpLastPlayer = p; inpFiring = false; }
 
+    if (inpTouchUi) {
+        inpTouchUi.hint.classList.toggle("hide", !inpWantsHomeHint());
+    }
+
     if (inpTouchUi && p) {
-        const hasBoom = ZOMBIE_ARCADE && (p.boomUntil > now || p.boomStore > 0);
+        const live = !zDemo && !(typeof lobbyBlocks === "function" && lobbyBlocks());   // not the attract run's survivor
+        const hasBoom = live && ZOMBIE_ARCADE && (p.boomUntil > now || p.boomStore > 0);
         inpTouchUi.boom.classList.toggle("hide", !hasBoom);
-        const hasTurret = ZOMBIE_ARCADE && !!p.turretHeld;
+        const hasTurret = live && ZOMBIE_ARCADE && !!p.turretHeld;
         inpTouchUi.turret.classList.toggle("hide", !hasTurret);
         inpTouchUi.turret.textContent = p.turretArmed ? "PLACE" : "TURRET";
     }
