@@ -26,6 +26,11 @@ Game tags: `hub-zombie`, `long-game`, `hub` (the board itself), `<game-folder>`.
 - 2026-10-12 · hub-zombie · Let any key skip a map's flythrough (local only; the host clock already waits for it). Worth more now: maps 2 to 4 run 14.5 to 18.7s — `zombie/CLAUDE.md` "Eleventh"
 - 2026-10-12 · hub-zombie · The objective beacon and the hurt frame still pop in the frame the intro ends; give them a stepped fade-in too — `zombie/zombie-render.js` `introOn`
 
+- 2026-10-16 · hub · Leaderboard names: ask for a name on the ready screen when none is stored (an iOS Home Screen install has its own empty storage, so it submits as "Anonymous") and remember it — `shared/mp-core.js` `readIdentity`, `shared/leaderboard.js`
+- 2026-10-16 · hub · Leaderboard names: normalise them (trim, case-insensitive grouping) so "ry" and "Ry" are one player — `leaderboard.html` groups by the exact `player` string
+- 2026-10-16 · hub · Leaderboard names: store the anonymous Firebase auth uid on each score so a name can be tied to one device without accounts — `shared/leaderboard.js` `writer`
+- 2026-10-16 · hub · Leaderboard scores: validate them server-side (Firestore rules or a Cloud Function); today the rules live in the Firebase console and cannot be read from the repo
+
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)
