@@ -31,6 +31,28 @@ Game tags: `hub-zombie`, `long-game`, `hub` (the board itself), `<game-folder>`.
 - 2026-10-16 · hub · Leaderboard names: store the anonymous Firebase auth uid on each score so a name can be tied to one device without accounts — `shared/leaderboard.js` `writer`
 - 2026-10-16 · hub · Leaderboard scores: validate them server-side (Firestore rules or a Cloud Function); today the rules live in the Firebase console and cannot be read from the repo
 
+### Cross-game rewards (2026-10-17, user)
+
+One idea per line, as the rules ask, but they are one system: **finishing a game unlocks something
+in a different game.** It needs somewhere to keep "what has this player finished", which is
+persistence — so by `SCOPE_RULES.md` rule 7 this is routed, not cut, and nothing here is built
+until it is pulled against a finish line. The open question each line shares: unlocks are
+per-player and the hub has no per-player store yet (identity is a name hash, scores go to
+Firestore write-only). See `cliff-run/SERVER_NOTES.md` § "Cross-game rewards".
+
+- 2026-10-17 · hub · Cross-game rewards as a system: one small per-player "completions" record the hub owns, that every game reads at boot and no game writes except on a win
+- 2026-10-17 · cliff-run → hub-zombie · Clearing all 10 Cliff Run levels unlocks a perk or a weapon in Zombie (which one is undecided; the dash reads across best)
+- 2026-10-17 · hub-zombie → cliff-run · Beating Zombie unlocks a bonus ability on the cliff (candidate: start each level with a second-jump charge already held)
+- 2026-10-17 · glass-city-escape → cliff-run · Beating Glass City Escape lets you dash straight through breakable blocks, so the bomb walls become optional rather than required
+- 2026-10-17 · hub · The unlock has to be VISIBLE on the board, or nobody knows they have it — a line on the tile, not a surprise in-game
+
+- 2026-10-17 · zombie-rail · A yard fence with TWO crossings (one on the main, one on the siding), so the route choice and the currency choice interact instead of being the same decision — ruled out of the sandbox because an E-W wall across the west main passes within 23px of the siding
+- 2026-10-17 · zombie-rail · Derailment as a real outcome when points are thrown under a car, instead of the lever being refused — needs a recovery verb (a crane? a re-railing ramp?) before it is anything but a dead end
+- 2026-10-17 · zombie-rail · A turntable or a wye, so a locomotive can be turned rather than only reversed
+- 2026-10-17 · zombie-rail · Cargo that counts: crates in a box car adding to its mass, so loading a wagon changes how it shunts
+- 2026-10-17 · zombie-rail · Multiplayer for the rail sandbox — the wire format is already implied (broadcast each body's route anchor + scalar and DERIVE every car, never interpolate)
+- 2026-10-17 · zombie-rail · Pump noise as a real wave trigger with a difficulty curve, once zombies are more than the placeholder straight-line chaser in `rail-zomb.js`
+
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)

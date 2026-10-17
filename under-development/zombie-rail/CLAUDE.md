@@ -1,5 +1,45 @@
 # Zombie Rail — the evacuation-train build, parked off the hub (2026-10-04)
 
+> ## REVIVED 2026-10-17: there are now TWO pages in this folder.
+>
+> | page | what it is |
+> |---|---|
+> | **`rail-sandbox.html`** | **the live one.** A bench for the rail mechanics: a rail GRAPH with switches, four car types, coupling, fuel and a hand-authored two-town map. No levels, no rounds, **no zombies by default**. Its files are `rail-*.js`. |
+> | `Zombie.html` | the parked 2026-10-04 reference build, below. Unchanged. Its files are `zombie-*.js`. |
+>
+> **The two pages share no code and never load together**, so `rail-*` and `zombie-*` cannot
+> collide — `check-global-collisions.js` works per page and passes on both.
+>
+> The sandbox exists because the user asked (2026-10-17) to revive this build as a standalone
+> game, turn zombies off, and get a map for testing rail mechanics. **The design and every
+> decision behind it are in `RAIL_SANDBOX_PLAN.md`** — read that before changing anything in
+> `rail-*.js`. The short version of the one idea that matters:
+>
+> - `zombie-train.js` was right that **a train on rails has one degree of freedom**, and the
+>   sandbox keeps that whole. What it adds is a **graph**, which that file's own comment names as
+>   its known limit (*"THE SIDINGS ARE NOT JOINED TO IT"*).
+> - A body carries the **route** it occupies — front-most edge first — and car poses are walked
+>   along that, never re-derived from the switches. Throwing points behind a moving train must
+>   not teleport its cars. A lever is **refused** while a car stands on it rather than derailing.
+>
+> **Run it:** `/under-development/zombie-rail/rail-sandbox.html` on the dev server, or
+> double-click it for `file://`. `?zombies=1` opts in to zombies; `L`+`G` is the dev panel.
+>
+> **Not promoted.** It is not on the hub board and `SCOPE_RULES.md` rule 8 is untouched.
+>
+> ### The numbers that were measured, not guessed
+> Changing any of these without re-measuring is how the map stops working:
+> - **Track curvature.** A siding's S-curve has its tightest radius at its ENDS, at `H²/(6L)` for
+>   lateral `L` over run `H`. The first cut used L=320 over H=250 → a 42px radius, which bunched
+>   a three-car consist by 43px. Now L=150 over H=430 → 205px, worst car-gap error 6px anywhere
+>   on the network. Keep `H² >= 1200*L`.
+> - **A polyline is only as smooth as its point spacing.** At a fixed 22 samples a 500px
+>   transition facets every 23px, and that faceting measured as a 173px radius on a 278px curve.
+> - **Fuel.** A bare locomotive gets 33s at full notch; a four-car train measured 43s = 2.86 laps
+>   of the 11,758px loop. The first cut gave seven laps, i.e. a mechanic you never reach.
+> - **Bullets substep.** A rifle round covers 25px per 60Hz frame and a switch lever's hit radius
+>   is 18px, so testing only the frame's end point let every shot tunnel through the lever.
+
 **What this is:** a copy of `zombie/` as it stood at tag **`zombie-rail-fork`** (commit `22365e6`).
 It is the most developed version of Zombie: nine painted sectors, hand-authored stamps, the map
 editor, and the generator → levers → tanks → train → tunnel chain. The user parked it here,

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Rail Sandbox — Zombie Rail</title>
+
+    <!-- The shared token layer (AESTHETIC_GUIDE.md 2 and 3), loaded BEFORE
+         this page's own style block so anything below can override a token
+         without fighting specificity. Plain relative href: it resolves under
+         file://, the same reason this repo bans ES modules.
+
+         data-game="zombie" selects the ember world hue, and
+         data-cabinet="raster" is what permits the scanline overlay -- 6.3
+         makes Zombie a RASTER cabinet. Both match the build this sandbox
+         belongs to, because it is a bench for that game and not a new one. -->
+    <link rel="stylesheet" href="../../shared/retro.css">
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: #000; overflow: hidden;
+            cursor: crosshair;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+        canvas { display: block; image-rendering: pixelated; }
+
+        /* --- THE SIDEBAR -------------------------------------------------
+           The arcade's cabinet panel (zombie/Zombie.html, 2026-10-04),
+           SCRUBBED as the user asked. What survived: the radar, because a
+           rail network is what a minimap is actually for. What went:
+           HI-SCORE, 1UP, SESSION BEST, the lives row, CONDITION and the goal
+           list -- there are no rounds and no score here, so all six would
+           have been a costume rather than an instrument.
+
+           What replaced them is the train: speed, notch, reverser, car count,
+           the fuel gauge, the silos and the points. */
+        :root { --side-w: clamp(250px, 19vw, 390px); }
+        #sidebar {
+            display: flex; flex-direction: column; gap: 11px;
+            position: fixed; top: 0; right: 0; bottom: 0; width: var(--side-w);
+            box-sizing: border-box; padding: 12px;
+            background: #050505; border-left: 2px solid var(--phos-dim);
+            z-index: 11; overflow: hidden; pointer-events: none;
+            color: var(--phos-mid); text-shadow: none;
+        }
+        /* Bosconian's panel: red labels, white numbers, black ground, the
+           radar in a hard frame. */
+        #sidebar .cab-l { color: #FF3344; font-size: 13px; font-weight: bold; letter-spacing: 3px; }
+        #sidebar .cab-v {
+            color: #FFFFFF; font-size: 24px; font-weight: bold; letter-spacing: 2px;
+            text-align: right; font-variant-numeric: tabular-nums; margin-top: -6px;
+        }
+        #sidebar .cab-pair { display: flex; justify-content: space-between; gap: 12px; }
+        #sidebar .cab-pair > div { flex: 1; }
+        #sidebar .cab-pair .cab-v { font-size: 20px; margin-top: -4px; }
+        #sidebar .cab-radar { border: 3px solid #E8E8E8; padding: 3px; background: #000; align-self: stretch; }
+        #sidemap { display: block; width: 100%; height: auto;
+                   image-rendering: pixelated; image-rendering: crisp-edges; }
+
+        /* The train block. The speed is the big number, because it is the one
+           thing you are reading while deciding when to cut power. */
+        #hudSpeed { font-size: 40px; }
+        #hudSpeedWrap { display: flex; align-items: baseline; gap: 6px; justify-content: flex-end; }
+        #hudSpeedWrap small { color: var(--phos-dim); font-size: 12px; letter-spacing: 1px; }
+        #hudNotch { color: var(--sig-amber); font-size: 19px; }
+        #hudDir { color: var(--sig-cyan); font-size: 19px; }
+
+        /* FUEL, shown ONLY while in the locomotive -- the gauge is in the cab,
+           so standing in a box car three cars back does not show it. */
+        #hudFuelBox { display: none; }
+        #hudFuelTrack {
+            height: 24px; background: #17120F; border: 2px solid #5A564E;
+            margin-top: 2px; overflow: hidden;
+        }
+        #hudFuelBar { height: 100%; width: 0%; background: #C41E2A; transition: width .12s linear; }
+        @media (prefers-reduced-motion: reduce) { #hudFuelBar { transition: none; } }
+
+        #sidebar ul { list-style: none; margin: 0; padding: 0; font-size: 15px; }
+        #sidebar ul li {
+            display: flex; align-items: baseline; gap: 8px; padding: 2px 0;
+            color: #7A7A7A; letter-spacing: 1px;
+        }
+        #sidebar ul li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #sidebar ul li b { margin-left: auto; font-weight: normal; color: #D8D8D8;
+                           font-variant-numeric: tabular-nums; }
+        #hudSilos li.on { color: var(--sig-amber); }
+        #hudSilos li.on b { color: #FF6A4A; }
+        #hudPoints li b.main { color: #33FF55; font-size: 13px; }
+        #hudPoints li b.div { color: #FFE033; font-size: 13px; }
+        #hudPoints { max-height: 148px; overflow: hidden; }
+
+        #hudKeys { margin-top: auto; font-size: 11px; line-height: 1.6; color: var(--phos-dim);
+                   letter-spacing: 1px; }
+        #hudKeys b { color: var(--phos-mid); font-weight: normal; }
+
+        /* --- WORLD OVERLAYS ---------------------------------------------- */
+        #prompt {
+            position: absolute; left: calc((100% - var(--side-w)) / 2); bottom: 70px;
+            transform: translateX(-50%);
+            color: #000; background: var(--sig-amber); padding: 7px 15px;
+            font-size: 16px; letter-spacing: 1px; display: none;
+            pointer-events: none; z-index: 12; white-space: nowrap;
+            max-width: calc(100% - var(--side-w) - 40px); overflow: hidden; text-overflow: ellipsis;
+        }
+        /* WRAPS, and is capped to the canvas's own width. At nowrap and 26px a
+           long line ran off the left edge of the screen -- the boot message
+           lost its first eight characters. The toast is the only element that
+           carries arbitrary-length text, so it is the only one that needs it. */
+        #toast {
+            position: absolute; left: calc((100% - var(--side-w)) / 2); top: 84px;
+            transform: translateX(-50%);
+            color: var(--sig-amber); font-size: 24px; line-height: 1.25; letter-spacing: 2px;
+            text-shadow: 3px 3px 0 #000; display: none; text-align: center;
+            pointer-events: none; z-index: 12;
+            max-width: min(calc(100% - var(--side-w) - 48px), 760px);
+        }
+        #title {
+            position: absolute; left: 18px; top: 14px;
+            color: var(--phos-dim); font-size: 12px; letter-spacing: 3px;
+            text-shadow: 2px 2px 0 #000; pointer-events: none; z-index: 10;
+        }
+        #title b { color: var(--world-hue); font-weight: normal; }
+    </style>
+</head>
+<body data-game="zombie" data-cabinet="raster">
+
+<div id="title"><b>RAIL SANDBOX</b> — ZOMBIE RAIL · NO LEVELS, NO ROUNDS, ZOMBIES OFF</div>
+
+<div id="sidebar">
+    <div>
+        <div class="cab-l">SPEED</div>
+        <div id="hudSpeedWrap"><span class="cab-v" id="hudSpeed">0</span><small>px/s</small></div>
+    </div>
+    <div class="cab-pair">
+        <div><div class="cab-l">THROTTLE</div><div class="cab-v" id="hudNotch">—</div></div>
+        <div><div class="cab-l">REVERSER</div><div class="cab-v" id="hudDir">—</div></div>
+    </div>
+    <div class="cab-pair">
+        <div><div class="cab-l">CARS</div><div class="cab-v" id="hudCars">0</div></div>
+        <div><div class="cab-l">SCRAP</div><div class="cab-v" id="hudScrap">0</div></div>
+    </div>
+
+    <div id="hudFuelBox">
+        <div class="cab-pair">
+            <div class="cab-l">BLOOD / FUEL</div>
+            <div class="cab-l" id="hudFuelPct" style="color:#FFFFFF;letter-spacing:1px">0%</div>
+        </div>
+        <div id="hudFuelTrack"><div id="hudFuelBar"></div></div>
+    </div>
+
+    <div class="cab-radar"><canvas id="sidemap" width="252" height="142"></canvas></div>
+
+    <div class="cab-l">BLOOD SILOS</div>
+    <ul id="hudSilos"></ul>
+
+    <div class="cab-l">POINTS</div>
+    <ul id="hudPoints"></ul>
+
+    <div id="hudKeys">
+        <b>WASD</b> WALK &nbsp; <b>MOUSE</b> AIM/FIRE &nbsp; <b>1/2</b> RIFLE/ROCKET<br>
+        <b>F</b> POINTS · DOOR · UNCOUPLE · HOLD TO PUSH<br>
+        <b>E/Q</b> POWER/BRAKE &nbsp; <b>R</b> REVERSER &nbsp; <b>L+G</b> DEV PANEL
+    </div>
+</div>
+
+<div id="prompt"></div>
+<div id="toast"></div>
+<canvas id="gameCanvas"></canvas>
+
+<!-- Classic scripts, no modules: the project's file:// hard constraint. They
+     share ONE global scope, so every top-level name across them must be
+     unique -- scripts/check-global-collisions.js enforces it per page, and
+     this page deliberately loads NONE of the zombie-*.js files, so rail-* can
+     never clash with them.
+
+     Load order: core declares the world and the utils everything else builds
+     on; render boots the loop, so it goes second-to-last; dev registers into
+     the panel and goes last. -->
+
+<!-- identity.js is the ONE sanctioned name->colour fallback
+     (IDENTITY.colorFromName). Never write a second hashing scheme; there were
+     once four copies and one of them agreed with the server 0 times out of 10.
+     No mp-core: this sandbox is solo, so there is no room to join. -->
+<script src="../../shared/identity.js"></script>
+
+<!-- The L+G dev panel. Loaded HERE, before this page's own scripts, for two
+     reasons: its error capture only sees throws that happen after it installs,
+     and its keydown listener has to be attached before the game's so a combo
+     press can be stopped from also reaching the player. -->
+<script src="../../shared/devtools.js"></script>
+
+<script src="rail-core.js"></script>
+<script src="rail-net.js"></script>
+<script src="rail-cars.js"></script>
+<script src="rail-fuel.js"></script>
+<script src="rail-map.js"></script>
+<script src="rail-player.js"></script>
+<script src="rail-zomb.js"></script>
+<script src="rail-render.js"></script>
+<script src="rail-dev.js"></script>
+</body>
+</html>
