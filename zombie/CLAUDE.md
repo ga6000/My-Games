@@ -85,6 +85,14 @@ below. The manual's code is still loaded, just unreachable.)*
 - **Verified headless (3 seeds x maps 3 and 4):** 0% unreachable arena cells on both nav grids (the long warehouse's
   interior included), 0 concrete cells on a road, every funnel masked. **Not seen by eye.**
 
+**Follow-ups, same day.** (1) **"SILOS 17/10" on the win card:** the numerator counts every tank filled across all maps
+(`silosFilled()` adds `arcL1Silos`, and the score is right: 17 x 8,000) but the denominator was the CURRENT map's tank
+count. It is now `arcadeTotalSilos()`, the tanks of every map reached so far (25 on a full run). (2) **No concrete inside
+either warehouse:** a tank pad or link strip used to lay slab under the map-3 warehouse; the bits are cleared inside
+`arenaWarehouse` and `arenaLongHouse`, so the floor is the warehouse's own. (3) **Concrete meets roads flush:** concrete
+and link strips now run UNDER the road's edge (up to a new inner-core bit, `GB_ROADIN`, radius 42) instead of stopping at
+the kerb-plus-margin circle, so the join is a straight meeting with the road drawn on top, not a pointed stub.
+
 ### Shorter instructions, perks in a 2x2 (2026-10-16)
 
 From a phone screenshot: the sidebar's objective line ran to 9 wrapped rows ("GATE OPEN - 0/0 OUT -
@@ -3584,4 +3592,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: f74da1f3 | 2026-10-17 -->
+<!-- doc-sync: dc0edf48 | 2026-10-17 -->

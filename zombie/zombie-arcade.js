@@ -2979,8 +2979,9 @@ function arcadeBandTall(x) {
 //   4 NEAR    within ROAD_NEAR of a road (the last map's low grass keeps off it)
 //   8 CONC    concrete
 //  16 TREE    under a tree (concrete keeps off)
+//  32 ROADIN  the road's inner core: concrete may run up to it and UNDER the road's edge, so a join is flush, not pointy
 const GG = 20;
-const GB_STRUCT = 1, GB_ROAD = 2, GB_NEAR = 4, GB_CONC = 8, GB_TREE = 16;
+const GB_STRUCT = 1, GB_ROAD = 2, GB_NEAR = 4, GB_CONC = 8, GB_TREE = 16, GB_ROADIN = 32;
 const ROAD_NEAR = 170;
 const CONC_PAD = 70;              // how far concrete spreads round a tank cluster
 const CONC_LINK_W = 1;            // link strips are 2*W+1 cells wide
@@ -3045,14 +3046,15 @@ function arcadeGrassGrid() {
             for (let t = 0; t <= n; t++) {
                 const x = a[0] + (b[0] - a[0]) * t / n, y = a[1] + (b[1] - a[1]) * t / n;
                 circle(x, y, ROAD_W / 2 + 8, GB_ROAD);
+                circle(x, y, ROAD_W / 2 - 14, GB_ROADIN);
                 if (t % 2 === 0) circle(x, y, ROAD_NEAR, GB_NEAR);
                 if (t % 2 === 0 && (k + t) % 2 === 0) samples.push([x, y]);
             }
         }
     }
     // Concrete (maps 3 and 4 and the long warehouse's aprons).
-    const conc = function (x0, y0, x1, y1) { rect(x0, y0, x1, y1, GB_CONC, GB_ROAD | GB_TREE); };
-    const concCircle = function (cx, cy, rad) { circle(cx, cy, rad, GB_CONC, GB_ROAD | GB_TREE); };
+    const conc = function (x0, y0, x1, y1) { rect(x0, y0, x1, y1, GB_CONC, GB_ROADIN | GB_TREE); };
+    const concCircle = function (cx, cy, rad) { circle(cx, cy, rad, GB_CONC, GB_ROADIN | GB_TREE); };
     for (let i = 0; i < arenaConcreteRects.length; i++) {
         const r = arenaConcreteRects[i];
         conc(r.x, r.y, r.x + r.w, r.y + r.h);
@@ -3122,18 +3124,26 @@ function arcadeGrassGrid() {
                     const x = u[0] + (v[0] - u[0]) * t / Math.max(1, steps), y = u[1] + (v[1] - u[1]) * t / Math.max(1, steps);
                     const c = Math.floor(x / GG), r = Math.floor(y / GG);
                     if (c < 0 || r < 0 || c >= ggCols || r >= ggRows) { stop = true; break; }
-                    if (bits[r * ggCols + c] & GB_ROAD) { stop = true; break; }       // the road's edge
+                    if (bits[r * ggCols + c] & GB_ROADIN) { stop = true; break; }     // the road's core: the strip runs UNDER its edge, so the join is flush
                     for (let dr = -CONC_LINK_W; dr <= CONC_LINK_W; dr++) for (let dc = -CONC_LINK_W; dc <= CONC_LINK_W; dc++) {
                         const cc = c + dc, rr = r + dr;
                         if (cc < 0 || rr < 0 || cc >= ggCols || rr >= ggRows) continue;
                         const i = rr * ggCols + cc;
-                        if (bits[i] & (GB_ROAD | GB_TREE)) continue;
+                        if (bits[i] & (GB_ROADIN | GB_TREE)) continue;
                         bits[i] |= GB_CONC;
                     }
                 }
             }
         }
     }
+    // INSIDE A WAREHOUSE THE FLOOR IS THE WAREHOUSE'S OWN (2026-10-16): no slab
+    // from a tank pad or a link strip under either building.
+    [arenaWarehouse, arenaLongHouse].forEach(function (W) {
+        if (!W) return;
+        const c0 = Math.floor(W.x / GG), c1 = Math.floor((W.x + W.w - 1) / GG);
+        const r0 = Math.floor(W.y / GG), r1 = Math.floor((W.y + W.h - 1) / GG);
+        for (let r = Math.max(0, r0); r <= Math.min(ggRows - 1, r1); r++) for (let c = Math.max(0, c0); c <= Math.min(ggCols - 1, c1); c++) bits[r * ggCols + c] &= ~GB_CONC;
+    });
     ggBits = bits;
     return bits;
 }
@@ -3196,6 +3206,14 @@ function arcadeDrawLowGrass(vr) {
             ctx.fillRect(b.x + 3, b.y - bh * 0.7, 2, bh * 0.7);
         }
     }
+}
+
+// Every tank on every map reached so far: the denominator of "SILOS n/m" on the end cards
+// (the numerator counts the carried-over tanks too, so it used to read 17/10).
+function arcadeTotalSilos() {
+    let n = 0;
+    for (let L = 1; L <= Math.max(1, arcLevelNo); L++) n += (ARENA_LAYOUTS[L] ? ARENA_LAYOUTS[L].funnels.length : 0);
+    return n;
 }
 
 function arcadeBandBlade(c, r) {

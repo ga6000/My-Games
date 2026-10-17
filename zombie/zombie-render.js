@@ -3766,7 +3766,7 @@ function renderRunScore(el) {
         // ARCADE: the round term is the level the clock reached, so the row
         // reads the clock -- the same time the card's subtitle gives.
         [ZOMBIE_ARCADE ? "SURVIVED " + arcadeClock(winSeqAt || runEndAt || Date.now()) : "ROUND " + b.round, fmtScore(b.roundPts), ""],
-        ["SILOS " + b.silos + "/" + siloFill.length, fmtScore(b.siloPts), ""]
+        ["SILOS " + b.silos + "/" + (ZOMBIE_ARCADE ? arcadeTotalSilos() : siloFill.length), fmtScore(b.siloPts), ""]
     ];
     // Only when the switch was actually thrown -- an ordinary run should not
     // carry a row reading 0 for a mechanic it never touched (2026-09-19).
