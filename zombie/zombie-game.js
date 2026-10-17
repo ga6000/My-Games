@@ -1046,9 +1046,11 @@ function hostHandleBuy(msg) {
     }
 
     // ARCADE: a drop has ONE taker, and this is where it is decided.
+    // ARCADE: a scout hands a satchel drop out (THE SATCHEL).
+    if (msg.what === "toss") { if (ZOMBIE_ARCADE) arcadeHostToss(msg); return; }
     if (msg.what === "drop") {
         if (!ZOMBIE_ARCADE || !arcadeHostTake(msg)) return;
-        const outD = { k: "bought", what: "drop", i: i, id: msg.id, t: msg.t, it: msg.it, x: msg.x, y: msg.y };
+        const outD = { k: "bought", what: "drop", i: i, id: msg.id, t: msg.t, it: msg.it, x: msg.x, y: msg.y, st: msg.st || 0 };
         applyPurchase(outD, now);
         if (netOnline) MP.send(outD);
         return;
@@ -1917,6 +1919,14 @@ function damageZombie(index, dmg, ownerId, now, src, hitVx, hitVy) {
 
     if (z.hp > 0) {
         if (src !== "burn" && src !== "flame") z.flashUntil = now + 50;
+        // BULWARK (2026-10-17): their rounds shove what they hit, a little.
+        if (ZOMBIE_ARCADE && src === "shot" && hitVx !== undefined && ownerId &&
+            !(now < (z.launchUntil || 0)) && idHasRole(ownerId, "bulwark")) {
+            const hl = Math.hypot(hitVx, hitVy) || 1;
+            z.launchUntil = now + BULWARK_PUSH_MS;
+            z.lvx = hitVx / hl * BULWARK_PUSH;
+            z.lvy = hitVy / hl * BULWARK_PUSH;
+        }
         // THE SUPER SPLITTER COMES APART AS YOU SHOOT IT (2026-09-20).
         // Every shot sheds a spawnling, and every SUPER_SPLIT_STEP of
         // damage drops a full splitter. Burn ticks do NOT count as shots --
@@ -1941,8 +1951,8 @@ function damageZombie(index, dmg, ownerId, now, src, hitVx, hitVy) {
     // Only kills ON an active funnel drain into a silo. Everything else
     // in the game rewards killing zombies wherever they are; this is the
     // one system that asks you to fight in a chosen place.
-    creditFunnelKill(z.x + z.size / 2, z.y + z.size / 2);
-    if (ZOMBIE_ARCADE) arcadeMaybeDrop(zcx, zcy, now);
+    creditFunnelKill(z.x + z.size / 2, z.y + z.size / 2, ownerId);
+    if (ZOMBIE_ARCADE) arcadeMaybeDrop(zcx, zcy, now, ownerId);
     hostEvent(SND_KILL, z.x, z.y, Z_TYPE_KEYS.indexOf(z.type));
 
     // IDEA 6: kills near a teammate are worth more. A quiet, always-on
@@ -2226,6 +2236,13 @@ function updateZombies(now, dt) {
         navFieldIsolated = lone ? navFieldFrom(lone, false) : null;
         navFieldIsolatedWide = lone ? navFieldFrom(lone, true) : null;
         navFieldDecoy = decoys.length ? navFieldFrom(decoys, false) : null;
+        // ARCADE: BULWARKs pull the zombies near them (THE BULWARK'S PULL).
+        if (ZOMBIE_ARCADE) {
+            arcBulwarks = targets.filter(function (t) { return !t.downed && idHasRole(t.id, "bulwark"); });
+            const bs = arcBulwarks.map(function (t) { return { x: t.x + (t.size || 16) / 2, y: t.y + (t.size || 16) / 2 }; });
+            arcBulwarkField = bs.length ? navFieldFrom(bs, false) : null;
+            arcBulwarkFieldWide = bs.length ? navFieldFrom(bs, true) : null;
+        }
         navFieldDecoyWide = decoys.length ? navFieldFrom(decoys, true) : null;
         navFieldAt = now;
     }
@@ -2291,6 +2308,16 @@ function updateZombies(now, dt) {
             }
         }
         if (!target) continue;
+        // BULWARK: within reach of one, it is the one they come for.
+        let taunt = null;
+        if (ZOMBIE_ARCADE && arcBulwarks.length && arcBulwarkField && !(z.isolationSeeker && isolated)) {
+            let bd = BULWARK_TAUNT_R;
+            for (let b = 0; b < arcBulwarks.length; b++) {
+                const d = dist(arcBulwarks[b].x, arcBulwarks[b].y, z.x, z.y);
+                if (d < bd) { bd = d; taunt = arcBulwarks[b]; }
+            }
+            if (taunt) target = taunt;
+        }
 
         // Steer along the flow field rather than straight at the player.
         // The field already routes around buildings and through the
@@ -2307,6 +2334,7 @@ function updateZombies(now, dt) {
         // one-cell doors a walker can, so it gets the padded field.
         const wide = navWantsWide(z.size);
         const field = lure ? (wide ? navFieldDecoyWide : navFieldDecoy)
+                    : taunt ? (wide ? arcBulwarkFieldWide : arcBulwarkField)
                     : (z.isolationSeeker && navFieldIsolated)
                         ? (wide ? navFieldIsolatedWide : navFieldIsolated)
                         : (wide ? navFieldAllWide : navFieldAll);

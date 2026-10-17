@@ -288,6 +288,7 @@ function arcadeStart(now) {
     arcDiedAt = 0;
     arcDropSeq = 0;
     arcHitState = {};
+    arcSatchel = {};
     // The run's clock starts when the intro ends (arcadeBeginIntro).
     startTime = now + arcIntroMs();
     arcKillsSinceDrop = 0;
@@ -752,7 +753,9 @@ function arcadeDropSpot(x, y) {
     return null;
 }
 
-function arcadeMaybeDrop(x, y, now) {
+function arcadeMaybeDrop(x, y, now, ownerId) {
+    // SCOUT (2026-10-17, the QUARTERMASTER's): their kills drop 50% more often.
+    const chance = DROP_CHANCE * (ownerId && idHasRole(ownerId, "scout") ? SCOUT_DROP_K : 1);
     arcKillsSinceDrop++;
     // EASE: a fast clear buys a gap.
     arcKillTimes.push(now);
@@ -776,7 +779,7 @@ function arcadeMaybeDrop(x, y, now) {
     }
     // Hazards do not count against the cap on the good ones.
     if (pickups.length - hazardsLive() >= DROP_MAX_LIVE) return;
-    if (arcKillsSinceDrop < DROP_PITY_KILLS && Math.random() > DROP_CHANCE) return;
+    if (arcKillsSinceDrop < DROP_PITY_KILLS && Math.random() > chance) return;
     const spot = arcadeDropSpot(x, y);
     if (!spot) return;                 // no room: the pity counter keeps its count, so the next kill tries again
     arcKillsSinceDrop = 0;
@@ -929,9 +932,11 @@ function arcadeMagnetDrops(dt) {
 function arcadeWalkOverDrops(p, now) {
     if (p.downed) return;
     const d = dropTouching(p, 0);
-    if (!d || dropRefusal(p.cards || [], d)) return;
+    if (!d) return;
+    const stash = scoutStashes(netIdFor(p), d);
+    if (!stash && dropRefusal(p.cards || [], d)) return;
     // One turret in hand at a time; a second stays for a teammate.
-    if (d.type === "turret" && p.turretHeld) return;
+    if (!stash && d.type === "turret" && p.turretHeld) return;
     if (arcTakeAskedAt[d.id] && now - arcTakeAskedAt[d.id] < 400) return;
     arcTakeAskedAt[d.id] = now;
     requestBuy("drop", d.id, p);
@@ -955,6 +960,14 @@ function arcadeDropPrompt(p) {
 function arcadeHostTake(msg) {
     const d = dropById(msg.i);
     if (!d) return false;
+    // SCOUT: a good drop goes in the satchel, not into effect (THE SATCHEL).
+    if (scoutStashes(msg.id, d)) {
+        pickups.splice(pickups.indexOf(d), 1);
+        if (!arcSatchel[msg.id]) arcSatchel[msg.id] = [];
+        arcSatchel[msg.id].push({ t: d.type, it: d.item });
+        msg.t = d.type; msg.it = d.item; msg.x = d.x; msg.y = d.y; msg.st = 1;
+        return true;
+    }
     if (dropRefusal(cardsFor(msg.id) || [], d)) return false;
     pickups.splice(pickups.indexOf(d), 1);
     msg.t = d.type;
@@ -1286,7 +1299,15 @@ const TURRET_HP = 140;
 const TURRET_RATE_MS = 100;
 const TURRET_DMG = 2.5;
 const TURRET_RANGE = 460;
-const TURRET_MAX = 4;
+const TURRET_MAX = 8;              // the whole map
+const TURRET_PER_PLAYER = 2;       // 2026-10-17: "a max of two turrets allowed per player"
+// THE TURRET TIRES (2026-10-17): an engineer's turret with SALVAGE can keep
+// itself alive, and parked on a funnel it kills the swarm before it reaches
+// the funnel -- a soft lock. Past TURRET_TIRE_MS of age its life drains
+// faster and faster: an extra ((age - 3:00) / 30s)^2 ms of life per ms. At
+// 3:30 it drains twice as fast, at 4:00 five times, at 4:30 ten times.
+const TURRET_TIRE_MS = 180000;
+const TURRET_TIRE_STEP_MS = 30000;
 let arcTurrets = [];              // {id, x, y, owner, color, until, liveAt, hp, aim, lastShot, eng}
 let arcTurretSeq = 0;
 
@@ -1363,16 +1384,24 @@ function arcadePlaceTurret(p) {
 function arcadeHostPlaceTurret(ownerId, color, x, y) {
     if (!inArena(x - 11, y - 11, 22) || blockedAtStatic(x - 11, y - 11, 22)) return;
     const now = Date.now();
+    // Two each: placing a third retires your oldest.
+    const mine = arcTurrets.filter(function (t) { return t.owner === ownerId; });
+    if (mine.length >= TURRET_PER_PLAYER) arcTurrets.splice(arcTurrets.indexOf(mine[0]), 1);
     while (arcTurrets.length >= TURRET_MAX) arcTurrets.shift();
     arcTurrets.push({ id: ++arcTurretSeq, x: x, y: y, owner: ownerId, color: color || "#55FFFF",
                       until: now + TURRET_DEPLOY_MS + TURRET_LIFE_MS, liveAt: now + TURRET_DEPLOY_MS,
-                      hp: TURRET_HP, aim: 0, lastShot: 0, eng: idHasRole(ownerId, "engineer") });
+                      hp: TURRET_HP, aim: 0, lastShot: 0, eng: idHasRole(ownerId, "engineer"), born: now });
 }
 
 // HOST, every step.
 function arcadeUpdateTurrets(now, dt) {
     for (let i = arcTurrets.length - 1; i >= 0; i--) {
         const t = arcTurrets[i];
+        const age = now - (t.born || now);
+        if (age > TURRET_TIRE_MS) {
+            const k = (age - TURRET_TIRE_MS) / TURRET_TIRE_STEP_MS;
+            t.until -= dt * k * k;
+        }
         if (now >= t.until || t.hp <= 0) {
             arcTurrets.splice(i, 1);
             hostEvent(SND_POP, t.x, t.y, 40);
@@ -1456,6 +1485,13 @@ function arcadeApplyTake(msg, now) {
     const x = msg.x || 0, y = msg.y || 0;
     const p = localPlayerByNetId(msg.id);
     const who = nameForNetId(msg.id);
+    if (msg.st) {                                  // stashed by a scout: no effect yet
+        if (p) {
+            localEvent(SND_PICKUP, x, y);
+            showToast("STASHED " + dropLabel({ type: msg.t, item: msg.it }) + " — [Q] HANDS IT OUT", 1600);
+        }
+        return;
+    }
     if (msg.t === "gun") {
         if (p && WEAPONS[msg.it]) {
             if (!p.owned) p.owned = {};
@@ -2779,10 +2815,19 @@ function arcadeDrawSidebar(now) {
     }
 
     // Drops, so a callout has somewhere to point. No zombies, on request.
+    const scoutView = myRole() === "scout";
     for (let i = 0; i < pickups.length; i++) {
         const d = pickups[i];
         g.fillStyle = DROP_HAZARD[d.type] ? "#FF2233" : d.type === "gun" ? ICON_CYAN : d.type === "perk" ? ICON_WORLD_HUE : COLOR_PICKUP;
         g.fillRect(X(d.x) - 2, Y(d.y) - 2, 4, 4);
+        // SCOUT: how long each good drop has left, as a bar under it.
+        if (scoutView && d.until && !DROP_HAZARD[d.type]) {
+            const left = Math.max(0, Math.min(1, (d.until - Date.now()) / DROP_LIFE_MS));
+            g.fillStyle = "#333333";
+            g.fillRect(X(d.x) - 4, Y(d.y) + 3, 8, 2);
+            g.fillStyle = left < 0.2 ? "#FF2233" : "#FFFFFF";
+            g.fillRect(X(d.x) - 4, Y(d.y) + 3, Math.max(1, Math.round(8 * left)), 2);
+        }
     }
 
     g.fillStyle = ICON_CYAN;
@@ -4340,6 +4385,21 @@ function arcadeDrawOverflow(f, i, P, now) {
 // SND_CRATE event creditFunnelKill already sends, at the kill's own spot.
 const FUNNEL_HOLD = 10;           // kills to fill a funnel to the brim
 const FUNNEL_DRAIN_MS = 650;      // one kill's blood leaves the funnel this often
+const BUTCHER_BLOOD = 2;          // BUTCHER (2026-10-17): a funnel kill's worth
+const BUTCHER_DRAIN_K = 0.667;    // ...and a funnel they stand in drains 50% faster
+
+// HOST: is a standing BUTCHER inside funnel i?
+function butcherInFunnel(i) {
+    const f = funnels[i];
+    if (!f) return false;
+    const ts = allTargets();
+    for (let k = 0; k < ts.length; k++) {
+        const t = ts[k];
+        if (t.downed || !idHasRole(t.id, "butcher")) continue;
+        if (Math.hypot(t.x + (t.size || 16) / 2 - f.x, t.y + (t.size || 16) / 2 - f.y) <= f.r) return true;
+    }
+    return false;
+}
 const FLOW_GATHER_MS = 450;       // a kill's spatter drawn into the grate
 const FLOW_SPEED = 380;           // px/s along the ground pipe
 const FLOW_RISE_MS = 550;         // up the riser
@@ -4424,12 +4484,13 @@ function arcadeFunnelTakes(i) {
     return funnelActive[i] || (siloFill[i] >= siloCapacity(i) && !siloFlipped[i]);
 }
 
-// HOST, from creditFunnelKill: a kill on a funnel.
-function arcadeCreditFunnelKill(x, y) {
+// HOST, from creditFunnelKill: a kill on a funnel. A BUTCHER's is worth two.
+function arcadeCreditFunnelKill(x, y, ownerId) {
     for (let i = 0; i < funnels.length; i++) {
         const f = funnels[i];
         if (!f || !arcadeFunnelTakes(i) || Math.hypot(x - f.x, y - f.y) > f.r) continue;
-        if ((funnelBacklog[i] || 0) < FUNNEL_HOLD) funnelBacklog[i] = (funnelBacklog[i] || 0) + 1;
+        const add = ownerId && idHasRole(ownerId, "butcher") ? BUTCHER_BLOOD : 1;
+        funnelBacklog[i] = Math.min(FUNNEL_HOLD, (funnelBacklog[i] || 0) + add);
         hostEvent(SND_CRATE, x, y);   // the sound, and every client's spatter
         return;
     }
@@ -4458,7 +4519,7 @@ function arcadeUpdateBlood(now) {
             funnelBacklog[i]--;
             funnelDrained[i] = (funnelDrained[i] || 0) + 1;
             q.push(now + arcadeTravelMs(i));
-            arcDrainAt[i] = now + FUNNEL_DRAIN_MS;
+            arcDrainAt[i] = now + FUNNEL_DRAIN_MS * (butcherInFunnel(i) ? BUTCHER_DRAIN_K : 1);
         }
     }
 }
@@ -4928,6 +4989,7 @@ function arcadeUpdateCabinet() {
 // moves its player.
 const ARC_HIT_BUFFER = true;
 const ARC_HIT_STEPS = 2;          // hits absorbed before the next one downs you
+const BULWARK_HIT_STEPS = 3;      // BULWARK: one more
 const ARC_HIT_INVULN_MS = 1200;
 const ARC_HIT_HEAL_MS = 6000;     // per step
 const ARC_KNOCK_MS = 160;
@@ -4941,12 +5003,18 @@ function woundLevel(lvl, at, now) {
 
 // HOST, from the contact test in updateZombies. True = absorbed, so do not
 // down the player. False = down them as before.
+// BULWARK (2026-10-17: "make him have a fourth hit"): three hits absorbed,
+// down on the fourth.
+function arcHitSteps(id) {
+    return id && idHasRole(id, "bulwark") ? BULWARK_HIT_STEPS : ARC_HIT_STEPS;
+}
+
 function arcadeAbsorbHit(target, z, now) {
     if (!ARC_HIT_BUFFER) return false;
     const st = arcHitState[target.id];
     if (st && now - st.at < ARC_HIT_INVULN_MS) return true;           // untouchable
     const lvl = st ? woundLevel(st.lvl, st.at, now) : 0;
-    if (lvl >= ARC_HIT_STEPS) {                                        // this one counts
+    if (lvl >= arcHitSteps(target.id)) {                               // this one counts
         delete arcHitState[target.id];                                 // a fresh buffer next life
         return false;
     }
@@ -4979,7 +5047,7 @@ function arcadeKnock(p, now) {
 }
 
 function arcadeWounded(p, now) {
-    return !!p && woundLevel(p.hurtLvl, p.hurtAt, now) >= ARC_HIT_STEPS;
+    return !!p && woundLevel(p.hurtLvl, p.hurtAt, now) >= arcHitSteps(netIdFor(p));
 }
 
 // Screen space, after the lighting: a short flash on the hit, then a red
@@ -4997,9 +5065,10 @@ function arcadeDrawHurt(now) {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
     if (lvl) {
-        const pulse = lvl >= 2 ? 0.5 + 0.5 * Math.sin(now / 160) : 0;
-        const a = lvl >= 2 ? 0.26 + 0.18 * pulse : 0.12;
-        const b = Math.round(Math.min(canvas.width, canvas.height) * (lvl >= 2 ? 0.08 : 0.05));
+        const last = lvl >= arcHitSteps(netIdFor(p));     // the next one downs you
+        const pulse = last ? 0.5 + 0.5 * Math.sin(now / 160) : 0;
+        const a = last ? 0.26 + 0.18 * pulse : 0.12;
+        const b = Math.round(Math.min(canvas.width, canvas.height) * (last ? 0.08 : 0.05));
         ctx.fillStyle = "rgba(255,0,20," + a.toFixed(3) + ")";
         ctx.fillRect(0, 0, canvas.width, b);
         ctx.fillRect(0, canvas.height - b, canvas.width, b);
@@ -5942,3 +6011,127 @@ function arcadeDrawLight() {
     }
     ctx.restore();
 }
+
+// ---------------------------------------------------
+//   THE SATCHEL (2026-10-17): the SCOUT is the team's quartermaster
+// ---------------------------------------------------
+// "The scout becomes a type of character who can rush out, pick up good
+// drops, and then hand them out." A scout walking over a good drop (not a
+// hazard, not one a scout tossed) puts it in the SATCHEL instead of using it,
+// up to SATCHEL_MAX; with the satchel full, drops work on them as on anyone.
+// [Q] tosses the oldest one out ahead of them as a real drop, flagged
+// `tossBy` so no scout re-stashes it: a teammate (or the scout) takes it the
+// ordinary way. Their kills also drop 50% more often, and their radar shows
+// how long each drop has left.
+// HOST-OWNED, like the drops: `arcSatchel` is netId -> [{t, it}], sent on the
+// snapshot as `sat`. The choice to stash is the host's (arcadeHostTake); the
+// walk-over test on the scout's own client only decides whether to ASK.
+const SATCHEL_MAX = 2;
+const SCOUT_DROP_K = 1.5;
+const SATCHEL_TOSS = 80;          // px ahead of the scout
+let arcSatchel = {};
+
+function satchelFor(id) { return arcSatchel[id] || []; }
+
+function scoutStashes(id, d) {
+    return !!d && !d.tossBy && !DROP_HAZARD[d.type] && idHasRole(id, "scout") &&
+           satchelFor(id).length < SATCHEL_MAX;
+}
+
+// The scout's own client, on [Q].
+function arcadeScoutToss(p) {
+    if (!p || p.downed) return;
+    const id = netIdFor(p);
+    if (!satchelFor(id).length) { showToast("SATCHEL EMPTY", 900); return; }
+    const fl = Math.hypot(p.facingX || 0, p.facingY || 0) || 1;
+    const fx = (p.facingX || 1) / fl, fy = (p.facingY || 0) / fl;
+    const msg = { k: "buy", what: "toss", i: 0, id: id,
+                  x: Math.round(p.x + p.size / 2 + fx * SATCHEL_TOSS), y: Math.round(p.y + p.size / 2 + fy * SATCHEL_TOSS),
+                  px: Math.round(p.x + p.size / 2), py: Math.round(p.y + p.size / 2) };
+    if (netIsHost || !netOnline) arcadeHostToss(msg);
+    else MP.send(msg);
+}
+
+// HOST: out of the satchel and onto the ground, where it was thrown, or at
+// the scout's feet if that spot is blocked.
+function arcadeHostToss(msg) {
+    const bag = arcSatchel[msg.id];
+    if (!bag || !bag.length) return;
+    const it = bag.shift();
+    const size = it.t === "perk" ? PERK_DROP_SIZE : DROP_SIZE;
+    let x = (msg.x || 0) - size / 2, y = (msg.y || 0) - size / 2;
+    if (!inArena(x, y, size) || blockedAtStatic(x, y, size)) { x = (msg.px || msg.x || 0) - size / 2; y = (msg.py || msg.y || 0) - size / 2; }
+    pickups.push({ id: ++arcDropSeq, x: Math.round(x), y: Math.round(y), size: size, type: it.t, item: it.it || "",
+                   until: Date.now() + DROP_LIFE_MS, tossBy: msg.id });
+    hostEvent(SND_PICKUP, x, y);
+}
+
+// The snapshot's `sat`: {netId: [[typeIndex, itemIndex], ...]}.
+function satchelToWire() {
+    const out = {};
+    let any = false;
+    for (const id in arcSatchel) {
+        if (!arcSatchel[id] || !arcSatchel[id].length) continue;
+        out[id] = arcSatchel[id].map(function (e) {
+            return [PICKUP_TYPES.indexOf(e.t), e.t === "gun" ? WEAPON_KEYS.indexOf(e.it) : e.t === "perk" ? CARD_KEYS.indexOf(e.it) : -1];
+        });
+        any = true;
+    }
+    return any ? out : 0;
+}
+
+function satchelFromWire(w) {
+    arcSatchel = {};
+    if (!w) return;
+    for (const id in w) {
+        arcSatchel[id] = w[id].map(function (e) {
+            const t = PICKUP_TYPES[e[0]] || "ammo";
+            return { t: t, it: t === "gun" ? WEAPON_KEYS[e[1]] : t === "perk" ? CARD_KEYS[e[1]] : "" };
+        });
+    }
+}
+
+// The side panel: what the scout is carrying, under the perks.
+let satchelSig = "";
+function arcadeDrawSatchel() {
+    const me = players[0];
+    let el = document.getElementById("satchel");
+    const show = me && myRole() === "scout";
+    if (!el) {
+        if (!show) return;
+        const perks = document.getElementById("perks");
+        if (!perks || !perks.parentNode) return;
+        el = document.createElement("div");
+        el.id = "satchel";
+        el.style.cssText = "display:flex;gap:8px;justify-content:flex-end;align-items:center;margin:0 8px 8px auto;font-size:12px;letter-spacing:2px;color:#8FA89C";
+        perks.parentNode.insertBefore(el, perks);
+    }
+    const bag = show ? satchelFor(netIdFor(me)) : [];
+    const sig = show + "|" + bag.map(function (e) { return e.t + ":" + e.it; }).join(",");
+    if (sig === satchelSig) return;
+    satchelSig = sig;
+    if (!show) { el.style.display = "none"; return; }
+    el.style.display = "flex";
+    let h = "<span>SATCHEL [Q]</span>";
+    for (let i = 0; i < SATCHEL_MAX; i++) {
+        const e = bag[i];
+        const box = "display:inline-flex;width:30px;height:30px;align-items:center;justify-content:center;border:2px solid ";
+        if (!e) { h += "<span style='" + box + "#2E3A34;border-style:dashed'></span>"; continue; }
+        if (e.t === "perk") h += "<span style='" + box + ICON_WORLD_HUE + ";background:" + (PERK_TINT[e.it] || "#552200") + "'>" + iconImg("perk", e.it, 2, "#FFFFFF") + "</span>";
+        else if (e.t === "gun") h += "<span style='" + box + ICON_CYAN + ";background:#000'>" + iconImg("gun", e.it, 1, ICON_CYAN) + "</span>";
+        else h += "<span style='" + box + "#FFB000;background:#000;color:#FFB000;font-weight:bold'>" + (DROP_GLYPH[e.t] || "?") + "</span>";
+    }
+    el.innerHTML = h;
+}
+
+// ---------------------------------------------------
+//   THE BULWARK'S PULL (2026-10-17)
+// ---------------------------------------------------
+// Zombies within BULWARK_TAUNT_R of a standing BULWARK steer for them
+// (their own flow field, refreshed with the others) instead of the nearest
+// player. Contact is still tested against whoever they actually touch.
+const BULWARK_TAUNT_R = 150;
+const BULWARK_PUSH = 4;           // px a step while a shove lasts
+const BULWARK_PUSH_MS = 90;
+let arcBulwarks = [];
+let arcBulwarkField = null, arcBulwarkFieldWide = null;

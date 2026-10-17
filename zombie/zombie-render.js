@@ -517,7 +517,9 @@ const GUIDE_TEAM = [
 const GUIDE_CLASSES = [
     ["medic", "M", "Revives a teammate almost instantly (0.2s, not 0.75s), and from nearly twice as far away.", "Somebody has to keep count."],
     ["engineer", "E", "Turrets you place carry your perks: OVERDRIVE fires faster; RICOCHET, SKEWER and SEEKER shape its rounds; ARC and BLASTCAP go off on its kills; SALVAGE kills put time back on its bar; SPITE goes off when it dies. ATTRACT and LAST STAND don't carry. Anyone else's turret is plain.", "It does what it's told. You told it everything."],
-    ["scout", "S", "Moves 10% faster. Mud only slows you to 75%, and for 3 seconds, not 5.", "First in, first to see it."],
+    ["scout", "S", "The quartermaster. Good drops you walk over go in your SATCHEL (two) instead of being used; [Q] tosses one out for a teammate (or you) to take. Your kills drop 50% more often, your radar shows how long each drop has left, you move 10% faster, and mud only slows you to 75% for 3s.", "First in, first to see it."],
+    ["butcher", "U", "Your kills on a funnel count double. A funnel you stand in drains into its tank 50% faster.", "Somebody has to do the work."],
+    ["bulwark", "W", "Zombies near you come for you first. You go down on the fourth hit, not the third. Your rounds shove what they hit.", "Stand there. That's the job."],
     ["gunner", "G", "Every round you fire does 15% more damage. AMMO drops fill your guns to 125%.", "Never once asked how many."]
 ];
 const GUIDE_HAZARD = [
@@ -3721,6 +3723,7 @@ function updateLoadoutHud(me) {
         }
         uiPerks.innerHTML = h;
     }
+    if (ZOMBIE_ARCADE) arcadeDrawSatchel();
 }
 
 function renderScores() {
@@ -4002,7 +4005,11 @@ window.addEventListener('keydown', function (e) {
 
     if (move) p.keys[move] = true;
     else if ((key === 'f' || key === 'e') && !p.downed) interactWith(p);
-    else if (key === 'q') pingFrom(p);
+    else if (key === 'q') {
+        // ARCADE: the SCOUT hands out what is in the satchel (the ping is gone).
+        if (ZOMBIE_ARCADE && myRole() === "scout") arcadeScoutToss(p);
+        else pingFrom(p);
+    }
 }, { signal: zSignal(), passive: false });
 
 // The wheel cycles through the guns you own. Throttled, because one flick

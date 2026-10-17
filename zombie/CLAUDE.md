@@ -63,6 +63,30 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### BUTCHER and BULWARK, the scout's SATCHEL, two turrets each, turrets tire (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **Six classes now** (`ROLE_KEYS` + `butcher`, `bulwark`). The hash deals modulo the list
+  length, so **everyone's dealt class changed once.**
+- **BUTCHER:** their funnel kills add `BUTCHER_BLOOD` (2) to the backlog (`creditFunnelKill` now
+  carries the killer's id); a funnel with a standing butcher inside drains every
+  650 x `BUTCHER_DRAIN_K` (0.667) ms (`butcherInFunnel`). Measured: 4 units drained in 2s against 3.
+- **BULWARK:** absorbs `BULWARK_HIT_STEPS` (3) hits and goes down on the **fourth**
+  (`arcHitSteps(id)`; the red edge pulses on the last step whatever the count). Zombies within
+  `BULWARK_TAUNT_R` (150px) follow a bulwark-seeded flow field and target them (`arcBulwarks`,
+  `arcBulwarkField`, built with the other fields). Their `"shot"` rounds shove what they hit
+  (`BULWARK_PUSH` 4px a step for 90ms, the launch phase already on the wire).
+- **SCOUT is the quartermaster** ("THE SATCHEL"): good drops they walk over go into a host-owned
+  satchel (`arcSatchel`, `SATCHEL_MAX` 2, on the snapshot as `sat`) instead of taking effect,
+  even ones they couldn't use. [Q] (the ping is gone in the arcade) tosses the oldest out 80px
+  ahead (`what: "toss"`) as a drop flagged `tossBy` (7th element of a pickup row), which no scout
+  re-stashes. Their kills drop 50% more (`SCOUT_DROP_K`); their radar draws each drop's time
+  left. The side panel shows the satchel above the perks. Kept over a map change, cleared on a
+  new run.
+- **Turrets:** two per player (`TURRET_PER_PLAYER`; a third retires your oldest; the map cap is
+  now 8). **They tire:** past `TURRET_TIRE_MS` (3:00) of age, life drains an extra
+  `((age - 3:00) / 30s)^2` per ms, so a SALVAGE engineer turret parked on a funnel can't hold the
+  swarm off it forever (the soft lock).
+
 ### Dev drops and class, a near-instant medic, a sure-footed scout (2026-10-17, branch `zombie-funnel-pipes`)
 
 - **Dev panel (L+G):** `CLASS` cycles MEDIC, ENGINEER, SCOUT, GUNNER and back to your dealt

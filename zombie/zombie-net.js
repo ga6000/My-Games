@@ -554,7 +554,7 @@ function applyWorldSnapshot(msg, now) {
         // A promoted host must not hand out an id that is already live.
         if (ZOMBIE_ARCADE && pu[3] > arcDropSeq) arcDropSeq = pu[3];
         return { x: pu[0], y: pu[1], size: dropSizeFor(type), type: type, id: pu[3], item: item || "",
-                 until: deadlineFrom(pu[5] || 0, now) };
+                 until: deadlineFrom(pu[5] || 0, now), tossBy: pu[6] ? 1 : 0 };
     });
 
     // Other players' bullets only -- ours are simulated locally so our
@@ -584,6 +584,7 @@ function applyWorldSnapshot(msg, now) {
         scoreBoard = sb;
     }
 
+    if (ZOMBIE_ARCADE) satchelFromWire(msg.sat);
     // PERK: DECOY lures, for drawing.
     decoys = (msg.dc || []).map(function (d) {
         return { x: d[0], y: d[1], r: d[2], until: deadlineFrom(d[3], now) };
@@ -842,7 +843,7 @@ function broadcastWorld() {
             if (!pu.id) return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type)];
             const item = pu.type === "gun" ? WEAPON_KEYS.indexOf(pu.item)
                        : pu.type === "perk" ? CARD_KEYS.indexOf(pu.item) : -1;
-            return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type), pu.id, item, msLeft(pu.until, now)];
+            return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type), pu.id, item, msLeft(pu.until, now), pu.tossBy ? 1 : 0];
         }),
         sc: Math.round(scrapPool),
         ki: kills,
@@ -868,6 +869,8 @@ function broadcastWorld() {
                     Math.round(t.aim * 100), msLeft(t.liveAt, now)];
         }) : [],
         // Live DECOY lures, as remaining durations.
+        // ARCADE: the scouts' satchels (THE SATCHEL).
+        sat: ZOMBIE_ARCADE ? satchelToWire() : 0,
         dc: decoys.map(function (d) {
             return [Math.round(d.x), Math.round(d.y), d.r, msLeft(d.until, now)];
         }),
