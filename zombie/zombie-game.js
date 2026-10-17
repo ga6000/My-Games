@@ -1313,6 +1313,7 @@ function update(now, dt) {
     // permanently retiring half the map as a spawn source.
     markHotZones();
 
+    if (ZOMBIE_ARCADE) arcadeMagnetDrops(dt);     // ATTRACT: drops slide toward you
     updatePlayers(now, dt);
     // ALT: after your own movement, before anything reads your position --
     // a rider is carried by the deck under them (za-train.js).

@@ -199,8 +199,8 @@ const CARDS = {
     salvage:   { name: "SALVAGE",    cost: 10000, blurb: "KILLS REFUND AMMO",
                  detail: "30% / 45% / 60% of kills refund a round to the gun in your hands. Less for the sniper and rockets." },
     // ARCADE (2026-10-07): drops only, never sold.
-    attract:   { name: "ATTRACT",    cost: 9000,  blurb: "LONGER PICKUP REACH",
-                 detail: "You take drops from 50 / 90 / 130 / 165 / 195 / 220 px away." },
+    attract:   { name: "ATTRACT",    cost: 9000,  blurb: "DROPS SLIDE TO YOU",
+                 detail: "Drops within 120 / 170 / 215 / 255 / 290 / 320 px slide toward you, faster as they close and with every stack." },
     // ARCADE (2026-10-11, "bullet curving towards the nearest enemy ... this
     // also can stack"): rounds bend toward the nearest zombie ahead of them.
     seeker:    { name: "SEEKER",     cost: 10000, blurb: "ROUNDS CURVE TO ZOMBIES",

@@ -63,6 +63,19 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### ATTRACT pulls, sidebar perks in colour (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **ATTRACT no longer reaches out; it pulls** (`arcadeMagnetDrops`, run every step on every
+  client from `update()`). A takeable drop (not a hazard, not one the holder would refuse) inside
+  `ATTRACT_PULL[stacks]` (120 / 170 / 215 / 255 / 290 / 320px) slides toward the nearest holder at
+  `(60 + 30 * stacks) * (1 + 3 * closeness^2)` px/s, so it speeds up as it closes. It is taken
+  only when it **touches** you: `arcadeWalkOverDrops` uses no pad now. The speed has no stored
+  velocity, so the host (whose drop positions ride the snapshot) and a guest predicting between
+  snapshots move it alike. Measured at x3 from 157px: 157, 134, 116, 84, 48, then taken, at 100ms
+  steps. ~~`ATTRACT_REACH`~~ is gone.
+- **Held perks in the side panel show the perk's own colour** (`PERK_TINT` behind a white icon),
+  as their drops and the ESC guide already did. They were world-hue icons on black.
+
 ### The blood run: a backlog funnel, one L-shaped pipe, a riser, READY waits for the blood (2026-10-16, branch `zombie-funnel-pipes`)
 
 `zombie-arcade.js` "THE BLOOD RUN". The user's calls: the tank must WAIT for the blood; the funnel
@@ -1150,7 +1163,7 @@ Built as the SEEKER perk; see "Sixth" above.)*
 - **Blackouts are off** in the arcade: no darkening, no monochrome, no card.
 - **The ping is off** (`pingFrom` returns), and **DECOY** is out of the drop pool with it.
   **ATTRACT** is in: a new perk (`CARDS.attract`, `CARD_KEYS` index 11, appended; a magnet icon)
-  that takes drops from 50 / 90 / 130px away (`ATTRACT_REACH`).
+  that takes drops from 50 / 90 / 130px away (`ATTRACT_REACH`). *(Superseded 2026-10-17: it pulls drops to you; see "ATTRACT pulls".)*
 - **Drops +25% again**: 9.4% a kill, guaranteed within 16, up to 10 live.
 - **The arena is a third bigger on each side: 3200×1860.** Tanks sit at centre-left −1150,
   top-middle −600 and centre-right +1100, so the three sets have room. The open terrain scales

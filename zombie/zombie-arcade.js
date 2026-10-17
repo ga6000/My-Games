@@ -643,9 +643,15 @@ const DROP_BLINK_MS = 5000;       // blinks for its last 5s
 const DROP_MAX_LIVE = 10;
 const DROP_CHANCE = 0.094;        // +25% twice (2026-10-04, 2026-10-07): 0.06 -> 0.075 -> 0.094
 const DROP_PITY_KILLS = 16;       // never longer than this between drops (25 -> 20 -> 16)
-// ATTRACT (2026-10-07): your pickup reach, per stack. A drop this close is
-// taken as if you had walked over it.
-const ATTRACT_REACH = [0, 50, 90, 130, 165, 195, 220];   // to x6 (2026-10-08)
+// ATTRACT (2026-10-07), reworked 2026-10-17: "show these as having an
+// acceleration towards the player based on the level of stacks, so that the
+// perks are only picked up when they actually collide with the player."
+// A drop inside your pull slides toward you, faster the closer it gets and
+// the more stacks you hold, and is taken only when it touches you.
+// ~~ATTRACT_REACH (take from 50..220px away)~~ is gone.
+const ATTRACT_PULL = [0, 120, 170, 215, 255, 290, 320];  // pull radius per stack, to x6
+const ATTRACT_V0 = 60, ATTRACT_V_STACK = 30;             // px/s at the edge of the pull
+const ATTRACT_SURGE = 3;                                 // x(1 + 3) by the time it reaches you
 const DROP_FUEL = 4;              // FUEL: kills added to the live tank
 const SHOCK_RADIUS = 300;
 const OVERCLOCK_MS = 6000;
@@ -873,12 +879,53 @@ function dropRefusal(cards, d) {
     return "";
 }
 
-// Every client, for its own player: everything is walked over.
+// EVERY client, every step: ATTRACT pulls drops toward whoever holds it.
+// The speed is a function of distance and stacks only -- no velocity is
+// stored -- so the host (whose positions ride the snapshot) and a guest
+// (predicting between snapshots) move a drop the same way. It accelerates
+// as it closes: v = (V0 + V_STACK * stacks) * (1 + SURGE * closeness^2).
+// A drop only moves toward someone who could take it, and never a hazard.
+function arcadeMagnetDrops(dt) {
+    const pulls = [];
+    for (let i = 0; i < players.length; i++) {
+        const p = players[i];
+        const lv = p && !p.downed ? cardLevel(p, "attract") : 0;
+        if (lv) pulls.push({ x: p.x + p.size / 2, y: p.y + p.size / 2, lv: lv, cards: p.cards || [], turret: !!p.turretHeld });
+    }
+    for (const id in remotePlayers) {
+        if (!Object.prototype.hasOwnProperty.call(remotePlayers, id)) continue;
+        const r = remotePlayers[id];
+        if (!r || r.away || r.downed || !r.cards) continue;
+        const lv = r.cards.filter(function (k) { return k === "attract"; }).length;
+        if (lv) pulls.push({ x: r.x + (r.size || 16) / 2, y: r.y + (r.size || 16) / 2, lv: lv, cards: r.cards, turret: false });
+    }
+    if (!pulls.length) return;
+    const s = Math.min(0.05, dt / 1000);
+    for (let i = 0; i < pickups.length; i++) {
+        const d = pickups[i];
+        if (!d.id || DROP_HAZARD[d.type]) continue;
+        const cx = d.x + d.size / 2, cy = d.y + d.size / 2;
+        let best = null, bd = Infinity;
+        for (let k = 0; k < pulls.length; k++) {
+            const a = pulls[k], dist = Math.hypot(a.x - cx, a.y - cy), reach = ATTRACT_PULL[a.lv] || 0;
+            if (dist > reach || dist >= bd) continue;
+            if (dropRefusal(a.cards, d) || (d.type === "turret" && a.turret)) continue;
+            best = a; bd = dist;
+        }
+        if (!best || bd < 2) continue;
+        const close = 1 - bd / (ATTRACT_PULL[best.lv] || 1);
+        const v = (ATTRACT_V0 + ATTRACT_V_STACK * best.lv) * (1 + ATTRACT_SURGE * close * close);
+        const step = Math.min(bd, v * s);
+        d.x += (best.x - cx) / bd * step;
+        d.y += (best.y - cy) / bd * step;
+    }
+}
+
+// Every client, for its own player: a drop is taken when it TOUCHES you
+// (ATTRACT brings it to you; it no longer reaches out for it).
 function arcadeWalkOverDrops(p, now) {
     if (p.downed) return;
-    let d = dropTouching(p, ATTRACT_REACH[cardLevel(p, "attract")] || 0);
-    // A hazard has to be stood on: ATTRACT must not vacuum it up.
-    if (d && DROP_HAZARD[d.type]) d = dropTouching(p, 0);
+    const d = dropTouching(p, 0);
     if (!d || dropRefusal(p.cards || [], d)) return;
     // One turret in hand at a time; a second stays for a teammate.
     if (d.type === "turret" && p.turretHeld) return;

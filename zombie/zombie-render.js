@@ -3697,7 +3697,9 @@ function updateLoadoutHud(me) {
         for (let i = 0; i < CARD_SLOTS; i++) {
             const k = held[i];
             if (k) {
-                h += "<span class='perk' title='" + CARDS[k].name + "'>" + iconImg("perk", k, 3) +
+                // The perk's own colour, as on its drop and in the ESC guide (2026-10-17).
+                h += "<span class='perk' title='" + CARDS[k].name + "' style='background:" + (PERK_TINT[k] || "#552200") + "'>" +
+                     iconImg("perk", k, 3, "#FFFFFF") +
                      "<b>x" + cardLevel(me, k) + "</b></span>";
             } else {
                 h += "<span class='perk empty'></span>";
