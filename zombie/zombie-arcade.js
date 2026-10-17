@@ -687,6 +687,8 @@ const HAZARD_MAX_LIVE = 3;
 const HAZARD_LIFE_MS = 20000;
 const MUD_MS = 5000;
 const MUD_SPEED = 0.5;
+const SCOUT_MUD_MS = 3000;        // SCOUT (2026-10-17): shorter...
+const SCOUT_MUD_SPEED = 0.75;     // ...and only to 75%
 const JAM_MS = 2500;
 const FLARE_COUNT = 7;
 const DROP_HAZARD = { mud: true, flare: true, jam: true };
@@ -1503,7 +1505,11 @@ function arcadeApplyTake(msg, now) {
         } else if (msg.t === "freeze") {
             showToast("FREEZE — " + (FREEZE_MS / 1000) + "s", 1400);
         } else if (msg.t === "mud") {
-            if (p) { p.slowUntil = now + MUD_MS; showToast("MUD — SLOWED", 1600); }
+            if (p) {
+                const scout = myRole() === "scout";
+                p.slowUntil = now + (scout ? SCOUT_MUD_MS : MUD_MS);
+                showToast(scout ? "MUD — SCOUT SHRUGS IT OFF" : "MUD — SLOWED", 1600);
+            }
             else showToast((who || "SOMEONE") + " STEPPED IN MUD", 1400);
         } else if (msg.t === "jam") {
             if (p) { p.jamUntil = now + JAM_MS; showToast("JAMMED — GUN LOCKED", 1800); }

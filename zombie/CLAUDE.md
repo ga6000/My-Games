@@ -63,6 +63,18 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Dev drops and class, a near-instant medic, a sure-footed scout (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **Dev panel (L+G):** `CLASS` cycles MEDIC, ENGINEER, SCOUT, GUNNER and back to your dealt
+  class (`zDevRoleOverride`, honoured by `myRole()` and by `idHasRole()` for your own id; local
+  only, so teammates still deal yours from your token). `DROP <TYPE>` puts a real drop 70px ahead
+  of you for every team drop, the turret, the Boomgun, each hazard, a random gun and a random perk
+  (`zDevDrop`, host only).
+- **MEDIC:** revives in 0.2s (`MEDIC_REVIVE_K` 0.27 of the arcade's 0.75s) from 1.8x as far
+  (`MEDIC_REVIVE_RANGE_K`: 46 to 83px, 64 to 115 once reviving).
+- **SCOUT:** mud slows them only to 75% (`SCOUT_MUD_SPEED`) for 3s (`SCOUT_MUD_MS`), not 50% for
+  5s. Measured: 3.3 against 4.4, about 3s.
+
 ### Engineer turrets carry perks, overclock drives the machines, classes in ESC (2026-10-17, branch `zombie-funnel-pipes`)
 
 - **An ENGINEER's turret reads its owner's perks live** (`eng`, set by the host from the placer's

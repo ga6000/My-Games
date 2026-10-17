@@ -262,6 +262,9 @@ const CRAWL_SPEED = 1.25;
 const BLEED_OUT_MS = 25000;
 const REVIVE_RANGE = 46;
 const REVIVE_KEEP = REVIVE_RANGE + 18;   // once reviving, you keep it out to here
+// ARCADE MEDIC (2026-10-17): near-instant, and from further away.
+const MEDIC_REVIVE_K = 0.27;             // of the arcade's 0.75s: 0.2s
+const MEDIC_REVIVE_RANGE_K = 1.8;        // 46 -> 83px (64 -> 115 once reviving)
 
 // ---------------------------------------------------
 //   PLAYERS
@@ -381,7 +384,8 @@ function playerSpeed(p, now) {
     if (p.downed) return CRAWL_SPEED * (cardLevel(p, "laststand") >= 3 ? 1.6 : 1);
     // ROLE: SCOUT moves a little faster.
     // ARCADE: a MUD drop slows its taker (zombie-arcade.js).
-    const mud = ZOMBIE_ARCADE && now < (p.slowUntil || 0) ? MUD_SPEED : 1;
+    // SCOUT (2026-10-17): mud only takes them to 75% (and for 3s, set on the take).
+    const mud = ZOMBIE_ARCADE && now < (p.slowUntil || 0) ? (myRole() === "scout" ? SCOUT_MUD_SPEED : MUD_SPEED) : 1;
     return PLAYER_SPEED * (myRole() === "scout" ? 1.1 : 1) * mud;
 }
 

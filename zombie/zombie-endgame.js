@@ -70,14 +70,21 @@ function roleForId(netId) {
     return ROLE_KEYS[(h >>> 0) % ROLE_KEYS.length];
 }
 
+// DEV (2026-10-17, the L+G panel's CLASS button): play as a chosen class.
+// Local only -- it changes what this client, and a host for its own player,
+// believe; teammates still deal your class from your token.
+let zDevRoleOverride = null;
+
 function myRole() {
     // The tab token, not the socket id (2026-09-19): the socket id is new on
     // every reconnect, so a wifi drop used to re-deal your class mid-run.
-    return roleForId(netToken);
+    return zDevRoleOverride || roleForId(netToken);
 }
 
 function idHasRole(id, key) {
-    return roleForId((id || "").split(":")[0]) === key;
+    const tok = (id || "").split(":")[0];
+    if (zDevRoleOverride && tok === netToken) return zDevRoleOverride === key;
+    return roleForId(tok) === key;
 }
 
 // ---------------------------------------------------

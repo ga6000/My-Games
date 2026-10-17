@@ -2619,7 +2619,9 @@ function updateRevives(now, dt) {
         let reviver = null;
         for (let j = 0; j < targets.length; j++) {
             if (i === j || targets[j].downed) continue;
-            const reach = (ref.reviveBy === targets[j].id) ? REVIVE_KEEP : REVIVE_RANGE;
+            // MEDIC (2026-10-17): "wider revive range".
+            const wide = ZOMBIE_ARCADE && idHasRole(targets[j].id, "medic") ? MEDIC_REVIVE_RANGE_K : 1;
+            const reach = ((ref.reviveBy === targets[j].id) ? REVIVE_KEEP : REVIVE_RANGE) * wide;
             if (dist(t.x, t.y, targets[j].x, targets[j].y) < reach) { reviver = targets[j]; break; }
         }
         ref.reviveBy = reviver ? reviver.id : null;
@@ -2629,7 +2631,8 @@ function updateRevives(now, dt) {
             const medic = idHasRole(reviver.id, "medic");
             // ARCADE (2026-10-17): 40% faster than the arcade's own revive.
             // The fixed 1.8s here was SLOWER than its flat 0.75s.
-            const useNeed = medic ? (ZOMBIE_ARCADE ? need * 0.6 : 3000 * 0.6) : need;
+            // 2026-10-17: "near-instant ... cut down just a tad more" -- 0.2s.
+            const useNeed = medic ? (ZOMBIE_ARCADE ? need * MEDIC_REVIVE_K : 3000 * 0.6) : need;
             ref.reviveProgress = (ref.reviveProgress || 0) + (dt / useNeed);
             if (ref.reviveProgress >= 1) {
                 ref.reviveProgress = 0;

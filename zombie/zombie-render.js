@@ -515,9 +515,9 @@ const GUIDE_TEAM = [
 // CLASSES (2026-10-17): what each class does IN THE ARCADE. ROLES' own
 // blurbs still describe the walled game's traps, windows and pings.
 const GUIDE_CLASSES = [
-    ["medic", "M", "Revives a teammate 40% faster.", "Somebody has to keep count."],
+    ["medic", "M", "Revives a teammate almost instantly (0.2s, not 0.75s), and from nearly twice as far away.", "Somebody has to keep count."],
     ["engineer", "E", "Turrets you place carry your perks: OVERDRIVE fires faster; RICOCHET, SKEWER and SEEKER shape its rounds; ARC and BLASTCAP go off on its kills; SALVAGE kills put time back on its bar; SPITE goes off when it dies. ATTRACT and LAST STAND don't carry. Anyone else's turret is plain.", "It does what it's told. You told it everything."],
-    ["scout", "S", "Moves 10% faster.", "First in, first to see it."],
+    ["scout", "S", "Moves 10% faster. Mud only slows you to 75%, and for 3 seconds, not 5.", "First in, first to see it."],
     ["gunner", "G", "Every round you fire does 15% more damage. AMMO drops fill your guns to 125%.", "Never once asked how many."]
 ];
 const GUIDE_HAZARD = [
