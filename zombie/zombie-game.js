@@ -2220,7 +2220,7 @@ function updateZombies(now, dt) {
     // x1.28 while intensified. Applied HERE rather than written into the
     // zombie at spawn, so throwing the switch speeds up everything already
     // on the map at that instant, not only what comes afterwards.
-    const baseSpeed = zombieSpeedForRound(round) * intensifySpeedMult();
+    const baseSpeed = zombieSpeedForRound(round) * intensifySpeedMult() * (ZOMBIE_ARCADE ? arcDiffSpeed() : 1);
 
     for (let d = decoys.length - 1; d >= 0; d--) if (now >= decoys[d].until) decoys.splice(d, 1);
 

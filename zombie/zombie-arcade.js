@@ -27,11 +27,13 @@
 // ~4.6/s at 2:00, ~10.5/s at 3:00, ~22/s at 4:00. Past ~3:30 that outruns
 // any loadout, which is the point -- the overwhelm is the clock, not a
 // scripted event. The ALIVE CAP is what keeps 22/s from being 22/s forever.
-const ARC_RATE0 = 0.8;            // spawns per second at T = 0, solo
-const ARC_DOUBLE_S = 50;          // seconds per doubling
+// EASED 2026-10-17 ("too hard" for 2 of 3 playtesters, even on casual):
+// 0.8 -> 0.6 at the start, doubling every 50 -> 60s.
+const ARC_RATE0 = 0.6;            // spawns per second at T = 0, solo
+const ARC_DOUBLE_S = 60;          // seconds per doubling
 const ARC_LEVEL_S = 12;           // seconds per "level" (the old round curves)
-const ARC_CAP_BASE = 60;
-const ARC_CAP_PER = 30;           // per player: solo 90, four players 180
+const ARC_CAP_BASE = 48;          // eased 2026-10-17 (was 60)
+const ARC_CAP_PER = 24;           // per player (was 30): solo 72, four players 144
 const ARC_RING_MIN = 640;         // spawn ring around a living player, just
 const ARC_RING_MAX = 900;         // past the edge of a 960x540 view
 const ARC_SEEN_HALF_W = VIEW_W * 0.62;
@@ -181,7 +183,8 @@ function arcadeL2Ramp(now) {
 function arcadeSpawnRate(t, now) {
     const tide = 1 + ARC_TIDE_AMP * Math.sin(2 * Math.PI * t / ARC_TIDE_S);
     const lull = now < arcLullUntil ? ARC_LULL_MULT : 1;
-    return ARC_RATE0 * Math.pow(2, t / ARC_DOUBLE_S) * (0.6 + 0.4 * teamSize()) * tide * lull * arcadeL2Ramp(now) * arcDiffRate();
+    // Each extra player adds 30% (was 40%) -- 2026-10-17.
+    return ARC_RATE0 * Math.pow(2, t / ARC_DOUBLE_S) * (0.7 + 0.3 * teamSize()) * tide * lull * arcadeL2Ramp(now) * arcDiffRate();
 }
 
 function arcadeAliveCap() {
@@ -828,6 +831,20 @@ const FOUNTAIN_DY = 170;          // fountain centre, below the world centre
 const FOUNTAIN_HALF = 48;         // its solid body is 96px square
 const ROUNDABOUT_R = 110;         // road centre line round it
 function arcadeHasStart() { return ZOMBIE_ARCADE && arcLevelNo <= 1; }
+
+// The party, in an order every client agrees on (sorted ids), so each player
+// knows which pedestal slot is theirs: the one above their own perk tray.
+function arcadePartyIds() {
+    const party = typeof lobbyParty === "function" ? lobbyParty() : [];
+    return party.map(function (m) { return String(m.id); }).sort();
+}
+
+function arcadeMyStartX() {
+    const ids = arcadePartyIds(), n = Math.max(1, Math.min(TRAY_SLOTS, ids.length));
+    const me = typeof lobbySelfKey === "function" ? String(lobbySelfKey()) : "";
+    const k = Math.max(0, ids.indexOf(me));
+    return arcadeTraySlot(Math.floor((TRAY_SLOTS - n) / 2) + Math.min(k, n - 1)).x;
+}
 function arcadeStartTrayY() { return WORLD_H / 2 + START_PED_TOP + START_PED_FP + START_PED_LIFT + 46; }
 function arcadeTraySlot(i) { return { x: Math.round(WORLD_W / 2 + (i - (TRAY_SLOTS - 1) / 2) * TRAY_GAP), y: Math.round(arcadeStartTrayY()) }; }
 function arcadeRoundaboutPts(cx, fy) {
@@ -842,7 +859,11 @@ function arcadeRoundaboutPts(cx, fy) {
 // HOST, from arcadeStart on map 1.
 function arcadePlaceTrays(now) {
     arcTrays = [];
-    const n = Math.max(1, Math.min(TRAY_SLOTS, teamSize()));
+    // The PARTY, not teamSize(): at this instant every client has just reset
+    // and respawned, so the host has not heard from its teammates yet and
+    // teamSize() is 1 (2026-10-17: "only spawning one perk ... even if there
+    // are three players").
+    const n = Math.max(1, Math.min(TRAY_SLOTS, Math.max(teamSize(), arcadePartyIds().length)));
     const pool = DROP_PERKS.slice();
     const first = Math.floor((TRAY_SLOTS - n) / 2);          // centred on the pedestal
     for (let i = 0; i < n && pool.length; i++) {
@@ -1767,8 +1788,12 @@ function arcadeSetDifficulty(v) {
 // Map 1 and 2 (the "near the same" half) versus maps 3 and 4 (the half the
 // slider is for).
 function arcHardMap() { return arcLevelNo >= 3; }
-function arcDiffRate() { return arcHardMap() ? arcDifficulty : 1 + 0.1 * (arcDifficulty - 1); }
-function arcDiffCap() { return arcHardMap() ? 0.7 + 0.3 * arcDifficulty : 1; }
+// 2026-10-17: casual has to BE casual on maps 1 and 2 as well (it moved them
+// +-10%, so 0.5 changed almost nothing). Now +-60% of the rate and +-40% of
+// the cap there, and zombie speed follows the slider on every map.
+function arcDiffRate() { return arcHardMap() ? arcDifficulty : 1 + 0.6 * (arcDifficulty - 1); }
+function arcDiffCap() { return arcHardMap() ? 0.7 + 0.3 * arcDifficulty : 1 + 0.4 * (arcDifficulty - 1); }
+function arcDiffSpeed() { return 0.84 + 0.16 * arcDifficulty; }    // casual 0.92, default 1.0, brutal 1.08
 
 // This map's clock head start: map 2's minute 2 is map 1's minute 3 (user,
 // 2026-10-11), and each map after starts further up the same curve (the
@@ -6135,3 +6160,85 @@ const BULWARK_PUSH = 4;           // px a step while a shove lasts
 const BULWARK_PUSH_MS = 90;
 let arcBulwarks = [];
 let arcBulwarkField = null, arcBulwarkFieldWide = null;
+
+// ---------------------------------------------------
+//   AIM AIDS (2026-10-17)
+// ---------------------------------------------------
+// "Option to make crosshair bigger or laser sight in esc menu. some players
+// have visibility issues." One setting, cycled by the AIM button in the ESC
+// menu and kept per browser:
+//   STANDARD        the system crosshair cursor
+//   LARGE           a big high-contrast crosshair drawn at the aim point
+//   LASER           a line from you to where you aim, stopping at walls
+//   LARGE + LASER   both
+// Drawn after the lighting, so the dark never hides it. White with a black
+// outline (it must read on every floor); the laser is in your own colour.
+const AIM_MODES = ["STANDARD", "LARGE", "LASER", "LARGE + LASER"];
+const AIM_LASER_RANGE = 620;
+let arcAimMode = (function () {
+    try { const v = parseInt(localStorage.getItem("zombie_aim_mode"), 10); if (v >= 0 && v < AIM_MODES.length) return v; } catch (e) { /* ignore */ }
+    return 0;
+})();
+
+function arcadeAimApply() {
+    const big = arcAimMode === 1 || arcAimMode === 3;
+    if (canvas) canvas.style.cursor = big ? "none" : "";
+    const b = document.getElementById("aimBtn");
+    if (b) b.textContent = "AIM: " + AIM_MODES[arcAimMode];
+}
+
+function arcadeCycleAim() {
+    arcAimMode = (arcAimMode + 1) % AIM_MODES.length;
+    try { localStorage.setItem("zombie_aim_mode", String(arcAimMode)); } catch (e) { /* ignore */ }
+    arcadeAimApply();
+}
+
+(function () {
+    const b = document.getElementById("aimBtn");
+    if (b) b.addEventListener("click", function (e) { e.stopPropagation(); arcadeCycleAim(); }, { signal: zSignal() });
+    arcadeAimApply();
+})();
+
+function arcadeDrawAim(now) {
+    const p = players[0];
+    if (!arcAimMode || !p || p.downed || helpOpen) return;
+    const cx = p.x + p.size / 2, cy = p.y + p.size / 2;
+    let dx = mouseX - cx, dy = mouseY - cy, d = Math.hypot(dx, dy);
+    if (d < 1) { dx = p.facingX || 1; dy = p.facingY || 0; d = Math.hypot(dx, dy) || 1; }
+    const ux = dx / d, uy = dy / d, s = camera.scale || 1;
+    ctx.save();
+    applyCameraTransform();
+    if (arcAimMode >= 2) {
+        let len = 18;
+        while (len < AIM_LASER_RANGE && !bulletBlockedAt(cx + ux * len - 2, cy + uy * len - 2, 4)) len += 8;
+        const x0 = cx + ux * 14, y0 = cy + uy * 14, x1 = cx + ux * len, y1 = cy + uy * len;
+        ctx.lineCap = "butt";
+        ctx.strokeStyle = "rgba(0,0,0,0.65)";
+        ctx.lineWidth = 6 / s;
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+        ctx.strokeStyle = p.color || "#FF3344";
+        ctx.lineWidth = 3 / s;
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(x1 - 3 / s, y1 - 3 / s, 6 / s, 6 / s);
+    }
+    if (arcAimMode === 1 || arcAimMode === 3) {
+        const mx = mouseX, my = mouseY, arm = 15 / s, gap = 5 / s;
+        const cross = function (w, col) {
+            ctx.fillStyle = col;
+            ctx.fillRect(mx - arm - w, my - w, arm - gap + w * 2, w * 2);
+            ctx.fillRect(mx + gap - w, my - w, arm - gap + w * 2, w * 2);
+            ctx.fillRect(mx - w, my - arm - w, w * 2, arm - gap + w * 2);
+            ctx.fillRect(mx - w, my + gap - w, w * 2, arm - gap + w * 2);
+        };
+        cross(3 / s, "#000000");
+        cross(1.5 / s, "#FFFFFF");
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 4 / s;
+        ctx.beginPath(); ctx.arc(mx, my, 11 / s, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = "#FFFFFF";
+        ctx.lineWidth = 2 / s;
+        ctx.beginPath(); ctx.arc(mx, my, 11 / s, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+}

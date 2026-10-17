@@ -479,7 +479,7 @@ function applyWorldSnapshot(msg, now) {
     if (ZOMBIE_ARCADE && typeof msg.df === "number") arcDifficulty = msg.df;
     if (ZOMBIE_ARCADE && !netIsHost && msg.bo) arcadeBlackoutApply(msg.bo, now);
     if (ZOMBIE_ARCADE && !netIsHost) {
-        arcTrays = (msg.tr || []).map(function (t) { return { x: t[0], y: t[1], item: CARD_KEYS[t[2]] || "" }; });
+        arcTrays = (msg.ty || []).map(function (t) { return { x: t[0], y: t[1], item: CARD_KEYS[t[2]] || "" }; });
     }
     if (ZOMBIE_ARCADE && typeof msg.lv === "number" && msg.lv > arcLevelNo) {
         arcadeEnterLevel(msg.lv, now, msg.l1 || [0, 0]);
@@ -638,7 +638,7 @@ function applyWorldSnapshot(msg, now) {
     if (msg.tw && typeof trainApplyWire === "function") trainApplyWire(msg.tw);
     floodActive = !!msg.fl;
     floodRemaining = msg.fr || 0;
-    escapeAt = deadlineFrom(msg.esc || 0, now);
+    escapeAt = !msg.esc ? 0 : msg.esc > 0 ? now + msg.esc : now + msg.esc + 1;
     // Before triggerWin(), so the card this client is about to build already
     // knows whether this client made it.
     if (msg.wab) wonAboard = msg.wab;
@@ -886,7 +886,9 @@ function broadcastWorld() {
         lv: ZOMBIE_ARCADE ? arcLevelNo : 1,
         df: ZOMBIE_ARCADE ? arcDifficulty : 1,
         bo: ZOMBIE_ARCADE ? arcadeBlackoutWire(now) : 0,
-        tr: ZOMBIE_ARCADE ? arcTrays.map(function (t) { return [t.x, t.y, CARD_KEYS.indexOf(t.item)]; }) : 0,
+        // `ty`, not `tr` (2026-10-17): `tr` is also the traps row further down
+        // this same object, which won -- guests never got the trays.
+        ty: ZOMBIE_ARCADE ? arcTrays.map(function (t) { return [t.x, t.y, CARD_KEYS.indexOf(t.item)]; }) : 0,
         lq: (ZOMBIE_ARCADE && arcLeaveAt) ? Math.max(1, Math.round(arcLeaveEndAt - now)) : 0,
         l1: (ZOMBIE_ARCADE && arcLevelNo >= 2) ? [Math.round(arcL1Seconds * 10) / 10, arcL1Silos] : 0,
 
@@ -911,7 +913,11 @@ function broadcastWorld() {
         sp: siloFlipped.map(function (v) { return v ? 1 : 0; }),
         fl: floodActive ? 1 : 0,
         fr: floodRemaining,
-        esc: msLeft(escapeAt, now),
+        // 2026-10-17: SIGNED. msLeft() is 0 once the gate is open, and a
+        // guest read 0 as "not started" -- so on a guest the gate never
+        // opened: its bar stayed solid, nobody got OUT, and the map never
+        // changed. Negative = opened that many ms ago.
+        esc: !escapeAt ? 0 : (escapeAt > now ? Math.round(escapeAt - now) : -Math.round(now - escapeAt) - 1),
         wn: won ? 1 : 0,
         wab: wonAboard,
         // Per-zone spawn cooldown, as REMAINING DURATIONS (never

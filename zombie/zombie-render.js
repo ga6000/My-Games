@@ -712,6 +712,7 @@ function draw() {
         // Not on the start card (2026-10-12: "turn off the silo 0/10 throbbing
         // on the start screen"): there is no objective until there is a run.
         if (gameStarted) arcadeDrawBeacon(now);
+        if (gameStarted) arcadeDrawAim(now);      // the AIM setting (ESC menu)
         arcadeDrawHurt(now);              // the one-hit buffer's red
     }
     drawOffscreenMarkers(now);

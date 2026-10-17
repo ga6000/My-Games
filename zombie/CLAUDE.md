@@ -63,6 +63,33 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Multiplayer fixes, easier, aim aids (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **A guest could never leave a map.** `esc` went over as `msLeft(escapeAt)`, which is 0 once the
+  gate is open, and a guest read 0 as "not started": on a guest the gate never opened, its
+  `gateBar` stayed solid, they were never OUT, and the host waited for them forever. `esc` is now
+  signed (negative = opened that long ago). **Verified with two real clients** (local
+  `server.js`, two tabs): the guest sees the gate open and its bar gone; both walked out, 2/2, and
+  both arrived on map 2.
+- **The start trays never reached guests:** the snapshot carried `tr` twice (the trays and the old
+  traps row), and the traps won. The trays ride as `ty` now.
+- **One perk tray per player:** `arcadePlaceTrays` counted `teamSize()` at the instant of the
+  start, when every client has just reset and the host has not yet heard from anyone (1). It
+  takes the lobby party's size too (`arcadePartyIds`).
+- **Each player starts on their own pedestal slot**, above their own tray (`arcadeMyStartX`: the
+  party's ids sorted, so every client agrees). It was a hash of the tab token, which bunched up.
+  Verified: two players, 72px apart.
+- **Easier** ("too hard" for 2 of 3 testers, even on casual): spawns start at 0.6/s (was 0.8) and
+  double every 60s (was 50); each extra player adds 30% (was 40%); the alive cap is 48 + 24 per
+  player (was 60 + 30). The slider now reaches maps 1 and 2: their rate +-60% and cap +-40% of the
+  slider's distance from 1 (was +-10% and nothing). Zombie speed follows it everywhere
+  (`arcDiffSpeed`: casual 0.92, brutal 1.08). **Not measured by a bot sweep or a playtest yet.**
+- **Aim aids** ("bigger crosshair or laser sight in esc menu ... visibility issues"): the ESC
+  menu's **AIM** button cycles STANDARD / LARGE / LASER / LARGE + LASER (`arcAimMode`, kept per
+  browser). LARGE draws a white crosshair and ring with a black outline at the aim point and hides
+  the system cursor. LASER draws a line in your colour from you along your aim until a wall or
+  620px. Drawn after the lighting (`arcadeDrawAim`).
+
 ### BUTCHER and BULWARK, the scout's SATCHEL, two turrets each, turrets tire (2026-10-17, branch `zombie-funnel-pipes`)
 
 - **Six classes now** (`ROLE_KEYS` + `butcher`, `bulwark`). The hash deals modulo the list

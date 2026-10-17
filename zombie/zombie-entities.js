@@ -327,7 +327,9 @@ function spawnPlayer(keepCards) {
 
     // ARCADE MAP 1: you start on the strip under the trays, spread across it.
     if (ZOMBIE_ARCADE && typeof arcadeHasStart === "function" && arcadeHasStart() && !keepCards) {
-        p.x = WORLD_W / 2 + (hashToUnit(netToken) - 0.5) * 300 - 8;
+        // Your own slot on the pedestal, above your perk tray (2026-10-17:
+        // "spawning on individual spaces ... not all in a condensed glob").
+        p.x = arcadeMyStartX() - 8;
         p.y = WORLD_H / 2 + START_SPAWN_DY;
     }
 
