@@ -5334,9 +5334,12 @@ function buildSiloSets(clear) {
     if (giantSilo) {
         // One tank, so one set of lamps: the ends and the middle of its base,
         // and the corners of its lid.
+        // 2026-10-16: "make lighting at end map around blood reservoir all
+        // 'cool' colored lighting" -- these, and every funnel lamp on this
+        // map (the funnels all feed the reservoir), are cool.
         const g = giantSilo, by = g.y + g.h - 6;
-        [g.x - 40, g.x + g.w / 2, g.x + g.w + 40].forEach(function (x) { arenaLamps.push({ x: x, y: by, inside: false }); });
-        arenaLamps.push({ x: g.x + 40, y: g.y - g.lift - 14, inside: false }, { x: g.x + g.w - 40, y: g.y - g.lift - 14, inside: false });
+        [g.x - 40, g.x + g.w / 2, g.x + g.w + 40].forEach(function (x) { arenaLamps.push({ x: x, y: by, inside: false, cool: true }); });
+        arenaLamps.push({ x: g.x + 40, y: g.y - g.lift - 14, inside: false, cool: true }, { x: g.x + g.w - 40, y: g.y - g.lift - 14, inside: false, cool: true });
     }
     // 2026-10-08: "slightly more light sources around silos 1 and 3, but also
     // at the start point". Lamps are light only: nothing solid is added.
@@ -5347,9 +5350,10 @@ function buildSiloSets(clear) {
             arenaLamps.push({ x: s.x - 28, y: s.y + s.h - 6, inside: ins });                 // tank, west foot
             arenaLamps.push({ x: s.x + s.w / 2, y: s.y - SILO_LIFT - 14, inside: ins });     // tank, top
         }
-        arenaLamps.push({ x: f.x, y: f.y - f.r - 34, inside: ins });                     // funnel, north
-        arenaLamps.push({ x: f.x, y: f.y + f.r + 34, inside: ins });                     // funnel, south
-        arenaLamps.push({ x: f.x - f.r - 34, y: f.y, inside: ins });                     // funnel, west
+        const cool = !!giantSilo;
+        arenaLamps.push({ x: f.x, y: f.y - f.r - 34, inside: ins, cool: cool });         // funnel, north
+        arenaLamps.push({ x: f.x, y: f.y + f.r + 34, inside: ins, cool: cool });         // funnel, south
+        arenaLamps.push({ x: f.x - f.r - 34, y: f.y, inside: ins, cool: cool });         // funnel, west
     }
     // The exit: cool flood lights either side of the gate and one out front.
     if (escapeRect) {
