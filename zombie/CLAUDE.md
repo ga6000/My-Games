@@ -63,6 +63,16 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Shorter instructions, perks in a 2x2 (2026-10-16)
+
+From a phone screenshot: the sidebar's objective line ran to 9 wrapped rows ("GATE OPEN - 0/0 OUT -
+EVERYONE STANDING WALKS OUT THE BOTTOM") and pushed the perks off the panel. **`endgameObjective()` is now
+terse everywhere (desktop and phone alike):** `FUNNEL 1  3/10`, `TANK 1 FULL  [F]`, `GATE OPENS 12s`,
+`GATE OPENING`, `GO! 1/2 OUT`; the goal notes and the "EVERYONE TO THE GATE" short name are trimmed to
+match. **`#perks` is a fixed 2x2 grid pinned to the bottom right of the loadout** (`Zombie.html`; 30px tiles
+on touch in `zombie-input.js`), so four slots can never wrap off the panel. The ESC dialog's longer
+explanations are unchanged on purpose. Not re-checked on a phone.
+
 ### Silo 1 not filling on phones: `onReady` rebuilt the level mid-run (2026-10-16)
 
 Reported on two mobile sessions, never on a laptop. **Cause:** `MP.connect`'s `onReady` called
@@ -3544,4 +3554,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: afd5607d | 2026-10-17 -->
+<!-- doc-sync: 5da65d5f | 2026-10-17 -->

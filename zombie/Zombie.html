@@ -97,7 +97,9 @@
         /* A stored RALLY (2026-10-12): solo, it is kept for when you go down. */
         #rallyTag { display: none; color: var(--sig-amber); font-size: 13px; font-weight: bold; letter-spacing: 2px;
             border: 2px solid var(--sig-amber); padding: 2px 8px; margin-bottom: 8px; width: fit-content; }
-        #perks { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; max-width: 100%; }
+        /* TWO ROWS OF TWO, bottom right (2026-10-16): four slots in a fixed 2x2 grid, so they
+           never wrap off the panel however long the text above them gets. */
+        #perks { display: grid; grid-template-columns: repeat(2, max-content); gap: 12px 14px; justify-content: end; margin: 0 8px 10px auto; max-width: 100%; }
         #perks .perk {
             position: relative; width: 48px; height: 48px;
             display: flex; align-items: center; justify-content: center;
@@ -438,7 +440,7 @@
         body.arcade #ui b { margin-right: 12px; }
         /* Short windows drop the checklist: NEXT already says what is current. */
         @media (max-height: 900px) { #sideGoals { display: none; } }
-        body.arcade #loadout { position: static; margin-top: auto; flex-wrap: wrap; gap: 12px; }
+        body.arcade #loadout { position: static; margin-top: auto; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
         body.arcade #ammoBig { font-size: 52px; }
         body.arcade #gunName { font-size: 18px; }
         /* "Remove start dialog ... just replace with 'click to start'"

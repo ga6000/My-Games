@@ -447,7 +447,7 @@ function arcadeMapGoals() {
             text: "Charge fuel tank " + (k + 1),
             short: full ? "PUMP TANK " + (k + 1) : "CHARGE TANK " + (k + 1),
             where: where,
-            note: full ? "full — throw the switch on the tank" : "kill zombies standing ON funnel " + (k + 1) + " — FUEL drops help",
+            note: full ? "throw its switch" : "kill on funnel " + (k + 1),
             progress: (!siloFlipped[k] && siloFill[k] > 0) ? siloFill[k] + "/" + siloCapacity(k) : "",
             done: !!siloFlipped[k]
         });
@@ -455,9 +455,9 @@ function arcadeMapGoals() {
     const g = (typeof arcadeAtGate === "function") ? arcadeAtGate() : { at: 0, of: 0 };
     goals.push({
         text: "Get everyone out of the south gate",
-        short: "EVERYONE TO THE GATE",
+        short: "ALL TO THE GATE",
         where: "",
-        note: "it opens " + Math.round(ESCAPE_OPEN_MS / 1000) + "s after the last tank — every player still standing has to be there",
+        note: "opens after the last tank — all standing players",
         progress: escapeAt ? (escapeOpen() ? g.at + "/" + g.of : Math.ceil((escapeAt - Date.now()) / 1000) + "s") : "",
         done: won
     });

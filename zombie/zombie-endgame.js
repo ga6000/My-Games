@@ -203,11 +203,11 @@ function endgameObjective() {
     if (won) return "";
     if (ZOMBIE_ARCADE && escapeAt) {
         if (!escapeOpen()) {
-            return "GATE OPENING — " + Math.ceil((escapeAt - Date.now()) / 1000) + "s — EVERYONE TO THE GATE";
+            return "GATE OPENS " + Math.ceil((escapeAt - Date.now()) / 1000) + "s";
         }
         const g = arcadeAtGate();
-        if (escapeChainFrac() < 1) return "GATE OPENING — GET TO THE TUNNEL";
-        return "GATE OPEN — " + g.at + "/" + g.of + " OUT — EVERYONE STANDING WALKS OUT THE BOTTOM";
+        if (escapeChainFrac() < 1) return "GATE OPENING";
+        return "GO! " + g.at + "/" + g.of + " OUT";
     }
     if (typeof trainRunning !== "undefined" && trainRunning) {
         if (!escapeOpen()) {
@@ -236,10 +236,10 @@ function endgameObjective() {
     }
     for (let i = 0; i < funnels.length; i++) {
         if (funnelActive[i] && siloFill[i] < siloCapacity(i)) {
-            return "KILL ON FUNNEL " + (i + 1) + " — SILO " + (i + 1) + " " + siloFill[i] + "/" + siloCapacity(i);
+            return "FUNNEL " + (i + 1) + "  " + siloFill[i] + "/" + siloCapacity(i);
         }
         if (siloFill[i] >= siloCapacity(i) && !siloFlipped[i]) {
-            return "SILO " + (i + 1) + " FULL — THROW ITS SWITCH";
+            return "TANK " + (i + 1) + " FULL  [F]";
         }
     }
     return "";

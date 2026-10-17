@@ -258,9 +258,9 @@ const INP_CSS =
     "body.touch #sidebar #gunStrip i{font-size:11px}" +
     "body.touch #sidebar #gunStrip .slot.turret{font-size:11px}" +
     "body.touch #sidebar #gunStrip i{display:none}" +
-    "body.touch #sidebar #perks{gap:6px 6px;margin-bottom:6px}" +
-    "body.touch #sidebar #perks .perk{width:27px;height:27px}" +
-    "body.touch #sidebar #perks .perk img{width:19px;height:19px}" +
+    "body.touch #sidebar #perks{gap:9px 10px;margin:0 6px 6px auto}" +
+    "body.touch #sidebar #perks .perk{width:30px;height:30px}" +
+    "body.touch #sidebar #perks .perk img{width:21px;height:21px}" +
     "body.touch #sidebar #perks .perk b{font-size:10px;right:-4px;bottom:-7px;padding:0 2px}" +
     // A short phone (Safari with its bars up is ~300px tall): drop what the
     // objective and the lives blocks already say, so the loadout is never clipped.
