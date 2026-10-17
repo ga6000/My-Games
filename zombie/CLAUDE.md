@@ -63,12 +63,34 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Engineer turrets carry perks, overclock drives the machines, classes in ESC (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **An ENGINEER's turret reads its owner's perks live** (`eng`, set by the host from the placer's
+  id; `arcadeUpdateTurrets`). OVERDRIVE speeds its fire (`TURRET_OD`, the gun table);
+  RICOCHET/SKEWER/SEEKER go on its rounds; ARC and BLASTCAP proc on its kills (src `"shot"`);
+  SALVAGE kills add `TURRET_SALVAGE_MS` (1.5s) to its bar at the gun perk's chances, capped at a
+  full life (`arcadeTurretKill`); SPITE goes off when it expires or is chewed down
+  (`arcadeTurretSpite`). ATTRACT and LAST STAND do nothing for it. Before this the ENGINEER did
+  nothing at all in the arcade (its traps and windows are gone).
+- **Anyone else's turret is plain:** its rounds are src `"turret"` (not a `PROC_SOURCE`), so
+  ARC/BLASTCAP no longer fire off any player's turret. `updateBullets` passes `b.src` when a bullet
+  has one.
+- **OVERCLOCK drives the machines** (`arcOverclockUntil`, set in `applyTeamPickup` on every
+  client): turrets and the Boomgun fire twice as fast while it lasts (`OVERCLOCK_MACHINE` 0.5).
+- **Measured** (engineer turret into a row of brutes, 1s each): 9 shots plain, 17 with OVERDRIVE
+  x2, 33 with OVERCLOCK on top. SALVAGE x6 added 7.5s over ten kills. SPITE x3 went off on expiry.
+- **MEDIC was slower than everyone in the arcade:** it used a fixed 1.8s against the arcade's flat
+  0.75s revive. It is now 0.6x whatever the revive costs.
+- **The ESC guide has a CLASSES section** (`GUIDE_CLASSES`), arcade-accurate and lighting the
+  player's own. `ROLES`' blurbs still describe the walled game.
+- **Hazards do expire:** `HAZARD_LIFE_MS` (20s), checked.
+
 ### ATTRACT pulls, sidebar perks in colour (2026-10-17, branch `zombie-funnel-pipes`)
 
 - **ATTRACT no longer reaches out; it pulls** (`arcadeMagnetDrops`, run every step on every
   client from `update()`). A takeable drop (not a hazard, not one the holder would refuse) inside
-  `ATTRACT_PULL[stacks]` (120 / 170 / 215 / 255 / 290 / 320px) slides toward the nearest holder at
-  `(60 + 30 * stacks) * (1 + 3 * closeness^2)` px/s, so it speeds up as it closes. It is taken
+  `ATTRACT_PULL[stacks]` (96 / 136 / 172 / 204 / 232 / 256px; x0.8 on 10-17, "25% too powerful")
+  slides toward the nearest holder at `(48 + 24 * stacks) * (1 + 3 * closeness^2)` px/s, so it speeds up as it closes. It is taken
   only when it **touches** you: `arcadeWalkOverDrops` uses no pad now. The speed has no stored
   velocity, so the host (whose drop positions ride the snapshot) and a guest predicting between
   snapshots move it alike. Measured at x3 from 157px: 157, 134, 116, 84, 48, then taken, at 100ms

@@ -1223,7 +1223,10 @@ function creditScore(ownerId, field, amount, points) {
 function applyTeamPickup(type, ms, now, isHostOrigin) {
     for (let i = 0; i < players.length; i++) {
         const p = players[i];
-        if (type === "overclock") p.overclockUntil = now + ms;
+        if (type === "overclock") {
+            p.overclockUntil = now + ms;
+            if (ZOMBIE_ARCADE) arcOverclockUntil = now + ms;     // turrets too
+        }
         else if (type === "rally") {
             if (p.downed) {
                 p.downed = false;
@@ -1660,7 +1663,9 @@ function updateBullets(now) {
                 continue;
             }
 
-            damageZombie(j, b.dmg, b.owner, now, kind === "rocket" ? "rocket" : "shot", b.vx, b.vy);
+            damageZombie(j, b.dmg, b.owner, now, b.src || (kind === "rocket" ? "rocket" : "shot"), b.vx, b.vy);
+            // ARCADE: a turret's kill (SALVAGE puts time back on an engineer's turret).
+            if (b.turretId && zombies.indexOf(z) === -1) arcadeTurretKill(b.turretId, now);
 
             if (kind === "rocket") {
                 rocketBurst(b, now);
@@ -2622,7 +2627,9 @@ function updateRevives(now, dt) {
             // ROLE: MEDIC revives faster and ignores the escalation the
             // rest of the team pays.
             const medic = idHasRole(reviver.id, "medic");
-            const useNeed = medic ? 3000 * 0.6 : need;
+            // ARCADE (2026-10-17): 40% faster than the arcade's own revive.
+            // The fixed 1.8s here was SLOWER than its flat 0.75s.
+            const useNeed = medic ? (ZOMBIE_ARCADE ? need * 0.6 : 3000 * 0.6) : need;
             ref.reviveProgress = (ref.reviveProgress || 0) + (dt / useNeed);
             if (ref.reviveProgress >= 1) {
                 ref.reviveProgress = 0;

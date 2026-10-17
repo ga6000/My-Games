@@ -649,8 +649,9 @@ const DROP_PITY_KILLS = 16;       // never longer than this between drops (25 ->
 // A drop inside your pull slides toward you, faster the closer it gets and
 // the more stacks you hold, and is taken only when it touches you.
 // ~~ATTRACT_REACH (take from 50..220px away)~~ is gone.
-const ATTRACT_PULL = [0, 120, 170, 215, 255, 290, 320];  // pull radius per stack, to x6
-const ATTRACT_V0 = 60, ATTRACT_V_STACK = 30;             // px/s at the edge of the pull
+// 2026-10-17: "about 25% too powerful" -- range and speed both x0.8.
+const ATTRACT_PULL = [0, 96, 136, 172, 204, 232, 256];   // pull radius per stack, to x6
+const ATTRACT_V0 = 48, ATTRACT_V_STACK = 24;             // px/s at the edge of the pull
 const ATTRACT_SURGE = 3;                                 // x(1 + 3) by the time it reaches you
 const DROP_FUEL = 4;              // FUEL: kills added to the live tank
 const SHOCK_RADIUS = 300;
@@ -1245,7 +1246,7 @@ function arcadeBoomTick(p, now, dt) {
     else p.boomHeld = Math.max(0, (p.boomHeld || 0) - dt * 2.5);
     if (!want || p.boomHeld < BOOM_SPIN_MS) return;
     const k = Math.min(1, (p.boomHeld - BOOM_SPIN_MS) / BOOM_RAMP_MS);
-    const cd = BOOM_CD_MAX - (BOOM_CD_MAX - BOOM_CD_MIN) * k;
+    const cd = (BOOM_CD_MAX - (BOOM_CD_MAX - BOOM_CD_MIN) * k) * (now < (p.overclockUntil || 0) ? OVERCLOCK_MACHINE : 1);
     if (now - (p.boomLast || 0) < cd) return;
     p.boomLast = now;
     p.lastShotTime = now;
@@ -1284,8 +1285,57 @@ const TURRET_RATE_MS = 100;
 const TURRET_DMG = 2.5;
 const TURRET_RANGE = 460;
 const TURRET_MAX = 4;
-let arcTurrets = [];              // {id, x, y, owner, color, until, liveAt, hp, aim, lastShot}
+let arcTurrets = [];              // {id, x, y, owner, color, until, liveAt, hp, aim, lastShot, eng}
 let arcTurretSeq = 0;
+
+// OVERCLOCK AUGMENTS THE MACHINES (2026-10-17: "picking up a overclock when
+// turrets or boomgun are active should augment those as well"). The team
+// drop sets this on every client (applyTeamPickup); turrets fire twice as
+// fast under it, and so does the Boomgun.
+let arcOverclockUntil = 0;
+const OVERCLOCK_MACHINE = 0.5;    // cooldown multiplier for turrets and the Boomgun
+
+// THE ENGINEER'S TURRETS CARRY THE ENGINEER'S PERKS (2026-10-17). A turret
+// placed by an ENGINEER (`eng`, decided by the host from the placer's id)
+// reads its owner's perks live:
+//   OVERDRIVE            fires faster, the same table as a gun
+//   RICOCHET/SKEWER/SEEKER  its rounds bounce, pierce, curve
+//   ARC, BLASTCAP        proc on its kills (src "shot")
+//   SALVAGE              a kill may put time back on its bar
+//   SPITE                it goes off when it expires or is chewed down
+//   ATTRACT, LAST STAND  nothing -- a turret neither picks up nor goes down
+// Anyone else's turret is a plain turret: its rounds are src "turret", which
+// is not a PROC_SOURCE, so ARC and BLASTCAP no longer fire off it.
+const TURRET_OD = [1, 0.65, 0.5, 0.4, 0.33, 0.28, 0.24];
+const TURRET_SALVAGE = [0, 0.3, 0.45, 0.6, 0.7, 0.78, 0.85];   // chance per kill, as the gun perk
+const TURRET_SALVAGE_MS = 1500;   // time back on the bar per salvaged kill
+
+// HOST, from updateBullets: a turret's round killed something.
+function arcadeTurretKill(turretId, now) {
+    for (let i = 0; i < arcTurrets.length; i++) {
+        const t = arcTurrets[i];
+        if (t.id !== turretId || !t.eng) continue;
+        const lv = idCardLevel(t.owner, "salvage");
+        if (lv && Math.random() < TURRET_SALVAGE[lv]) {
+            t.until = Math.min(now + TURRET_LIFE_MS, t.until + TURRET_SALVAGE_MS);
+        }
+        return;
+    }
+}
+
+// HOST: an engineer's turret with SPITE goes off as it dies, like its owner would.
+function arcadeTurretSpite(t, now) {
+    const spite = t.eng ? idCardLevel(t.owner, "spite") : 0;
+    if (!spite) return;
+    const radius = 200 + spite * 45;
+    addBlast(t.x, t.y, radius);
+    for (let i = zombies.length - 1; i >= 0; i--) {
+        const z = zombies[i];
+        if (z && dist(t.x, t.y, z.x, z.y) < radius) damageZombie(i, 10 * spite, t.owner, now, "spite");
+    }
+    shakeNear(t.x, t.y, 11);
+    hostEvent(SND_EXPLODE, t.x, t.y, radius);
+}
 
 // Every client, for its own player, on click.
 function arcadePlaceTurret(p) {
@@ -1314,7 +1364,7 @@ function arcadeHostPlaceTurret(ownerId, color, x, y) {
     while (arcTurrets.length >= TURRET_MAX) arcTurrets.shift();
     arcTurrets.push({ id: ++arcTurretSeq, x: x, y: y, owner: ownerId, color: color || "#55FFFF",
                       until: now + TURRET_DEPLOY_MS + TURRET_LIFE_MS, liveAt: now + TURRET_DEPLOY_MS,
-                      hp: TURRET_HP, aim: 0, lastShot: 0 });
+                      hp: TURRET_HP, aim: 0, lastShot: 0, eng: idHasRole(ownerId, "engineer") });
 }
 
 // HOST, every step.
@@ -1324,6 +1374,7 @@ function arcadeUpdateTurrets(now, dt) {
         if (now >= t.until || t.hp <= 0) {
             arcTurrets.splice(i, 1);
             hostEvent(SND_POP, t.x, t.y, 40);
+            arcadeTurretSpite(t, now);
             continue;
         }
         if (now < t.liveAt) continue;
@@ -1340,7 +1391,10 @@ function arcadeUpdateTurrets(now, dt) {
                 best = z; bestD = d2;
             }
         }
-        if (!best || now - t.lastShot < TURRET_RATE_MS) continue;
+        let rate = TURRET_RATE_MS;
+        if (t.eng) rate *= TURRET_OD[idCardLevel(t.owner, "overdrive")] || 1;
+        if (now < arcOverclockUntil) rate *= OVERCLOCK_MACHINE;
+        if (!best || now - t.lastShot < rate) continue;
         t.lastShot = now;
         const zx = best.x + best.size / 2 - t.x, zy = best.y + best.size / 2 - t.y;
         const dd = Math.hypot(zx, zy) || 1;
@@ -1348,7 +1402,11 @@ function arcadeUpdateTurrets(now, dt) {
         const sp = WEAPONS.smg.speed;
         bullets.push({
             x: t.x - 4, y: t.y - 4, vx: zx / dd * sp, vy: zy / dd * sp, size: 8,
-            dmg: TURRET_DMG, pierce: 0, bounces: 0, homing: 0, hitZ: [], travelled: 0,
+            dmg: TURRET_DMG, hitZ: [], travelled: 0,
+            pierce: t.eng ? idCardLevel(t.owner, "skewer") : 0,
+            bounces: t.eng ? idCardLevel(t.owner, "ricochet") : 0,
+            homing: t.eng ? idCardLevel(t.owner, "seeker") : 0,
+            src: t.eng ? "shot" : "turret", turretId: t.id,
             range: TURRET_RANGE + 80, kind: "smg", ownerColor: t.color, owner: t.owner
         });
         hostEvent(SND_SHOT, t.x, t.y, WEAPON_KEYS.indexOf("smg"));

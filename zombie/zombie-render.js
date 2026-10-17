@@ -512,6 +512,14 @@ const GUIDE_TEAM = [
     ["TURRET", "T", "#00E5FF", "Carried, then placed with a click. Shoots nearby zombies for 15 seconds.", "It doesn't get tired. It doesn't get scared either."],
     ["BOOMGUN", "B", "#FFE680", "A cannon that gets faster the longer you hold the trigger. Its ammo is its time.", "Subtle was never on the shelf."]
 ];
+// CLASSES (2026-10-17): what each class does IN THE ARCADE. ROLES' own
+// blurbs still describe the walled game's traps, windows and pings.
+const GUIDE_CLASSES = [
+    ["medic", "M", "Revives a teammate 40% faster.", "Somebody has to keep count."],
+    ["engineer", "E", "Turrets you place carry your perks: OVERDRIVE fires faster; RICOCHET, SKEWER and SEEKER shape its rounds; ARC and BLASTCAP go off on its kills; SALVAGE kills put time back on its bar; SPITE goes off when it dies. ATTRACT and LAST STAND don't carry. Anyone else's turret is plain.", "It does what it's told. You told it everything."],
+    ["scout", "S", "Moves 10% faster.", "First in, first to see it."],
+    ["gunner", "G", "Every round you fire does 15% more damage. AMMO drops fill your guns to 125%.", "Never once asked how many."]
+];
 const GUIDE_HAZARD = [
     ["MUD", "M", "Slows you to half speed for 5 seconds.", "The road is not what it was."],
     ["FLARE", "!", "A ring of zombies lands around you.", "Somebody wants you found."],
@@ -569,6 +577,12 @@ function renderPickupGuide() {
     for (let i = 0; i < GUIDE_TEAM.length; i++) {
         const t = GUIDE_TEAM[i];
         h += row(glyph(t[1], t[2]), t[0], t[3], t[4]);
+    }
+    h += "<div class='itsec'>CLASSES &mdash; dealt by your name &mdash; yours is lit</div>";
+    const mine = myRole();
+    for (let i = 0; i < GUIDE_CLASSES.length; i++) {
+        const c = GUIDE_CLASSES[i], me = c[0] === mine;
+        h += row(glyph(c[1], me ? ICON_CYAN : "#5A5A5A"), ROLES[c[0]].name + (me ? " &mdash; YOU" : ""), c[2], c[3], me ? "" : "dim");
     }
     h += "<div class='itsec' style='color:#FF2233'>HAZARDS &mdash; do not step</div>";
     for (let i = 0; i < GUIDE_HAZARD.length; i++) {
