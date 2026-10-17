@@ -2879,9 +2879,13 @@ function arcadeDrawGround(vr) {
     ctx.fillStyle = arenaGrassPattern;
     ctx.fillRect(ARENA.x, ARENA.y, ARENA.w, ARENA.h);
     ctx.restore();
-    arcadeDrawSetFloors();
-    arcadeDrawRoads();
+    // Grass first, and under everything laid on it (2026-10-16: it was drawn over
+    // the set floors and the roads on the later maps): floors, concrete, roads.
     arcadeDrawBands(vr);
+    arcadeDrawLowGrass(vr);
+    arcadeDrawSetFloors();
+    arcadeDrawConcrete(vr);
+    arcadeDrawRoads();
     if (arcadeHasStart()) arcadeDrawPedestal();
 }
 
@@ -2966,6 +2970,234 @@ function arcadeBandTall(x) {
     return 0.3 + 0.7 * Math.max(0, 1 - arcadeBandInward(x) / BAND_TAPER);
 }
 
+// ---------------------------------------------------
+//   THE GROUND GRID: what grass must stay off, and where concrete is (2026-10-16)
+// ---------------------------------------------------
+// One 20px grid over the world, built lazily per level, with a bit per cell:
+//   1 STRUCT  a funnel, tank, pipe, warehouse, prop ... (grass is masked)
+//   2 ROAD    the road itself (grass masked, concrete never)
+//   4 NEAR    within ROAD_NEAR of a road (the last map's low grass keeps off it)
+//   8 CONC    concrete
+//  16 TREE    under a tree (concrete keeps off)
+const GG = 20;
+const GB_STRUCT = 1, GB_ROAD = 2, GB_NEAR = 4, GB_CONC = 8, GB_TREE = 16;
+const ROAD_NEAR = 170;
+const CONC_PAD = 70;              // how far concrete spreads round a tank cluster
+const CONC_LINK_W = 1;            // link strips are 2*W+1 cells wide
+const CONC_LINK_MAX = 900;
+let ggBits = null, ggKey = "", ggCols = 0, ggRows = 0;
+let arenaConcreteRects = [];      // explicit pads (the long warehouse's aprons)
+let arenaLongHouse = null;        // map 3's ultra-long warehouse {x, y, w, h}
+
+function arcadeGrassGrid() {
+    const key = levelSeed + ":" + arcLevelNo + ":" + arenaProps.length + ":" + arenaTrees.length + ":" + arenaRoads.length + ":" + funnels.length;
+    if (ggBits && key === ggKey) return ggBits;
+    ggKey = key;
+    ggCols = Math.ceil(WORLD_W / GG);
+    ggRows = Math.ceil(WORLD_H / GG);
+    const bits = new Uint8Array(ggCols * ggRows);
+    const rect = function (x0, y0, x1, y1, bit, skip) {
+        const c0 = Math.max(0, Math.floor(x0 / GG)), c1 = Math.min(ggCols - 1, Math.floor((x1 - 1) / GG));
+        const r0 = Math.max(0, Math.floor(y0 / GG)), r1 = Math.min(ggRows - 1, Math.floor((y1 - 1) / GG));
+        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+            const i = r * ggCols + c;
+            if (skip && (bits[i] & skip)) continue;
+            bits[i] |= bit;
+        }
+    };
+    const circle = function (cx, cy, rad, bit, skip) {
+        const c0 = Math.max(0, Math.floor((cx - rad) / GG)), c1 = Math.min(ggCols - 1, Math.floor((cx + rad) / GG));
+        const r0 = Math.max(0, Math.floor((cy - rad) / GG)), r1 = Math.min(ggRows - 1, Math.floor((cy + rad) / GG));
+        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+            if (Math.hypot(c * GG + GG / 2 - cx, r * GG + GG / 2 - cy) > rad) continue;
+            const i = r * ggCols + c;
+            if (skip && (bits[i] & skip)) continue;
+            bits[i] |= bit;
+        }
+    };
+    // Structures.
+    for (let k = 0; k < funnels.length; k++) {
+        const f = funnels[k];
+        if (f) circle(f.x, f.y, f.r + 26, GB_STRUCT);
+        const sl = silos[k];
+        if (sl && !giantSilo) rect(sl.x - 26, sl.y - SILO_LIFT - 26, sl.x + sl.w + 26, sl.y + sl.h + 26, GB_STRUCT);
+        const p = siloPipes[k];
+        if (p) rect(Math.min(p.x1, p.x2) - 34, Math.min(p.y1, p.y2) - 34, Math.max(p.x1, p.x2) + 34, Math.max(p.y1, p.y2) + 34, GB_STRUCT);
+    }
+    if (giantSilo) rect(giantSilo.x - 40, giantSilo.y - giantSilo.lift - 40, giantSilo.x + giantSilo.w + 40, giantSilo.y + giantSilo.h + 40, GB_STRUCT);
+    if (arenaWarehouse) rect(arenaWarehouse.x - 14, arenaWarehouse.y - 14, arenaWarehouse.x + arenaWarehouse.w + 14, arenaWarehouse.y + arenaWarehouse.h + 14, GB_STRUCT);
+    if (arenaLongHouse) rect(arenaLongHouse.x - 14, arenaLongHouse.y - 14, arenaLongHouse.x + arenaLongHouse.w + 14, arenaLongHouse.y + arenaLongHouse.h + 14, GB_STRUCT);
+    for (let i = 0; i < arenaProps.length; i++) {
+        const r = arenaProps[i];
+        rect(r.x - 6, r.y - 6, r.x + r.w + 6, r.y + r.h + 6, GB_STRUCT);
+    }
+    for (let i = 0; i < arenaTrees.length; i++) {
+        const t = arenaTrees[i];
+        rect(t.x - 4, t.y - 4, t.x + t.w + 4, t.y + t.h + 4, GB_TREE);
+    }
+    // Roads: a corridor (the road and a kerb) and a wider "near" ring.
+    const samples = [];
+    for (let i = 0; i < arenaRoads.length; i++) {
+        const pts = arenaRoads[i].pts;
+        for (let k = 1; k < pts.length; k++) {
+            const a = pts[k - 1], b = pts[k];
+            const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 10));
+            for (let t = 0; t <= n; t++) {
+                const x = a[0] + (b[0] - a[0]) * t / n, y = a[1] + (b[1] - a[1]) * t / n;
+                circle(x, y, ROAD_W / 2 + 8, GB_ROAD);
+                if (t % 2 === 0) circle(x, y, ROAD_NEAR, GB_NEAR);
+                if (t % 2 === 0 && (k + t) % 2 === 0) samples.push([x, y]);
+            }
+        }
+    }
+    // Concrete (maps 3 and 4 and the long warehouse's aprons).
+    const conc = function (x0, y0, x1, y1) { rect(x0, y0, x1, y1, GB_CONC, GB_ROAD | GB_TREE); };
+    const concCircle = function (cx, cy, rad) { circle(cx, cy, rad, GB_CONC, GB_ROAD | GB_TREE); };
+    for (let i = 0; i < arenaConcreteRects.length; i++) {
+        const r = arenaConcreteRects[i];
+        conc(r.x, r.y, r.x + r.w, r.y + r.h);
+    }
+    const anchors = [];
+    if (arcLevelNo >= 3) {
+        for (let k = 0; k < funnels.length; k++) {
+            const f = funnels[k];
+            if (!f) continue;
+            concCircle(f.x, f.y, f.r + CONC_PAD);
+            const sl = silos[k], p = siloPipes[k];
+            if (sl && !giantSilo) conc(sl.x - 50, sl.y - SILO_LIFT - 20, sl.x + sl.w + 50, sl.y + sl.h + 50);
+            if (p) conc(Math.min(p.x1, p.x2) - 48, Math.min(p.y1, p.y2) - 48, Math.max(p.x1, p.x2) + 48, Math.max(p.y1, p.y2) + 48);
+            anchors.push([f.x, f.y]);
+        }
+        if (giantSilo) {
+            conc(giantSilo.x - 90, giantSilo.y - giantSilo.lift - 40, giantSilo.x + giantSilo.w + 90, giantSilo.y + giantSilo.h + 90);
+            anchors.push([giantSilo.x + giantSilo.w / 2, giantSilo.y + giantSilo.h / 2]);
+        }
+        if (arenaWarehouse) {
+            const W = arenaWarehouse, m = 80;
+            // an apron round it, never inside (its own floor is drawn there)
+            const before = bits.slice();
+            conc(W.x - m, W.y - m, W.x + W.w + m, W.y + W.h + m);
+            for (let r = Math.floor(W.y / GG); r <= Math.floor((W.y + W.h - 1) / GG); r++) {
+                for (let c = Math.floor(W.x / GG); c <= Math.floor((W.x + W.w - 1) / GG); c++) {
+                    if (r >= 0 && c >= 0 && r < ggRows && c < ggCols) bits[r * ggCols + c] = (bits[r * ggCols + c] & ~GB_CONC) | (before[r * ggCols + c] & GB_CONC);
+                }
+            }
+            anchors.push([W.x + W.w / 2, W.y + W.h]);
+        }
+        if (arenaLongHouse) anchors.push([arenaLongHouse.x - 90, arenaLongHouse.y + arenaLongHouse.h / 2], [arenaLongHouse.x + arenaLongHouse.w + 90, arenaLongHouse.y + arenaLongHouse.h / 2]);
+        // The boss map's cover: a pad under each container and wall group.
+        for (let i = 0; i < arenaProps.length; i++) {
+            const r = arenaProps[i];
+            if (r.kind === "container" || (r.kind === "divider" && arcLevelNo >= ARC_MAX_LEVEL)) conc(r.x - 54, r.y - 54, r.x + r.w + 54, r.y + r.h + 54);
+        }
+        // Every pad is tied to the nearest road by a link strip (stopping at the
+        // road's edge), so no concrete stands isolated.
+        const tree = function (x, y) {
+            const c = Math.floor(x / GG), r = Math.floor(y / GG);
+            return c < 0 || r < 0 || c >= ggCols || r >= ggRows || (bits[r * ggCols + c] & GB_TREE);
+        };
+        for (let a = 0; a < anchors.length; a++) {
+            const [ax, ay] = anchors[a];
+            let best = null, bd = Infinity;
+            for (let i = 0; i < samples.length; i++) {
+                const d = Math.hypot(samples[i][0] - ax, samples[i][1] - ay);
+                if (d < bd) { bd = d; best = samples[i]; }
+            }
+            if (!best || bd > CONC_LINK_MAX) continue;
+            // Two L routes; the one with fewer trees in the way.
+            const routes = [[[ax, ay], [best[0], ay], [best[0], best[1]]], [[ax, ay], [ax, best[1]], [best[0], best[1]]]];
+            let pick = routes[0], pc = Infinity;
+            routes.forEach(function (rt) {
+                let n = 0;
+                for (let q = 1; q < rt.length; q++) {
+                    const u = rt[q - 1], v = rt[q], steps = Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]) / GG);
+                    for (let t = 0; t <= steps; t++) if (tree(u[0] + (v[0] - u[0]) * t / Math.max(1, steps), u[1] + (v[1] - u[1]) * t / Math.max(1, steps))) n++;
+                }
+                if (n < pc) { pc = n; pick = rt; }
+            });
+            let stop = false;
+            for (let q = 1; q < pick.length && !stop; q++) {
+                const u = pick[q - 1], v = pick[q], steps = Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]) / GG);
+                for (let t = 0; t <= steps && !stop; t++) {
+                    const x = u[0] + (v[0] - u[0]) * t / Math.max(1, steps), y = u[1] + (v[1] - u[1]) * t / Math.max(1, steps);
+                    const c = Math.floor(x / GG), r = Math.floor(y / GG);
+                    if (c < 0 || r < 0 || c >= ggCols || r >= ggRows) { stop = true; break; }
+                    if (bits[r * ggCols + c] & GB_ROAD) { stop = true; break; }       // the road's edge
+                    for (let dr = -CONC_LINK_W; dr <= CONC_LINK_W; dr++) for (let dc = -CONC_LINK_W; dc <= CONC_LINK_W; dc++) {
+                        const cc = c + dc, rr = r + dr;
+                        if (cc < 0 || rr < 0 || cc >= ggCols || rr >= ggRows) continue;
+                        const i = rr * ggCols + cc;
+                        if (bits[i] & (GB_ROAD | GB_TREE)) continue;
+                        bits[i] |= GB_CONC;
+                    }
+                }
+            }
+        }
+    }
+    ggBits = bits;
+    return bits;
+}
+
+// Is (x, y) somewhere grass must not be drawn (a structure, the road, concrete)?
+function arcadeGrassMasked(bits, x, y) {
+    const c = Math.floor(x / GG), r = Math.floor(y / GG);
+    if (c < 0 || r < 0 || c >= ggCols || r >= ggRows) return false;
+    return (bits[r * ggCols + c] & (GB_STRUCT | GB_ROAD | GB_CONC)) !== 0;
+}
+
+// CONCRETE: flat slabs on the 20px grid, a hard dark edge where it ends,
+// joints every four cells. Drawn under the roads, so it never shows on one.
+function arcadeDrawConcrete(vr) {
+    if (arcLevelNo < 3 && !arenaConcreteRects.length) return;
+    const bits = arcadeGrassGrid();
+    const c0 = Math.max(0, Math.floor(vr.x / GG)), c1 = Math.min(ggCols - 1, Math.floor((vr.x + vr.w) / GG));
+    const r0 = Math.max(0, Math.floor(vr.y / GG)), r1 = Math.min(ggRows - 1, Math.floor((vr.y + vr.h) / GG));
+    const has = function (c, r) { return c >= 0 && r >= 0 && c < ggCols && r < ggRows && (bits[r * ggCols + c] & GB_CONC); };
+    const SH = ["#5E5E62", "#58585C", "#64646A", "#5B5B60"];
+    for (let r = r0; r <= r1; r++) {
+        for (let c = c0; c <= c1; c++) {
+            if (!has(c, r)) continue;
+            const x = c * GG, y = r * GG, h = ((c * 73856093) ^ (r * 19349663)) >>> 0;
+            ctx.fillStyle = SH[h & 3];
+            ctx.fillRect(x, y, GG, GG);
+            if (c % 4 === 0) { ctx.fillStyle = "#47474B"; ctx.fillRect(x, y, 2, GG); }
+            if (r % 4 === 0) { ctx.fillStyle = "#47474B"; ctx.fillRect(x, y, GG, 2); }
+            ctx.fillStyle = "#2E2E32";
+            if (!has(c - 1, r)) ctx.fillRect(x, y, 3, GG);
+            if (!has(c + 1, r)) ctx.fillRect(x + GG - 3, y, 3, GG);
+            if (!has(c, r - 1)) ctx.fillRect(x, y, GG, 3);
+            if (!has(c, r + 1)) ctx.fillRect(x, y + GG - 3, GG, 3);
+        }
+    }
+}
+
+// THE LAST MAP'S LOW GRASS: a sparse 5-10% scatter of short blades over the
+// open ground, kept ROAD_NEAR off the roads and off every structure and slab.
+function arcadeDrawLowGrass(vr) {
+    if (arcLevelNo < ARC_MAX_LEVEL) return;
+    const bits = arcadeGrassGrid(), A = ARENA;
+    const x0 = Math.max(A.x + WALL_T, vr.x), x1 = Math.min(A.x + A.w - WALL_T, vr.x + vr.w);
+    const y0 = Math.max(A.y + WALL_T, vr.y), y1 = Math.min(A.y + A.h - WALL_T, vr.y + vr.h);
+    if (x1 <= x0 || y1 <= y0) return;
+    const SH = ["#4C7C34", "#5B8D3C", "#406C2C", "#6A9A46"];
+    const c0 = Math.floor(x0 / BAND_CELL), c1 = Math.floor(x1 / BAND_CELL), r0 = Math.floor(y0 / BAND_CELL), r1 = Math.floor(y1 / BAND_CELL);
+    for (let r = r0; r <= r1; r++) {
+        for (let c = c0; c <= c1; c++) {
+            const b = arcadeBandBlade(c, r);
+            const dens = 0.05 + 0.05 * arcadeNoise2(b.x, b.y, 240);
+            if (b.p > dens) continue;
+            if (b.x < x0 || b.x > x1 || b.y < y0 || b.y > y1) continue;
+            const gi = Math.floor(b.y / GG) * ggCols + Math.floor(b.x / GG);
+            if (bits[gi] & (GB_STRUCT | GB_ROAD | GB_NEAR | GB_CONC)) continue;
+            if (arcadeBandDensity(b.x, b.y) > 0.05) continue;       // the tall grass owns its own band
+            const bh = 5 + ((b.h >> 9) % 5);
+            ctx.fillStyle = SH[(b.h >> 3) & 3];
+            ctx.fillRect(b.x, b.y - bh, 2, bh);
+            ctx.fillRect(b.x + 3, b.y - bh * 0.7, 2, bh * 0.7);
+        }
+    }
+}
+
 function arcadeBandBlade(c, r) {
     const h = ((c * 73856093) ^ (r * 19349663)) >>> 0;
     return { h: h, x: c * BAND_CELL + (h % 17), y: r * BAND_CELL + ((h >> 5) % 17), bh: 12 + ((h >> 9) % 14), p: ((h >> 14) % 100) / 100 };
@@ -2988,6 +3220,7 @@ function arcadeDrawBands(vr) {
     }
     // The tall grass: a flat tint per cell and blades, both by density.
     // A dry golden-green, not the lawn's green and not the trees' dark one.
+    const gg = arcadeGrassGrid();
     const SH = ["#8E8A2A", "#B5A93C", "#CDBE52", "#A39A30"];
     const spans = [[0, e.west + BAND_TAPER], [e.east - BAND_TAPER, WORLD_W]];
     for (let s = 0; s < 2; s++) {
@@ -2999,6 +3232,7 @@ function arcadeDrawBands(vr) {
             for (let c = c0; c <= c1; c++) {
                 const dn = arcadeBandDensity(c * BAND_CELL + BAND_CELL / 2, r * BAND_CELL + BAND_CELL / 2);
                 if (dn <= 0.02) continue;
+                if (arcadeGrassMasked(gg, c * BAND_CELL + BAND_CELL / 2, r * BAND_CELL + BAND_CELL / 2)) continue;   // a funnel, tank, floor, road or slab stands here
                 ctx.fillStyle = "rgba(150,135,30," + (0.34 * dn).toFixed(2) + ")";
                 ctx.fillRect(c * BAND_CELL, r * BAND_CELL, BAND_CELL, BAND_CELL);
                 const b = arcadeBandBlade(c, r);
@@ -3035,6 +3269,7 @@ function arcadeDrawBladeShade() {
     if (y1 <= y0) return;
     // Anything standing here is NOT under the grass: trees, props, tanks,
     // players and zombies keep their light and their colour.
+    const gg = arcadeGrassGrid();
     const occ = [];
     const addOcc = function (x, y, w, h) {
         if (x + w > vr.x && x < vr.x + vr.w && y + h > vr.y - 60 && y < vr.y + vr.h) occ.push([x - 6, y - 24, x + w + 6, y + h + 6]);
@@ -3069,6 +3304,7 @@ function arcadeDrawBladeShade() {
                 const b = arcadeBandBlade(c, r);
                 if (b.p > dn) continue;
                 const bh = b.bh * arcadeBandTall(b.x);
+                if (arcadeGrassMasked(gg, b.x + 2, b.y)) continue;
                 if (covered(b.x + 2, b.y - bh / 2)) continue;
                 // A little denser than the ground blades: it is what the beam must get through.
                 ctx.fillStyle = "rgba(0,10,0," + (0.35 + 0.35 * dn).toFixed(2) + ")";
@@ -3086,6 +3322,7 @@ function arcadeDrawBladeShade() {
 // the grass: tall at the boundary, short where it thins out.
 const BAND_FRONT_CELL = 8;
 function arcadeDrawBandFront(inView) {
+    const gg = arcadeGrassGrid();
     const SH = ["#8E8A2A", "#B5A93C", "#CDBE52", "#A39A30"];
     const seen = {};
     const F = BAND_FRONT_CELL;
@@ -3107,6 +3344,7 @@ function arcadeDrawBandFront(inView) {
                 if (by < feet - 2) continue;                          // behind the zombie: already drawn
                 const dn = arcadeBandDensity(bx, by);
                 if (((h >> 9) % 100) / 100 > dn * 1.1) continue;
+                if (arcadeGrassMasked(gg, bx + 2, by)) continue;       // on a funnel, floor, road or slab: no grass here
                 const bh = (16 + ((h >> 13) % 30)) * arcadeBandTall(bx);
                 ctx.fillStyle = SH[(h >> 3) & 3];
                 ctx.fillRect(bx, by - bh, 4, bh);
@@ -4542,6 +4780,9 @@ function hedgeRing(R, gaps, gapW) {
 function buildSiloSets(clear) {
     arenaProps = [];
     arenaWarehouse = null;
+    arenaLongHouse = null;
+    arenaConcreteRects = [];
+    ggBits = null;
     arenaLamps = [];
     if (funnels.length < 1) return;
     const kindsL = (ARENA_LAYOUTS[arcLevelNo] || ARENA_LAYOUTS[1]).sets;
@@ -4605,9 +4846,9 @@ function buildSiloSets(clear) {
     const LAYS = ARENA_LAYOUTS[arcLevelNo] || ARENA_LAYOUTS[1];
     if (LAYS.divider) {
         const D = arenaDividerOff || LAYS.divider;
-        const dx0 = WORLD_W / 2 + D.x, dy0 = WORLD_H / 2 + D.y, lift = 44;
-        pushProp("divider", dx0, dy0 + D.h, D.w, D.h - lift, lift);
-        clear.push(grow({ x: dx0, y: dy0, w: D.w, h: D.h }, 60));
+        const dx0 = WORLD_W / 2 + D.x, dy0 = WORLD_H / 2 + D.y;
+        buildLongHouse(dx0, dy0, D.w, D.h);
+        clear.push(grow({ x: dx0, y: dy0, w: D.w, h: D.h }, 110));
     }
     // Hedges, then the warehouse, then forests, whatever the tank order: the
     // forests fill whatever ground is left, and a hedge ring planted after a
@@ -4618,6 +4859,48 @@ function buildSiloSets(clear) {
         for (let k = 0; k < kinds.length; k++) if (kinds[k] === kind) builders[kind](k, clear);
     });
     if (LAYS.boss) arcadeBuildBossCover(clear);
+}
+
+// MAP 3's DIVIDER IS AN ULTRA-LONG WAREHOUSE (2026-10-16; it was one solid
+// road-like slab). Walls round it, door openings in BOTH long sides at regular
+// intervals, and inside, on a grid: columns between the doors and a rack across
+// each door row. Every gap inside is >= 80px (the 78px nav guarantee), so a
+// brute can cross it. Concrete aprons run down both outside faces.
+const LONG_DOOR = 130;            // door opening
+const LONG_PITCH = 220;           // about one door every this far
+function buildLongHouse(x0, y0, W, H) {
+    const T = WALL_T;
+    const n = Math.max(2, Math.floor(H / LONG_PITCH));
+    const pitch = H / n;
+    const wall = function (x, y, w, h) { if (w > 2 && h > 2) walls.push({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), building: true }); };
+    wall(x0, y0, W, T);                       // the two ends: closed
+    wall(x0, y0 + H - T, W, T);
+    const door = [];
+    for (let i = 0; i < n; i++) door.push(y0 + pitch * (i + 0.5));
+    [x0, x0 + W - T].forEach(function (x) {
+        let cur = y0 + T;
+        for (let i = 0; i < n; i++) {
+            wall(x, cur, T, door[i] - LONG_DOOR / 2 - cur);
+            cur = door[i] + LONG_DOOR / 2;
+        }
+        wall(x, cur, T, y0 + H - T - cur);
+    });
+    // Columns between the door rows, two to a row, and a rack on each door row.
+    const ix = x0 + T;
+    for (let i = 1; i < n; i++) {
+        const y = y0 + pitch * i;
+        pushProp("column", ix + 90, y + 15, 30, 30, 40);
+        pushProp("column", ix + 320, y + 15, 30, 30, 40);
+    }
+    for (let i = 0; i < n; i++) {
+        pushProp("rack", ix + 200, door[i] + 80, RACK_D, 100, RACK_LIFT, { vertical: true, fill: MP.random() });
+    }
+    // A lamp outside every door.
+    for (let i = 0; i < n; i++) {
+        arenaLamps.push({ x: x0 - 14, y: Math.round(door[i]), inside: false }, { x: x0 + W + 14, y: Math.round(door[i]), inside: false });
+    }
+    arenaLongHouse = { x: x0, y: y0, w: W, h: H };
+    arenaConcreteRects.push({ x: x0 - 90, y: y0 - 20, w: 90, h: H + 40 }, { x: x0 + W, y: y0 - 20, w: 90, h: H + 40 });
 }
 
 // A HEDGE set: two rings and container stacks round tank k.
@@ -4859,6 +5142,13 @@ function drawFountain(r) {
 function drawSetProp(r) {
     const fy = r.y + r.h - r.fh;
     if (r.kind === "fountain") { drawFountain(r); return; }
+    if (r.kind === "column") {
+        // A concrete column: a pale top, a dark face, a hazard band at the foot.
+        drawBlock(r, "#8A8A90", "#55555B", "#26262A");
+        ctx.fillStyle = "#C8A21E";
+        ctx.fillRect(r.x, r.y + r.h - 6, r.w, 3);
+        return;
+    }
     if (r.kind === "pedestal") {
         // THE PEDESTAL: a long concrete plinth under the warehouse; a lit top,
         // a dark front face, and a notch above each of the eight trays.
@@ -4941,6 +5231,14 @@ function drawSetProp(r) {
 
 // The warehouse floor, under everything, after the grass.
 function arcadeDrawSetFloors() {
+    const L = arenaLongHouse;
+    if (L) {
+        ctx.fillStyle = "#34343A";
+        ctx.fillRect(L.x, L.y, L.w, L.h);
+        ctx.fillStyle = "#2A2A30";
+        for (let y = L.y + 40; y < L.y + L.h; y += 80) ctx.fillRect(L.x, y, L.w, 2);
+        for (let x = L.x + 60; x < L.x + L.w; x += 120) ctx.fillRect(x, L.y, 2, L.h);
+    }
     const W = arenaWarehouse;
     if (!W) return;
     ctx.fillStyle = "#33332E";

@@ -63,6 +63,28 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Grass masks, the long warehouse, concrete, low grass (2026-10-16)
+
+- **One ground grid** (`arcadeGrassGrid`, 20px, built lazily per level, bits `GB_STRUCT / ROAD / NEAR / CONC / TREE`)
+  records funnels, tanks, pipes, warehouses, props, the road corridor and concrete. **Grass is masked by it**
+  (`arcadeGrassMasked`) in the ground pass, the flashlight-shade pass and the blades drawn in front of zombies, so no
+  blade is drawn on a funnel, floor, road or slab, and a zombie standing there is not covered. The ground pass is
+  also reordered: grass first, then set floors, concrete, roads (grass had been drawn OVER floors and roads).
+- **Map 3's divider is an ultra-long warehouse** (`buildLongHouse`, 480x1370): closed ends, door openings (130px) in
+  BOTH long sides about every 220px, columns (`column` prop) between the door rows and a rack across each door row on a
+  grid, every gap inside >= 80px (the 78px nav guarantee), a floor, a lamp outside each door, and 90px concrete
+  aprons down both outside faces. It replaces the solid "divider" slab (the kind is still used for the boss map's
+  cover walls). The road planner still treats it as one rect, so roads keep clear of it.
+- **Concrete on maps 3 and 4** (`arcadeDrawConcrete`, drawn UNDER the roads, never on a road corridor or under a
+  tree): a pad round every funnel, tank and pipe, an apron round the warehouse (outside only), pads under the boss
+  map's containers and walls, and a 3-cell link strip from each cluster to the nearest road (stopping at its edge),
+  so nothing is isolated. About 6,400 cells on map 3 and 8,300 on map 4 (~25-30% of the arena); the knobs are
+  `CONC_PAD`, `CONC_LINK_W` and `CONC_LINK_MAX`.
+- **The last map has low grass** (`arcadeDrawLowGrass`): a 5-10% scatter (noise-varied) of short blades over open
+  ground, `ROAD_NEAR` (170px) clear of every road, and off structures, slabs and the tall-grass band.
+- **Verified headless (3 seeds x maps 3 and 4):** 0% unreachable arena cells on both nav grids (the long warehouse's
+  interior included), 0 concrete cells on a road, every funnel masked. **Not seen by eye.**
+
 ### Shorter instructions, perks in a 2x2 (2026-10-16)
 
 From a phone screenshot: the sidebar's objective line ran to 9 wrapped rows ("GATE OPEN - 0/0 OUT -
@@ -3562,4 +3584,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 12aa1e65 | 2026-10-17 -->
+<!-- doc-sync: f74da1f3 | 2026-10-17 -->
