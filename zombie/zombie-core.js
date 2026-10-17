@@ -276,6 +276,11 @@ function updateCamera(targets) {
     needH = Math.min(needH, WORLD_H);
 
     const wantScale = Math.min(canvas.width / needW, canvas.height / needH);
+    // A zero-size canvas (a hidden or minimised window) gives a bad target, and
+    // once the eased scale goes NaN it can never ease back: everything that
+    // maps screen to world -- the aim included -- is NaN from then on.
+    if (!isFinite(wantScale) || wantScale <= 0) return;
+    if (!isFinite(camera.scale) || camera.scale <= 0) camera.scale = wantScale;
     camera.scale += (wantScale - camera.scale) * CAM_SCALE_LERP;
 
     const want = clampCameraCentre(cx, cy, camera.scale);

@@ -290,6 +290,13 @@ let lastZoneShown = -1;
 
 let mouseX = WORLD_W / 2;
 let mouseY = WORLD_H / 2;
+// THE AIM FOLLOWS THE CAMERA (2026-10-17: "if you do not constantly move your
+// mouse ... your actual aim will be locked to a specific point on the map").
+// mouseX/Y are WORLD coordinates, and they were only worked out on mousemove,
+// so a still mouse kept aiming at the spot it was over while you walked away
+// from it. The screen position is kept, and re-mapped through the camera
+// every frame (gameLoop) while the mouse is what is aiming.
+let zMouseSX = 0, zMouseSY = 0, zMouseAim = false;
 
 // ---------------------------------------------------
 //   HUD STATE (2026-09-18)
@@ -683,6 +690,14 @@ function draw() {
     drawLandmarks(now, inView);
     drawDoors(inView);
     drawBarricades(inView);
+    // ARCADE (2026-10-17: "lights are drawing over top of zombies and
+    // players"): the lamp pools, the floods and the sunlight light the
+    // GROUND, so they go down before anything that stands on it. They use
+    // the light polygons the lighting pass built last frame.
+    if (ZOMBIE_ARCADE) {
+        arcadeDrawLamps();                // the lamps and their pools
+        arcadeDrawLight();                // daylight through the warehouse windows
+    }
     drawBlasts(now);
     drawZombies(now, inView);
     if (ZOMBIE_ARCADE) arcadeDrawBandOver(now, inView);
@@ -704,9 +719,7 @@ function draw() {
     // 2026-10-08: the intro shows the lighting too (it used to skip it).
     if (ZOMBIE_ARCADE) { arcadeDrawLighting(); arcadeDrawBladeShade(); } else drawLighting();
     if (ZOMBIE_ARCADE) {
-        arcadeDrawLamps();                // the orange lamps, and their pools
         drawBoomBolts(Date.now());        // over the darkness: it is the brightest thing there is
-        arcadeDrawLight();                // daylight through the warehouse windows
     }
     if (ZOMBIE_ARCADE && !introOn) {
         // Not on the start card (2026-10-12: "turn off the silo 0/10 throbbing
@@ -4035,6 +4048,9 @@ window.addEventListener('keyup', function (e) {
 }, KEY_OPTS);
 
 window.addEventListener('mousemove', function (e) {
+    zMouseSX = e.clientX;
+    zMouseSY = e.clientY;
+    zMouseAim = true;
     const w = screenToWorld(e.clientX, e.clientY);
     mouseX = w.x;
     mouseY = w.y;
@@ -4148,6 +4164,12 @@ function gameLoop(ts) {
     const dt = zLastDraw ? Math.min(100, Math.max(0, now - zLastDraw)) : 16;
     zLastDraw = now;
     zFrameCount++;                             // drives the flicker budget
+    // The mouse's aim, re-mapped to where the camera is NOW (see zMouseAim).
+    if (zMouseAim && !zDemo) {
+        const w = screenToWorld(zMouseSX, zMouseSY);
+        mouseX = w.x;
+        mouseY = w.y;
+    }
 
     if (typeof inputFrame === "function") inputFrame(now);     // pad + touch (zombie-input.js), read by the step below
     stepSimulation(now, Z_MAX_STEPS);

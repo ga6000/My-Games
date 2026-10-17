@@ -63,6 +63,20 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### The aim follows a still mouse; lights go under the bodies (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **A still mouse aimed at a fixed spot on the map** (reported as long-standing). `mouseX/Y` are
+  world coordinates and were only worked out on `mousemove`, so walking with the mouse still kept
+  aiming at the ground it was last over. The screen position is kept (`zMouseSX/SY`) and re-mapped
+  through the camera at the top of every `gameLoop` while the mouse is aiming (`zMouseAim`; a
+  deflected stick clears it, the attract run is left alone).
+- **Lights drew over zombies and players.** The lamp pools, floods and window sunlight were drawn
+  after everything; they now go down with the ground, before the bodies (using the light polygons
+  built by the previous frame's lighting pass).
+- **A NaN camera never recovered:** a zero-height canvas (a hidden or minimised window) made the
+  eased scale NaN for good, and every screen-to-world mapping after it. `updateCamera` and the
+  intro camera now refuse a bad scale.
+
 ### The silo curve: later tanks ask more, the last asks 100 (2026-10-17, branch `zombie-funnel-pipes`)
 
 - **Quotas** (`ARENA_LAYOUTS[].caps`): map 1 keeps 10 / 15 / 20. From there each tank asks about

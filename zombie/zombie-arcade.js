@@ -3896,7 +3896,7 @@ function arcadePlaceIntroCamera(x, y, scale) {
     arcIntroClampDelta = Math.hypot(c.x - x, c.y - y);
     camera.x = c.x;
     camera.y = c.y;
-    camera.scale = scale;
+    if (isFinite(scale) && scale > 0) camera.scale = scale;   // never NaN (see updateCamera)
     camera.shake = 0;
 }
 
