@@ -241,7 +241,7 @@ const INP_CSS =
     "@media (orientation:portrait){body.touch #touchrotate{display:flex}}" +
     // The cabinet panel is the one thing that must shrink on a phone: it was
     // sized for a desktop (240px minimum) and would take half a landscape phone.
-    "body.arcade.touch{--side-w:132px}" +
+    "body.arcade.touch{--side-w:calc(132px + env(safe-area-inset-right,0px))}" +   // the notch inset is padding INSIDE the panel, so it widens it rather than squeezing the content
     "body.touch #sidebar{padding:6px;gap:5px}" +
     // The minimap is unreadable at phone scale, so it goes (its draw is skipped too).
     "body.touch #sidebar .cab-radar{display:none}" +
@@ -264,7 +264,7 @@ const INP_CSS =
     "body.touch #sidebar #perks .perk b{font-size:10px;right:-4px;bottom:-7px;padding:0 2px}" +
     // A short phone (Safari with its bars up is ~300px tall): drop what the
     // objective and the lives blocks already say, so the loadout is never clipped.
-    "@media (max-height:340px){body.touch #sidebar .cab-row,body.touch #sidebar .cab-l,body.touch #sidebar #gunName{display:none}" +
+    "@media (max-height:400px){body.touch #sidebar .cab-row,body.touch #sidebar .cab-l,body.touch #sidebar #gunName{display:none}" +
     "body.touch #sidebar #objective{font-size:11px}body.touch #sidebar #perks{margin-bottom:2px}}" +
     "body.touch #sidebar .cab-pair,body.touch #sidebar .cab-sess,body.touch #sideGoals,body.touch #sidebar #ui{display:none}" +
     "body.touch #sidebar #objective{font-size:13px;line-height:1.25;border-left-width:3px;padding-left:6px}" +
@@ -298,7 +298,7 @@ const INP_CSS =
     "-webkit-tap-highlight-color:transparent}" +
     // Notch and home-bar insets (non-zero only in landscape standalone).
     "#touchui{left:env(safe-area-inset-left,0px)}" +
-    "body.touch #sidebar{padding-right:calc(8px + env(safe-area-inset-right,0px))}" +
+    "body.touch #sidebar{padding-right:calc(8px + env(safe-area-inset-right,0px));padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}" +
     "#touchui .tb.hint{bottom:auto;top:8px;left:50%;transform:translateX(-50%);height:auto;padding:6px 10px;" +
     "font-size:12px;white-space:nowrap;border-color:#FFE033;color:#FFE033;opacity:.9}";
 

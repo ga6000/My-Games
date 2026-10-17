@@ -73,6 +73,14 @@ match. **`#perks` is a fixed 2x2 grid pinned to the bottom right of the loadout*
 on touch in `zombie-input.js`), so four slots can never wrap off the panel. The ESC dialog's longer
 explanations are unchanged on purpose. Not re-checked on a phone.
 
+**Perk tiles cropped on a notched phone (same day, later).** The first perk column and the bottom row were
+clipped. Cause: `body.touch #sidebar` pads its right side by `env(safe-area-inset-right)` (~60px on the test
+phone) INSIDE the fixed 132px panel, leaving ~60px of content for a 70px grid, which overflowed left under
+`overflow: hidden`. **`--side-w` is now `calc(132px + env(safe-area-inset-right))`** (read through
+`offsetWidth`, so the canvas follows), the panel gets a bottom safe-area pad, and the "short phone"
+compaction now starts under 400px of height (was 340) so two rows of perks fit at 844x390. Not seen on the
+phone: the Browser pane here has no safe-area insets.
+
 ### Silo 1 not filling on phones: `onReady` rebuilt the level mid-run (2026-10-16)
 
 Reported on two mobile sessions, never on a laptop. **Cause:** `MP.connect`'s `onReady` called
@@ -3554,4 +3562,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 5da65d5f | 2026-10-17 -->
+<!-- doc-sync: 12aa1e65 | 2026-10-17 -->
