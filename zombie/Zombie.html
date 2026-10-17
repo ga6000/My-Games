@@ -449,6 +449,10 @@
             background: rgba(0,0,0,0.62); border: none; padding: 22px 34px;
             color: #FFFFFF; font-size: 34px; font-weight: bold; letter-spacing: 6px;
             text-shadow: 3px 3px 0 #000;
+            /* 2026-10-16: pinned to the bottom of the play area, not its middle.
+               Centred, the card sat on the attract run's survivor, which is the
+               thing being watched behind it. */
+            top: auto; bottom: 24px; transform: translateX(-50%);
         }
         /* THE READY SCREEN (2026-10-13): a square per player in the party,
            blank until they click, then ticked in their colour. */

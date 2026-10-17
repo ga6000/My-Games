@@ -230,6 +230,14 @@ either warehouse:** a tank pad or link strip used to lay slab under the map-3 wa
 and link strips now run UNDER the road's edge (up to a new inner-core bit, `GB_ROADIN`, radius 42) instead of stopping at
 the kerb-plus-margin circle, so the join is a straight meeting with the road drawn on top, not a pointed stub.
 
+### Ready card moved to the bottom (2026-10-16)
+
+`#startprompt` (the attract run's PLAYERS IN PARTY / CLICK TO READY card) sat at `top: 50%` and covered the
+scripted survivor being watched behind it. It is now pinned `bottom: 24px` of the play area
+(`body.arcade #startprompt`, `Zombie.html`). On touch (`zombie-input.js`) it sits at `bottom: 66px`, just above
+the USE / GUN row, with 34px squares. Checked at 1024x768 and an emulated 844x390: no overlap with the buttons,
+centre of the screen clear. Not seen on a real phone.
+
 ### Shorter instructions, perks in a 2x2 (2026-10-16)
 
 From a phone screenshot: the sidebar's objective line ran to 9 wrapped rows ("GATE OPEN - 0/0 OUT -
