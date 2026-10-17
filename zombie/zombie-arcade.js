@@ -1692,11 +1692,19 @@ const ARENA_GATE_DX = 0;          // the exit, in the south wall
 // ten tanks stacked tight in two rows of five, and a different wave
 // (arcadeBossWave): only SUPER SPLITTERS and a constant horde, with the
 // negative drops turned up. Beating it is the win.
+// THE SILO CURVE (2026-10-17: "step up silos-fill need requirement for later
+// silos ... the final silo should be something like at least 100, with a
+// gradual spacing between that final silo and the initial few silos"). Map 1
+// keeps 10 / 15 / 20; from there every tank in the run asks ~7.6% more than
+// the one before (20 x (100/20)^(k/22)), ending on 100 at the reservoir's last
+// bay. Totals: 45 / 126 / 274 / 735 (were 45 / 60 / 73 / 68). It is what makes
+// a BUTCHER (double blood on a funnel) worth most late. The drain speeds up
+// with the tank's size to match (funnelDrainMs).
 const ARENA_LAYOUTS = {
     1: { funnels: ARENA_FUNNELS, gateDx: ARENA_GATE_DX, caps: [10, 15, 20], clock: 0,
          sets: ["hedge", "warehouse", "forest"] },
     2: { funnels: [[-1360, -750], [-560, 200], [200, -650], [800, 300], [1520, -700]], gateDx: 1360,
-         caps: [8, 10, 12, 14, 16], clock: 60,
+         caps: [22, 23, 25, 27, 29], clock: 60,     // SILO CURVE (2026-10-17): was 8..16
          sets: ["hedge", "warehouse", "forest", "hedge", "forest"] },
     3: { funnels: [[-2000, -900], [-1100, -450], [-1500, 430], [120, 640], [1100, 380], [2000, -250], [1100, -700]],
          // clock 120 -> 60 on 2026-10-11 ("scale back the map-starting time for 3 & 4"):
@@ -1704,7 +1712,7 @@ const ARENA_LAYOUTS = {
          // Tanks 8..16 -> 7..14 (-15%) and the curve at 0.5x inside the map, from
          // the bot sweep: map 3 is bound by the timeline, so what helps is how
          // slowly the wave level climbs once you are in it.
-         gateDx: 2000, caps: [7, 8, 10, 10, 12, 12, 14], clock: 60, pace: 0.5,
+         gateDx: 2000, caps: [31, 33, 36, 39, 42, 45, 48], clock: 60, pace: 0.5,   // was 7..14
          sets: ["forest", "hedge", "warehouse", "forest", "hedge", "forest", "hedge"],
          divider: { x: -240, y: -950, w: 480, h: 1370 } },
     // 2026-10-12: the rows moved apart (-250/+170 -> -470/+400) to make room for
@@ -1714,7 +1722,7 @@ const ARENA_LAYOUTS = {
     4: { funnels: [[-1200, -470], [-600, -470], [0, -470], [600, -470], [1200, -470],
                    [1200, 400], [600, 400], [0, 400], [-600, 400], [-1200, 400]],
          // clock 240 -> 100 on 2026-10-11, same reason.
-         gateDx: -1200, caps: [6, 6, 6, 6, 7, 7, 7, 7, 8, 8], clock: 100, pace: 0.6,
+         gateDx: -1200, caps: [52, 56, 60, 64, 69, 75, 80, 86, 93, 100], clock: 100, pace: 0.6,   // was 6..8
          sets: [], open: true, boss: true, giant: true }
 };
 const ARC_MAX_LEVEL = 4;
@@ -4413,6 +4421,14 @@ const FUNNEL_DRAIN_MS = 650;      // one kill's blood leaves the funnel this oft
 const BUTCHER_BLOOD = 2;          // BUTCHER (2026-10-17): a funnel kill's worth
 const BUTCHER_DRAIN_K = 0.667;    // ...and a funnel they stand in drains 50% faster
 
+// One unit's drain interval for tank i. FUNNEL_DRAIN_MS up to a 20 tank, then
+// faster in proportion (2026-10-17, with the silo curve), so a 100 tank drains
+// in ~13s of blood rather than 65s: the KILLING is the limit late, not the
+// pipe. Kills past what the drain keeps up with still back up and overflow.
+function funnelDrainMs(i) {
+    return FUNNEL_DRAIN_MS * Math.min(1, 20 / Math.max(1, siloCapacity(i)));
+}
+
 // HOST: is a standing BUTCHER inside funnel i?
 function butcherInFunnel(i) {
     const f = funnels[i];
@@ -4544,7 +4560,7 @@ function arcadeUpdateBlood(now) {
             funnelBacklog[i]--;
             funnelDrained[i] = (funnelDrained[i] || 0) + 1;
             q.push(now + arcadeTravelMs(i));
-            arcDrainAt[i] = now + FUNNEL_DRAIN_MS * (butcherInFunnel(i) ? BUTCHER_DRAIN_K : 1);
+            arcDrainAt[i] = now + funnelDrainMs(i) * (butcherInFunnel(i) ? BUTCHER_DRAIN_K : 1);
         }
     }
 }

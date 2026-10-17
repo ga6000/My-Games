@@ -63,6 +63,24 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### The silo curve: later tanks ask more, the last asks 100 (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **Quotas** (`ARENA_LAYOUTS[].caps`): map 1 keeps 10 / 15 / 20. From there each tank asks about
+  7.6% more than the one before (20 x (100/20)^(k/22)) and the reservoir's last bay asks **100**:
+
+  | map | tanks | was | total was | total now |
+  |---|---|---|---|---|
+  | 2 | 22, 23, 25, 27, 29 | 8..16 | 60 | 126 |
+  | 3 | 31, 33, 36, 39, 42, 45, 48 | 7..14 | 73 | 274 |
+  | 4 | 52, 56, 60, 64, 69, 75, 80, 86, 93, 100 | 6..8 | 68 | 735 |
+
+  That's what makes the BUTCHER's double blood count most late.
+- **The drain speeds up with the tank** (`funnelDrainMs`): 650ms a unit up to a 20 tank, then
+  650 x 20/cap (130ms at 100), so killing is the limit, not the pipe. Measured on the last bay: 23
+  units drained in 3s. Map 4's long pipes mean each unit lands ~3.6s after it leaves.
+- **Not playtested.** Map 4 is now ~735 funnel kills; with a team killing on a funnel at a few a
+  second that is minutes of play. Check it against the 2–5 minute session goal.
+
 ### Multiplayer fixes, easier, aim aids (2026-10-17, branch `zombie-funnel-pipes`)
 
 - **A guest could never leave a map.** `esc` went over as `msLeft(escapeAt)`, which is 0 once the
