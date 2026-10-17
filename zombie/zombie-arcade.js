@@ -1913,10 +1913,12 @@ function buildGiantSilo(cx, cy, nT) {
         const top = f.y < cy;
         const col = top ? k : (nT - 1 - k);
         const px = cx + (col - (half - 1) / 2) * 160;
-        const py = top ? y0 - GIANT_LIFT + 4 : y0 + GIANT_H;
+        // 2026-10-16: on the GROUND at the tank's back or front edge; the
+        // riser up its side and over the lid is drawn by arcadeDrawRiser.
+        const py = top ? y0 : y0 + GIANT_H;
         const dx = px - f.x, dy = py - f.y, d = Math.hypot(dx, dy) || 1;
         siloPipes[k] = { x1: Math.round(f.x + dx / d * (f.r + 4)), y1: Math.round(f.y + dy / d * (f.r + 4)),
-                         x2: Math.round(px), y2: Math.round(py) };
+                         x2: Math.round(px), y2: Math.round(py), nx: 0, ny: top ? -1 : 1 };
     }
 }
 
@@ -1934,7 +1936,7 @@ function drawGiantSilo(now) {
     ctx.textAlign = "center";
     for (let k = 0; k < n; k++) {
         const s = silos[k];
-        const frac = Math.min(1, siloFill[k] / siloCapacity(k));
+        const frac = Math.min(1, arcadeShownFill(k) / siloCapacity(k));    // lags the kills: THE BLOOD RUN
         total += siloFill[k]; cap += siloCapacity(k);
         const done = siloFlipped[k], ready = siloReady(k);
         // This bay's sight-glass, filling bottom-up.
@@ -3951,15 +3953,6 @@ function arcadeDrawFunnels(now, inView) {
         ctx.beginPath();
         ctx.arc(f.x, f.y, f.r, Math.PI * 1.05, Math.PI * 1.95);
         ctx.stroke();
-        // What has gone down it so far.
-        const frac = Math.min(1, siloFill[i] / siloCapacity(i));
-        if (frac > 0 && !siloFlipped[i]) {
-            ctx.fillStyle = (live && now % 900 < 450) ? "#8A1020" : "#6A0C18";
-            ctx.beginPath();
-            ctx.arc(f.x, f.y + 12, f.r * 0.32 * (0.4 + 0.6 * frac), 0, Math.PI * 2);
-            ctx.fill();
-        }
-        // The grate.
         // The grate: ROUND and dark (2026-10-04) -- a drain, not a vent.
         const g = Math.round(f.r * 0.26);
         const gcx = f.x, gcy = f.y + 12;
@@ -3967,71 +3960,318 @@ function arcadeDrawFunnels(now, inView) {
         ctx.beginPath();
         ctx.arc(gcx, gcy, g, 0, Math.PI * 2);
         ctx.fill();
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(gcx, gcy, g - 2, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.fillStyle = "#2A2A2A";
-        for (let b = -g; b <= g; b += 6) ctx.fillRect(Math.round(gcx + b), gcy - g, 2, g * 2);
-        ctx.restore();
-        ctx.strokeStyle = "#333333";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(gcx, gcy, g, 0, Math.PI * 2);
-        ctx.stroke();
+        const bars = function () {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(gcx, gcy, g - 2, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.fillStyle = "#2A2A2A";
+            for (let b = -g; b <= g; b += 6) ctx.fillRect(Math.round(gcx + b), gcy - g, 2, g * 2);
+            ctx.restore();
+        };
+        bars();
+        // What has gone down it so far. 2026-10-16: "allow for funnel to be
+        // filled past grate even allowing for it to be completely filled to
+        // the brim" -- the pool rises from the grate to the rim, so a full,
+        // unflipped tank is a funnel full to the lip. As it rises its centre
+        // climbs out of the bowl's depth (the rings step down 3px each).
+        const L = Math.min(1, arcadeFunnelFill(i, now) / siloCapacity(i));
+        let poolR = 0;
+        if (L > 0 && !siloFlipped[i]) {
+            const rb = f.r * (0.1 + 0.86 * L), cy = f.y + 12 * (1 - L);
+            poolR = rb;
+            ctx.fillStyle = "#4A0810";
+            ctx.beginPath();
+            ctx.arc(f.x, cy, rb, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = (live && now % 900 < 450) ? "#8A1020" : "#6A0C18";
+            ctx.beginPath();
+            ctx.arc(f.x, cy - 1, rb * 0.86, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "#A8182A";                   // the surface's lit crescent
+            ctx.fillRect(Math.round(f.x - rb * 0.45), Math.round(cy - rb * 0.62), Math.round(rb * 0.5), Math.max(2, Math.round(rb * 0.08)));
+            // The grate shows through a shallow pool, and is gone under a deep one.
+            if (rb < g * 1.6) {
+                ctx.globalAlpha = 0.55 * (1 - Math.max(0, rb - g) / (g * 0.6));
+                bars();
+                ctx.globalAlpha = 1;
+            }
+        }
+        // Blood from each kill, drawn into the grate.
+        for (let k = 0; k < arcFlow.parts.length; k++) {
+            const q = arcFlow.parts[k];
+            if (q.i !== i || now < q.t0) continue;
+            const e = Math.min(1, (now - q.t0) / q.dur), ee = e * e;
+            const a = q.a + q.spin * e, r = q.r * (1 - ee);
+            ctx.fillStyle = q.col;
+            ctx.fillRect(Math.round(gcx + Math.cos(a) * r), Math.round(gcy + Math.sin(a) * r * 0.9), q.sz, q.sz);
+        }
+        if (poolR < g * 1.6) {                           // the grate's rim, until the pool drowns it
+            ctx.strokeStyle = "#333333";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(gcx, gcy, g, 0, Math.PI * 2);
+            ctx.stroke();
+        }
     }
 }
 
-// Two pipes, side by side, rim to tank, with flanges and blood moving in
-// them while their funnel is live.
+// ---------------------------------------------------
+//   THE BLOOD RUN (2026-10-16, branch zombie-funnel-pipes)
+// ---------------------------------------------------
+// "improve the blood funnel to silo pipe visuals ... show an elbow of the
+// pipes into the ground & connecting to piping that go up the side of each
+// silo & pours blood into the top, there should be a slight delay between
+// when zombies are killed on the funnels to when the blood shows as
+// ascending, and when the blood level raises in the silo."
+//
+// One pipe per tank now (it was two side by side). It comes up out of the
+// ground at the funnel's rim through an elbow, runs along the ground, climbs
+// the tank's side as a riser and turns over the lid as a gooseneck, where
+// it pours.
+//
+// Every kill on a funnel becomes a PULSE, purely visual and per client: the
+// blood gathers into the funnel (particles), runs down the pipe, climbs the
+// riser, pours, and only then does the tank's gauge move. siloFill stays the
+// truth -- the host's count, the switch, the score all read it unchanged;
+// the gauge reads arcadeShownFill(), which is siloFill minus the pulses
+// still on their way. Pulses are spawned by watching siloFill change, so a
+// guest gets them off the snapshot with nothing new on the wire.
+const FLOW_GATHER_MS = 450;       // particles drawn into the grate
+const FLOW_SPEED = 380;           // px/s along the ground pipe
+const FLOW_RISE_MS = 550;         // up the riser
+const FLOW_POUR_MS = 320;         // over the lid
+const FLOW_STAGGER_MS = 90;       // several kills on one frame, one after another
+const FLOW_MAX_JUMP = 6;          // a bigger jump (a join, a reset) just snaps
+const RISER_OUT = 9;              // riser's offset from the tank wall
+const RISER_NECK = 10;            // how far the gooseneck stands above the lid
+const RISER_REACH = 16;           // how far it reaches over the lid
+
+let arcFlow = { arr: null, seen: [], pulses: [], parts: [] };
+
+function arcadePipeLen(i) {
+    const p = siloPipes[i], R = arcadeRiser(i);
+    if (!p) return 0;
+    return R ? Math.hypot(R.fx - p.x1, R.fy - p.y1) : Math.hypot(p.x2 - p.x1, p.y2 - p.y1);
+}
+
+function arcadePulseEnd(i, q) {
+    return q.t0 + FLOW_GATHER_MS + arcadePipeLen(i) / FLOW_SPEED * 1000 + FLOW_RISE_MS + FLOW_POUR_MS;
+}
+
+// Once a frame, before anything reads it.
+function arcadeFlowSync(now) {
+    const F = arcFlow;
+    if (F.arr !== siloFill) {
+        F.arr = siloFill;
+        F.seen = siloFill.slice();
+        F.pulses = siloFill.map(function () { return []; });
+        F.parts = [];
+    }
+    for (let i = 0; i < siloFill.length; i++) {
+        if (!F.pulses[i]) F.pulses[i] = [];
+        const d = siloFill[i] - (F.seen[i] || 0);
+        if (d < 0 || d > FLOW_MAX_JUMP) F.pulses[i] = [];
+        else for (let j = 0; j < d; j++) arcadeFlowKill(i, now + j * FLOW_STAGGER_MS);
+        F.seen[i] = siloFill[i];
+        const ps = F.pulses[i];
+        while (ps.length && now >= arcadePulseEnd(i, ps[0])) ps.shift();
+    }
+    for (let k = F.parts.length - 1; k >= 0; k--) {
+        if (now >= F.parts[k].t0 + F.parts[k].dur) F.parts.splice(k, 1);
+    }
+}
+
+// A kill on funnel i: a pulse, and a spatter of blood drawn into the grate
+// from somewhere in the bowl. The kill's own position is the host's; a
+// random point in the bowl reads the same and needs nothing on the wire.
+function arcadeFlowKill(i, t0) {
+    arcFlow.pulses[i].push({ t0: t0 });
+    const f = funnels[i];
+    if (!f || arcFlow.parts.length > 240) return;
+    const a0 = Math.random() * Math.PI * 2, r0 = f.r * (0.55 + Math.random() * 0.35);
+    for (let n = 0; n < 10; n++) {
+        const a = a0 + (Math.random() - 0.5) * 0.9, r = r0 * (0.8 + Math.random() * 0.3);
+        arcFlow.parts.push({ i: i, t0: t0 + Math.random() * 80, dur: FLOW_GATHER_MS - 60 + Math.random() * 60,
+                             a: a, r: r, spin: (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.6),
+                             sz: Math.random() < 0.35 ? 3 : 2,
+                             col: ["#C0182C", "#8A1020", "#E8303C"][n % 3] });
+    }
+}
+
+// What the tank's gauge shows: the kills whose blood has arrived.
+function arcadeShownFill(i) {
+    const ps = arcFlow.pulses[i];
+    return Math.max(0, siloFill[i] - (ps ? ps.length : 0));
+}
+
+// What the funnel holds: every kill whose blood has reached the bowl.
+function arcadeFunnelFill(i, now) {
+    const ps = arcFlow.pulses[i];
+    let gathering = 0;
+    if (ps) for (let k = 0; k < ps.length; k++) if (now < ps[k].t0 + FLOW_GATHER_MS) gathering++;
+    return Math.max(0, siloFill[i] - gathering);
+}
+
+// Where each pulse is on the ground run, 0..1.
+function arcadeRunPositions(i, now) {
+    const out = [], ps = arcFlow.pulses[i], R = arcadePipeLen(i) / FLOW_SPEED * 1000;
+    if (!ps) return out;
+    for (let k = 0; k < ps.length; k++) {
+        const t = now - ps[k].t0 - FLOW_GATHER_MS;
+        if (t >= 0 && t < R) out.push(t / Math.max(1, R));
+    }
+    return out;
+}
+
+// The ground run: a single pipe from the funnel's ground elbow to the
+// riser's foot. Flanges, a lit top edge, and a dark sight slot down the
+// middle that the blood shows in.
 function arcadeDrawPipes(now, inView) {
+    arcadeFlowSync(now);
     for (let i = 0; i < siloPipes.length; i++) {
         const p = siloPipes[i];
         if (!p) continue;
-        const len = Math.hypot(p.x2 - p.x1, p.y2 - p.y1);
+        const R = arcadeRiser(i);
+        const x2 = R ? R.fx : p.x2, y2 = R ? R.fy : p.y2;
+        const len = Math.hypot(x2 - p.x1, y2 - p.y1);
         if (len < 1) continue;
-        const ux = (p.x2 - p.x1) / len, uy = (p.y2 - p.y1) / len;
-        if (!inView(Math.min(p.x1, p.x2) - 20, Math.min(p.y1, p.y2) - 20, Math.abs(p.x2 - p.x1) + 40, Math.abs(p.y2 - p.y1) + 40)) continue;
+        if (!inView(Math.min(p.x1, x2) - 30, Math.min(p.y1, y2) - 30, Math.abs(x2 - p.x1) + 60, Math.abs(y2 - p.y1) + 60)) continue;
+        const ux = (x2 - p.x1) / len, uy = (y2 - p.y1) / len;
         const live = funnelActive[i] && !siloFlipped[i];
-        for (let side = -1; side <= 1; side += 2) {
-            const ox = -uy * 12 * side, oy = ux * 12 * side;
-            ctx.lineCap = "butt";
-            ctx.strokeStyle = "#202020";
-            ctx.lineWidth = 12;
+        const seg = function (col, w, dy, t0, t1) {
+            ctx.strokeStyle = col;
+            ctx.lineWidth = w;
             ctx.beginPath();
-            ctx.moveTo(p.x1 + ox, p.y1 + oy + 3);
-            ctx.lineTo(p.x2 + ox, p.y2 + oy + 3);
+            ctx.moveTo(p.x1 + ux * len * t0, p.y1 + uy * len * t0 + dy);
+            ctx.lineTo(p.x1 + ux * len * t1, p.y1 + uy * len * t1 + dy);
             ctx.stroke();
-            ctx.strokeStyle = "#555555";
-            ctx.lineWidth = 9;
-            ctx.beginPath();
-            ctx.moveTo(p.x1 + ox, p.y1 + oy);
-            ctx.lineTo(p.x2 + ox, p.y2 + oy);
-            ctx.stroke();
-            ctx.strokeStyle = "#7C7C7C";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(p.x1 + ox - uy * 2, p.y1 + oy - 3);
-            ctx.lineTo(p.x2 + ox - uy * 2, p.y2 + oy - 3);
-            ctx.stroke();
-            ctx.fillStyle = "#8A8A8A";
-            for (let d = 6; d < len - 4; d += 26) {
-                ctx.fillRect(Math.round(p.x1 + ox + ux * d - 3), Math.round(p.y1 + oy + uy * d - 7), 6, 14);
-            }
-            if (live) {
-                ctx.fillStyle = "#B01428";
-                const off = (now / 12) % 26;
-                for (let d = off; d < len - 4; d += 26) {
-                    ctx.fillRect(Math.round(p.x1 + ox + ux * d - 2), Math.round(p.y1 + oy + uy * d - 2), 5, 4);
-                }
-            }
+        };
+        ctx.lineCap = "butt";
+        seg("#1A1A1A", 16, 4, 0, 1);                     // shadow on the ground
+        seg("#555555", 14, 0, 0, 1);                     // body
+        seg("#7C7C7C", 3, -5, 0, 1);                     // lit top edge
+        seg(live ? "#3A0C12" : "#161616", 4, 0, 0, 1);   // the sight slot
+        // The blood in it.
+        const pos = arcadeRunPositions(i, now), sl = 18 / len;
+        for (let k = 0; k < pos.length; k++) {
+            seg("#C0182C", 4, 0, Math.max(0, pos[k] - sl), Math.min(1, pos[k]));
+            seg("#FF5A5A", 2, 0, Math.max(0, pos[k] - sl * 0.3), Math.min(1, pos[k]));
+        }
+        // Flanges.
+        ctx.fillStyle = "#8A8A8A";
+        for (let d = 22; d < len - 10; d += 40) {
+            ctx.save();
+            ctx.translate(Math.round(p.x1 + ux * d), Math.round(p.y1 + uy * d));
+            ctx.rotate(Math.atan2(uy, ux));
+            ctx.fillRect(-3, -10, 6, 20);
+            ctx.restore();
+        }
+        // THE GROUND ELBOW at the funnel: the bowl drains below grade, and the
+        // pipe comes up out of the ground at the rim. A dark collar in the
+        // ground, the bend in shadow, a flange where it levels off.
+        ctx.fillStyle = "#0A0A0A";
+        ctx.beginPath();
+        ctx.ellipse(p.x1, p.y1 + 3, 11, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        seg("#333333", 14, 2, 0, 10 / len);
+        seg("#444444", 14, 1, 4 / len, 12 / len);
+        ctx.fillStyle = "#9A9A9A";
+        ctx.save();
+        ctx.translate(Math.round(p.x1 + ux * 13), Math.round(p.y1 + uy * 13));
+        ctx.rotate(Math.atan2(uy, ux));
+        ctx.fillRect(-3, -10, 6, 20);
+        ctx.restore();
+        // The riser's foot elbow, on the ground (the riser itself stands up
+        // in the tall pass, after its tank).
+        if (R && !R.back) {
+            ctx.fillStyle = "#1A1A1A";
+            ctx.fillRect(Math.round(R.fx - 9), Math.round(R.fy - 4), 18, 12);
+            ctx.fillStyle = "#555555";
+            ctx.fillRect(Math.round(R.fx - 8), Math.round(R.fy - 6), 16, 12);
+        }
+    }
+}
+
+// Where tank i's riser stands. The pipe arrives at a side of the tank's
+// footprint; the riser goes up beside that side, RISER_OUT clear of it.
+//   nx/ny: that side's outward normal. ny < 0 is the BACK of the tank, where
+//   the riser is hidden behind it and only its neck shows above the lid.
+function arcadeRiser(i) {
+    const p = siloPipes[i], s = silos[i];
+    if (!p || !s) return null;
+    let nx = p.nx, ny = p.ny;
+    if (nx === undefined) {
+        const d = [Math.abs(p.x2 - s.x), Math.abs(p.x2 - (s.x + s.w)), Math.abs(p.y2 - s.y), Math.abs(p.y2 - (s.y + s.h))];
+        const m = Math.min(d[0], d[1], d[2], d[3]);
+        nx = m === d[0] ? -1 : m === d[1] ? 1 : 0;
+        ny = nx ? 0 : (m === d[2] ? -1 : 1);
+    }
+    const lift = s.giant ? GIANT_LIFT : SILO_LIFT;
+    const fx = p.x2 + nx * RISER_OUT, fy = p.y2 + ny * RISER_OUT;
+    // The top of the tank, in screen y, above this ground point.
+    const groundY = ny < 0 ? s.y : ny > 0 ? s.y + s.h : p.y2;
+    const topY = groundY - lift - RISER_NECK;
+    // The mouth: over the lid, reaching inward.
+    const mx = fx - nx * (RISER_OUT + RISER_REACH);
+    const my = ny ? topY - ny * (RISER_OUT + RISER_REACH) : topY;
+    return { fx: fx, fy: fy, nx: nx, ny: ny, topY: topY, mx: mx, my: my, lidY: groundY - lift, back: ny < 0 };
+}
+
+// After tank i is drawn: the riser up its side, the gooseneck over the lid,
+// the blood climbing it, and the pour.
+function arcadeDrawRiser(i, now) {
+    const R = arcadeRiser(i);
+    if (!R) return;
+    const x = Math.round(R.fx);
+    const bottom = R.back ? R.lidY : R.fy;          // a back riser shows only above the lid
+    const vpipe = function (col, w, x0, y0, y1) {
+        ctx.fillStyle = col;
+        ctx.fillRect(Math.round(x0 - w / 2), Math.round(Math.min(y0, y1)), w, Math.round(Math.abs(y1 - y0)));
+    };
+    vpipe("#1A1A1A", 16, x + 3, R.topY + 2, bottom + 2);
+    vpipe("#555555", 14, x, R.topY, bottom);
+    vpipe("#7C7C7C", 3, x - 5, R.topY, bottom);
+    vpipe("#161616", 4, x, R.topY + 4, bottom - 2);
+    // Hoops up the riser.
+    ctx.fillStyle = "#8A8A8A";
+    for (let y = bottom - 18; y > R.topY + 8; y -= 30) ctx.fillRect(x - 9, Math.round(y), 18, 4);
+    // The gooseneck: from the riser's top over to the mouth.
+    ctx.fillStyle = "#555555";
+    if (R.ny === 0) ctx.fillRect(Math.round(Math.min(x, R.mx)) - 7, Math.round(R.topY - 7), Math.round(Math.abs(R.mx - x)) + 14, 14);
+    else ctx.fillRect(x - 7, Math.round(Math.min(R.topY, R.my)) - 7, 14, Math.round(Math.abs(R.my - R.topY)) + 14);
+    ctx.fillStyle = "#7C7C7C";
+    if (R.ny === 0) ctx.fillRect(Math.round(Math.min(x, R.mx)) - 7, Math.round(R.topY - 7), Math.round(Math.abs(R.mx - x)) + 14, 3);
+    else ctx.fillRect(x - 7, Math.round(Math.min(R.topY, R.my)) - 7, 3, Math.round(Math.abs(R.my - R.topY)) + 14);
+    ctx.fillStyle = "#0A0A0A";                       // the open mouth
+    ctx.fillRect(Math.round(R.mx - 5), Math.round(R.my + 3), 10, 4);
+    // Blood: climbing the riser, then pouring from the mouth onto the lid.
+    const ps = arcFlow.pulses[i];
+    if (!ps) return;
+    const run = arcadePipeLen(i) / FLOW_SPEED * 1000;
+    for (let k = 0; k < ps.length; k++) {
+        const t = now - ps[k].t0 - FLOW_GATHER_MS - run;
+        if (t < 0) continue;
+        if (t < FLOW_RISE_MS) {
+            const yy = R.fy + (R.topY - R.fy) * (t / FLOW_RISE_MS);
+            if (yy >= bottom) continue;              // still hidden behind the tank
+            ctx.fillStyle = "#C0182C";
+            ctx.fillRect(x - 2, Math.round(yy), 4, 16);
+            ctx.fillStyle = "#FF5A5A";
+            ctx.fillRect(x - 1, Math.round(yy), 2, 5);
+        } else if (t < FLOW_RISE_MS + FLOW_POUR_MS) {
+            const k2 = (t - FLOW_RISE_MS) / FLOW_POUR_MS;
+            ctx.fillStyle = "#C0182C";
+            ctx.fillRect(Math.round(R.mx - 2), Math.round(R.my + 6), 4, Math.round(4 + 8 * (1 - k2)));
+            ctx.fillStyle = "#8A1020";
+            ctx.fillRect(Math.round(R.mx - 5 - 3 * k2), Math.round(R.my + 14), Math.round(10 + 6 * k2), 3);
         }
     }
 }
 
 function drawTallSilo(i, si, now) {
     const lift = SILO_LIFT;
-    const frac = Math.min(1, siloFill[i] / siloCapacity(i));
+    const frac = Math.min(1, arcadeShownFill(i) / siloCapacity(i));     // lags the kills: THE BLOOD RUN
     const ready = siloReady(i), done = siloFlipped[i];
     // Ground shadow.
     ctx.fillStyle = "rgba(0,0,0,0.45)";
@@ -4125,8 +4365,8 @@ function arcadeDrawTall(now, inView) {
     for (let i = 0; i < list.length; i++) {
         if (list[i].tree) drawTallTree(list[i].tree);
         else if (list[i].prop) drawSetProp(list[i].prop);
-        else if (list[i].giant) drawGiantSilo(now);
-        else drawTallSilo(list[i].silo, silos[list[i].silo], now);
+        else if (list[i].giant) { drawGiantSilo(now); for (let k = 0; k < silos.length; k++) arcadeDrawRiser(k, now); }
+        else { drawTallSilo(list[i].silo, silos[list[i].silo], now); arcadeDrawRiser(list[i].silo, now); }
     }
 }
 

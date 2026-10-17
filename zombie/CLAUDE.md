@@ -63,6 +63,29 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### The blood run: one pipe, a riser, a lagging gauge, a funnel to the brim (2026-10-16, branch `zombie-funnel-pipes`)
+
+`zombie-arcade.js` "THE BLOOD RUN". Purely visual; nothing new on the wire.
+
+- **One pipe per tank** (it was two side by side). It comes up out of the ground through an elbow at
+  the funnel's rim, runs along the ground with a dark sight slot down its middle, and stands up
+  beside the tank as a **riser** with a gooseneck over the lid, where it pours (`arcadeRiser`,
+  `arcadeDrawRiser`, drawn in the tall pass right after its tank). A riser at the tank's back shows
+  only its neck above the lid. Map 4's pipes now end on the ground at the reservoir's back or front
+  edge (`nx`/`ny` on the pipe) instead of on the lid's back in screen space.
+- **Every funnel kill is a pulse** (`arcFlow`, spawned by watching `siloFill` change, so a guest
+  gets them off the snapshot): blood particles drawn into the grate (`FLOW_GATHER_MS` 450), a slug
+  down the pipe (`FLOW_SPEED` 380px/s), up the riser (`FLOW_RISE_MS` 550), a pour (`FLOW_POUR_MS`
+  320), and only then does the tank's gauge rise. That's about 1.4–1.6s on map 1.
+- **`siloFill` is still the truth.** The gauge reads `arcadeShownFill()` (fill minus pulses in
+  flight). The switch, the lid's READY flash, the labels and the score all read `siloFill`, so a
+  tank can read READY while its last pulse is still in the pipe. That's an open design question.
+- **The funnel fills to the brim.** The pool (`arcadeFunnelFill`) rises from the grate to the
+  rim; a full, unflipped tank is a funnel full to the lip. The grate shows through a shallow pool
+  and is drowned by a deep one.
+- A jump of more than `FLOW_MAX_JUMP` (6) in one frame (a join, a reset, a level change) snaps
+  with no pulses.
+
 ### Grass masks, the long warehouse, concrete, low grass (2026-10-16)
 
 - **One ground grid** (`arcadeGrassGrid`, 20px, built lazily per level, bits `GB_STRUCT / ROAD / NEAR / CONC / TREE`)
