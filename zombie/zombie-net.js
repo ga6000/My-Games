@@ -139,9 +139,22 @@ MP.connect({
         netIsHost = info.isHost;
         netPrefix = info.selfId || "solo";
         // The seed only becomes known here, so the level built at page
-        // load came from a throwaway local seed. Rebuild it.
-        generateLevel();
-        if (typeof lobbyLevelRebuilt === "function") lobbyLevelRebuilt();
+        // load came from a throwaway local seed. Rebuild it -- BUT NOT IF A
+        // RUN IS ALREADY GOING (2026-10-16). onReady fires when the socket
+        // lands, or when mp-core's 6s connect timeout gives up and hands over
+        // a "solo" identity; on a phone's network that is easily after the
+        // player has tapped READY. generateLevel() rebuilds the arena arrays
+        // (funnelActive, siloFill ...), so a rebuild mid-run left tank 1's
+        // funnel dead and its count at 0: "silo 1 intermittently not filling",
+        // seen on mobile only because a laptop connects before anyone clicks.
+        // Same rule onPeerSync already follows: once the run is in play, keep
+        // the geometry on screen and only re-pin MP's stream to it.
+        if (gameStarted) {
+            MP.reseed(levelSeed);
+        } else {
+            generateLevel();
+            if (typeof lobbyLevelRebuilt === "function") lobbyLevelRebuilt();
+        }
         if (typeof lobbyPeersChanged === "function") lobbyPeersChanged();
     },
 

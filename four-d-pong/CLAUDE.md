@@ -422,4 +422,4 @@ one. Each is a 45° line, so the reflection has a closed form and needs no dot p
   between two advanced paddles, and a stuck ball is worse than a soft one. Now that every seat can
   reach the middle it will be *seen* more often, so it is worth a decision if it grates.
 
-<!-- doc-sync: 5a2113a9 | 2026-10-15 -->
+<!-- doc-sync: 5a2113a9 | 2026-10-17 -->

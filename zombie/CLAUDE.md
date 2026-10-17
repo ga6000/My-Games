@@ -63,6 +63,17 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### Silo 1 not filling on phones: `onReady` rebuilt the level mid-run (2026-10-16)
+
+Reported on two mobile sessions, never on a laptop. **Cause:** `MP.connect`'s `onReady` called
+`generateLevel()` unconditionally. It fires when the socket lands, or when mp-core's 6s connect timeout
+hands over a solo identity, and on a phone's network that is easily *after* the player has tapped READY.
+`generateLevel()` rebuilds the arena arrays, so `funnelActive` went all-false and `siloFill` zero: tank 1's
+funnel was dead and nothing counted. Reproduced headless (`arcadeStart`, fill 4, `generateLevel()` ->
+`funnelActive [false,false,false]`, fill `[0,0,0]`). **Fix:** `onReady` now only re-pins the seed
+(`MP.reseed(levelSeed)`) once `gameStarted`, exactly as `onPeerSync` already did; the rebuild still
+happens before a run. Not re-verified on a phone.
+
 ### Fifteenth: gamepad and phone controls (2026-10-14)
 
 User request; plan in `INPUT_PLAN.md`. **Reverses the 2026-09-04 "mobile switched off" decision for
@@ -3533,4 +3544,4 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
-<!-- doc-sync: 421f57ba | 2026-10-15 -->
+<!-- doc-sync: afd5607d | 2026-10-17 -->
