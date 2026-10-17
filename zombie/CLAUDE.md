@@ -90,6 +90,15 @@ at the real kill.
   runs over the lip. An overflow kill's spatter is thrown out over the lip.
 - **Measured in the page:** 13 kills at once fill the funnel to 10 (3 spilled), then drain one per
   ~0.65s. The tank reaches 10/10 and READY about 8s later, never before its last blood lands.
+- **Smoothed and dressed (2026-10-17).** The pool follows the backlog on a soft, slightly
+  underdamped spring (`arcadeFunnelLevel`, `POOL_K`/`POOL_C`), so kills and drains blend into one
+  level that ebbs and swells instead of ticking between two. The pool's radius goes as the square
+  root of the level, it sways while blood is moving, and the pulsing colour flash is gone. The
+  overflow got a full treatment (`arcadeDrawPuddle`, `arcadeDrawOverflow`): a ground puddle with an
+  irregular edge that spreads to `PUDDLE_MAX` (58px) while it overflows and soaks away after, drawn
+  under the bowl; sheets over the lip ending in round lobes inside the puddle, with flow marks; a
+  swollen meniscus; stepped ripples and popping bubbles; overflow spatter arcs out and lands. Flat
+  fills only. Verified: with the raw backlog flipping 3/4/5, the drawn level glides 0.41 to 0.33.
 - **Gameplay effect worth a playtest:** overflow wastes kills, so killing faster than the drain on
   a big tank (20) no longer helps once the funnel is brim-full.
 

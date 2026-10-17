@@ -3932,12 +3932,89 @@ function treeFullHeight(cw) {
 }
 
 // A grey bowl: rings stepping darker and slightly DOWN toward the middle (the
-// pseudo-depth), blood pooling at the bottom as the tank fills, and a grate.
+// pseudo-depth), the blood it holds, and a grate.
+//
+// THE POOL (2026-10-17: "the stepping of backfill ... should be smoothed ...
+// it's just ticking back and forth between the same few levels"). The host's
+// backlog moves in whole kills -- up one per kill, down one per drain -- and
+// drawn raw that reads as a flicker between two levels. Each client now
+// follows it with a soft SPRING (arcadeFunnelLevel), slightly underdamped,
+// so kills and drains blend into one level that ebbs and swells. The pool's
+// radius goes as the square root of the level (a bowl widens as it fills),
+// and the surface sways a little while blood is moving.
+//
+// THE OVERFLOW (2026-10-17: "looks a little bit cheap"). At the brim:
+//   a PUDDLE on the ground round the funnel, an irregular edge that spreads
+//     while it overflows and slowly soaks away after (drawn BEFORE the bowl,
+//     so the bowl sits in it);
+//   SHEETS of blood over the lip that feed it, with flow lines running out;
+//   a swollen MENISCUS over the rim, RIPPLES and BUBBLES on the surface;
+//   each overflowing kill's spatter ARCS out over the lip and lands in the
+//     puddle.
+// Flat fills in a few shades, no gradients, like everything else here.
+const POOL_K = 9;                 // spring stiffness (1/s^2)
+const POOL_C = 4.6;               // damping (a little under critical: a soft swell)
+const PUDDLE_MAX = 58;            // px past the rim
+const BLOOD_DARK = "#3E060D", BLOOD = "#6A0C18", BLOOD_MID = "#8A1020", BLOOD_LIT = "#B01428", BLOOD_HOT = "#E0343E";
+
+// This client's smoothed view of funnel i: level 0..1 (spring), overflow
+// 0..1 (eased), puddle px. Advanced once per frame here; nothing on the wire.
+function arcadeFunnelLevel(i, now) {
+    const S = arcFlow.pool || (arcFlow.pool = []);
+    let p = S[i];
+    const target = Math.min(1, (funnelBacklog[i] || 0) / FUNNEL_HOLD);
+    if (!p) p = S[i] = { x: target, v: 0, ov: 0, pud: 0, t: now };
+    const dt = Math.min(0.05, Math.max(0, (now - p.t) / 1000));
+    p.t = now;
+    p.v += ((target - p.x) * POOL_K - p.v * POOL_C) * dt;
+    p.x = clamp(p.x + p.v * dt, 0, 1.03);
+    const brim = (funnelBacklog[i] || 0) >= FUNNEL_HOLD;
+    p.ov = brim ? Math.min(1, p.ov + dt * 1.6) : Math.max(0, p.ov - dt * 0.5);
+    p.pud = p.ov > 0.4 ? Math.min(PUDDLE_MAX, p.pud + dt * 7 * p.ov) : Math.max(0, p.pud - dt * 2.2);
+    return p;
+}
+
+// A fixed, irregular edge per funnel: the same blob every frame, creeping.
+function puddleEdge(i, a, now) {
+    return 0.62 + 0.18 * Math.sin(a * 3 + i * 1.7) + 0.12 * Math.sin(a * 5 + i * 0.9)
+         + 0.08 * Math.sin(a * 7 + i * 2.3 + now / 2400);
+}
+
+function arcadeDrawPuddle(f, i, P, now) {
+    if (P.pud < 1) return;
+    const N = 36;
+    const blob = function (scale, col) {
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        for (let n = 0; n <= N; n++) {
+            const a = n / N * Math.PI * 2;
+            const r = f.r + P.pud * puddleEdge(i, a, now) * scale;
+            const x = f.x + Math.cos(a) * r, y = f.y + Math.sin(a) * r * 0.92 + 4;
+            if (n) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        }
+        ctx.fill();
+    };
+    blob(1.0, BLOOD_DARK);
+    blob(0.8, BLOOD);
+    blob(0.45, BLOOD_MID);
+    // Glints on the wet ground, toward the light (up-left).
+    ctx.fillStyle = BLOOD_LIT;
+    for (let k = 0; k < 5; k++) {
+        const a = Math.PI * 1.1 + k * 0.32 + i * 0.4;
+        const r = f.r + P.pud * puddleEdge(i, a, now) * 0.6;
+        ctx.fillRect(Math.round(f.x + Math.cos(a) * r), Math.round(f.y + Math.sin(a) * r * 0.92 + 4), 4 + (k % 2) * 3, 2);
+    }
+}
+
 function arcadeDrawFunnels(now, inView) {
     for (let i = 0; i < funnels.length; i++) {
         const f = funnels[i];
-        if (!f || !inView(f.x - f.r, f.y - f.r, f.r * 2, f.r * 2)) continue;
+        if (!f) continue;
+        const P = arcadeFunnelLevel(i, now);
+        const reach = f.r + PUDDLE_MAX + 20;
+        if (!inView(f.x - reach, f.y - reach, reach * 2, reach * 2)) continue;
         const live = funnelActive[i];
+        arcadeDrawPuddle(f, i, P, now);
         const steps = ["#5A5A5A", "#4A4A4A", "#3B3B3B", "#2D2D2D", "#202020"];
         for (let s = 0; s < steps.length; s++) {
             const r = f.r * (1 - s * 0.17);
@@ -3969,25 +4046,33 @@ function arcadeDrawFunnels(now, inView) {
             ctx.restore();
         };
         bars();
-        // What it holds: the BACKLOG (THE BLOOD RUN), from the grate to the
-        // brim -- 2026-10-16: "allow for funnel to be filled past grate even
-        // allowing for it to be completely filled to the brim". As it rises
-        // its centre climbs out of the bowl's depth (the rings step 3px).
-        const L = Math.min(1, (funnelBacklog[i] || 0) / FUNNEL_HOLD);
+        // The pool: the smoothed backlog, from the grate to the brim
+        // (2026-10-16: "allow for funnel to be filled past grate even
+        // allowing for it to be completely filled to the brim").
+        const L = Math.min(1, P.x);
         let poolR = 0;
-        if (L > 0) {
-            const rb = f.r * (0.1 + 0.88 * L), cy = f.y + 12 * (1 - L);
+        if (L > 0.005) {
+            const sway = Math.abs(P.v) * 6 + (live ? 0.6 : 0);
+            const rb = Math.min(f.r - 1, f.r * (0.1 + 0.88 * Math.sqrt(L)) + Math.sin(now / 380 + i) * sway);
+            const cy = f.y + 12 * (1 - L);
             poolR = rb;
-            ctx.fillStyle = "#4A0810";
+            ctx.fillStyle = BLOOD_DARK;
             ctx.beginPath();
             ctx.arc(f.x, cy, rb, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = (live && now % 900 < 450) ? "#8A1020" : "#6A0C18";
+            ctx.fillStyle = BLOOD;
             ctx.beginPath();
-            ctx.arc(f.x, cy - 1, rb * 0.86, 0, Math.PI * 2);
+            ctx.arc(f.x, cy - 1, rb * 0.88, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = "#A8182A";                   // the surface's lit crescent
-            ctx.fillRect(Math.round(f.x - rb * 0.45), Math.round(cy - rb * 0.62), Math.round(rb * 0.5), Math.max(2, Math.round(rb * 0.08)));
+            ctx.fillStyle = BLOOD_MID;
+            ctx.beginPath();
+            ctx.arc(f.x - rb * 0.08, cy - rb * 0.1, rb * 0.6, 0, Math.PI * 2);
+            ctx.fill();
+            // The surface's lit crescent, drifting a little.
+            const hx = f.x - rb * 0.5 + Math.sin(now / 900 + i) * rb * 0.06;
+            ctx.fillStyle = BLOOD_LIT;
+            ctx.fillRect(Math.round(hx), Math.round(cy - rb * 0.66), Math.round(rb * 0.46), Math.max(2, Math.round(rb * 0.07)));
+            ctx.fillRect(Math.round(hx + rb * 0.1), Math.round(cy - rb * 0.56), Math.round(rb * 0.22), Math.max(2, Math.round(rb * 0.05)));
             // The grate shows through a shallow pool, and is gone under a deep one.
             if (rb < g * 1.6) {
                 ctx.globalAlpha = 0.55 * (1 - Math.max(0, rb - g) / (g * 0.6));
@@ -3995,39 +4080,24 @@ function arcadeDrawFunnels(now, inView) {
                 ctx.globalAlpha = 1;
             }
         }
-        // OVERFLOWING: at the brim, blood runs over the lip in a few places
-        // and spreads on the ground outside it.
-        if (L >= 1) {
-            // A wet ring over the lip, and runs down the outside that grow,
-            // pause and grow again.
-            ctx.strokeStyle = "#7A0E1A";
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.arc(f.x, f.y, f.r + 1, 0, Math.PI * 2);
-            ctx.stroke();
-            for (let k = 0; k < 8; k++) {
-                const a = k * 0.785 + i * 0.7 + (k % 2) * 0.2;
-                const grow = Math.min(34, (now / 9 + k * 53) % 48);
-                const bx = f.x + Math.cos(a) * f.r, by = f.y + Math.sin(a) * f.r;
-                for (let d = 0; d < grow; d += 4) {
-                    const w = d < 6 ? 8 : 6 - Math.floor(d / 12);
-                    ctx.fillStyle = d + 4 >= grow ? "#B01428" : "#7A0E1A";
-                    ctx.fillRect(Math.round(bx + Math.cos(a) * d - w / 2), Math.round(by + Math.sin(a) * d - w / 2), w, w);
-                }
-            }
-        }
+        if (P.ov > 0.02) arcadeDrawOverflow(f, i, P, now);
         // Each kill's blood, from where it fell, drawn into the grate -- or,
-        // at the brim, thrown out over the lip.
+        // at the brim, thrown out over the lip in an arc into the puddle.
         for (let k = 0; k < arcFlow.parts.length; k++) {
             const q = arcFlow.parts[k];
             if (q.i !== i || now < q.t0) continue;
             const e = Math.min(1, (now - q.t0) / q.dur), ee = e * e;
-            let tx = gcx, ty = gcy;
-            if (q.over) { tx = f.x + Math.cos(q.a) * (f.r + 18); ty = f.y + Math.sin(q.a) * (f.r + 18); }
+            let tx = gcx, ty = gcy, hop = 0;
+            if (q.over) {
+                const rr = f.r + 10 + (P.pud + 8) * (0.4 + 0.5 * Math.abs(Math.sin(q.a * 3)));
+                tx = f.x + Math.cos(q.a) * rr; ty = f.y + Math.sin(q.a) * rr;
+                hop = Math.sin(e * Math.PI) * 26;
+            }
             const dx = tx - q.sx, dy = ty - q.sy, d = Math.hypot(dx, dy) || 1;
-            const wob = Math.sin(e * Math.PI) * q.wob;
+            const ex = q.over ? e : ee;
+            const wob = q.over ? 0 : Math.sin(e * Math.PI) * q.wob;
             ctx.fillStyle = q.col;
-            ctx.fillRect(Math.round(q.sx + dx * ee - dy / d * wob), Math.round(q.sy + dy * ee + dx / d * wob), q.sz, q.sz);
+            ctx.fillRect(Math.round(q.sx + dx * ex - dy / d * wob), Math.round(q.sy + dy * ex + dx / d * wob - hop), q.sz, q.sz);
         }
         if (poolR < g * 1.6) {                           // the grate's rim, until the pool drowns it
             ctx.strokeStyle = "#333333";
@@ -4037,6 +4107,97 @@ function arcadeDrawFunnels(now, inView) {
             ctx.stroke();
         }
     }
+}
+
+// The brim: a swollen meniscus over the rim, sheets over the lip feeding
+// the puddle with flow running out along them, rings and bubbles on top.
+function arcadeDrawOverflow(f, i, P, now) {
+    const ov = P.ov;
+    // The meniscus: blood standing proud of the rim, all the way round.
+    ctx.strokeStyle = BLOOD_DARK;
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r + 1, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = BLOOD_MID;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r - 1, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = BLOOD_LIT;                    // its lit top edge
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r - 2, Math.PI * 1.1, Math.PI * 1.75);
+    ctx.stroke();
+    // Sheets over the lip: wide at the rim, narrowing out to where the
+    // puddle has got to, each with flow marks running outward.
+    for (let k = 0; k < 7; k++) {
+        const a = k * 0.898 + i * 0.6 + Math.sin(k * 2.1) * 0.25;
+        // Ends INSIDE the puddle (a sheet that ran past it would read as a spike).
+        const len = (4 + P.pud * puddleEdge(i, a, now) * 0.8) * ov;
+        if (len < 3) continue;
+        const w0 = 10 + (k % 3) * 3, w1 = 7;
+        const ca = Math.cos(a), sa = Math.sin(a), px = -sa, py = ca;
+        const bx = f.x + ca * (f.r - 3), by = f.y + sa * (f.r - 3);
+        const tx = bx + ca * len, ty = by + sa * len;
+        ctx.fillStyle = BLOOD;
+        ctx.beginPath();
+        ctx.moveTo(bx + px * w0, by + py * w0);
+        ctx.lineTo(tx + px * w1, ty + py * w1);
+        ctx.lineTo(tx - px * w1, ty - py * w1);
+        ctx.lineTo(bx - px * w0, by - py * w0);
+        ctx.fill();
+        ctx.beginPath();                                 // a round, heavy lobe where it lands
+        ctx.arc(tx, ty, w1 + 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = BLOOD_MID;
+        ctx.beginPath();
+        ctx.moveTo(bx + px * w0 * 0.5, by + py * w0 * 0.5);
+        ctx.lineTo(tx + px * w1 * 0.4, ty + py * w1 * 0.4);
+        ctx.lineTo(tx - px * w1 * 0.4, ty - py * w1 * 0.4);
+        ctx.lineTo(bx - px * w0 * 0.5, by - py * w0 * 0.5);
+        ctx.fill();
+        // Flow: short lit dashes sliding outward along the sheet.
+        ctx.fillStyle = BLOOD_LIT;
+        const speed = 34;
+        for (let d = ((now / 1000) * speed + k * 11) % 14; d < len - 2; d += 14) {
+            const t = d / len, w = w0 + (w1 - w0) * t;
+            const off = ((k * 7 + Math.floor(d)) % 3 - 1) * w * 0.35;
+            ctx.fillRect(Math.round(bx + ca * d + px * off - 1), Math.round(by + sa * d + py * off - 1), 3, 3);
+        }
+    }
+    // Ripples on the full surface: rings opening from the middle and fading
+    // out in steps.
+    for (let k = 0; k < 3; k++) {
+        const ph = ((now / 1500) + k / 3) % 1;
+        const rr = f.r * (0.15 + 0.78 * ph);
+        ctx.strokeStyle = ph < 0.2 ? BLOOD_HOT : ph < 0.5 ? BLOOD_LIT : ph < 0.8 ? BLOOD_MID : BLOOD;
+        ctx.lineWidth = ph < 0.5 ? 3 : 2;
+        ctx.globalAlpha = ov;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, rr, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    // Bubbles rising and popping.
+    for (let k = 0; k < 6; k++) {
+        const ph = ((now / 1100) + k * 0.37) % 1;
+        const a = k * 2.4 + Math.floor((now / 1100) + k * 0.37) * 1.3;
+        const r = f.r * (0.2 + 0.55 * ((k * 0.61) % 1));
+        const x = f.x + Math.cos(a) * r, y = f.y + Math.sin(a) * r;
+        const s = ph < 0.8 ? 3 + Math.floor(ph * 4) : 0;
+        if (s) {
+            ctx.fillStyle = BLOOD_DARK;
+            ctx.fillRect(Math.round(x - s / 2), Math.round(y - s / 2), s, s);
+            ctx.fillStyle = BLOOD_HOT;
+            ctx.fillRect(Math.round(x - s / 2), Math.round(y - s / 2), 1, 1);
+        } else {
+            ctx.fillStyle = BLOOD_LIT;                  // the pop
+            ctx.fillRect(Math.round(x - 3), Math.round(y), 2, 1);
+            ctx.fillRect(Math.round(x + 2), Math.round(y), 2, 1);
+            ctx.fillRect(Math.round(x), Math.round(y - 3), 1, 2);
+        }
+    }
+    ctx.globalAlpha = 1;
 }
 
 // ---------------------------------------------------
@@ -4088,7 +4249,7 @@ function arcadeResetBlood(n) {
     funnelDrained = new Array(n).fill(0);
     arcInFlight = [];
     arcDrainAt = [];
-    arcFlow = { arr: null, seen: [], pulses: [], parts: [] };
+    arcFlow = { arr: null, seen: [], pulses: [], parts: [], pool: [] };
 }
 
 // The pipe's route, as built: the rim, horizontally out of the funnel to a
