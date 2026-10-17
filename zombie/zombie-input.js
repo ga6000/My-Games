@@ -280,10 +280,16 @@ const INP_CSS =
     "max-width:calc(100vw - var(--side-w) - 20px);max-height:calc(100vh - 12px);overflow:hidden;box-sizing:border-box}" +
     "body.touch .runscore{font-size:11px;margin:6px auto 4px;line-height:1.35}" +
     "body.touch .runscore .total{font-size:20px}" +
-    "body.touch #startprompt{max-width:calc(100vw - var(--side-w) - 20px);padding:10px 14px;font-size:13px;" +
-    "box-sizing:border-box}" +
-    "body.touch #startprompt .lb-head{font-size:14px;letter-spacing:3px;margin-bottom:8px}" +
-    "body.touch #startprompt .lb-row{gap:12px;margin-bottom:8px}" +
+    // Bottom of the play area, just above the USE / GUN row (bottom:10px, 46px tall),
+    // with small squares so the card stays a strip and the survivor behind it is visible.
+    "body.touch #startprompt{max-width:calc(100vw - var(--side-w) - 20px);padding:6px 12px;font-size:13px;" +
+    "bottom:66px;box-sizing:border-box}" +
+    "body.touch #startprompt .lb-head{font-size:11px;letter-spacing:3px;margin-bottom:4px}" +
+    "body.touch #startprompt .lb-row{gap:10px;margin-bottom:4px}" +
+    "body.touch #startprompt .lb-slot{gap:3px}" +
+    "body.touch #startprompt .lb-box{width:34px;height:34px;border-width:3px}" +
+    "body.touch #startprompt .lb-box.ready::after{width:9px;height:17px;border-width:0 4px 4px 0}" +
+    "body.touch #startprompt .lb-name{font-size:10px;letter-spacing:1px;max-width:70px}" +
     "body.touch #startprompt .lb-hint{font-size:15px;letter-spacing:3px}" +
     "body.touch #spectate,body.touch #netlost,body.touch #zonename,body.touch #roundcard{" +
     "max-width:calc(100vw - var(--side-w) - 20px);box-sizing:border-box;font-size:14px}" +
