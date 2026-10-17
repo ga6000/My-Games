@@ -628,6 +628,8 @@ function applyWorldSnapshot(msg, now) {
     gateProgress = msg.gp || 0;
     if (msg.fa) for (let i = 0; i < msg.fa.length; i++) funnelActive[i] = !!msg.fa[i];
     if (msg.sf) for (let i = 0; i < msg.sf.length; i++) siloFill[i] = msg.sf[i];
+    if (msg.fb) for (let i = 0; i < msg.fb.length; i++) funnelBacklog[i] = msg.fb[i];
+    if (msg.fd) for (let i = 0; i < msg.fd.length; i++) funnelDrained[i] = msg.fd[i];
     if (msg.sp) for (let i = 0; i < msg.sp.length; i++) siloFlipped[i] = !!msg.sp[i];
     if (msg.sw) for (let i = 0; i < msg.sw.length; i++) switchOn[i] = !!msg.sw[i];
     switchWindowUntil = deadlineFrom(msg.swl || 0, now);
@@ -891,6 +893,9 @@ function broadcastWorld() {
         gp: +gateProgress.toFixed(2),
         fa: funnelActive.map(function (v) { return v ? 1 : 0; }),
         sf: siloFill.slice(),
+        // ARCADE: the funnels' backlog and how much each has drained (THE BLOOD RUN).
+        fb: ZOMBIE_ARCADE ? funnelBacklog.slice() : 0,
+        fd: ZOMBIE_ARCADE ? funnelDrained.slice() : 0,
         // ALT: the levers, and the train. `tw` is one scalar per car plus the
         // coupled flag -- TRAIN_RAIL_PLAN 2.3: a guest DERIVES every rect
         // from these rather than interpolating a position, so a rider's

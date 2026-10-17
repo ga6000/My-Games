@@ -176,6 +176,7 @@ function resetEndgame() {
     switchWindowUntil = 0;
     funnelActive = [false, false, false];
     siloFill = [0, 0, 0];
+    if (typeof arcadeResetBlood === "function") arcadeResetBlood(3);
     siloFlipped = [false, false, false];
     floodActive = false;
     floodRemaining = 0;
@@ -385,6 +386,8 @@ function funnelIndexAt(x, y) {
 }
 
 function creditFunnelKill(x, y) {
+    // ARCADE: the funnel is a backlog that drains into the tank (THE BLOOD RUN).
+    if (ZOMBIE_ARCADE) { arcadeCreditFunnelKill(x, y); return; }
     const i = funnelIndexAt(x, y);
     if (i < 0 || siloFill[i] >= siloCapacity(i)) return;
     siloFill[i]++;
@@ -506,6 +509,7 @@ function updateEndgame(now, dt) {
     // ARCADE: the rail is scenery until it is cut -- its cars do not move.
     if (!ZOMBIE_ARCADE && typeof trainUpdate === "function") trainUpdate(now, dt);
     if (won) return;
+    if (ZOMBIE_ARCADE) arcadeUpdateBlood(now);     // funnels drain, blood lands
     updateGate(dt);
     updateFlood(now);
     if (ZOMBIE_ARCADE) arcadeUpdateEscape();

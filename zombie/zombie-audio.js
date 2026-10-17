@@ -373,6 +373,8 @@ function sirenCall() {
 function playEvent(code, x, y, arg) {
     // The lever's fall is timed from this event on every client, heard or not.
     if (code === SND_THUNK && typeof arcadeLeverThrown === "function") arcadeLeverThrown(arg || 0);
+    // A funnel kill's blood, from where it fell, on every client (THE BLOOD RUN).
+    if (code === SND_CRATE && typeof arcadeFunnelSplash === "function") arcadeFunnelSplash(x, y);
     if (zDemo) return;                // the attract run is silent
     if (!audioCtx || audioMuted) return;
     // "sound & player input should stop at this time" (2026-09-19). The walk

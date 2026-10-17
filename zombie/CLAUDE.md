@@ -63,28 +63,35 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
-### The blood run: one pipe, a riser, a lagging gauge, a funnel to the brim (2026-10-16, branch `zombie-funnel-pipes`)
+### The blood run: a backlog funnel, one L-shaped pipe, a riser, READY waits for the blood (2026-10-16, branch `zombie-funnel-pipes`)
 
-`zombie-arcade.js` "THE BLOOD RUN". Purely visual; nothing new on the wire.
+`zombie-arcade.js` "THE BLOOD RUN". The user's calls: the tank must WAIT for the blood; the funnel
+is a BACKLOG that drains steadily and OVERFLOWS, and kills past the tank's capacity still fill it;
+the pipe goes HORIZONTALLY out of the funnel and elbows 90 degrees up the tank; the spatter starts
+at the real kill.
 
-- **One pipe per tank** (it was two side by side). It comes up out of the ground through an elbow at
-  the funnel's rim, runs along the ground with a dark sight slot down its middle, and stands up
-  beside the tank as a **riser** with a gooseneck over the lid, where it pours (`arcadeRiser`,
-  `arcadeDrawRiser`, drawn in the tall pass right after its tank). A riser at the tank's back shows
-  only its neck above the lid. Map 4's pipes now end on the ground at the reservoir's back or front
-  edge (`nx`/`ny` on the pipe) instead of on the lid's back in screen space.
-- **Every funnel kill is a pulse** (`arcFlow`, spawned by watching `siloFill` change, so a guest
-  gets them off the snapshot): blood particles drawn into the grate (`FLOW_GATHER_MS` 450), a slug
-  down the pipe (`FLOW_SPEED` 380px/s), up the riser (`FLOW_RISE_MS` 550), a pour (`FLOW_POUR_MS`
-  320), and only then does the tank's gauge rise. That's about 1.4–1.6s on map 1.
-- **`siloFill` is still the truth.** The gauge reads `arcadeShownFill()` (fill minus pulses in
-  flight). The switch, the lid's READY flash, the labels and the score all read `siloFill`, so a
-  tank can read READY while its last pulse is still in the pipe. That's an open design question.
-- **The funnel fills to the brim.** The pool (`arcadeFunnelFill`) rises from the grate to the
-  rim; a full, unflipped tank is a funnel full to the lip. The grate shows through a shallow pool
-  and is drowned by a deep one.
-- A jump of more than `FLOW_MAX_JUMP` (6) in one frame (a join, a reset, a level change) snaps
-  with no pulses.
+- **Host-owned model.** A kill inside an accepting funnel (live, or full-and-unpumped) adds to
+  `funnelBacklog[i]`, up to `FUNNEL_HOLD` (10). Past that the funnel overflows and the kill is
+  spilled. Every `FUNNEL_DRAIN_MS` (650) one unit leaves while the tank has room
+  (`funnelDrained[i]++`). It lands after its travel time (pipe length at `FLOW_SPEED` 380px/s +
+  `FLOW_RISE_MS` 550 + `FLOW_POUR_MS` 320), and only then does `siloFill` go up. So READY, the
+  switch, the labels and the score all wait for the blood. `arcadeUpdateBlood` runs from
+  `updateEndgame`. A promoted host re-creates the in-flight blood from `funnelDrained - siloFill`.
+- **The wire:** `fb` (backlog) and `fd` (drained, a running count). Every client draws a pulse down
+  the pipe for each rise in `fd`. The kill's spatter comes off the `SND_CRATE` event
+  `creditFunnelKill` already sends, at the kill's own spot (`arcadeFunnelSplash`, hooked in
+  `playEvent`).
+- **The route** (`arcadePipeRoute`, stored in `siloPipes` with a corner `cx,cy`): out of the
+  funnel horizontally, a 90-degree elbow, to a riser's foot beside the tank. The riser climbs the
+  tank's side and a gooseneck pours over the lid (`arcadeDrawRiser`, in the tall pass after its
+  tank). On map 4 each riser stands in the gap between two bays, clear of the sight-glasses and
+  switches. Back risers show only their neck above the lid.
+- **The funnel** draws the backlog from the grate to the brim, and at the brim a wet ring and
+  runs over the lip. An overflow kill's spatter is thrown out over the lip.
+- **Measured in the page:** 13 kills at once fill the funnel to 10 (3 spilled), then drain one per
+  ~0.65s. The tank reaches 10/10 and READY about 8s later, never before its last blood lands.
+- **Gameplay effect worth a playtest:** overflow wastes kills, so killing faster than the drain on
+  a big tank (20) no longer helps once the funnel is brim-full.
 
 ### Grass masks, the long warehouse, concrete, low grass (2026-10-16)
 
