@@ -23,6 +23,23 @@
 // BRANCH is solid from ABOVE ONLY: you spring off it, you do not run into it.
 // Keeping that asymmetry here rather than in CR_SOLID is why CR_SOLID can stay
 // a plain lookup.
+/*
+ * HOW FORGIVING THE CONTROLS ARE, THIS LEVEL. CR_PHYS.coyote and .jumpBuffer
+ * are the strictest (level 10) values; crLevelSpec's `forgiveness` scales them
+ * up to 1.8x on level 1.
+ *
+ * This is the part of "early levels should allow for imprecise input" that
+ * geometry cannot do. On level 1 a jump pressed a sixth of a second after you
+ * walked off a ledge still fires, and one pressed a sixth of a second before
+ * you land is still waiting when you do. By level 10 neither is true, and
+ * nothing on screen ever says so -- it is felt, which is the point.
+ */
+function crForgive() {
+    return (crLevel && crLevel.spec && crLevel.spec.forgiveness) || 1;
+}
+function crCoyote() { return CR_PHYS.coyote * crForgive(); }
+function crBuffer() { return CR_PHYS.jumpBuffer * crForgive(); }
+
 function crSolidForX(code) {
     return code !== CR_T.EMPTY && code !== CR_T.BRANCH && crTileSolid(code);
 }
@@ -63,6 +80,34 @@ function crMoveX(level, b, dx) {
 // ===================================================
 //   VERTICAL
 // ===================================================
+/*
+ * THE EPSILON ON THE BOTTOM EDGE IS THE MOST LOAD-BEARING NUMBER IN THIS FILE.
+ *
+ * It was `b.y + b.h - 1`, a one-pixel inset, which is the normal idiom for the
+ * LAST pixel inside an AABB and is right for the horizontal scan above. For a
+ * body resting on a platform it is catastrophic. crLand snaps the feet to
+ * exactly r*TILE -- touching, not overlapping -- so the next step's descent is
+ * gravity for one frame: 0.05px. With a 1px inset the scan then looks at the
+ * row ABOVE the platform, finds nothing, falls through to `onGround = false`,
+ * and the body spends about nineteen frames sinking before it penetrates far
+ * enough to be caught.
+ *
+ * So `onGround` was FALSE for most of every frame of ordinary walking, and
+ * everything keyed off it quietly stopped working: the bots' jumps need
+ * `onGround || coyote`, so they ran off ledges without jumping; crWallProbe
+ * only runs when airborne, so a bot walking past a wall could wall-jump
+ * instead of jumping; and the collapsing blocks are armed from the ground
+ * check, so they often did not arm at all.
+ *
+ * Measured before and after, 8 seeds x 10 levels x 4 bots: 18% of attempts
+ * finished a level, and 1238 route departures happened at plain `walk`
+ * waypoints -- bots walking calmly off the cliff. See cliff-run/CLAUDE.md.
+ *
+ * The horizontal scan keeps its 1px inset on purpose: there it is what stops a
+ * body standing on a floor from catching that floor tile's SIDE as it walks.
+ */
+var CR_EPS = 0.0001;
+
 function crMoveY(level, b, dy) {
     if (dy === 0) return;
     var prevBottom = b.y + b.h;
@@ -71,9 +116,16 @@ function crMoveY(level, b, dy) {
     var c0 = Math.floor(b.x / CR_TILE);
     var c1 = Math.floor((b.x + b.w - 1) / CR_TILE);
     var r0 = Math.floor(b.y / CR_TILE);
-    var r1 = Math.floor((b.y + b.h - 1) / CR_TILE);
+    var r1 = Math.floor((b.y + b.h - (dy > 0 ? CR_EPS : 1)) / CR_TILE);
 
-    for (var r = r0; r <= r1; r++) {
+    // Falling resolves against the LOWEST row the body now overlaps (the one
+    // the feet are in), rising against the highest. Scanning the other way
+    // would snap a body to a tile its head is in while its feet land.
+    var step = dy > 0 ? -1 : 1;
+    var from = dy > 0 ? r1 : r0;
+    var to = dy > 0 ? r0 : r1;
+
+    for (var r = from; dy > 0 ? r >= to : r <= to; r += step) {
         for (var c = c0; c <= c1; c++) {
             var code = crGet(level, c, r);
             if (code === CR_T.EMPTY) continue;
@@ -93,7 +145,28 @@ function crMoveY(level, b, dy) {
             return;
         }
     }
-    if (dy > 0) b.onGround = false;
+}
+
+/*
+ * The ground under the feet, probed 1px down, independently of whether a
+ * collision happened this frame. This is what keeps `onGround` honest between
+ * collisions instead of inferring it from one -- the inference is what the note
+ * above is about.
+ *
+ * BRANCH is excluded: you never REST on a branch, you are thrown off it, and
+ * crLand owns that. Reporting it as ground would re-fire the spring every frame
+ * the body sat in it.
+ */
+function crGroundUnder(level, b) {
+    var r = Math.floor((b.y + b.h + 1) / CR_TILE);
+    var c0 = Math.floor(b.x / CR_TILE);
+    var c1 = Math.floor((b.x + b.w - 1) / CR_TILE);
+    for (var c = c0; c <= c1; c++) {
+        var code = crGet(level, c, r);
+        if (code === CR_T.BRANCH) continue;
+        if (crSolidForDown(code)) return { code: code, col: c, row: r };
+    }
+    return null;
 }
 
 /*
@@ -105,7 +178,13 @@ function crLand(level, b, code, col, row) {
         // Auto-spring, not a timed input. CLIFF_RUN_PLAN.md 6: this is a
         // trampoline so that the bots can use branches at all, and it happens
         // to read better for a person than a one-frame window would.
+        //
+        // FORWARD as well as up -- see the note on CR_PHYS.springVel. The
+        // throw keeps whichever way the body was already going, so a branch
+        // never reverses you into the avalanche.
         b.vy = CR_PHYS.springVel + (b.inp.jump ? CR_PHYS.springHeldBonus : 0);
+        var dir = Math.abs(b.vx) > 8 ? crSign(b.vx) : b.face;
+        b.vx = dir * CR_PHYS.springVx;
         b.onGround = false;
         b.jumpsUsed = 1;
         b.springFlash = 0.25;
@@ -118,7 +197,8 @@ function crLand(level, b, code, col, row) {
     b.onGround = true;
     b.groundCode = code;
     b.jumpsUsed = 0;
-    b.coyote = CR_PHYS.coyote;
+    b.airJumps = 1;             // the baseline air jump comes back on contact
+    b.coyote = crCoyote();
     if (wasAir) crSfxLand();
 
     if (code === CR_T.CRUMBLE || code === CR_T.TIMED) crTouchTile(level, col, row);
@@ -174,11 +254,27 @@ function crStepBody(level, b, dt) {
     if (b.springFlash > 0) b.springFlash -= dt;
 
     // ---- wall state
+    /* THE WALL ASKS FOR NOTHING. You touch it, you cling; you press jump, you
+       go up and away from it. No direction to hold, no window to hit, nothing
+       to release at the right moment.
+     *
+     * It was Celeste's wall: hold INTO the wall to slide, jump, then press
+     * back to return. That is a precision mechanic from a precision game, and
+     * the user's verdict is the right one -- "I wouldn't expect a friend group
+     * to get it down". A four-player party platformer cannot have a required
+     * move that takes an afternoon to learn, because three of the four people
+     * at the keyboard have never played it before.
+     *
+     * So clinging is automatic whenever you are airborne and falling beside a
+     * wall, and the steer lock after a wall jump is short enough that you are
+     * back in control almost immediately (CR_PHYS.wallSteerLock). The skill
+     * that remains is WHEN, which everyone already has.
+     */
     var probe = b.onGround ? 0 : crWallProbe(level, b);
     if (probe !== 0) { b.wallDir = probe; b.wallGrace = CR_PHYS.wallStickGrace; }
     else if (b.wallGrace <= 0) b.wallDir = 0;
 
-    var pressingWall = (b.wallDir === -1 && inp.left) || (b.wallDir === 1 && inp.right);
+    var pressingWall = b.wallDir !== 0 && b.vy > 0;
 
     // ---- dash
     if (inp.dash && b.dashCool <= 0 && b.dashTime <= 0) {
@@ -191,7 +287,7 @@ function crStepBody(level, b, dt) {
     if (b.dashTime > 0) b.dashTime -= dt;
 
     // ---- jump, buffered so a press one frame early still counts
-    if (inp.jumpPressed) { b.buffer = CR_PHYS.jumpBuffer; inp.jumpPressed = false; }
+    if (inp.jumpPressed) { b.buffer = crBuffer(); inp.jumpPressed = false; }
     if (b.buffer > 0) {
         if (b.onGround || b.coyote > 0) {
             b.vy = CR_PHYS.jumpVel;
@@ -213,11 +309,29 @@ function crStepBody(level, b, dt) {
             b.wallGrace = 0;
             b.buffer = 0;
             b.jumpsUsed = 1;
+            b.airJumps = 1;     // a wall is contact too: leaving one re-arms you
             crSfxWallJump();
-        } else if (b.djCharges > 0 && b.jumpsUsed <= 1) {
-            b.djCharges--;
+        } else if (b.airJumps > 0) {
+            /* EVERYBODY HAS ONE AIR JUMP, ALWAYS, and it comes back the moment
+               you touch ground or a wall. It used to be a consumable you had
+               to find, which meant the answer to "I mistimed that" was usually
+               "you die". An always-available second jump is the single
+               largest accessibility win available to a platformer: almost
+               every mistake becomes recoverable, and the game gets more
+               dynamic rather than more forgiving-looking, because people start
+               attempting things.
+               The pickup still matters -- it grants an EXTRA stored jump on
+               top of this one (b.djCharges), so a chevron is "I can try the
+               big route" rather than "I am allowed to jump twice". */
+            b.airJumps--;
             b.vy = CR_PHYS.doubleJumpVel;
             b.jumpsUsed = 2;
+            b.buffer = 0;
+            crSfxDoubleJump();
+        } else if (b.djCharges > 0) {
+            b.djCharges--;
+            b.vy = CR_PHYS.doubleJumpVel;
+            b.jumpsUsed = 3;
             b.buffer = 0;
             crSfxDoubleJump();
         }
@@ -247,9 +361,25 @@ function crStepBody(level, b, dt) {
         if (want === 0) {
             var fr = CR_PHYS.friction * dt;
             if (Math.abs(b.vx) <= fr) b.vx = 0; else b.vx -= crSign(b.vx) * fr;
-        } else if (b.vx < target) b.vx = Math.min(target, b.vx + accel * dt);
-        else if (b.vx > target) b.vx = Math.max(target, b.vx - accel * dt);
+        } else {
+            /* MOMENTUM. In the AIR, a body already moving faster than
+               moveSpeed in the direction it is asking for is not slowed down.
+               Without this, air control brakes a branch spring, a dash and a
+               wind tunnel back to walking pace within a tenth of a second --
+               CR_PHYS.airAccel is 900 -- and every one of those mechanics
+               quietly stops carrying you anywhere. Holding the opposite
+               direction still brakes, which is what keeps a spring steerable. */
+            var carrying = !b.onGround &&
+                           Math.abs(b.vx) > CR_PHYS.moveSpeed &&
+                           crSign(b.vx) === want;
+            if (!carrying) {
+                if (b.vx < target) b.vx = Math.min(target, b.vx + accel * dt);
+                else if (b.vx > target) b.vx = Math.max(target, b.vx - accel * dt);
+            }
+        }
     }
+    if (b.vx > CR_PHYS.maxSpeedAir) b.vx = CR_PHYS.maxSpeedAir;
+    else if (b.vx < -CR_PHYS.maxSpeedAir) b.vx = -CR_PHYS.maxSpeedAir;
 
     // ---- gusts. Constant and directional, summed, and at 35% on the ground
     // because a braced runner should be pushed around less than a jumper.
@@ -268,23 +398,36 @@ function crStepBody(level, b, dt) {
     crMoveX(level, b, b.vx * dt);
     crMoveY(level, b, b.vy * dt);
 
+    /* THE RIGHT EDGE OF THE SCREEN IS A WALL. The user's call: players cannot
+       go past it. With a camera that no longer speeds up for anyone, this is
+       what makes the four of you one group -- nobody can bank distance and
+       leave the rest to the avalanche, and the gap between first and last can
+       never exceed one screen. It is also why the bots stopped being strung
+       out across half a level. */
+    var edge = crCam.x + CR_VW - b.w;
+    if (b.x > edge) { b.x = edge; if (b.vx > 0) b.vx = 0; }
+
     if (b.y < 0) { b.y = 0; if (b.vy < 0) b.vy = 0; }
 
-    // Standing still on a collapsing block still arms it: the fuse is about
-    // contact, not about movement, which is what makes the TIMED kind a place
-    // you must not loiter.
-    if (b.onGround) {
-        var fc = Math.floor((b.x + b.w / 2) / CR_TILE);
-        var fr = Math.floor((b.y + b.h + 1) / CR_TILE);
-        var under = crGet(level, fc, fr);
-        if (under === CR_T.CRUMBLE || under === CR_T.TIMED) crTouchTile(level, fc, fr);
-        if (!crSolidForDown(under)) {
-            // The tile that was holding us has gone.
-            var fc2 = Math.floor((b.x + (b.vx >= 0 ? b.w - 1 : 1)) / CR_TILE);
-            if (!crSolidForDown(crGet(level, fc2, fr))) b.onGround = false;
+    /* GROUND IS PROBED, NOT INFERRED. One probe, every step, and it is the
+       single writer of onGround/groundCode/coyote for a body that is not
+       rising. It also arms the collapsing blocks, because the fuse is about
+       CONTACT rather than about movement -- which is what makes the TIMED kind
+       a place you must not loiter, and the instant kind survivable only at a
+       run. See the note on CR_EPS. */
+    if (b.vy >= 0) {
+        var g = crGroundUnder(level, b);
+        if (g) {
+            b.onGround = true;
+            b.groundCode = g.code;
+            b.airJumps = 1;
+            b.coyote = crCoyote();
+            if (g.code === CR_T.CRUMBLE || g.code === CR_T.TIMED) crTouchTile(level, g.col, g.row);
+        } else {
+            b.onGround = false;
+            b.groundCode = CR_T.EMPTY;
         }
     }
-    if (!b.onGround && b.coyote <= 0) b.groundCode = CR_T.EMPTY;
 
     crCollectFor(b);
 }
@@ -457,15 +600,37 @@ function crKill(b, cause) {
     if (b.seat === 0) crLastDeath = cause;
 }
 
+/*
+ * Walking onto a catwalk. The body parks and becomes a wall (crIsWallBody),
+ * which is the spec's own consequence of "your character remains stationary
+ * until other players finish or die".
+ *
+ * IT PARKS FURTHER DOWN THE CATWALK, NOT WHERE IT LANDED, and that is a
+ * deadlock fix rather than a flourish. The approach is one body wide, the
+ * catwalk begins at level.finishCol, and a finisher stops the instant its feet
+ * touch that first tile -- so it comes to rest in the doorway, as a wall, with
+ * everyone still running queued up behind it. Measured: whole levels timed out
+ * at 150s with three live bots shoving the first finisher and nobody able to
+ * get in.
+ *
+ * So each arrival steps two columns further along than the last. The catwalk is
+ * 27 columns of grating; four bodies at that spacing use eight of them.
+ */
 function crFinishBody(b) {
     if (b.finished) return;
     b.finished = true;
     b.finishedAt = crLevelTime;
     b.vx = 0; b.vy = 0;
     crFinishOrder.push(b.seat);
+    var place = crFinishOrder.length;
+
+    if (crLevel) {
+        var parkCol = Math.min(crLevel.cols - 4, crLevel.finishCol + 1 + (place - 1) * 2);
+        b.x = parkCol * CR_TILE;
+    }
+
     // Place bonus: first out of the level is worth more than last, and the
     // coins are already counted, so this is the only thing order pays for.
-    var place = crFinishOrder.length;
     b.score += Math.max(60, 400 - (place - 1) * 90);
     crSfxFinish(place);
 }

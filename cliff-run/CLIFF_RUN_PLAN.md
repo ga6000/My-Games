@@ -270,3 +270,210 @@ node scripts/cliff-run-playtest.js
 Plus the game served over `http` in the browser pane (a `file://` page renders as a static
 snapshot with scripts disabled, so it cannot show that the game *runs*) and opened by double-click
 once, to prove the `file://` constraint holds.
+
+---
+
+# Revision — compact, claustrophobic, strategic (2026-10-17)
+
+The user's second pass, after seeing the first build. Seven changes, and the first
+one sets the scale for all the others.
+
+## R1. The player is a Zombie player
+
+*"player character should appear the same as on zombie."*
+
+`zombie/zombie-render.js` `drawPlayerBody` is a **16×16 filled square** in the
+identity colour with a **4×4 white facing pip** at `centre + facing*13 − 2`, plus
+a 2px white ring while invulnerable and `#FF5555` at 60% height when downed. That
+is the whole sprite. It ports here as-is: the square becomes the body, the pip
+becomes horizontal-only, and the blocky little figure built in the first pass is
+deleted.
+
+This also answers R2's second half for free — a 16px square inside a 24px tile is
+exactly *"players should be slightly smaller blocks within that space."*
+
+## R2. Bigger blocks, smaller player, less screen
+
+| | was | now |
+|---|---|---|
+| `CR_TILE` | 16 | **24** |
+| framebuffer | 480×288 = 30×18 tiles | **480×336 = 20×14 tiles** |
+| player | 10×14 figure | **16×16 square** |
+| lane rows | 3 / 7 / 11 / 15 of 18 | **3 / 6 / 9 / 12 of 14** |
+
+Twenty tiles of sight line instead of thirty, and three rows between lanes
+instead of four. A body 16 tall on a 24 grid still occupies exactly **one row**,
+so the corridor reservation (`CR_CORRIDOR_ROWS`) is unchanged in meaning.
+
+## R3. Slower, more deliberate, and a jump that cannot do everything
+
+*"more slow-moving… more strategy."* Strategy comes from the jump being **unable
+to solve the level by itself**, so the numbers are chosen to make one specific
+thing true: **a plain jump clears a 2-tile gap but not a 2-tile climb.**
+
+| | value | consequence |
+|---|---|---|
+| `gravity` | 1000 | less float than 760 |
+| `moveSpeed` | 120 | 5 tiles/s, down from 6.75 |
+| `jumpVel` | −290 | apex 42px = **1.75 tiles** — one tile up, never two |
+| | | airtime 0.58s → range 70px = **2.9 tiles** → `crMaxGap` = 2 |
+| double jump | −260 | total range ≈ 4.4 tiles → `crMaxGap` = **3** |
+| scroll | 24 → 46 px/s | slack 5.0 falling to 2.6 |
+| level length | 60 → 80 tiles | ~20–28s a level, ten in about four minutes |
+
+So a 2-tile climb and a 3-tile gap are **double-jump-only**, which turns the
+`dj` pickup from a bonus into a key, and *where you spend it* into the decision
+the brief is asking for.
+
+## R4. The cliff is solid, and you run in corridors carved out of it
+
+*"compact… claustrophobic."* The first build drew thin platforms floating in
+black, which reads as open air. A thickening pass after generation grows every
+solid tile **downward** by up to `CR_THICK` rows, stopping at any lane's reserved
+corridor, at `CR_ROW_MAX`, or at rock already there.
+
+Three things fall out of that, all wanted:
+
+- the world reads as **rock with passages cut through it**, not girders in space;
+- the space between two lanes becomes mostly solid, leaving 1–2 row corridors;
+- a hole in an upper lane's floor is a **shaft into the lane below** — so falling
+  costs you height and position instead of the run, and the lanes connect
+  vertically without a single line of code that says "now interact".
+
+Only the bottom lane (row 12) has nothing under it, so only the bottom lane's
+holes are lethal. That asymmetry is deliberate and is the price of the easiest
+spawn being at the top.
+
+## R5. One-block-tall squeezes
+
+*"There should be gaps only a single block tall."* A new `tunnel` segment: floor
+at row R, the body's row R−1 carved, and **rock at R−2**. A 16px body fits a
+24px opening with room; a jump does not. You commit, you cannot dodge, and you
+cannot be bounced over it — which is the most strategic thing a corridor can be
+in a game whose other three players are solid.
+
+## R6. Forgiving at the start, lethal at the end
+
+*"early levels should allow for imprecise input, and maybe the first two levels
+lack the ability to fall off the map."*
+
+- **Levels 1–2 have a floor.** A solid row at `CR_ROW_MAX + 1` across the whole
+  level. You can still lose — the avalanche is the pressure — but you cannot
+  fall out of the world. From level 3 the floor is gone and the void is real.
+- **Input forgiveness ramps down**: `coyote` 0.16 → 0.09s, `jumpBuffer` 0.18 →
+  0.10s, scaled per level, so a late press still works early on.
+- **Gaps ramp up**: 1 tile on levels 1–2, 2 from level 3, and from level 8 some
+  are sized to the double-jump reach so they cannot be crossed without one.
+- **Features unlock in order**: 1–2 nothing but ground and gaps · 3–4 crumbling
+  blocks and squeezes · 5–6 branches and wind · 7–8 chimneys · 9–10 bomb walls
+  and double-jump gaps.
+
+## R7. What has to be re-measured
+
+Every number in `cliff-run/CLAUDE.md` is against the old 16px geometry and is
+void. `scripts/cliff-run-playtest.js` is unchanged and still the arbiter; the
+acceptance bar in it stays where it is.
+
+---
+
+# Movement: the control scheme (2026-10-17, third pass)
+
+The user's verdict on the first two passes: *"I'm looking for something a lot
+more dynamic and easy to play… the jumping off of the wall is hard to master,
+and I wouldn't expect a friend group to get it down."* That is the right call,
+and it is worth saying exactly why the first version was wrong.
+
+**I copied Celeste's wall, and Celeste is a single-player precision game.** Its
+wall-jump asks you to hold *into* a wall, jump, then press *back* to return —
+three correctly-ordered inputs inside about a fifth of a second, for one move.
+That is a reasonable thing to ask of someone who will spend forty hours in a
+game alone. It is not a reasonable thing to ask of the third friend at a
+keyboard who has never seen this before and is about to be eaten by a rock.
+
+## What the good four-player platformers actually do
+
+| Game | What it asks of your hands | The lesson |
+|---|---|---|
+| **SpeedRunners** | Run, jump, slide, and a **one-button grapple that aims itself**. Four players, one forced-scrolling screen, you die when the screen leaves you behind. | The closest relative this game has. Its dynamism comes from a verb that *cannot be fluffed* — you press one key and the hook finds an anchor. |
+| **TowerFall Ascension** | Move, jump, shoot, dodge. Wall-cling is **automatic on contact**; the wall-jump is just "jump while touching a wall". | The single most-copied accessible wall in the genre. No direction, no window, no technique. |
+| **Ultimate Chicken Horse** | Move, jump, wall-jump — and that is the entire verb list. | A party platformer whose depth is in the LEVEL, not the fingers. Groups do manage its wall-jump, because it is one key. |
+| **Rayman Legends** (co-op) | Run, jump, and wall-runs that trigger **by touching the wall**. | Contact-triggered traversal: the level performs the trick, you supply the timing. |
+| **Duck Game** | Move, jump, grab, shoot. | Chaos from items and from each other, never from execution. |
+| **Celeste** | Precise directional wall work, air-dash with eight-way aim. | The one to learn *from* and not copy. It is a game about mastery. |
+
+The pattern across all five of the accessible ones: **the player supplies
+timing and intent; the level and the game supply the execution.**
+
+## The scheme now implemented (Option A — "nothing needs mastery")
+
+```
+A / D  or  ← / →      run
+W / ↑ / SPACE         jump  — hold for height, and ONE FREE AIR JUMP
+                              that recharges on any contact
+double-tap a direction
+       or SHIFT       dash
+E                     set down a bomb
+```
+
+Three changes from the last build, all of them removals:
+
+1. **The wall asks for nothing.** Touch it while falling and you cling and slide
+   automatically — no direction held. Press jump and you go up and away from it.
+   The steer-lock afterwards is short enough that you are flying again almost
+   immediately. There is no input you can get wrong; the only skill left is
+   *when*, which everybody already has.
+2. **Everyone always has a second jump**, back the moment you touch ground or a
+   wall. This is the largest accessibility win available to a platformer:
+   almost every mistake becomes survivable, and — counter-intuitively — the
+   game gets *more* dynamic rather than easier-looking, because people start
+   attempting things they would not have risked. The chevron pickup now grants
+   an **extra stored jump on top of it**, so it means "I can try the big route"
+   instead of "I am allowed to jump twice".
+3. **Input windows ramp.** `coyote` and `jumpBuffer` run at 1.8× on level 1 and
+   1.0× by level 10, so a late or early press works while you are learning and
+   stops working once you are not.
+
+## Two alternatives, if Option A still is not dynamic enough
+
+**Option B — the grapple (SpeedRunners).** One key; it finds the nearest anchor
+ahead-and-above and swings you to it. The most dynamic thing available and
+genuinely easy, because the aiming is the game's job. Costs: a new anchor tile,
+a rope constraint in the physics, anchor placement in the generator, and a new
+bot behaviour. Call it a session's work. It would also change what the levels
+want to be — more open air, fewer corridors.
+
+**Option C — momentum.** No dash; speed builds as you run and slopes carry it,
+with jump height scaling off speed. Superb feel, and the wrong shape for this
+engine: it needs sloped collision, which the tile grid does not have.
+
+**Recommendation: A now, B as the next feature if the group wants more.** A is
+in and measurable; B is the one worth building if "more dynamic" still is not
+met after a playtest.
+
+## Level design that inspires movement
+
+The accessible games all put the dynamism in the level. What that means here,
+roughly in order of value per hour:
+
+1. **Branches are the best verb in the game and are currently rare.** A spring
+   that throws you ten tiles forward is the most expressive thing here and it
+   needs no technique. Raise their frequency sharply and build *around* them —
+   a branch over a long drop, a branch that is the only way onto a high shelf.
+2. **Make the wall-jump optional, never required.** Chimneys should be a
+   shortcut past a longer, flatter route, so a group that never learns them
+   still finishes and a player who does is rewarded. Right now a chimney is a
+   wall across the only path.
+3. **Vertical shafts between the lanes.** `crThicken` already turns a hole in an
+   upper lane's floor into a shaft into the lane below. Place those
+   deliberately: a drop that *gains* you ground is a decision, and it is the
+   cheapest way to make four lanes feel like one place.
+4. **Updraft vents as routes, not obstacles.** A gust that lifts you two lanes
+   is free dynamism — the game does the move.
+5. **Wide, obvious coin arcs** along the fast line, so the greedy path and the
+   quick path are the same shape and reading one teaches the other.
+6. **One pinch per level where all four lanes meet.** With bouncy bodies and a
+   fixed screen, a single shared ledge is where the game becomes four-player
+   rather than four parallel one-player games.
+7. **Squeezes as commitment, not filler.** A one-block tunnel next to an open
+   route is a real choice: faster, but you cannot jump, dodge, or be bounced
+   out of trouble while you are in it.

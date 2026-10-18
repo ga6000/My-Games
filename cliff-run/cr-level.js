@@ -35,19 +35,84 @@
  */
 "use strict";
 
-// Playable rows. Row 17 is deliberately void: it is what makes falling off the
-// bottom of the cliff possible, which the spec asks for.
-var CR_ROW_MIN = 2;
-var CR_ROW_MAX = 16;
+// Playable rows of the 16 the 24px grid gives us. Row 15 is deliberately void:
+// it is what makes falling off the bottom of the cliff possible. On levels 1-2
+// crSafeFloor fills it, so the void does not exist yet (see crLevelSpec).
+var CR_ROW_MIN = 1;
+var CR_ROW_MAX = 14;
 
 // The four lane stand-rows, top to bottom. This order IS the spawn order the
 // spec asks for: P1 top-left, P2 upper-middle, P3 lower-middle, P4 lower-left.
-var CR_LANE_ROWS = [3, 7, 11, 15];
+// THREE ROWS APART, not four: with crThicken filling the space between them,
+// that leaves one-row corridors separated by two rows of rock, which is where
+// "claustrophobic" comes from.
+var CR_LANE_ROWS = [3, 6, 9, 12];
 
-var CR_START_COLS = 12;      // the near outpost
-var CR_END_COLS = 14;        // the far outpost
+/* The near tower is narrow and the far one is wide, and the asymmetry is on
+   purpose. The start is a door you leave through, so it should cost as little
+   of a 20-tile screen as possible -- at 8 columns it ate a third of the view
+   on the one level where you are still working out the controls. The finish is
+   a destination four people park on, so its catwalk has to be long enough to
+   hold all four without the first arrival blocking the door (crFinishBody). */
+var CR_START_COLS = 6;       // the near outpost
+var CR_END_COLS = 11;        // the far outpost
+var CR_THICK = 3;            // how far a solid tile grows downward; see crThicken
 
 function crStandY(row) { return row * CR_TILE - CR_PH; }
+
+// ===================================================
+//   REACHABILITY — DERIVED, NOT PICKED
+// ===================================================
+/*
+ * How far a body travels horizontally before it is back level with a landing
+ * `dRow` rows from where it launched. Solved from CR_PHYS rather than written
+ * down, so changing a jump number re-derives every cap in this file instead of
+ * silently invalidating them.
+ *
+ *     rise(t) = v*t - g*t^2/2 , want rise(t) = -dRow*TILE , take the LATER root
+ *     reach   = moveSpeed * t
+ *
+ * WHY THIS EXISTS. The first version used one flat cap: "gaps <= 3 tiles,
+ * step-ups <= 2 rows, against a 4.2-tile jump range". Both halves are true and
+ * the combination is not -- the 4.2 tiles is the range at the SAME height, and
+ * a jump that also has to end two rows higher only has 2.97 tiles of it. The
+ * generator was emitting 3-tile gaps with a 2-row rise, which needs 48px of
+ * travel inside a window that closes at 47.5px. Half a pixel short, every
+ * time, on a route the bots were told was walkable.
+ *
+ * CR_REACH_SAFETY keeps the cap well inside the arc. The margin is not
+ * politeness: a bot jumps on a tile boundary rather than on a frame, the
+ * avalanche-panic layer may dash mid-arc, a crosswind may be blowing, and
+ * another player may shove you at the apex. 0.72 is what survives all four.
+ */
+var CR_REACH_SAFETY = 0.72;
+
+function crReach(launchVel, dRow, speed) {
+    var g = CR_PHYS.gravity;
+    var v = -launchVel;                 // upward speed, positive
+    var h = -dRow * CR_TILE;            // positive when the landing is higher
+    var disc = v * v - 2 * g * h;
+    if (disc < 0) return 0;             // that height is not reachable at all
+    var t = (v + Math.sqrt(disc)) / g;
+    // `speed` because a branch throws you forward at CR_PHYS.springVx, not at
+    // walking pace -- sizing its landing against moveSpeed puts the platform
+    // where the body no longer is.
+    return (speed || CR_PHYS.moveSpeed) * t;
+}
+
+// The apex of a launch, in whole rows. Used to ask whether the airspace a
+// branch needs belongs to anybody else.
+function crApexRows(launchVel) {
+    var v = -launchVel;
+    return Math.ceil((v * v / (2 * CR_PHYS.gravity)) / CR_TILE);
+}
+
+// The widest gap, in tiles, that a launch of `launchVel` clears to a landing
+// dRow rows away. Never returns 0: a 1-tile gap is a step, not a jump.
+function crMaxGap(launchVel, dRow, speed) {
+    var px = crReach(launchVel, dRow, speed) * CR_REACH_SAFETY;
+    return Math.max(1, Math.floor(px / CR_TILE));
+}
 
 // ===================================================
 //   GRID HELPERS
@@ -83,6 +148,152 @@ function crColumn(level, col, r0, r1, v) {
 // Solid from every side, except BRANCH, which is solid from above only so you
 // can spring off it without it being a wall you can run into.
 function crTileSolid(code) { return !!CR_SOLID[code]; }
+
+// ===================================================
+//   CORRIDORS — WHY FOUR ROUTES IN ONE GRID NEED THEM
+// ===================================================
+/*
+ * All four routes are stamped into the SAME tile array, which is what makes an
+ * overlap a genuinely shared platform and is the whole mechanism behind "lanes
+ * become intermixed fully by 33%". It also means a later route can write a
+ * solid tile straight through an earlier one's path, and the earlier route was
+ * already declared walkable by then.
+ *
+ * The lethal shapes, all three seen in the traces:
+ *   - a chimney's wall column (4-6 tiles tall) crossing a horizontal corridor,
+ *     so a bot runs into a wall it has no waypoint for and hops at it until the
+ *     avalanche arrives;
+ *   - a bomb wall's 3-tile column doing the same;
+ *   - an ordinary platform laid ONE row above another route's platform, which
+ *     is a ceiling at head height: the body is 14px tall and the tile above its
+ *     feet is 16px up, so it simply cannot pass.
+ *
+ * So each route, as it is built, reserves the three rows above its standing row
+ * as CORRIDOR, and every later route checks two things before it commits to a
+ * row: that its own platform would not land inside somebody's corridor, and
+ * that its own corridor is not already full of somebody's platform. Three rows
+ * because CR_PHYS.jumpVel clears 2.37 of them -- a corridor that only protects
+ * walking makes every jump a gamble on what the next lane built.
+ */
+/*
+ * HOW MUCH AIR A ROUTE RESERVES DEPENDS ON WHAT IT IS DOING THERE.
+ *
+ * One row is the floor and it is non-negotiable: a 14px body on a 16px grid
+ * occupies exactly ONE row -- the row above its platform -- so a tile there is
+ * not a "ceiling", it is where the player IS, and it is the only cell that
+ * makes a corridor truly impassable.
+ *
+ * A uniform depth was tried both ways and both were wrong:
+ *
+ *     3 rows everywhere -> 57% of bots finish, and the levels came out as five
+ *                          unbroken shelves spanning the screen. Four lanes
+ *                          claiming platform + 3 want 16 of the 15 playable
+ *                          rows, so crRowUsable rejected nearly every segment
+ *                          that changed row and crEmitRun was all that fitted.
+ *                          The metric went up because the game got boring.
+ *     1 row everywhere  -> varied levels, 36% finish. Jumps clipped other
+ *                          lanes' platforms at the apex and the fall count per
+ *                          level roughly doubled.
+ *
+ * So the depth travels with the segment. A flat run needs the one row it
+ * stands in. A jump needs the arc it passes through, which is why CR_HEADROOM
+ * is sized from CR_PHYS.jumpVel's 2.37-row apex. A branch needs its own,
+ * taller arc. A chimney needs a box, which crMarkBox handles separately.
+ *
+ * This is the same discipline as crMaxGap: ask the physics what the segment
+ * costs instead of picking a number that covers the worst case everywhere.
+ */
+var CR_CORRIDOR_ROWS = 1;                               // the body's own row
+var CR_HEADROOM = 3;                                    // a jump arc: 2.37 rows, rounded up
+
+/*
+ * A reservation is stamped with WHOSE it is (lane + 1), not with a flag, and
+ * that detail is the whole difference between this working and flattening every
+ * route into a straight line. A route marks the three rows above its own
+ * platform; if it then had to respect its own marks it could never step UP,
+ * because the row it wants to climb to is by definition inside the corridor it
+ * just reserved. So a route ignores its own id and respects everyone else's.
+ *
+ * level.buildLane carries the owner rather than threading a `lane` argument
+ * through nine emitters that have no other use for it.
+ */
+function crMarkCorridor(level, c0, c1, row, rows) {
+    var mine = (level.buildLane | 0) + 1;
+    var lo = Math.max(0, row - (rows || CR_CORRIDOR_ROWS));
+    for (var c = Math.max(0, c0); c <= c1 && c < level.cols; c++) {
+        for (var r = lo; r <= row - 1; r++) {
+            var k = crIdx(level, c, r);
+            if (!level.clear[k]) level.clear[k] = mine;
+        }
+    }
+}
+
+function crForeignClear(level, col, row) {
+    var v = level.clear[crIdx(level, col, row)];
+    return v !== 0 && v !== (level.buildLane | 0) + 1;
+}
+
+// Could this route stand on `row` across [c0, c1] without blocking anyone or
+// being blocked? Checked BEFORE a segment commits, which is the only moment the
+// answer can still change anything.
+function crRowUsable(level, c0, c1, row, rows) {
+    if (row < CR_ROW_MIN || row > CR_ROW_MAX) return false;
+    var lo = Math.max(0, row - (rows || CR_CORRIDOR_ROWS));
+    for (var c = Math.max(0, c0); c <= c1 && c < level.cols; c++) {
+        if (crForeignClear(level, c, row)) return false;
+        for (var r = lo; r <= row - 1; r++) {
+            if (crTileSolid(crGet(level, c, r))) return false;
+        }
+    }
+    return true;
+}
+
+/*
+ * A rectangle this route wants to own outright: the chimney's shaft, or a bomb
+ * wall's column. crBoxFree asks whether it is available; crMarkBox takes it.
+ *
+ * BOTH HALVES ARE NEEDED AND ONLY THE FIRST EXISTED. A chimney was checked for
+ * clearance when it was placed and then left unreserved, so a later lane was
+ * free to lay a platform inside it -- through the climb, or as a ledge halfway
+ * up that the route has no waypoint for. A/B over 10 seeds: removing chimneys
+ * and bomb walls outright was worth +18 and +23 points of bot finish rate, and
+ * each took the structural flaw count from 47 to 2. They are the two features
+ * that put a tall solid column into a shared 18-row grid, which is the most
+ * disruptive thing this generator can do.
+ */
+function crMarkBox(level, c0, c1, r0, r1) {
+    var mine = (level.buildLane | 0) + 1;
+    for (var c = Math.max(0, c0); c <= c1 && c < level.cols; c++) {
+        for (var r = Math.max(0, r0); r <= r1 && r < CR_ROWS; r++) {
+            var k = crIdx(level, c, r);
+            if (!level.clear[k]) level.clear[k] = mine;
+        }
+    }
+}
+
+function crBoxFree(level, c0, c1, r0, r1) {
+    if (r0 < 0 || r1 >= CR_ROWS) return false;
+    for (var c = Math.max(0, c0); c <= c1 && c < level.cols; c++) {
+        for (var r = r0; r <= r1; r++) {
+            if (crGet(level, c, r) !== CR_T.EMPTY) return false;
+            if (crForeignClear(level, c, r)) return false;
+        }
+    }
+    return true;
+}
+
+// The last resort, used only when no row in the band is usable: take the
+// corridor by force. The repair pass in crBuildLevel then re-places anything
+// this broke, so a route can never be left with a hole under a waypoint.
+function crClearCorridor(level, c0, c1, row) {
+    var lo = Math.max(0, row - CR_CORRIDOR_ROWS);
+    for (var c = Math.max(0, c0); c <= c1 && c < level.cols; c++) {
+        for (var r = lo; r <= row - 1; r++) {
+            if (crGet(level, c, r) === CR_T.CATWALK) continue;
+            crSet(level, c, r, CR_T.EMPTY);
+        }
+    }
+}
 
 // ===================================================
 //   THE LANE BAND
@@ -122,11 +333,20 @@ function crBuildOutpost(level, side) {
     for (var i = 0; i < 4; i++) {
         var row = CR_LANE_ROWS[i];
         crSpan(level, c0, c1, row, CR_T.CATWALK);
+        /* THE CATWALK CLAIMS THE AIR ABOVE IT, and forgetting this buried
+           three of the four spawns. crThicken grows every solid tile downward,
+           and a catwalk is solid: lane 0's at row 3 filled rows 4 and 5 across
+           the whole outpost, and row 5 is where lane 1's body stands. Seats
+           2-4 spawned INSIDE rock, were squeezed sideways out of the structure
+           by crMoveX, and the avalanche had them before the countdown finished.
+           Zero falls, every bot dead to the wall, on every level. */
+        level.buildLane = i;
+        crMarkCorridor(level, c0 - 1, c1 + 1, row);
         level.catwalks.push({ col0: c0, col1: c1, row: row, lane: i, finish: !isStart });
         // The mast each catwalk hangs off. Decorative, but it is solid, which
         // is what stops a player walking off the back of the structure.
         var mastCol = isStart ? c0 - 1 : c1 + 1;
-        crColumn(level, mastCol, row, Math.min(CR_ROW_MAX, row + 2), CR_T.OUTPOST);
+        crColumn(level, mastCol, row, Math.min(CR_ROW_MAX, row + 1), CR_T.OUTPOST);
     }
     // The spine: the comms tower itself, against the cliff edge.
     var spine = isStart ? 1 : level.cols - 2;
@@ -155,6 +375,7 @@ function crLaunchX(col) { return (col + 1) * CR_TILE - CR_PW; }
 
 function crEmitRun(level, w, len, kind) {
     var tile = kind || CR_T.STONE;
+    w.claimRows = CR_CORRIDOR_ROWS;      // flat ground needs only the body's row
     crSpan(level, w.col, w.col + len - 1, w.row, tile);
     w.col += len;
     crWp(w.route, (w.col - 1) * CR_TILE, w.row, "walk",
@@ -162,11 +383,22 @@ function crEmitRun(level, w, len, kind) {
     return len;
 }
 
-// A plain jump. gap <= 3 tiles, drop/rise <= 2 rows: both inside CR_PHYS with
-// room to spare, which is what the header means by margin.
-function crEmitGap(level, w, gap, dRow) {
+// A plain jump. The gap is clamped against crMaxGap for THIS dRow, so a caller
+// cannot ask for a rise and a width that are each fine and together are not.
+/*
+ * `allowDj` lets this gap be sized against the DOUBLE jump instead of the plain
+ * one, so it cannot be crossed without a charge in hand. That is the late-level
+ * risk the brief asks for, and it is also the thing that gives the charge a
+ * decision attached to it: you can spend it to climb, or save it for the next
+ * gap, and only one of those is right.
+ */
+function crEmitGap(level, w, gap, dRow, allowDj) {
+    var launchVel = allowDj ? CR_PHYS.jumpVel + CR_PHYS.doubleJumpVel * 0.9 : CR_PHYS.jumpVel;
+    gap = Math.min(gap, crMaxGap(launchVel, dRow));
+    w.claimRows = CR_HEADROOM;           // the arc passes through here
+
     var launch = crLaunchX(w.col - 1);
-    crWp(w.route, launch, w.row, "jump", { gap: gap, dRow: dRow });
+    crWp(w.route, launch, w.row, "jump", { gap: gap, dRow: dRow, needDj: !!allowDj && gap > 2 });
     w.col += gap;
     w.row += dRow;
     var len = 3 + (w.rng() * 3 | 0);
@@ -181,13 +413,32 @@ function crEmitGap(level, w, gap, dRow) {
 // is crossable at a run and lethal to anyone who stops, which is what
 // "fall immediately after touching" has to mean to still be a platform. The
 // TIMED kind gives CR_TIMED_FUSE seconds, so you may stand but not loiter.
+/*
+ * NEVER CONVERTS SOMEBODY ELSE'S GROUND. crSpan writes unconditionally, so a
+ * crumble run laid across another lane's stone platform silently turned their
+ * guaranteed footing into blocks that fall -- and if their neighbour got there
+ * first and triggered them, into a hole. The corridor reservation does not
+ * catch this: it protects the rows ABOVE a platform, and this is the platform
+ * row itself.
+ *
+ * So the collapsing tiles only go into cells that are empty. Where another
+ * lane has already built, the two routes simply share that stone.
+ */
+function crCrumbleSpan(level, c0, c1, row, code) {
+    for (var c = c0; c <= c1; c++) {
+        if (crGet(level, c, row) !== CR_T.EMPTY) continue;
+        crSet(level, c, row, code);
+    }
+}
+
 function crEmitCrumble(level, w, len, timed) {
     var code = timed ? CR_T.TIMED : CR_T.CRUMBLE;
+    w.claimRows = CR_CORRIDOR_ROWS;      // crossed at a run, not jumped
     // A solid tile either side, so the player always has somewhere to take off
     // from and somewhere to arrive. Without the landing tile a late jump off
     // the last crumbling block is an unavoidable death.
     crSpan(level, w.col, w.col, w.row, CR_T.STONE);
-    crSpan(level, w.col + 1, w.col + len, w.row, code);
+    crCrumbleSpan(level, w.col + 1, w.col + len, w.row, code);
     crSpan(level, w.col + len + 1, w.col + len + 3, w.row, CR_T.STONE);
     crWp(w.route, w.col * CR_TILE, w.row, "walk", { noStop: !timed, hazard: true });
     w.col += len + 4;
@@ -195,27 +446,88 @@ function crEmitCrumble(level, w, len, timed) {
     return len + 4;
 }
 
+/*
+ * A ONE-BLOCK-TALL SQUEEZE. "There should be gaps only a single block tall."
+ *
+ * Floor at w.row, the body's own row (w.row - 1) carved, and ROCK at w.row - 2.
+ * A 16px body fits a 24px opening with 8px to spare; a jump does not fit at
+ * all, because CR_PHYS.jumpVel wants 1.75 rows and there is one.
+ *
+ * It is the most strategic thing a corridor can be in a game whose other three
+ * players are solid: inside a squeeze you cannot jump, cannot be bounced over,
+ * and cannot turn a mistake into a detour. You commit to it before you enter.
+ */
+function crEmitTunnel(level, w, len) {
+    w.claimRows = CR_CORRIDOR_ROWS;
+    crSpan(level, w.col, w.col + len - 1, w.row, CR_T.STONE);
+    crSpan(level, w.col, w.col + len - 1, w.row - 2, CR_T.STONE);
+    // Claim the roof as well as the floor, so no later route plans an arc
+    // through the one place in the level that has no headroom.
+    crMarkBox(level, w.col, w.col + len - 1, w.row - 2, w.row - 1);
+    crWp(w.route, w.col * CR_TILE, w.row, "walk", { squeeze: true });
+    w.col += len;
+    crWp(w.route, (w.col - 1) * CR_TILE, w.row, "walk", null);
+    return len;
+}
+
 // A tree branch. Springs you on any contact from above (cr-physics.js), which
 // is a trampoline rather than a timed input -- chosen so the bots can use it,
 // and it reads better for a person too. Clears up to 5 tiles against a
 // 7.4-tile spring range.
-function crEmitBranch(level, w, gap, dRow) {
+/*
+ * THE LANDING PLATFORM IS SIZED TO THE ARC, not placed at a chosen gap, and
+ * that is the opposite problem from crEmitGap's.
+ *
+ * A branch is not a jump you aim -- it is a fixed impulse. CR_PHYS.springVel
+ * carries a body 7.7 tiles, and 8.75 if the player was holding jump on contact
+ * (CR_PHYS.springHeldBonus). The first version placed a 3-to-5-tile platform
+ * after a 3-to-5-tile gap, so the arc ended PAST its far edge: the body sailed
+ * over the landing and into whatever came next, which on this cliff is usually
+ * a hole. The traces showed bots still airborne and two rows high when they
+ * reached the following waypoint, unable to jump, falling into the gap after.
+ *
+ * So the gap is whatever is left after reserving the far end of the arc, and
+ * the platform covers the arc's end plus three tiles of slack -- enough for
+ * both the held and the unheld case to land on it.
+ */
+function crEmitBranch(level, w, dRow) {
+    var reach = Math.ceil(crReach(CR_PHYS.springVel + CR_PHYS.springHeldBonus, dRow,
+                                  CR_PHYS.springVx) / CR_TILE);
+    if (reach < 6) return 0;                        // that height is not springable
+    var gap = Math.max(3, reach - 4);
+    var len = (reach + 3) - gap;
+
+    w.claimRows = crApexRows(CR_PHYS.springVel + CR_PHYS.springHeldBonus) + 1;
     crSet(level, w.col, w.row, CR_T.BRANCH);
     crWp(w.route, crLaunchX(w.col), w.row, "spring", { gap: gap, dRow: dRow });
     w.col += 1 + gap;
     w.row += dRow;
-    var len = 3 + (w.rng() * 3 | 0);
     crSpan(level, w.col, w.col + len - 1, w.row, CR_T.STONE);
     w.col += len;
     crWp(w.route, (w.col - 1) * CR_TILE, w.row, "walk", null);
     return 1 + gap + len;
 }
 
-// A wind tunnel across a gap too wide to jump. The vent is a lip of rock
-// jutting into the void one row down, so it never blocks the run above it, and
-// the gust is a RECT of constant acceleration -- "constant & directional", so
-// it is deterministic, which is what makes it something a bot can plan through.
-function crEmitVent(level, w, gap, dRow) {
+/*
+ * A wind tunnel across a gap far too wide to jump. The vent is a lip of rock
+ * jutting into the void one row down, so it never blocks the run above it, and
+ * the gust is a RECT of constant acceleration -- "constant & directional", so
+ * it is deterministic, which is what makes it something a bot can plan through.
+ *
+ * ay IS -755 AGAINST A GRAVITY OF 760, AND THAT IS THE WHOLE DESIGN: the gust
+ * very nearly cancels your weight, so you walk off the edge and KEEP GOING
+ * LEVEL, sinking 2px over a second. The first version used -820 (a net lift of
+ * 60) and had the bot jump into it. Measured: entering at the jump's -240 with
+ * nothing to decay it, a body rose 127px -- eight tiles -- straight past the
+ * top of the rect and off the route, every time. A gust that cancels gravity
+ * is a floor you cannot see; a gust that beats it is a cannon.
+ *
+ * The rect is only three rows tall for the same reason: if a player DOES jump
+ * in (and a player will), the exit through the top is immediate and the arc
+ * resumes normally, instead of coasting upward until the level runs out.
+ */
+function crEmitVent(level, w, gap) {
+    w.claimRows = 2;                     // you cross a gust level, not over it
     var ventCol = w.col;
     var ventRow = Math.min(CR_ROW_MAX, w.row + 1);
     crSet(level, ventCol, ventRow, CR_T.VENT);
@@ -223,17 +535,27 @@ function crEmitVent(level, w, gap, dRow) {
 
     var gx = (ventCol + 1) * CR_TILE;
     var gw = gap * CR_TILE;
-    var gTopRow = Math.max(0, w.row - 4);
+    var gTopRow = Math.max(0, w.row - 2);
     level.gusts.push({
         x: gx, y: gTopRow * CR_TILE,
-        w: gw, h: (ventRow - gTopRow) * CR_TILE,
-        ax: 110, ay: -820,     // net lift of 60 against gravity: you float across
+        w: gw, h: (ventRow + 1 - gTopRow) * CR_TILE,
+        /* ay IS -790 AGAINST A GRAVITY OF 760, so the net is a 30 px/s^2 LIFT
+           rather than the dead cancel it was. -755 looked right on paper --
+           cross the gap exactly level -- and was the worst feature in the game
+           by measurement (A/B: removing vents entirely took bot finish from
+           33% to 46%). The reason is a one-pixel problem at the far end: the
+           body flies at y = row*TILE - CR_PH, so its feet are exactly on the
+           landing platform's top surface, and crMoveX's row scan then catches
+           the platform's SIDE the moment the body has sagged a single pixel.
+           It slams into the edge of its own landing and drops into the gap.
+           A 30 px/s^2 lift puts it 5-10px high on arrival -- it clears the lip
+           and falls onto the platform, which is what landing is. */
+        ax: 80, ay: -790,
         dir: "up", strength: 1
     });
 
-    crWp(w.route, crLaunchX(ventCol), w.row, "gust", { gap: gap, dRow: dRow });
+    crWp(w.route, crLaunchX(ventCol), w.row, "gust", { gap: gap, dRow: 0 });
     w.col += 1 + gap;
-    w.row += dRow;
     var len = 3 + (w.rng() * 3 | 0);
     crSpan(level, w.col, w.col + len - 1, w.row, CR_T.STONE);
     w.col += len;
@@ -269,6 +591,10 @@ function crEmitShaft(level, w, h) {
     crSpan(level, col, col + 4, w.row, CR_T.STONE);
     crColumn(level, col + 4, rTop, w.row - 1, CR_T.STONE);
     crColumn(level, col, rTop, w.row - 3, CR_T.STONE);
+    // The climb belongs to this route now. Without this a later lane may lay a
+    // platform inside the chimney -- through the route, or as a ledge halfway
+    // up that nothing has a waypoint for.
+    crMarkBox(level, col, col + 5, Math.max(0, rTop - 2), w.row);
 
     crWp(w.route, (col + 1) * CR_TILE, w.row, "walljump", {
         leftX: (col + 1) * CR_TILE,
@@ -305,8 +631,15 @@ function crEmitBreakable(level, w) {
     crWp(w.route, (w.col + 2) * CR_TILE, w.row, "walk", { grab: "bomb" });
 
     var wallCol = w.col + runLen;
-    crColumn(level, wallCol, w.row - 3, w.row - 1, CR_T.BREAK);
+    // Two tiles tall: 48px against a 42px jump apex, so it cannot be hopped --
+    // but a double-jump charge CAN clear it, and that alternative is left in
+    // rather than patched out.
+    crColumn(level, wallCol, w.row - 2, w.row - 1, CR_T.BREAK);
     crSpan(level, wallCol, wallCol, w.row, CR_T.STONE);
+    // The wall, plus the two columns either side: you have to be able to walk
+    // up to it, set a bomb down and back off, and none of that works if
+    // another lane builds into the space while you are standing in it.
+    crMarkBox(level, wallCol - 2, wallCol + 2, Math.max(0, w.row - 4), w.row);
     crWp(w.route, (wallCol - 2) * CR_TILE, w.row, "bomb", { wallCol: wallCol });
 
     var len = 4 + (w.rng() * 3 | 0);
@@ -329,14 +662,20 @@ function crApproach(level, w, targetRow) {
         var step = crClamp(targetRow - w.row, -2, 3);   // climbing is the capped direction
         if (step < 0) step = Math.max(step, -2);
         w.row += step;
+        // The staircase takes its corridor: it is the guarantee that the level
+        // is finishable, so nothing else is allowed to stand in it.
+        crClearCorridor(level, w.col, w.col + 1, w.row);
         crSpan(level, w.col, w.col + 1, w.row, CR_T.STONE);
+        crMarkCorridor(level, w.col, w.col + 1, w.row);
         w.col += 2;
         crWp(w.route, (w.col - 1) * CR_TILE, w.row, "walk", null);
     }
     // Bridge whatever columns remain, so the catwalk is walked ONTO rather
     // than jumped at. "walk on to them" is how the spec phrases the finish.
     if (w.col < level.finishCol) {
+        crClearCorridor(level, w.col, level.finishCol - 1, targetRow);
         crSpan(level, w.col, level.finishCol - 1, targetRow, CR_T.STONE);
+        crMarkCorridor(level, w.col, level.finishCol - 1, targetRow);
     }
     crWp(w.route, level.finishCol * CR_TILE + 8, targetRow, "finish", null);
 }
@@ -344,89 +683,210 @@ function crApproach(level, w, targetRow) {
 // ===================================================
 //   ONE LANE'S ROUTE
 // ===================================================
-function crBuildRoute(level, lane, rng) {
+/*
+ * ALL FOUR ROUTES ARE BUILT IN LOCKSTEP, one segment each, round-robin.
+ *
+ * They used to be built one lane at a time, start to finish, and that gave the
+ * lanes a strict pecking order: lane 0 wrote into an empty cliff and lane 3
+ * wrote into whatever was left. Measured over 400 lane-runs it showed up as a
+ * clean gradient in how often a bot got out --
+ *
+ *     lane 0: 61%   lane 1: 42%   lane 2: 34%   lane 3: 25%
+ *
+ * -- and in how often its route came out structurally flawed (2 / 4 / 11 / 23).
+ * That is a build-order artefact, not a design, and it is unfair in the one
+ * place the game cannot afford it: lane 3 is a player's seat.
+ *
+ * Stepping the four walkers together means they compete for the same cliff at
+ * the same x, so no lane is systematically last. The reservation logic is
+ * unchanged -- level.buildLane just moves between walkers instead of between
+ * whole passes.
+ */
+function crBuildRoutes(level, rng) {
     var spec = level.spec;
     var runStart = CR_START_COLS;
-    var runEnd = level.finishCol - 4;
-    var targetRow = CR_LANE_ROWS[lane];
+    // The run stops well short of the far outpost, and the slack is sized by
+    // the worst case crApproach can be handed: fourteen rows of convergence
+    // left to do, at two rows per two-column step -- plus the bridge onto the
+    // catwalk. Sizing this by eye is how crApproach runs out of cliff and lays
+    // its bridge at a row the staircase never reached. On the 24px grid there
+    // are only 11 playable rows, so the worst case is much shorter than it was.
+    var runEnd = level.finishCol - 16;
+    var walkers = [];
+    var lane, w;
 
-    var w = {
-        col: runStart, row: CR_LANE_ROWS[lane],
-        route: [], rng: rng
-    };
-
-    // Off the near catwalk and onto the cliff.
-    crSpan(level, runStart - 1, runStart + 2, w.row, CR_T.STONE);
-    w.col = runStart + 3;
-    crWp(w.route, runStart * CR_TILE, w.row, "walk", null);
-
-    var bombsPlaced = 0;
-    var sinceCharge = 0;
-    var guard = 0;
-
-    while (w.col < runEnd - 10 && guard++ < 400) {
-        var p = (w.col - runStart) / Math.max(1, runEnd - runStart);
-        var band = crBandFor(lane, p);
-        var t = spec.difficulty;
-        var converging = p > 0.78;
-
-        // A double-jump charge every so often, and always one before the
-        // first wide feature. "collectables that allow for a 2nd jump".
-        if (sinceCharge > 16 + (rng() * 10 | 0)) {
-            level.pickups.push({
-                kind: "dj",
-                x: (w.col + 1) * CR_TILE + 3, y: w.row * CR_TILE - 13
-            });
-            sinceCharge = 0;
-        }
-
-        // Coins. Points, and a reason to leave the route.
-        if (rng() < 0.55) {
-            var cn = 1 + (rng() * 3 | 0);
-            for (var ci = 0; ci < cn; ci++) {
-                level.coins.push({
-                    x: (w.col + ci) * CR_TILE + 5,
-                    y: w.row * CR_TILE - 11 - (rng() < 0.3 ? 14 : 0)
-                });
-            }
-        }
-
-        var before = w.col;
-        var used = 0;
-
-        if (converging) {
-            // Close on the lane row, so the far outpost is reached from the
-            // same four heights the near one was left from.
-            var d = targetRow - w.row;
-            if (d < -2) used = crEmitGap(level, w, 1 + (rng() * 2 | 0), -2);
-            else if (d > 2) used = crEmitGap(level, w, 1 + (rng() * 2 | 0), Math.min(3, d));
-            else if (d !== 0) used = crEmitGap(level, w, 1 + (rng() * 2 | 0), crClamp(d, -2, 3));
-            else used = crEmitRun(level, w, 4 + (rng() * 3 | 0));
-        } else {
-            used = crEmitWeighted(level, w, rng, spec, band, t, {
-                bombsPlaced: bombsPlaced,
-                allowBomb: spec.bombs && bombsPlaced < 1 && p > 0.35 && p < 0.7
-            });
-            if (used < 0) { bombsPlaced++; used = -used; }
-        }
-
-        if (used <= 0) used = crEmitRun(level, w, 4);
-        sinceCharge += (w.col - before);
-
-        // The band is the lane rule, and it is enforced AFTER the segment so a
-        // segment never has to know about it. A route pushed out of its band
-        // is pulled back by the next one.
-        if (w.row < band.lo) w.row = band.lo;
-        if (w.row > band.hi) w.row = band.hi;
+    for (lane = 0; lane < 4; lane++) {
+        level.buildLane = lane;
+        w = {
+            lane: lane, col: runStart, row: CR_LANE_ROWS[lane],
+            route: [], rng: rng,
+            runStart: runStart, runEnd: runEnd, targetRow: CR_LANE_ROWS[lane],
+            bombsPlaced: 0, sinceCharge: 0, done: false
+        };
+        // Off the near catwalk and onto the cliff.
+        crSpan(level, runStart - 1, runStart + 2, w.row, CR_T.STONE);
+        w.col = runStart + 3;
+        crWp(w.route, runStart * CR_TILE, w.row, "walk", null);
+        crMarkCorridor(level, runStart - 1, runStart + 3, w.row);
+        walkers.push(w);
     }
 
-    crApproach(level, w, targetRow);
-    return w.route;
+    // The walker that is FURTHEST BEHIND goes next, rather than simply the
+    // next in order: segments differ a lot in length (a branch eats fourteen
+    // columns, a step eats three), so plain rotation would let a lane that
+    // kept drawing short segments fall a long way back and meet the crowded
+    // cliff anyway -- which is the bias this is here to remove.
+    var guard = 0;
+    while (guard++ < 4000) {
+        var next = null;
+        for (lane = 0; lane < 4; lane++) {
+            w = walkers[lane];
+            if (w.done) continue;
+            if (w.col >= w.runEnd) { w.done = true; continue; }
+            if (!next || w.col < next.col) next = w;
+        }
+        if (!next) break;
+        level.buildLane = next.lane;
+        crStepRoute(level, next, rng, spec);
+    }
+
+    for (lane = 0; lane < 4; lane++) {
+        w = walkers[lane];
+        level.buildLane = w.lane;
+        crApproach(level, w, w.targetRow);
+        level.routes[lane] = w.route;
+    }
+}
+
+// One segment for one walker. This is the body of the old per-lane loop, with
+// the state it used to keep in closures moved onto `w` so four of them can be
+// in flight at once.
+function crStepRoute(level, w, rng, spec) {
+    var p = (w.col - w.runStart) / Math.max(1, w.runEnd - w.runStart);
+    var band = crBandFor(w.lane, p);
+    var t = spec.difficulty;
+    var converging = p > 0.78;
+    var rowBefore = w.row;
+
+    /* IF THE CURRENT ROW IS NO LONGER USABLE, MOVE BEFORE BUILDING.
+       Another lane may have built across this row since this walker's last
+       segment, and continuing would lay a platform inside its corridor. The
+       search is over the WHOLE playable cliff, not the lane band: the band is
+       a style rule about where a lane should prefer to be, and being passable
+       beats being tidy. Up is capped at 2 rows (the jump apex) and down at 3
+       (falling is free). */
+    if (!crRowUsable(level, w.col, w.col + 8, w.row, CR_HEADROOM)) {
+        var moved = false;
+        for (var off = 1; off <= 10 && !moved; off++) {
+            var up = w.row - off, down = w.row + off;
+            if (off <= 2 && up >= CR_ROW_MIN && crRowUsable(level, w.col, w.col + 8, up, CR_HEADROOM)) {
+                crEmitGap(level, w, 1, -off); moved = true;
+            } else if (off <= 3 && down <= CR_ROW_MAX && crRowUsable(level, w.col, w.col + 8, down, CR_HEADROOM)) {
+                crEmitGap(level, w, 1, off); moved = true;
+            }
+        }
+        if (moved) {
+            crMarkCorridor(level, w.col - 10, w.col - 1, w.row);
+            w.sinceCharge += 10;
+            return;
+        }
+        crClearCorridor(level, w.col, w.col + 10, w.row);
+    }
+
+    // A double-jump charge every so often. "collectables that allow for a 2nd
+    // jump".
+    if (w.sinceCharge > 16 + (rng() * 10 | 0)) {
+        level.pickups.push({
+            kind: "dj",
+            x: (w.col + 1) * CR_TILE + 3, y: w.row * CR_TILE - 13
+        });
+        w.sinceCharge = 0;
+    }
+
+    // Coins. Points, and a reason to leave the route.
+    if (rng() < 0.55) {
+        var cn = 1 + (rng() * 3 | 0);
+        for (var ci = 0; ci < cn; ci++) {
+            level.coins.push({
+                x: (w.col + ci) * CR_TILE + 5,
+                y: w.row * CR_TILE - 11 - (rng() < 0.3 ? 14 : 0)
+            });
+        }
+    }
+
+    var before = w.col;
+    var used = 0;
+
+    if (converging) {
+        // Close on the lane row, so the far outpost is reached from the same
+        // four heights the near one was left from. This branch TAKES the
+        // corridor rather than checking for it: it is a forced march to a
+        // fixed row, and crRepairRoutes re-places whatever it breaks.
+        var d = w.targetRow - w.row;
+        var step = crClamp(d, -2, 3);
+        if (!crRowUsable(level, w.col, w.col + 6, w.row + step)) {
+            crClearCorridor(level, w.col, w.col + 6, w.row + step);
+        }
+        if (d !== 0) used = crEmitGap(level, w, 1 + (rng() * 2 | 0), step);
+        else used = crEmitRun(level, w, 4 + (rng() * 3 | 0));
+    } else {
+        used = crEmitWeighted(level, w, rng, spec, band, t, {
+            bombsPlaced: w.bombsPlaced,
+            allowBomb: spec.bombs && w.bombsPlaced < 1 && p > 0.35 && p < 0.7
+        });
+        if (used < 0) { w.bombsPlaced++; used = -used; }
+    }
+
+    if (used <= 0) {
+        // Nothing fitted even at this row: the cliff here belongs to other
+        // lanes in every direction. Take four columns of it and let the repair
+        // pass put back whatever that cost them -- a route with a hole in it is
+        // worse than a route that crowds somebody.
+        crClearCorridor(level, w.col, w.col + 4, w.row);
+        used = crEmitRun(level, w, 4);
+    }
+    w.sinceCharge += (w.col - before);
+
+    // Claim what this segment just used, at both of its rows -- a segment that
+    // changed row owns the corridor above where it started AND where it ended.
+    var claim = w.claimRows || CR_CORRIDOR_ROWS;
+    crMarkCorridor(level, before, w.col - 1, rowBefore, claim);
+    if (w.row !== rowBefore) crMarkCorridor(level, before, w.col - 1, w.row, claim);
+
+    /* THERE IS DELIBERATELY NO BAND CLAMP HERE, and the first version of this
+       file had one. It read:
+           if (w.row < band.lo) w.row = band.lo;
+       ...which moved the WALKER without building anything at the new row, so
+       the next segment's platform appeared up to fourteen rows from the last
+       landing with nothing in between. The route was then a list of waypoints
+       across a hole. Measured effect: 3% of bot attempts finished a level.
+
+       The band is enforced where it can be honestly enforced instead -- inside
+       crEmitWeighted, which only offers a segment whose dRow fits the
+       head/room it was handed. Geometry and route stay in step because the
+       same call makes both. */
+    void band;
 }
 
 // Segment choice. Returns columns consumed, or the NEGATIVE of that when it
 // placed a bomb wall (so the caller can count them) -- cheaper than a second
 // return value in a file where every name is global.
+/*
+ * THE DIFFICULTY RAMP LIVES IN THESE WEIGHTS, and it is the only thing in the
+ * game that gets harder with the level number besides the scroll speed.
+ * Isolated by A/B over 10 seeds x 10 levels x 4 bots:
+ *
+ *     the scroll ramp (40 -> 68 px/s) costs NOTHING   (57% either way)
+ *     the bots' own skill jitter costs NOTHING        (48% vs 47%)
+ *     the hazard-weight ramp costs 7 points           (48% -> 55% flat)
+ *
+ * So the curve the player feels is here, the scroll ramp the brief asked for
+ * is free, and the jitter is doing its job -- making the bots imperfect
+ * without making them fail. The coefficients below are the original ones
+ * roughly halved, because the late levels were letting no bot out at all on
+ * more than half the seeds, and a level four bots cannot finish is not a
+ * difficulty curve.
+ */
 function crEmitWeighted(level, w, rng, spec, band, t, ctl) {
     var room = band.hi - w.row;        // how far down there is space
     var head = w.row - band.lo;        // how far up there is space
@@ -434,48 +894,144 @@ function crEmitWeighted(level, w, rng, spec, band, t, ctl) {
     var opts = [];
     function opt(weight, fn) { if (weight > 0) opts.push({ wgt: weight, fn: fn }); }
 
-    opt(2.0 - t, function () { return crEmitRun(level, w, 4 + (rng() * 4 | 0)); });
-    opt(1.6 + 1.2 * t, function () {
-        var gap = 2 + (rng() * 2 | 0);                      // 2..3 tiles
-        var dRow = 0;
-        var roll = rng();
-        if (roll < 0.33 && head >= 2) dRow = -(1 + (rng() * 2 | 0));
-        else if (roll < 0.66 && room >= 2) dRow = 1 + (rng() * 2 | 0);
-        return crEmitGap(level, w, gap, dRow);
-    });
-    opt(head >= 2 ? 0.9 : 0, function () { return crEmitGap(level, w, 1, -(1 + (rng() * 2 | 0))); });
-    opt(room >= 3 ? 1.0 : 0, function () { return crEmitGap(level, w, 1 + (rng() * 2 | 0), 2 + (rng() * 2 | 0)); });
+    /* HOW MUCH CLIFF IS UNDERNEATH DECIDES HOW MANY HOLES ARE ALLOWED.
+     *
+     * crThicken makes a fall from an upper lane land on the lane below -- you
+     * lose height and position, and cr-bots.js's recovery layer re-acquires
+     * whichever route is nearest. A fall from the LOWEST lane has nothing
+     * under it and is simply death. Same mistake, two different prices, purely
+     * because of where you spawned.
+     *
+     * Measured: finish rate by lane ran 100 / 75 / 25 / 13 %, monotonic, with
+     * the bottom two lanes dying to falls and then to the wall while they
+     * tried to climb back. Lockstep building had already removed the other
+     * cause of a gradient like that (build order), so what was left was height.
+     *
+     * So the floor of the cliff is mostly solid ground: within two rows of the
+     * bottom, gaps get a third of their weight and plain running gets double.
+     * The bottom lane is still the dangerous one to be in -- that is the
+     * geometry, and P1 spawning at the top is the compensation -- but it is no
+     * longer a route made of things that kill you.
+     */
+    var exposure = CR_ROW_MAX - w.row;
+    var gapW = exposure <= 2 ? 0.35 : 1;
+    var runW = exposure <= 2 ? 2 : 1;
 
-    // Level 2 on: the collapsing blocks.
-    if (spec.index >= 1) {
-        opt(0.5 + 1.3 * t, function () {
-            return crEmitCrumble(level, w, 2 + (rng() * 3 | 0), rng() < 0.45);
-        });
-        opt(0.4 + 0.7 * t, function () {
-            var gap = 3 + (rng() * 3 | 0);                  // 3..5, against 7.4 of spring
-            var dRow = head >= 3 && rng() < 0.5 ? -(2 + (rng() * 2 | 0)) : (room >= 2 ? 1 : 0);
-            return crEmitBranch(level, w, gap, dRow);
+    /* EVERY OPTION IS GATED ON THE ROW IT WOULD LAND ON, and the dRow is
+       therefore decided HERE rather than inside the closure. The first version
+       rolled the dRow inside the emitter, which meant the gate could only be
+       applied to the one segment type that never changes row -- and the
+       verifier found head-height ceilings in 105 of 120 generated levels.
+       A false negative here costs one duller segment; a false positive costs a
+       route another lane has already made impassable. */
+    function fits(dRow, span, rows) {
+        return crRowUsable(level, w.col, w.col + (span || 10), w.row + dRow, rows);
+    }
+
+    // ---- flat run
+    opt(fits(0, 9, CR_CORRIDOR_ROWS) ? (2.0 - 0.6 * t) * runW : 0, function () {
+        return crEmitRun(level, w, 4 + (rng() * 4 | 0));
+    });
+
+    /* ---- the ordinary jump.
+       THE GAP WIDTH IS THE DIFFICULTY RAMP THE USER ASKED FOR: "the gaps get
+       bigger, larger, and more risky later on, requiring a double jump to pass
+       at some places". One tile on levels 1-2, two from level 3, and from
+       level 8 crEmitGap is allowed to size against the double-jump reach --
+       which crMaxGap works out from CR_PHYS rather than being told. One dRow
+       is rolled and then checked rather than re-rolled until something fits; a
+       biased re-roll turns every crowded stretch into the same segment. */
+    var wide = spec.index <= 1 ? 1 : (spec.djGaps && rng() < 0.4 ? 3 : 2);
+    var gapRow = 0;
+    var roll = rng();
+    if (roll < 0.33 && head >= 2) gapRow = -1;
+    else if (roll < 0.66 && room >= 2) gapRow = 1 + (rng() * 2 | 0);
+    opt(fits(gapRow, 9, CR_HEADROOM) ? (1.6 + 0.9 * t) * gapW : 0, function () {
+        return crEmitGap(level, w, wide, gapRow, spec.djGaps);
+    });
+
+    // ---- a step up, and a drop
+    var upRow = -(1 + (rng() * 2 | 0));
+    opt((head >= 2 && fits(upRow, 7, CR_HEADROOM)) ? 0.9 * (exposure <= 2 ? 1.8 : 1) : 0, function () {
+        return crEmitGap(level, w, 1, upRow);
+    });
+    var downRow = 2 + (rng() * 2 | 0);
+    opt((room >= 3 && fits(downRow, 7, CR_HEADROOM)) ? 1.0 * gapW : 0, function () {
+        return crEmitGap(level, w, 1 + (rng() * 2 | 0), downRow);
+    });
+
+    // ---- the one-block squeeze. Needs two rows of rock overhead to cut into.
+    if (spec.tunnels) {
+        /* A SQUEEZE BUILDS A CEILING, so it has to own the cell it builds it
+           in. Gated on the body row alone, it could drop its roof straight
+           into another lane's reserved jump headroom -- and a bot that needs
+           to jump under a roof cannot: it hops, bonks, lands and hops again
+           until the wall arrives. Measured: 168 of 168 dead bots had been
+           wedged somewhere for more than three seconds. */
+        var tunLen = 3 + (rng() * 3 | 0);
+        var tunOk = fits(0, 7, CR_CORRIDOR_ROWS) && w.row - 2 >= 0 &&
+                    crBoxFree(level, w.col, w.col + tunLen - 1, w.row - 2, w.row - 2);
+        opt(tunOk ? 0.5 + 0.5 * t : 0, function () {
+            return crEmitTunnel(level, w, tunLen);
         });
     }
-    // Level 3 on: the wind tunnels.
-    if (spec.index >= 2) {
-        opt(0.35 + 0.8 * t, function () {
-            var gap = 3 + (rng() * 3 | 0);
-            var dRow = head >= 2 && rng() < 0.5 ? -(1 + (rng() * 2 | 0)) : 0;
-            return crEmitVent(level, w, gap, dRow);
+
+    // ---- the collapsing blocks.
+    if (spec.crumble) {
+        opt(fits(0, 9, CR_CORRIDOR_ROWS) ? 0.45 + 0.65 * t : 0, function () {
+            return crEmitCrumble(level, w, 2 + (rng() * 2 | 0), rng() < 0.45);
         });
     }
-    // Level 4 on: the chimneys.
+
+    // ---- the branches.
+    if (spec.branches) {
+        /* A branch needs AIRSPACE, not just a landing row. The arc is ~10
+           tiles long and rises CR_PHYS.springVel's apex above the launch, and
+           a platform of somebody else's anywhere in that box is a ceiling that
+           kills the spring halfway. Checking the landing row alone is what let
+           branches cost 13 points of bot finish rate (A/B, 2026-10-17). */
+        var brRow = head >= 3 && rng() < 0.5 ? -2 : (room >= 2 ? 1 : 0);
+        var brReach = Math.ceil(crReach(CR_PHYS.springVel + CR_PHYS.springHeldBonus, brRow,
+                                        CR_PHYS.springVx) / CR_TILE);
+        var brApex = crApexRows(CR_PHYS.springVel + CR_PHYS.springHeldBonus);
+        var brOk = fits(brRow, brReach + 4, 2) &&
+                   crBoxFree(level, w.col, w.col + brReach + 2,
+                             Math.max(0, w.row - brApex - 1), w.row - 1);
+        opt(brOk ? 0.35 + 0.4 * t : 0, function () {
+            return crEmitBranch(level, w, brRow);
+        });
+    }
+
+    // ---- the wind tunnels. The gap is past the plain jump range on purpose:
+    // a vent gap you could have jumped is not a mechanic, it is decoration
+    // with a sound effect.
+    if (spec.vents) {
+        opt(fits(0, 10, 2) ? 0.3 + 0.45 * t : 0, function () {
+            return crEmitVent(level, w, 4 + (rng() * 2 | 0));
+        });
+    }
+
+    // ---- the chimneys. A shaft is a BOX, not a row: five columns and h+1
+    // rows of cliff that have to belong to nobody else, or its walls cut
+    // across whoever was already there.
     if (spec.shafts && head >= 4) {
-        opt(0.9 * t + 0.2, function () { return crEmitShaft(level, w, 3 + (rng() * 2 | 0)); });
+        var h = 3;
+        var rTop = w.row - h;
+        opt((crBoxFree(level, w.col, w.col + 5, rTop - 1, w.row - 1) &&
+             crRowUsable(level, w.col + 5, w.col + 10, rTop)) ? 0.5 * t + 0.15 : 0,
+            function () { return crEmitShaft(level, w, h); });
     }
-    // Level 6 on: the bomb walls, at most one per route.
+
+    // ---- the bomb walls, at most one per route.
     if (ctl.allowBomb && head >= 3) {
-        opt(1.4, function () { return -crEmitBreakable(level, w); });
+        opt((fits(0, 20, CR_CORRIDOR_ROWS) && crBoxFree(level, w.col + 7, w.col + 10, w.row - 3, w.row - 1))
+            ? 1.4 : 0,
+            function () { return -crEmitBreakable(level, w); });
     }
 
     var total = 0, i;
     for (i = 0; i < opts.length; i++) total += opts[i].wgt;
+    if (total <= 0) return 0;              // nothing fits; the caller relocates
     var pick = rng() * total;
     for (i = 0; i < opts.length; i++) {
         pick -= opts[i].wgt;
@@ -497,7 +1053,7 @@ function crDecorate(level, rng) {
     if (spec.index < 3) return;
     var count = 1 + (spec.difficulty * 3 | 0);
     for (var i = 0; i < count; i++) {
-        var col = CR_START_COLS + 10 + (rng() * (level.finishCol - CR_START_COLS - 30) | 0);
+        var col = CR_START_COLS + 14 + (rng() * (level.finishCol - CR_START_COLS - 46) | 0);
         var row = CR_ROW_MIN + (rng() * (CR_ROW_MAX - CR_ROW_MIN) | 0);
         // Only hang a vent off something solid -- it is an opening IN the
         // cliff, so it needs cliff to be an opening in.
@@ -506,14 +1062,233 @@ function crDecorate(level, rng) {
             if (crTileSolid(crGet(level, col, r))) { anchor = r; break; }
         }
         if (anchor < 0) continue;
+
+        /* IT MUST BLOW ACROSS GROUND, NOT ACROSS A GAP. A crosswind laid over
+           a route jump turns a cleared gap into an unavoidable death with no
+           tell, which is the one unfair thing a platformer can do: the player
+           was already airborne when the rule changed. So the six columns the
+           rect covers all have to be walkable at the anchor row, and a vent
+           that cannot find that much ground simply is not placed. */
+        var clear = true;
+        for (var c = col - 5; c <= col; c++) {
+            if (!crTileSolid(crGet(level, c, anchor))) { clear = false; break; }
+        }
+        if (!clear) continue;
+
         crSet(level, col, anchor, CR_T.VENT);
         level.vents.push({ col: col, row: anchor, dir: "left" });
         level.gusts.push({
+            // -150, not -300. At CR_PHYS.moveSpeed 108 this is a shove you
+            // fight rather than a wall you cannot pass, and cr-physics.js
+            // already applies it at 35% while you are braced on the ground.
             x: (col - 5) * CR_TILE, y: (anchor - 4) * CR_TILE,
             w: 6 * CR_TILE, h: 4 * CR_TILE,
-            ax: -300, ay: 0, dir: "left", strength: 1
+            ax: -150, ay: 0, dir: "left", strength: 1
         });
     }
+}
+
+/*
+ * THE CLIFF IS SOLID, AND YOU RUN IN CORRIDORS CUT OUT OF IT.
+ *
+ * The first build drew thin platforms floating in black, which reads as open
+ * air -- the opposite of what the user asked for ("compact and claustrophobic").
+ * This grows every solid tile DOWNWARD by up to CR_THICK rows, stopping at any
+ * lane's reserved corridor, at CR_ROW_MAX, or at rock already there.
+ *
+ * Three things fall out of it, all of them wanted:
+ *
+ *   - the world reads as ROCK WITH PASSAGES CUT THROUGH IT rather than girders
+ *     hanging in space;
+ *   - the space between two lanes becomes mostly solid, leaving the one-row
+ *     corridors that make the place feel tight;
+ *   - a hole in an upper lane's floor becomes a SHAFT INTO THE LANE BELOW, so
+ *     falling costs you height and position instead of your run, and the four
+ *     lanes connect vertically without a line of code that says "now interact".
+ *
+ * Only the bottom lane has nothing underneath it, so only its holes are lethal.
+ * That asymmetry is deliberate: it is the price of the top lane being the
+ * easiest spawn, and it is why crSafeFloor exists for the first two levels.
+ */
+function crThicken(level) {
+    for (var c = 0; c < level.cols; c++) {
+        for (var r = CR_ROW_MAX; r >= 0; r--) {
+            if (crGet(level, c, r) === CR_T.EMPTY) continue;
+            if (crGet(level, c, r) === CR_T.BRANCH) continue;   // a limb, not a mass
+            for (var k = 1; k <= CR_THICK; k++) {
+                var rr = r + k;
+                if (rr > CR_ROW_MAX) break;
+                if (crGet(level, c, rr) !== CR_T.EMPTY) break;
+                if (level.clear[crIdx(level, c, rr)]) break;    // somebody walks there
+                crSet(level, c, rr, CR_T.STONE);
+            }
+        }
+    }
+}
+
+/*
+ * "maybe the first two levels lack the ability to fall off the map and lose".
+ * A solid row under the world, so a fall costs height and seconds -- and the
+ * avalanche is still coming -- but cannot end the run. From level 3 it is gone
+ * and the void is real, which is the single biggest difficulty step in the game
+ * and happens exactly once.
+ */
+function crSafeFloor(level) {
+    for (var c = 0; c < level.cols; c++) crSet(level, c, CR_ROW_MAX + 1, CR_T.STONE);
+}
+
+// ===================================================
+//   REPAIR AND VERIFY
+// ===================================================
+/*
+ * Two places in this file take a corridor by force rather than bending around
+ * one: the convergence march and crApproach's staircase. Both are correct to do
+ * so -- they are the guarantee that the far outpost is reachable -- but either
+ * can delete a tile an earlier route was standing on.
+ *
+ * So after everything is stamped, every route is re-walked and any missing
+ * standing tile is put back as STONE. Putting it back cannot re-block the
+ * route that cleared it: that route cleared the rows ABOVE its own platform,
+ * and what is restored here is a platform row.
+ */
+function crRepairRoutes(level) {
+    var lane, i, wp, col, route;
+
+    /* Pass 1: every standing cell any route needs.
+     *
+     * THE SPAN BETWEEN TWO WALK WAYPOINTS COUNTS, NOT JUST THE WAYPOINTS. It
+     * checked only the waypoint columns, which is most of a route's length
+     * missing: a `run` segment emits one waypoint at its far end, so the eight
+     * tiles you actually walk over were unchecked. Another lane's gap, emitted
+     * at the same row and the same columns, then punched a hole in the middle
+     * of somebody's floor and nothing noticed -- 523 of the bots' route
+     * departures were "walking, then suddenly below the route", and on the two
+     * lower lanes, where a fall has nothing under it, that is a death.
+     *
+     * Two consecutive walk nodes at the SAME row mean "I walk from here to
+     * there", so every column between them has to hold. A jump between them
+     * does not, and is skipped, because its gap is the point.
+     */
+    var standing = Object.create(null);
+    function claim(c, r) {
+        if (c < 0 || c >= level.cols || r < 0 || r >= CR_ROWS) return;
+        standing[crIdx(level, c, r)] = true;
+        if (crGet(level, c, r) === CR_T.EMPTY) crSet(level, c, r, CR_T.STONE);
+    }
+    for (lane = 0; lane < level.routes.length; lane++) {
+        route = level.routes[lane];
+        for (i = 0; i < route.length; i++) {
+            wp = route[i];
+            if (wp.kind !== "walk" && wp.kind !== "finish") continue;
+            col = Math.floor(wp.x / CR_TILE);
+            claim(col, wp.row);
+
+            // Back-fill to the previous walk node at the same row.
+            var prev = route[i - 1];
+            if (!prev || prev.kind !== "walk" || prev.row !== wp.row) continue;
+            var pcol = Math.floor(prev.x / CR_TILE);
+            for (var cc = Math.min(pcol, col); cc <= Math.max(pcol, col); cc++) {
+                claim(cc, wp.row);
+            }
+        }
+    }
+
+    /* Pass 2: a tile in the row a body OCCUPIES (row - 1) is impassable, not a
+     * ceiling -- a 14px body on a 16px grid lives entirely in that row. Remove
+     * it, but ONLY when it is not something another route stands on. That
+     * condition is what stops the two passes fighting: without it, deleting
+     * lane 1's blocker removes lane 2's platform, pass 1 of the next build puts
+     * it back, and the two routes trade a hole for a wall forever. */
+    for (lane = 0; lane < level.routes.length; lane++) {
+        route = level.routes[lane];
+        for (i = 0; i < route.length; i++) {
+            wp = route[i];
+            if (wp.kind !== "walk" && wp.kind !== "finish") continue;
+            col = Math.floor(wp.x / CR_TILE);
+            if (col < 0 || col >= level.cols) continue;
+            var above = crIdx(level, col, wp.row - 1);
+            if (wp.row - 1 < 0 || standing[above]) continue;
+            if (crGet(level, col, wp.row - 1) === CR_T.CATWALK) continue;
+            if (crTileSolid(crGet(level, col, wp.row - 1))) {
+                crSet(level, col, wp.row - 1, CR_T.EMPTY);
+            }
+        }
+    }
+}
+
+/*
+ * The structural check, which exists so that a bot failing and a LEVEL being
+ * broken are two different findings rather than one number going down.
+ * scripts/cliff-run-playtest.js asserts on it, and it is the thing that would
+ * have caught the corridor problem on the first run instead of the tenth.
+ *
+ * Returns an array of human-readable problems; empty means the route's
+ * standing tiles all exist and its corridor is passable.
+ */
+function crVerifyRoutes(level) {
+    var problems = [];
+    for (var lane = 0; lane < level.routes.length; lane++) {
+        var route = level.routes[lane];
+        for (var i = 0; i < route.length; i++) {
+            var wp = route[i];
+
+            /* A JUMP NEEDS ITS ARC, and a roof over one is the failure that is
+               invisible from the tiles alone: the ground is fine, the landing
+               is fine, and the body simply cannot get up there. CR_PHYS.jumpVel
+               clears 1.75 rows, so the two rows above the launch have to be
+               air. */
+            /* KNOWN AND UNRESOLVED (2026-10-17): this fires on most levels,
+               and the obvious fixes both made the game WORSE, so it is left
+               reported rather than silenced.
+               The cause is real -- crLaunchX right-aligns the body to the last
+               solid tile, so a jump's arc starts over a column the PREVIOUS
+               segment reserved, and a plain run reserves one row where an arc
+               needs three; crThicken then grows the lane above into it.
+               Claiming that column for CR_HEADROOM (locally, or by widening
+               every segment's claim) fixed the roofs and took the bot finish
+               rate from 50% to 44%: it over-reserves a cliff that is already
+               nearly full, so the generator falls back on forcing corridors,
+               which costs more than the roofs do. The right fix is probably to
+               give the generator more room -- taller levels, or lanes that do
+               not all need headroom at once -- not a bigger reservation. */
+            if (wp.kind === "jump") {
+                var jc = Math.floor(wp.x / CR_TILE);
+                if (crTileSolid(crGet(level, jc, wp.row - 2))) {
+                    problems.push("L" + (level.index + 1) + " lane" + lane +
+                                  " roof over a jump at col" + jc + " row" + (wp.row - 2));
+                }
+            }
+
+            if (wp.kind !== "walk" && wp.kind !== "finish") continue;
+            var col = Math.floor(wp.x / CR_TILE);
+            if (col < 0 || col >= level.cols) continue;
+
+            if (!crSolidForDown(crGet(level, col, wp.row))) {
+                problems.push("L" + (level.index + 1) + " lane" + lane +
+                              " wp" + i + " nothing to stand on at col" + col + " row" + wp.row);
+            }
+            // The walked span, not just the node -- see crRepairRoutes.
+            var prevW = route[i - 1];
+            if (prevW && prevW.kind === "walk" && prevW.row === wp.row) {
+                var pc = Math.floor(prevW.x / CR_TILE);
+                for (var cx = Math.min(pc, col); cx <= Math.max(pc, col); cx++) {
+                    if (cx < 0 || cx >= level.cols) continue;
+                    if (!crSolidForDown(crGet(level, cx, wp.row))) {
+                        problems.push("L" + (level.index + 1) + " lane" + lane +
+                                      " hole in the walked span at col" + cx + " row" + wp.row);
+                        break;
+                    }
+                }
+            }
+            // Head height: a tile one row above the feet is impassable, since
+            // the body is 16px and the tile starts 24px up.
+            if (crTileSolid(crGet(level, col, wp.row - 1))) {
+                problems.push("L" + (level.index + 1) + " lane" + lane +
+                              " wp" + i + " ceiling at head height, col" + col + " row" + (wp.row - 1));
+            }
+        }
+    }
+    return problems;
 }
 
 // ===================================================
@@ -529,6 +1304,8 @@ function crBuildLevel(index) {
         cols: spec.cols,
         rows: CR_ROWS,
         tiles: new Uint8Array(spec.cols * CR_ROWS),
+        // The corridor reservation. One byte per cell; see crMarkCorridor.
+        clear: new Uint8Array(spec.cols * CR_ROWS),
         finishCol: spec.cols - CR_END_COLS,
         routes: [],
         catwalks: [],
@@ -546,19 +1323,50 @@ function crBuildLevel(index) {
     crBuildOutpost(level, "start");
     crBuildOutpost(level, "end");
 
+    /* EACH LANE'S FINAL APPROACH IS RESERVED BEFORE ANYTHING IS BUILT.
+     *
+     * The convergence march and crApproach's staircase are the two places that
+     * TAKE a corridor instead of bending around one -- they have to, because
+     * they are what guarantees a catwalk is reachable. The cost was that lane 3
+     * could clear a corridor lane 0 was already standing in, and the repair
+     * pass can restore a missing platform but cannot un-place a ceiling
+     * without breaking whoever owns it.
+     *
+     * Reserving it up front removes the conflict rather than resolving it. The
+     * four catwalk rows are known from the start and are distinct, so the four
+     * reservations cannot collide with each other, and no route can lay a
+     * platform in somebody's run-in to the outpost.
+     */
+    var convergeFrom = CR_START_COLS + Math.floor((level.finishCol - 28 - CR_START_COLS) * 0.78);
+    for (var pre = 0; pre < 4; pre++) {
+        level.buildLane = pre;
+        crMarkCorridor(level, convergeFrom, level.cols - 1, CR_LANE_ROWS[pre]);
+    }
+
+    crBuildRoutes(level, rng);
     for (var lane = 0; lane < 4; lane++) {
-        level.routes.push(crBuildRoute(level, lane, rng));
         level.spawns.push({
-            x: (CR_START_COLS - 6) * CR_TILE,
+            // Column 2, on the catwalk, stated rather than derived from
+            // CR_START_COLS -- which is a width, and tying a spawn to a width
+            // is how narrowing the tower put everyone inside the wall.
+            x: 2 * CR_TILE + 4,
             y: crStandY(CR_LANE_ROWS[lane])
         });
     }
 
     crDecorate(level, rng);
+    crRepairRoutes(level);
+    // Thicken AFTER the repair pass, so it grows from the finished geometry and
+    // cannot fill a hole the repair was about to punch.
+    crThicken(level);
+    if (spec.safeFloor) crSafeFloor(level);
 
     if (spec.bombs) level.objective = "BOMB THROUGH · REACH THE OUTPOST";
-    else if (spec.shafts) level.objective = "CLIMB THE CHIMNEYS · REACH THE OUTPOST";
-    else if (index >= 2) level.objective = "RIDE THE GUSTS · REACH THE OUTPOST";
+    else if (spec.shafts) level.objective = "CLIMB THE CHIMNEYS";
+    else if (spec.vents) level.objective = "RIDE THE GUSTS";
+    else if (spec.tunnels) level.objective = "SQUEEZE THROUGH · MIND THE BLOCKS";
+    else level.objective = "REACH THE OUTPOST";
+    if (spec.safeFloor) level.objective += " · NOTHING TO FALL INTO YET";
 
     return level;
 }

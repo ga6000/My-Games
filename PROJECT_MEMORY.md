@@ -69,6 +69,31 @@ That category held exactly one game, Glucose Dash, and it is now under `under-de
 with the rest. **The move did not change what was true** — it had no hub card either way — it
 just stopped the tracker carrying a category of one for a week. See the row below.
 
+### Built at the root, deliberately off the board (2026-10-17)
+
+**Cliff Run** (`cliff-run/`, 11 files + `CLAUDE.md`, `CLIFF_RUN_PLAN.md`, `SERVER_NOTES.md`).
+A 4-player free-for-all side-scrolling platformer down a cliff face: ten levels, forced scroll
+(40 → 68 px/s), a rock avalanche filling the left 5% of the screen, collapsing blocks in two
+kinds, wind tunnels, Celeste-style wall skills, branch springs, bombable walls, and a comms
+outpost with four catwalks at each end. Players 2–4 are bots. RASTER cabinet, world hue
+`#6F8FA8` basalt steel, cabinet panel per `AESTHETIC_GUIDE.md` §4.11a, `window.GameInstance`
+implemented, `file://` clean.
+
+**It is not on the board and `hub/hub-core.js` is untouched.** `SCOPE_RULES.md` rule 8 makes
+promotion one-in-one-out at five cards, and which card it would displace is the user's call,
+not a session's. This is the first game in the repo built to sit at the root *without* a hub
+card — the category exists because of that rule, not by accident.
+
+**Measured, not claimed** (`scripts/cliff-run-playtest.js`, a vm harness over the real game
+files): a bot clears all ten levels on 13% of seeds, mean 5.8 levels, ~4.4 minutes for a full
+clear — inside `SCOPE_RULES.md` rule 0's window. Per level, 55% of bot attempts finish.
+**Not yet played by a human**, and one self-imposed acceptance bar is still failing; both are
+recorded in `cliff-run/CLAUDE.md` rather than smoothed over.
+
+No multiplayer and no Firebase work beyond the existing `LB.submit` call —
+`cliff-run/SERVER_NOTES.md` writes down what wiring it would take and why the mutating tile
+grid (collapsing blocks, bombed walls) is the hard part.
+
 ### Under development (`under-development/`, pulled from the hub 2026-09-04)
 
 Still in the repo and on GitHub, just not reachable from the board. **Thirteen games as of

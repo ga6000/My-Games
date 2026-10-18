@@ -63,6 +63,14 @@ function crMakeBotBrain(level, seat) {
     };
 }
 
+// Press and HOLD jump for `secs`. Both halves matter: jumpPressed is the edge
+// cr-physics.js buffers, and inp.jump staying true across the rise is what
+// stops CR_PHYS.jumpCutMul from clipping the arc. See the note in crBotThink.
+function crBotHold(b, secs) {
+    b.ai.holdJump = secs;
+    b.inp.jump = true;
+}
+
 function crBotThink(level, b, dt) {
     if (!b.alive || b.finished) return;
     if (!b.ai) b.ai = crMakeBotBrain(level, b.seat);
@@ -75,6 +83,16 @@ function crBotThink(level, b, dt) {
     inp.left = false; inp.right = false; inp.up = false; inp.down = false;
 
     if (d.wjCool > 0) d.wjCool -= dt;
+    /* THE HOLD IS DECIDED HERE AND RE-ASSERTED BY crBotHold, which is not
+       cosmetic. cr-physics.js clips a rising jump the moment `inp.jump` goes
+       false (CR_PHYS.jumpCutMul, the variable-height rule a human needs).
+       This line runs BEFORE the behaviour layers, so a layer that only set
+       d.holdJump was pressing jump from the NEXT frame onward -- and the frame
+       it skipped was the one the jump fired on, so every bot jump was cut to
+       45% on its first frame. Apex went from 37.9px to 7.7px: half a tile, on
+       a cliff whose smallest step is one. Measured before the fix: 12% of bot
+       attempts finished a level. Every assignment to d.holdJump now goes
+       through crBotHold, which sets both. */
     if (d.holdJump > 0) { d.holdJump -= dt; inp.jump = true; } else { inp.jump = false; }
     if (d.needDouble > 0) {
         d.needDouble -= dt;
@@ -87,13 +105,33 @@ function crBotThink(level, b, dt) {
 
     var route = level.routes[d.lane] || level.routes[0];
 
-    // ---- re-acquire (every 1/6s; between times the index only moves forward)
-    d.reacquire -= dt;
-    if (d.reacquire <= 0) { d.reacquire = 0.16; crBotReacquire(b, route); }
+    /* RE-ACQUIRE EVERY STEP. It was every 1/6s, which sounds harmless and is
+       not: at CR_PHYS.moveSpeed the bot covers 18px in that window -- more
+       than a tile -- so it could run straight past a jump waypoint's launch
+       edge while the previous `walk` node was still current, and walk off the
+       cliff instead of jumping. CR_PHYS.coyote buys 0.09s, which is 10px, and
+       does not cover it. The scan itself is two comparisons against a sorted
+       list, so the throttle was saving nothing.
+
+       EXCEPT AT A BLOCKING WAYPOINT, which is the other half of the same
+       lesson. A chimney and a bomb wall are VERTICAL and STATEFUL: x barely
+       changes while you climb one or wait for the other, so an x-keyed scan
+       walks straight off them. The traces were explicit -- a bot entered a
+       chimney, rose two rows, and re-acquired a `walk` node on the far side of
+       the wall it was standing inside. It then hopped against that wall until
+       the avalanche arrived, because "go right" is a perfectly good plan for
+       every waypoint kind except the two that mean "go up" and "wait". */
+    var cur = route[Math.min(d.routeIdx, route.length - 1)];
+    var blocking = crBotBlockingWp(cur);
+    if (!blocking || crBotWpDone(level, b, cur)) crBotReacquire(b, route);
     var wp = route[Math.min(d.routeIdx, route.length - 1)];
+    blocking = crBotBlockingWp(wp) && !crBotWpDone(level, b, wp);
 
     // ---- 1. AVALANCHE
-    if (b.x - crAvalancheX < CR_BOT_PANIC_DIST) {
+    // Skipped inside a chimney or at a bomb wall: "run right and dash" is not
+    // an escape from either, and abandoning the climb to sprint into a wall is
+    // strictly worse than finishing it. The stuck guard below still applies.
+    if (!blocking && b.x - crAvalancheX < CR_BOT_PANIC_DIST) {
         inp.right = true;
         inp.jump = true;
         if (b.onGround && crBotBlockedAhead(level, b)) inp.jumpPressed = true;
@@ -103,20 +141,47 @@ function crBotThink(level, b, dt) {
     }
 
     // ---- 2. RECOVERY
-    // 2.2 tiles below the route is past the point where the next waypoint is
-    // reachable by walking, so stop pretending to follow it and climb.
-    if (b.y > wp.y + CR_TILE * 2.2) {
+    // 2.2 tiles off the route is past the point where the next waypoint is
+    // reachable by walking, so stop pretending to follow it. Not inside a
+    // blocking waypoint: being four rows below the top of a chimney you are
+    // climbing is the normal state of climbing a chimney, and both features
+    // have a floor to land on and retry from.
+    if (!blocking && Math.abs(b.y - wp.y) > CR_TILE * 2.2) {
+        /* FIRST, TRY A DIFFERENT LANE. All four routes are walkable paths
+           through the same cliff, and past 33% of the level they interleave
+           (cr-level.js's band widening), so a bot that has fallen out of lane 1
+           is very often standing ON lane 2's route. Switching to the nearest
+           one turns the commonest failure -- off-route and climbing forever --
+           into a lane change.
+
+           Before this, recovery was climb-only, and the traces were
+           unambiguous: a bot six rows below its own route bunny-hopped right
+           along perfectly good ground belonging to the lane below until it
+           ran out of cliff. Lanes 2-4 finished almost nothing. */
+        var swap = crBotNearestLane(level, b);
+        if (swap >= 0 && swap !== d.lane) {
+            d.lane = swap;
+            d.routeIdx = 0;
+            crBotReacquire(b, level.routes[swap]);
+            crBotTrackStuck(b, dt);
+            return;
+        }
+
         inp.right = true;
         inp.jump = true;
-        if (b.onGround) {
-            inp.jumpPressed = true;
-            d.holdJump = 0.3;
-        } else if (b.wallDir !== 0 && d.wjCool <= 0) {
-            inp.jumpPressed = true;
-            d.wjCool = 0.2;
-            d.holdJump = 0.3;
-        } else if (b.djCharges > 0 && b.vy > 40 && crBotNothingBelow(level, b)) {
-            inp.jumpPressed = true;     // spend a charge rather than die
+        if (b.y > wp.y) {
+            // Below the route: climb. Hop, wall-jump off anything adjacent,
+            // and spend a charge rather than run out of cliff.
+            if (b.onGround) {
+                inp.jumpPressed = true;
+                crBotHold(b, 0.32);
+            } else if (b.wallDir !== 0 && d.wjCool <= 0) {
+                inp.jumpPressed = true;
+                d.wjCool = 0.2;
+                crBotHold(b, 0.32);
+            } else if (b.djCharges > 0 && b.vy > 20) {
+                inp.jumpPressed = true;     // a charge is worth less than the run
+            }
         }
         crBotTrackStuck(b, dt);
         return;
@@ -127,7 +192,7 @@ function crBotThink(level, b, dt) {
     if (d.stuck > CR_BOT_STUCK_TIME) {
         inp.right = true;
         inp.jump = true;
-        if (b.onGround) { inp.jumpPressed = true; d.holdJump = 0.3; }
+        if (b.onGround) { inp.jumpPressed = true; crBotHold(b, 0.3); }
         if (b.dashCool <= 0) inp.dash = true;
         d.stuck = 0;
         return;
@@ -138,7 +203,7 @@ function crBotThink(level, b, dt) {
         case "walljump": crBotShaft(level, b, wp, dt); return;
         case "bomb":     crBotBomb(level, b, wp, dt); return;
         case "jump":     crBotJump(level, b, wp, "jump"); return;
-        case "gust":     crBotJump(level, b, wp, "gust"); return;
+        case "gust":     crBotGust(level, b, wp); return;
         case "spring":   crBotSpring(level, b, wp); return;
         default:         crBotWalk(level, b, wp); return;
     }
@@ -147,11 +212,65 @@ function crBotThink(level, b, dt) {
 // ===================================================
 //   RE-ACQUISITION
 // ===================================================
+// The two waypoint kinds that own the bot until their own behaviour releases
+// them. Both are features you go UP or WAIT at rather than past, so an x-keyed
+// scan cannot tell when they are finished.
+function crBotBlockingWp(wp) {
+    return !!wp && (wp.kind === "walljump" || wp.kind === "bomb");
+}
+
+function crBotWpDone(level, b, wp) {
+    if (!wp) return true;
+    if (wp.kind === "walljump") {
+        if (b.y <= wp.data.topY + 10) return true;             // out the top
+        if (b.y > wp.y + CR_TILE * 3) return true;             // fell clean out
+        return false;
+    }
+    if (wp.kind === "bomb") {
+        if (crGet(level, wp.data.wallCol, wp.row - 1) !== CR_T.BREAK) return true;
+        if (b.y > wp.y + CR_TILE * 3) return true;
+        return false;
+    }
+    return true;
+}
+
 function crBotReacquire(b, route) {
     var i = b.ai.routeIdx;
     while (i < route.length - 1 && route[i].x < b.x - 6) i++;
-    while (i > 0 && route[i - 1].x > b.x + 4) i--;
+    // The backward scan needs a WIDER margin than the forward one (a tile,
+    // against 6px), or the two fight over a body sitting between two
+    // waypoints at nearly the same x and the index flip-flops every frame --
+    // which the traces showed happening at every jump landing.
+    while (i > 0 && route[i - 1].x > b.x + CR_TILE) i--;
     b.ai.routeIdx = i;
+}
+
+/*
+ * Which lane's route passes nearest this body right now, by vertical distance
+ * at the body's own x. Returns -1 when nothing is meaningfully closer than the
+ * lane the bot already has -- a bot that swaps lanes over two pixels swaps
+ * them back next frame.
+ */
+function crBotNearestLane(level, b) {
+    var best = -1, bestDy = 1e9;
+    for (var lane = 0; lane < level.routes.length; lane++) {
+        var route = level.routes[lane];
+        // Walk to the node nearest the body's x. The routes are x-sorted, so
+        // this is a scan from the front; they are short enough (a few dozen
+        // nodes) that this costs less than keeping a per-lane cursor.
+        var node = null;
+        for (var i = 0; i < route.length; i++) {
+            if (route[i].x < b.x - CR_TILE) continue;
+            node = route[i];
+            break;
+        }
+        if (!node) continue;
+        var dy = Math.abs(node.y - b.y);
+        if (dy < bestDy) { bestDy = dy; best = lane; }
+    }
+    // Only worth switching to a route the bot could actually walk onto.
+    if (bestDy > CR_TILE * 2.2) return -1;
+    return best;
 }
 
 function crBotTrackStuck(b, dt) {
@@ -181,16 +300,18 @@ function crBotNothingBelow(level, b) {
 // ===================================================
 //   WAYPOINT BEHAVIOURS
 // ===================================================
+// Always rightward. There is deliberately no "walk back to the waypoint"
+// branch: left is where the avalanche is, and the only reason a bot is ever
+// behind its waypoint is a fall or a shove, both of which the RECOVERY layer
+// owns. A bot that backtracks on this cliff dies to the wall while doing it.
 function crBotWalk(level, b, wp) {
     var inp = b.inp;
-    if (b.x < wp.x - 2) inp.right = true;
-    else if (b.x > wp.x + CR_TILE) inp.left = true;
-    else inp.right = true;
+    inp.right = true;
 
     // A step in the way, or the next node is above us: hop.
     if (b.onGround && (crBotBlockedAhead(level, b) || wp.y < b.y - 6)) {
         inp.jumpPressed = true;
-        b.ai.holdJump = wp.y < b.y - 20 ? 0.3 : 0.14;
+        crBotHold(b, wp.y < b.y - 20 ? 0.32 : 0.16);
     }
     // "noStop": a run of instant-crumble blocks. Keeping the dash ready here
     // is what turns a 0.22s fuse into a crossing rather than a gamble.
@@ -210,18 +331,34 @@ function crBotJump(level, b, wp, mode) {
         var dRow = (wp.data && wp.data.dRow) || 0;
         // Going up or level wants the whole arc; dropping wants a short hop so
         // the bot does not sail over the landing.
-        d.holdJump = dRow <= 0 ? 0.34 : 0.1;
-        var gap = (wp.data && wp.data.gap) || 0;
-        if (mode === "jump" && gap >= 3) d.dashAfter = 0.08;
+        crBotHold(b, dRow <= 0 ? 0.34 : 0.12);
+        /* NO MID-ARC DASH. It was fired here for the widest gaps, and it is
+           exactly the wrong tool once crMaxGap caps those gaps well inside the
+           reach: CR_PHYS.dashVel adds 27px to a jump that already had 20px of
+           margin, so the bot sailed PAST the landing platform into the next
+           gap. The dash is kept for the two cases where more speed is
+           unambiguously better -- outrunning the avalanche, and crossing a run
+           of instant-crumble blocks. */
         if (dRow <= -2 && b.djCharges > 0) d.needDouble = 0.3;
         return;
     }
-    // Airborne over the gap: a gust segment wants the direction held, which is
-    // all "riding" one amounts to -- the lift is the level's job, not the bot's.
-    if (!b.onGround) {
-        inp.jump = true;
-        if (mode === "gust") inp.right = true;
-    }
+    if (!b.onGround) inp.jump = true;
+}
+
+/*
+ * A wind tunnel. The bot WALKS OFF THE EDGE and does nothing else.
+ *
+ * It must not jump, and that is not a tuning choice. crEmitVent's gust sets
+ * ay to -755 against a gravity of 760, so inside the rect there is almost
+ * nothing left to decay an upward velocity: a jump's -240 would coast until
+ * the body left the top of the rect, which puts it above the far platform and
+ * off the route. Walking in at vy ~= 0 is the behaviour the gust was shaped
+ * for -- you cross level, and the only input that matters is "keep going".
+ */
+function crBotGust(level, b, wp) {
+    b.inp.right = true;
+    b.inp.jump = false;
+    void level; void wp;
 }
 
 function crBotSpring(level, b, wp) {
@@ -262,7 +399,7 @@ function crBotShaft(level, b, wp, dt) {
         inp.jump = true;
         if (b.x >= data.rightX - 4) {
             inp.jumpPressed = true;
-            d.holdJump = 0.34;
+            crBotHold(b, 0.34);
             d.wjCool = 0.14;        // let the ground jump get clear of the floor first
         }
         return;
@@ -273,7 +410,7 @@ function crBotShaft(level, b, wp, dt) {
         inp.jumpPressed = true;
         d.wjCool = 0.18;
         d.shaftSide = -b.wallDir;
-        d.holdJump = 0.3;
+        crBotHold(b, 0.3);
     }
     if (d.shaftSide < 0) inp.left = true; else inp.right = true;
     void dt;
@@ -318,7 +455,7 @@ function crBotBomb(level, b, wp, dt) {
         inp.jump = true;
         if (b.onGround && b.x + b.w >= wallX - 26) {
             inp.jumpPressed = true;
-            d.holdJump = 0.34;
+            crBotHold(b, 0.34);
             d.needDouble = 0.34;
         }
         return;
@@ -342,7 +479,7 @@ function crBotCoinHop(level, b) {
         var dy = (b.y + b.h / 2) - c.y;
         if (dy < 12 || dy > 34) continue;
         b.inp.jumpPressed = true;
-        b.ai.holdJump = 0.2;
+        crBotHold(b, 0.22);
         return;
     }
 }

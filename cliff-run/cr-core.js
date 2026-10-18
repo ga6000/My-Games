@@ -19,57 +19,128 @@
 // ===================================================
 //   THE VIRTUAL SCREEN
 // ===================================================
-// 480x288 is 30x18 tiles. Integer-scaled and letterboxed by crResize(), with
-// image-rendering: pixelated -- a raster cabinet drawing on a coarse grid
-// (AESTHETIC_GUIDE.md 1), not a high-res game with a filter over it.
+/*
+ * 480x384 is 20x16 tiles at CR_TILE 24, which is also 5:4 -- the aspect the
+ * raster cabinets of 1978-82 actually shipped with, so the frame is period
+ * before anything is drawn in it.
+ *
+ * It was 20x14 for one build and the bottom lane sat on the last playable row
+ * with nothing under it and nowhere to route: it finished 13% of the time
+ * against lane 0's 100%. Two more rows is two more rows of cliff beneath the
+ * lowest spawn. Integer-scaled and letterboxed by
+ * crResize(), with image-rendering: pixelated -- a raster cabinet drawing on a
+ * coarse grid (AESTHETIC_GUIDE.md 1), not a high-res game with a filter over it.
+ *
+ * IT WAS 16px TILES ON A 30x18 SCREEN. The user asked for bigger blocks, a
+ * smaller player inside them, and a more compact, claustrophobic, strategic
+ * level (2026-10-17). Twenty tiles of sight line instead of thirty is most of
+ * "compact" on its own: you can see about two thirds as far ahead, so a route
+ * has to be read rather than scanned.
+ */
 var CR_VW = 480;
-var CR_VH = 288;
-var CR_TILE = 16;
-var CR_COLS_ON_SCREEN = CR_VW / CR_TILE;   // 30
-var CR_ROWS = CR_VH / CR_TILE;             // 18
+var CR_VH = 384;
+var CR_TILE = 24;
+var CR_COLS_ON_SCREEN = CR_VW / CR_TILE;   // 20
+var CR_ROWS = CR_VH / CR_TILE;             // 16
 
-// Player body. 10x14 at this resolution is the spec's "somewhat small on
-// screen" -- a shade under one tile wide, so a 1-tile ledge is a real ledge.
-var CR_PW = 10;
-var CR_PH = 14;
+/*
+ * THE PLAYER IS A ZOMBIE PLAYER: a 16x16 filled square in the identity colour
+ * with a 4x4 white facing pip, which is exactly what zombie-render.js's
+ * drawPlayerBody draws (p.size is 16 there). The user asked for the character
+ * to look the same across the two games, and it answers the other half of the
+ * same request for free -- a 16px square inside a 24px tile IS "a slightly
+ * smaller block within that space".
+ *
+ * Square, not 10x14: a 16-tall body on a 24 grid still occupies exactly ONE
+ * row, so everything the corridor reservation in cr-level.js means is
+ * unchanged, and a one-block-tall opening passes it with 8px to spare.
+ */
+var CR_PW = 16;
+var CR_PH = 16;
 
 // ===================================================
 //   PHYSICS
 // ===================================================
 // Virtual px and seconds. Derived consequences are in the comments because the
 // generator reads them as hard limits and a bare number cannot say that.
+/*
+ * Virtual px and seconds, retuned for the 24px grid (2026-10-17).
+ *
+ * THE ONE FACT EVERYTHING ELSE IS CHOSEN TO MAKE TRUE:
+ *
+ *     a plain jump clears a TWO-TILE GAP but not a TWO-TILE CLIMB.
+ *
+ * That is where the strategy the user asked for comes from. A jump that can do
+ * both solves the level by itself and there is nothing to decide; a jump that
+ * can do neither is just a slower walk. Splitting them means a 2-tile climb and
+ * a 3-tile gap are double-jump-only, which turns the `dj` pickup from a bonus
+ * into a key and makes WHERE YOU SPEND IT the decision of the level.
+ *
+ * The derived numbers, for the generator (crMaxGap reads them, it does not
+ * assume them):
+ *
+ *     apex     = 290^2 / (2*1000) = 42px = 1.75 tiles   -> one tile up, never two
+ *     airtime  = 2*290/1000       = 0.58s
+ *     range    = 0.58 * 120       = 70px  = 2.9 tiles   -> crMaxGap 2
+ *     with dj  ~ 4.4 tiles                              -> crMaxGap 3
+ *
+ * moveSpeed is 5 tiles/s where it used to be 6.75: slower in the units that
+ * matter, which is "more slow-moving" as asked.
+ */
 var CR_PHYS = {
-    gravity: 760,
-    moveSpeed: 108,
-    airAccel: 900,          // how fast you reach moveSpeed in the air
-    groundAccel: 1500,
-    friction: 1200,
-    jumpVel: -240,          // apex 37.9px = 2.37 tiles; airtime 0.63s; range 68px = 4.2 tiles
-    doubleJumpVel: -216,
+    gravity: 1000,
+    moveSpeed: 120,
+    airAccel: 1000,         // how fast you reach moveSpeed in the air
+    groundAccel: 1700,
+    friction: 1500,
+    jumpVel: -290,
+    doubleJumpVel: -260,
     jumpCutMul: 0.45,       // releasing jump early clips the arc (variable height)
-    maxFall: 300,
-    dashVel: 260,
+    maxFall: 420,
+    dashVel: 280,
     dashTime: 0.18,
     dashCooldown: 0.6,
     dashTapWindow: 0.26,    // double-tap a direction inside this to dash
-    springVel: -420,        // apex 116px = 7.2 tiles; range ~119px = 7.4 tiles
-    springHeldBonus: -60,   // holding jump as you touch a branch springs higher
-    wallSlide: 46,          // terminal fall speed while clinging
-    wallJumpVy: -230,
-    wallJumpVx: 140,
+    springVel: -330,        // apex 54px = 2.3 rows
+    springVx: 230,          // forward throw; reach ~6.3 tiles
+    springHeldBonus: -40,   // holding jump as you touch a branch springs higher
+    maxSpeedAir: 330,       // ceiling on carried momentum (spring, dash, gust)
+    wallSlide: 54,          // terminal fall speed while clinging
+    wallJumpVy: -270,
+    wallJumpVx: 160,
     wallSteerLock: 0.12,    // short on purpose: you can press BACK into the same
                             // wall before the lock expires, which is what makes
                             // the Celeste back-and-forth possible
     wallStickGrace: 0.10,   // keeps a cling alive across a 1-frame gap in the wall
+    /*
+     * COYOTE AND BUFFER ARE THE *LATE-LEVEL* VALUES. crLevelSpec scales them
+     * up for the early levels -- "the game should allow for imprecise input"
+     * early on, and a late press or an early one still works there. See
+     * crForgiveness and where cr-physics.js reads it.
+     */
     coyote: 0.09,
     jumpBuffer: 0.10,
-    bounceHead: -190,       // landing on another player's head
-    bounceSquash: 60,       // ...and what it does to the one underneath
-    bounceShove: 70,
+    bounceHead: -220,       // landing on another player's head
+    bounceSquash: 70,       // ...and what it does to the one underneath
+    bounceShove: 80,
     restitutionWall: 0.8,   // a stationary player is immovable; you take it all
     restitutionPair: 0.75,  // both moving: equal-mass elastic along the normal
     stillSpeed: 12          // under this, and on the ground, you ARE a wall
 };
+
+/*
+ * How much the controls forgive, by level. 1.0 is the CR_PHYS value above
+ * (the strictest); level 1 gets nearly double the coyote window and buffer.
+ *
+ * This is a real mechanic, not a difficulty label: a player who presses jump a
+ * sixth of a second after walking off a ledge still jumps on level 1 and does
+ * not on level 10, and nothing on screen changes to say so. It is the part of
+ * "early levels allow imprecise input" that cannot be done with geometry.
+ */
+function crForgiveness(index) {
+    var t = index / (CR_LEVEL_COUNT - 1);
+    return 1.8 - 0.8 * t;                  // 1.8 at level 1, 1.0 at level 10
+}
 
 // ===================================================
 //   TILES
@@ -110,19 +181,67 @@ var CR_BOMB_RADIUS = 26;        // blast reach, in px, from the bomb's centre
 var CR_LEVEL_COUNT = 10;
 var CR_BASE_SEED = 0x5C11FF;    // replaced by the room seed when MP lands; see SERVER_NOTES.md
 
-// Per-level knobs. Scroll speed is the floor on pace, not the pace: crCamera
-// also pushes forward when the leader passes 70% of the screen, so a good
-// player is never held back by it.
+/*
+ * Per-level knobs. Scroll speed is the FLOOR on pace, not the pace: cr-boot.js
+ * also pushes the camera forward when the leader passes 70% of the screen, so
+ * a good player is never held back by it.
+ *
+ * SLACK is what the scroll ramp actually controls: moveSpeed / scroll, i.e.
+ * how many times longer the camera takes to cross the level than running it
+ * flat out does. 120/24 = 5.0 on level 1, 120/46 = 2.6 on level 10. Level 1 is
+ * deliberately very slack -- the avalanche is a presence rather than a threat
+ * while you are still learning which blocks hold.
+ *
+ * Levels are SHORT: 60 to 80 tiles, about 20-28 seconds each, ten of them in
+ * roughly four minutes. That is SCOPE_RULES.md rule 0's window, and it is also
+ * what "compact" has to mean for a level that is only 20 tiles wide on screen.
+ *
+ * THE FEATURE GATES ARE THE TEACHING ORDER, one new idea every two levels:
+ *   1-2   ground and gaps, a floor under the world, nothing that can kill you
+ *         except falling behind
+ *   3-4   the void opens, collapsing blocks, one-block squeezes
+ *   5-6   branches and wind tunnels
+ *   7-8   wall-jump chimneys
+ *   9-10  bomb walls, and gaps only a double jump crosses
+ */
 function crLevelSpec(index) {
     var t = index / (CR_LEVEL_COUNT - 1);          // 0..1
     return {
         index: index,
         seed: (CR_BASE_SEED + index * 7919) | 0,
-        cols: Math.round(150 + t * 40),            // 150 -> 190 tiles
-        scroll: 46 + t * 50,                       // 46 -> 96 px/s
-        // Feature gates, so the first levels teach and the later ones combine.
-        shafts: index >= 3,
-        bombs: index >= 5,
+        /* WITH A CAMERA THAT CANNOT BE PUSHED, THESE TWO NUMBERS ARE THE
+           LEVEL'S DURATION: worldW / scroll, exactly. 50 tiles at 50 px/s is
+           24 seconds; 70 at 72 is 23. Ten of those is about four minutes,
+           which is SCOPE_RULES.md rule 0's window, and now it is a property
+           the generator sets rather than an emergent result of how fast the
+           quickest bot happened to be.
+           The SLACK -- moveSpeed / scroll -- is what makes level 1 gentle and
+           level 10 tight: 2.4 falling to 1.7. You are never racing the wall on
+           level 1, you are learning which blocks hold. */
+        /* 60 -> 80 tiles is a MEASURED compromise, not a guess. The level's
+           length is now its duration, so it is also how many chances the bots
+           get to wedge themselves on something: at 70-95 tiles (24-25s) the
+           bot finish rate fell from 63% to 38%, almost all of it avalanche
+           deaths, because a longer level is simply more opportunities to
+           stall. At 50-70 (11s) the bots did well and ten levels went by in
+           two minutes with no room for any of them to be different.
+           60 -> 80 is ~19-20s a level, about 3.5 minutes for the ten. The
+           stalling is the real bug (cliff-run/CLAUDE.md); this is the length
+           that is honest about it in the meantime. */
+        cols: Math.round(60 + t * 20),             // 60 -> 80 tiles
+        scroll: 50 + t * 22,                       // 50 -> 72 px/s
+        forgiveness: crForgiveness(index),
+        // "maybe the first two levels lack the ability to fall off the map and
+        // lose" -- so they get a floor, and from level 3 the void is real.
+        safeFloor: index <= 1,
+        crumble: index >= 2,
+        tunnels: index >= 2,
+        branches: index >= 4,
+        vents: index >= 4,
+        shafts: index >= 6,
+        bombs: index >= 8,
+        // Gaps a plain jump cannot cross, which therefore need the charge.
+        djGaps: index >= 7,
         difficulty: t
     };
 }
@@ -147,6 +266,8 @@ var crCam = { x: 0, y: 0, shake: 0 };
 var crAvalancheX = 0;
 var crRunTime = 0;
 var crLevelTime = 0;
+var crReadyLeft = 0;            // the pre-level countdown, in seconds
+var crBetweenLeft = 0;          // how long the "level clear" card stays up
 var crScoreTotal = 0;           // the human's running total across levels
 var crHiScore = 0;
 var crFinishOrder = [];

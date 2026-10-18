@@ -52,7 +52,8 @@ function crMakeBody(seat, name, isBot) {
         tapDir: 0,
         tapTime: 0,
 
-        djCharges: 0,           // "collectables that allow for a 2nd jump"
+        airJumps: 1,            // the baseline air jump; refilled on any contact
+        djCharges: 0,           // a STORED extra jump on top of it, from a chevron
         bombs: 0,
 
         coins: 0,
@@ -61,6 +62,7 @@ function crMakeBody(seat, name, isBot) {
         alive: true,
         finished: false,
         finishedAt: 0,
+        levelsCleared: 0,       // what crDecideWinner ranks on, before score
         deathCause: "",         // "fall" | "avalanche"
         bounceFlash: 0,
         springFlash: 0,
@@ -82,7 +84,7 @@ function crResetBodyForLevel(b, spawn) {
     b.dashTime = 0; b.dashCool = 0; b.dashDir = 0; b.tapDir = 0; b.tapTime = 0;
     // Charges and bombs do NOT carry between levels. Each level places its own,
     // so carrying them would let a hoarder trivialise a later one.
-    b.djCharges = 0; b.bombs = 0;
+    b.airJumps = 1; b.djCharges = 0; b.bombs = 0;
     b.finished = false; b.finishedAt = 0;
     b.bounceFlash = 0; b.springFlash = 0;
     b.face = 1;

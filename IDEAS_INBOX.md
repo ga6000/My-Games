@@ -31,6 +31,19 @@ Game tags: `hub-zombie`, `long-game`, `hub` (the board itself), `<game-folder>`.
 - 2026-10-16 · hub · Leaderboard names: store the anonymous Firebase auth uid on each score so a name can be tied to one device without accounts — `shared/leaderboard.js` `writer`
 - 2026-10-16 · hub · Leaderboard scores: validate them server-side (Firestore rules or a Cloud Function); today the rules live in the Firebase console and cannot be read from the repo
 
+### Cliff Run movement and level design (2026-10-17)
+
+From the control-scheme pass (`cliff-run/CLIFF_RUN_PLAN.md`, "Movement"). The
+scheme itself is built; these are the level-design follow-ons it points at, and
+the one alternative scheme worth costing.
+
+- 2026-10-17 · cliff-run · A one-button grapple that aims itself (SpeedRunners): the most dynamic verb available and genuinely easy, because the aiming is the game's job — needs an anchor tile, a rope constraint, generator placement and a bot behaviour
+- 2026-10-17 · cliff-run · Branches are the best verb in the game and are rare; raise their frequency and build around them, since a spring needs no technique at all
+- 2026-10-17 · cliff-run · Make chimneys a shortcut past a flatter route rather than a wall across the only path, so a group that never learns wall-jumps still finishes
+- 2026-10-17 · cliff-run · Place the shafts between lanes deliberately — crThicken already makes a hole in an upper floor a drop into the lane below, and a drop that gains you ground is a decision
+- 2026-10-17 · cliff-run · One pinch per level where all four lanes meet: with bouncy bodies and a fixed screen that is where it stops being four parallel one-player games
+- 2026-10-17 · cliff-run · Coin arcs along the fast line, so the greedy path and the quick path are the same shape and reading one teaches the other
+
 ### Cross-game rewards (2026-10-17, user)
 
 One idea per line, as the rules ask, but they are one system: **finishing a game unlocks something

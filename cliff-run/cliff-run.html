@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cliff Run</title>
+
+    <!-- Shared token layer (AESTHETIC_GUIDE.md §2/§3): pure black ground, the
+         Signal Three, the phosphor whites, and both display faces embedded as
+         base64 data: URIs so they exist on a double-clicked page with no
+         network. §3.2 — a <link> to fonts.googleapis.com silently falls back
+         to Courier in exactly the file:// scenario the hard constraint
+         protects. -->
+    <link rel="stylesheet" href="../shared/retro.css">
+    <style>
+        /* CABINET: RASTER. §1 makes the assignment mechanical — "what does the
+           game already draw?" — and this draws chunky filled blocks on a tile
+           grid with blocky sprites. So scanlines are permitted, and they are
+           gated on data-cabinet="raster" below rather than on a class name.
+
+           WORLD HUE: #6F8FA8 basalt steel, a deliberate departure from §2.5's
+           all-neon table. The reason is in the game: the cliff is the largest
+           thing on screen, four identity colours are drawn on top of it, and
+           the Signal Three have to stay readable against it. A saturated
+           terrain hue fights all three. Rock gets brightness, entities get
+           hue — which is §2.2's own discipline. Steel is also the one region
+           of the hue table nobody has claimed. See CLIFF_RUN_PLAN.md §1. */
+        :root {
+            --world-hue: #6F8FA8;
+            --rock-mid: #48606F;
+            --rock-low: #263440;
+            --side-w: clamp(240px, 18vw, 380px);
+        }
+
+        html, body {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background: var(--ground);
+            font-family: var(--font-ui);
+            overflow: hidden;
+            user-select: none;
+            touch-action: none;
+            color: var(--phos-mid);
+        }
+
+        /* THE PLAY AREA IS THE WINDOW MINUS THE PANEL, anchored left (§4.11a).
+           Doing it this way rather than centring the canvas in the viewport is
+           what keeps every overlay's centre the centre of the PLAY field. */
+        #screen {
+            position: fixed; top: 0; left: 0; bottom: 0;
+            width: calc(100% - var(--side-w));
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+        }
+        /* The canvas is 480×288 internally and never resized; cr-boot.js's
+           crResize only changes its CSS size, by an INTEGER factor, so a
+           virtual pixel stays square. image-rendering: pixelated is what makes
+           that integer scale crisp instead of smeared. */
+        #game {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        #scan { position: absolute; inset: 0; }
+
+        /* ===== THE CABINET PANEL (AESTHETIC_GUIDE.md §4.11a) =====
+           Required for every hub game. Modelled on Bosconian's right-hand
+           panel by way of Zombie's #sidebar, which §4.11a says to copy rather
+           than start again: red labels, white values, black ground, the radar
+           in a hard light frame, CONDITION in its own colour with RED blinking.
+           Nothing in here is also drawn on the play field. */
+        #sidebar {
+            position: fixed; top: 0; right: 0; bottom: 0; width: var(--side-w);
+            box-sizing: border-box; padding: 12px;
+            display: flex; flex-direction: column; gap: 10px;
+            background: #050505;
+            border-left: 2px solid var(--phos-dim);
+            z-index: 11; overflow: hidden; pointer-events: none;
+            color: var(--phos-mid);
+        }
+        #sidebar .cab-l {
+            color: #FF3344; font-size: 13px; font-weight: bold; letter-spacing: 3px;
+        }
+        #sidebar .cab-v {
+            color: #FFFFFF; font-size: 24px; font-weight: bold; letter-spacing: 2px;
+            text-align: right; font-variant-numeric: tabular-nums; margin-top: -6px;
+        }
+        #sidebar .cab-pair { display: flex; justify-content: space-between; gap: 12px; }
+        #sidebar .cab-pair .cab-v { margin-top: 0; font-size: 20px; }
+        #sidebar .cab-nm {
+            color: #FFE033; font-size: 11px; letter-spacing: 1px; font-weight: bold;
+            display: inline-block; max-width: 92px; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+        }
+        #sidebar .cab-radar {
+            border: 3px solid #E8E8E8; padding: 3px; background: #000; align-self: stretch;
+        }
+        #cabRadar { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+        #sidebar .cab-row { display: flex; justify-content: space-between; align-items: flex-end; }
+        #sidebar .cab-cond { font-size: 26px; font-weight: bold; letter-spacing: 3px; }
+        #sidebar .cab-cond.green { color: #33FF55; }
+        #sidebar .cab-cond.yellow { color: #FFE033; }
+        /* steps(1), not a fade: §3.4's "numbers never animate smoothly, they
+           tick", applied to visibility. */
+        #sidebar .cab-cond.red { color: #FF2233; animation: cabBlink 0.5s steps(1) infinite; }
+        @keyframes cabBlink { 50% { visibility: hidden; } }
+        #sidebar .cab-lives { display: flex; gap: 5px; padding-bottom: 4px; }
+        #sidebar .cab-lives .life { width: 12px; height: 12px; background: #55FFFF; }
+
+        /* NEXT. 24px bold with a bar down its edge, for the reason Zombie's
+           was raised to the same size: it has to be readable from the corner
+           of your eye while you are busy not dying. */
+        #cabNext {
+            font-size: 22px; font-weight: bold; line-height: 1.15; min-height: 2.3em;
+            letter-spacing: 1px; color: var(--phos-hot);
+            border-left: 5px solid var(--sig-amber); padding-left: 10px;
+        }
+
+        #sidebar .cab-stats {
+            margin-top: auto; display: grid; grid-template-columns: 1fr 1fr;
+            gap: 4px 12px; font-size: 15px;
+        }
+        #sidebar .cab-stats .k { color: #FF3344; letter-spacing: 2px; font-size: 11px; }
+        #sidebar .cab-stats .v {
+            color: #FFFFFF; text-align: right; font-variant-numeric: tabular-nums;
+            font-weight: bold;
+        }
+        #sidebar .cab-load {
+            display: flex; justify-content: space-between; gap: 10px;
+            border-top: 1px solid var(--phos-dim); padding-top: 8px; font-size: 15px;
+        }
+        #sidebar .cab-load .jmp { color: var(--sig-cyan); font-weight: bold; }
+        #sidebar .cab-load .bmb { color: var(--sig-magenta); font-weight: bold; }
+
+        /* ===== MENU =====
+           Centres on the PLAY AREA, not the window: §4.11a's rule, and the
+           reason every overlay in Zombie carries the same calc(). */
+        #menu {
+            position: fixed; inset: 0; right: var(--side-w);
+            background: rgba(0, 0, 0, 0.94);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; text-align: center; padding: 20px;
+        }
+        #menu[hidden] { display: none; }
+        #menu h1 {
+            font-family: var(--font-display); font-size: 34px; letter-spacing: 4px;
+            color: var(--world-hue); margin: 0 0 6px;
+            text-shadow: 0 0 18px rgba(111, 143, 168, 0.5);
+        }
+        #menu .sub {
+            font-family: var(--font-display); font-size: 11px; letter-spacing: 3px;
+            color: var(--sig-magenta); margin-bottom: 34px;
+        }
+        #menu .keys {
+            font-size: 17px; line-height: 1.95; color: var(--phos-mid);
+            max-width: 560px; margin-bottom: 30px;
+        }
+        #menu .keys b { color: var(--sig-cyan); font-weight: normal; }
+        #menu .keys .warn { color: var(--sig-magenta); }
+        #menu .keys .get { color: var(--sig-amber); }
+        #menu button {
+            font-family: var(--font-display); font-size: 16px; letter-spacing: 2px;
+            background: transparent; color: var(--sig-amber);
+            border: 2px solid var(--sig-amber); padding: 14px 32px; cursor: pointer;
+        }
+        #menu button:hover { background: rgba(255, 176, 0, 0.16); }
+        #menu .foot { margin-top: 26px; font-size: 13px; color: var(--phos-dim); }
+
+        @media (max-width: 900px) {
+            :root { --side-w: 220px; }
+            #menu h1 { font-size: 22px; }
+            #menu .keys { font-size: 14px; }
+        }
+    </style>
+</head>
+<!-- data-cabinet="raster" is what PERMITS the scanline overlay: retro.css
+     gates it on the attribute, so it cannot be switched on for a Vector
+     cabinet by reaching for the class name (§4.6). -->
+<body data-game="cliff-run" data-cabinet="raster">
+
+<div id="screen">
+    <canvas id="game" width="480" height="384"></canvas>
+    <div id="scan" class="retro-scanlines"></div>
+</div>
+
+<div id="sidebar">
+    <div class="cab-pair">
+        <div><div class="cab-l">HI-SCORE</div><div class="cab-v" id="cabHi">000000</div></div>
+        <div><div class="cab-l">1UP <span class="cab-nm" id="cabName"></span></div>
+             <div class="cab-v" id="cabScore">000000</div></div>
+    </div>
+
+    <!-- The radar. The whole cliff in a hard light frame: the things you
+         navigate by (the catwalks, the vents, the bomb walls, the other
+         players, the wall behind you), not every block. -->
+    <div class="cab-radar"><canvas id="cabRadar" width="240" height="140"></canvas></div>
+
+    <div class="cab-row">
+        <div><div class="cab-l">CONDITION</div><div class="cab-cond green" id="cabCond">GREEN</div></div>
+        <div class="cab-lives" id="cabLives"></div>
+    </div>
+
+    <div class="cab-l">NEXT</div>
+    <div id="cabNext">REACH THE OUTPOST</div>
+
+    <div class="cab-stats">
+        <div class="k">LEVEL</div><div class="v" id="cabLevel">1/10</div>
+        <div class="k">TIME</div><div class="v" id="cabTime">0.0</div>
+        <div class="k">COINS</div><div class="v" id="cabCoins">0</div>
+        <div class="k">SCROLL</div><div class="v" id="cabSpeed">--</div>
+    </div>
+    <div class="cab-load">
+        <span><span class="cab-l">2ND JUMP</span> <span class="jmp" id="cabJumps">--</span></span>
+        <span><span class="cab-l">BOMBS</span> <span class="bmb" id="cabBombs">--</span></span>
+    </div>
+</div>
+
+<div id="menu" hidden>
+    <h1>CLIFF RUN</h1>
+    <div class="sub">FOUR DOWN THE FACE · TEN LEVELS</div>
+    <div class="keys">
+        <b>A D</b> / <b>&larr; &rarr;</b> run &nbsp;·&nbsp; <b>W</b> / <b>&uarr;</b> / <b>SPACE</b> jump<br>
+        you always have a <b>second jump in the air</b> &mdash; it comes back the
+        moment you touch anything<br>
+        <b>double-tap</b> a direction (or <b>SHIFT</b>) to <b>dash</b><br>
+        <b>E</b> set down a bomb next to a bolted wall<br>
+        touch a wall and you <b>hold on</b> by yourself &mdash; jump to kick off it<br>
+        <span class="get">coins</span> are points &nbsp;·&nbsp;
+        <span class="get">chevrons</span> give you a third jump &nbsp;·&nbsp;
+        branches spring you<br>
+        <span class="warn">hollow cracked blocks go the moment you touch them</span><br>
+        <span class="warn">red-scored blocks give you a second, then go</span><br>
+        <span class="warn">the avalanche fills the left edge — fall behind and it takes you</span><br>
+        walk onto any catwalk at the far outpost to finish the level
+    </div>
+    <button type="button" onclick="crBegin()">START</button>
+    <div class="foot">M mute &nbsp;·&nbsp; ESC pause &nbsp;·&nbsp; L+G dev tools</div>
+</div>
+
+<!-- identity.js must load BEFORE mp-core: mp-core falls back to
+     IDENTITY.colorFromName() when there is no server (file:// solo play), and
+     that fallback is the ONLY name->colour path in this game. -->
+<script src="../shared/zoom-guard.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/mp-core.js"></script>
+<!-- RETRO.snap / band / padScore / attract are used in cr-render, cr-panel and
+     cr-boot; LB.submit posts the run at game over. Both are feature-detected
+     with typeof at their call sites and silently no-op if absent, and LB
+     no-ops entirely on file:// (it reaches Firestore through a dynamic
+     import()). -->
+<script src="../shared/retro.js"></script>
+<script src="../shared/leaderboard.js"></script>
+<!-- The L+G dev panel. BEFORE this game's own files, for the two reasons
+     DEV_TOOLS_PLAN.md gives: its error capture only sees throws that happen
+     after it installs, and its keydown listener has to be attached before the
+     game's so a combo press can be stopped from also moving the player.
+     Registration is cr-dev.js, last. -->
+<script src="../shared/devtools.js"></script>
+
+<!-- This game's own files. Classic scripts sharing ONE global scope, so every
+     top-level name across them must be unique —
+     scripts/check-global-collisions.js enforces it, and every name here is
+     cr/CR_-prefixed for that reason. Load order matters: cr-core declares the
+     state and constants the rest read, and cr-boot is the only file that
+     executes anything, so it goes last but one. -->
+<script src="cr-core.js"></script>
+<!-- Audio owns its OWN AudioContext rather than loading shared/sfx.js: the
+     wind tunnels and the avalanche rumble are SUSTAINED voices and SFX has no
+     sustained primitive, so loading it would put a second AudioContext on the
+     page. The two shared jingles are reproduced note for note — see the
+     header of cr-audio.js. -->
+<script src="cr-audio.js"></script>
+<script src="cr-level.js"></script>
+<script src="cr-entities.js"></script>
+<script src="cr-physics.js"></script>
+<script src="cr-bots.js"></script>
+<script src="cr-render.js"></script>
+<script src="cr-panel.js"></script>
+<script src="cr-boot.js"></script>
+<!-- LAST: it reads names every file above declares, and registers only. -->
+<script src="cr-dev.js"></script>
+</body>
+</html>
