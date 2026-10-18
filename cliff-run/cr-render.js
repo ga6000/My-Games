@@ -63,6 +63,7 @@ function crRender() {
     crDrawItems(ctx);
     crDrawBombs(ctx);
     crDrawFalling(ctx);
+    crDrawRopes(ctx);
     crDrawBodies(ctx);
     crDrawParticles(ctx);
     ctx.restore();
@@ -339,6 +340,21 @@ function crDrawTile(ctx, level, code, c, r) {
             // catwalks are, and a tile does not.
             ctx.fillStyle = CR_INK.rockLow;
             ctx.fillRect(x, y, T, T);
+            break;
+        }
+        case CR_T.ANCHOR: {
+            /* A ring bolted to the overhang: a bracket into the rock above, a
+               short shank, and the ring itself. Amber, because 2.2 makes amber
+               "attention / interact" in every game in the repo and this is the
+               one thing on the cliff you reach out and take hold of. */
+            ctx.fillStyle = CR_INK.rockLow;
+            ctx.fillRect(x + T / 2 - 5, y, 10, 4);          // the bracket
+            ctx.fillStyle = CR_INK.amber;
+            ctx.fillRect(x + T / 2 - 1, y + 3, 2, 6);       // the shank
+            ctx.fillRect(x + T / 2 - 4, y + 9, 8, 2);       // the ring
+            ctx.fillRect(x + T / 2 - 4, y + 15, 8, 2);
+            ctx.fillRect(x + T / 2 - 5, y + 10, 2, 5);
+            ctx.fillRect(x + T / 2 + 3, y + 10, 2, 5);
             break;
         }
         case CR_T.VENT: {
@@ -674,6 +690,50 @@ function crDrawFalling(ctx) {
 // ===================================================
 //   BODIES
 // ===================================================
+/*
+ * ROPES AND THE AIM TARGET.
+ *
+ * Drawn UNDER the bodies so a rope never covers the player holding it, and the
+ * aim highlight is drawn whether or not you are pressing anything -- being able
+ * to see which ring you would get is what makes an automatic aim feel like your
+ * decision rather than the game's. Without it an auto-aim feels arbitrary the
+ * first time it picks the ring you did not mean.
+ */
+function crDrawRopes(ctx) {
+    var i, b;
+
+    // The ring the local player would take. Only the human's, or four
+    // highlights would be four kinds of noise.
+    b = crPlayers[0];
+    if (b && b.alive && !b.finished && b.aimAt) {
+        var pulse = 0.45 + 0.55 * Math.abs(Math.sin(crRunTime * 7));
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = CR_INK.amber;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(crSnap(b.aimAt.x - 7) + 0.5, crSnap(b.aimAt.y - 11) + 0.5, 14, 16);
+        ctx.globalAlpha = 1;
+    }
+
+    for (i = 0; i < crBodies.length; i++) {
+        b = crBodies[i];
+        if (!b.alive || !b.grapple) continue;
+        var x0 = crSnap(b.x + b.w / 2), y0 = crSnap(b.y + b.h / 2);
+        var x1 = crSnap(b.grapple.x), y1 = crSnap(b.grapple.y);
+        // A dashed rope, drawn as blocks rather than a stroked line: a raster
+        // cabinet has no hairlines, and the dashes make the reel-in visible.
+        var dx = x1 - x0, dy = y1 - y0;
+        var len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+        var n = Math.ceil(len / 5);
+        for (var k = 0; k <= n; k++) {
+            if (k % 2) continue;
+            ctx.fillStyle = (k === n || k === 0) ? CR_INK.hot : CR_INK.amber;
+            ctx.fillRect(crSnap(x0 + dx * (k / n)) - 1, crSnap(y0 + dy * (k / n)) - 1, 2, 2);
+        }
+        ctx.fillStyle = CR_INK.hot;
+        ctx.fillRect(x1 - 2, y1 - 2, 4, 4);
+    }
+}
+
 function crDrawBodies(ctx) {
     for (var i = 0; i < crBodies.length; i++) {
         var b = crBodies[i];

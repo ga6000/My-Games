@@ -193,6 +193,7 @@ function crLand(level, b, code, col, row) {
     }
 
     var wasAir = !b.onGround;
+    if (b.grapple) crGrappleRelease(b);   // you have arrived; the rope is done
     b.vy = 0;
     b.onGround = true;
     b.groundCode = code;
@@ -255,6 +256,7 @@ function crStepBody(level, b, dt) {
     if (b.buffer > 0) b.buffer -= dt;
     if (b.steerLock > 0) b.steerLock -= dt;
     if (b.dashCool > 0) b.dashCool -= dt;
+    if (b.grappleCool > 0) b.grappleCool -= dt;
     if (b.wallGrace > 0) b.wallGrace -= dt;
     if (b.tapTime > 0) b.tapTime -= dt;
     if (b.bounceFlash > 0) b.bounceFlash -= dt;
@@ -283,6 +285,20 @@ function crStepBody(level, b, dt) {
 
     var pressingWall = b.wallDir !== 0 && b.vy > 0;
 
+    /* ---- the grapple, held rather than toggled: you let go of the key to let
+       go of the rope, which is one less thing to remember and matches every
+       game that does this well. The aim target is recomputed every frame even
+       when the key is up, because cr-render.js draws it. */
+    b.aimAt = b.grapple ? null : crFindAnchor(level, b);
+    if (inp.grapple) {
+        if (!b.grapple && b.grappleCool <= 0) {
+            if (b.aimAt) crGrappleAttach(b, b.aimAt);
+            else { b.grappleCool = CR_PHYS.grappleCool; crSfxGrappleMiss(); }
+        }
+    } else if (b.grapple) {
+        crGrappleRelease(b);
+    }
+
     // ---- dash
     if (inp.dash && b.dashCool <= 0 && b.dashTime <= 0) {
         b.dashDir = inp.left ? -1 : (inp.right ? 1 : b.face);
@@ -295,6 +311,13 @@ function crStepBody(level, b, dt) {
 
     // ---- jump, buffered so a press one frame early still counts
     if (inp.jumpPressed) { b.buffer = crBuffer(); inp.jumpPressed = false; }
+    if (b.buffer > 0 && b.grapple) {
+        // Jumping off the rope is the fast way to end a swing, and it should
+        // not also cost you the air jump you were saving.
+        crGrappleRelease(b);
+        b.vy = Math.min(b.vy, CR_PHYS.jumpVel * 0.8);
+        b.buffer = 0;
+    }
     if (b.buffer > 0) {
         if (b.onGround || b.coyote > 0) {
             b.vy = CR_PHYS.jumpVel;
@@ -350,6 +373,19 @@ function crStepBody(level, b, dt) {
         if (want === 0) {
             var fr = CR_PHYS.friction * dt;
             if (Math.abs(b.vx) <= fr) b.vx = 0; else b.vx -= crSign(b.vx) * fr;
+        } else if (b.grapple) {
+            /* PUMPING. On the rope, left/right pushes you along the arc rather
+               than through the air -- the same thing you do standing on a
+               playground swing. Ordinary air control would fight the rope and
+               kill the swing instead of feeding it. */
+            var gx = b.x + b.w / 2 - b.grapple.x;
+            var gy = b.y + b.h / 2 - b.grapple.y;
+            var gl = Math.sqrt(gx * gx + gy * gy) || 1;
+            // The tangent to the rope, flipped to follow whichever way you asked.
+            var tx = -gy / gl, ty = gx / gl;
+            if (tx * want < 0) { tx = -tx; ty = -ty; }
+            b.vx += tx * CR_PHYS.grapplePump * dt;
+            b.vy += ty * CR_PHYS.grapplePump * dt;
         } else {
             /* MOMENTUM. In the AIR, a body already moving faster than
                moveSpeed in the direction it is asking for is not slowed down.
@@ -386,6 +422,7 @@ function crStepBody(level, b, dt) {
     // ---- integrate
     crMoveX(level, b, b.vx * dt);
     crMoveY(level, b, b.vy * dt);
+    crGrappleStep(level, b, dt);
 
     /* THE RIGHT EDGE OF THE SCREEN IS A WALL. The user's call: players cannot
        go past it. With a camera that no longer speeds up for anyone, this is
@@ -418,6 +455,136 @@ function crStepBody(level, b, dt) {
     }
 
     crCollectFor(b);
+}
+
+// ===================================================
+//   THE GRAPPLE
+// ===================================================
+/*
+ * ONE KEY, AND THE GAME AIMS IT.
+ *
+ * The user's brief was "a lot more dynamic and easy to play", and those pull
+ * in opposite directions for almost every mechanic except this one. What makes
+ * a grapple feel good is the ARC; what makes it hard in most games is the AIM.
+ * Take the aiming away and what is left is two decisions -- when to fire, when
+ * to let go -- neither of which needs practice, attached to the longest, fastest
+ * movement in the game.
+ *
+ * Three pieces: crFindAnchor picks the ring, crGrappleAttach starts the swing,
+ * and crGrappleStep is the rope constraint. The constraint is the only part
+ * with any subtlety and it is sixteen lines.
+ */
+
+// Can a rope get from here to there without passing through the cliff? Sampled
+// rather than a proper DDA: at 6px steps over a 176px reach that is thirty
+// lookups, which is nothing, and it cannot tunnel through a 24px tile.
+function crLineClear(level, x0, y0, x1, y1) {
+    var dx = x1 - x0, dy = y1 - y0;
+    var n = Math.max(2, Math.ceil(Math.sqrt(dx * dx + dy * dy) / 6));
+    for (var i = 1; i < n; i++) {
+        var t = i / n;
+        if (crSolidForX(crTileAt(level, x0 + dx * t, y0 + dy * t))) return false;
+    }
+    return true;
+}
+
+/*
+ * THE AUTO-AIM, and its scoring is the whole design.
+ *
+ * It does NOT pick the nearest ring. It picks the one that will throw you
+ * FORWARD AND UP, because that is what the player meant by pressing the key --
+ * nobody fires a grapple to go backwards. So a ring behind you is rejected
+ * outright, a ring above you scores better than one level with you, and
+ * distance is only a tie-break.
+ *
+ * Also runs every frame for the HUD (b.aimAt): you can always see which ring
+ * you would get, which is what makes an automatic aim feel like your decision
+ * instead of the game's.
+ */
+function crFindAnchor(level, b) {
+    var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    var c0 = Math.floor((cx - CR_PHYS.grappleRange) / CR_TILE);
+    var c1 = Math.floor((cx + CR_PHYS.grappleRange) / CR_TILE);
+    var r0 = Math.floor((cy - CR_PHYS.grappleRange) / CR_TILE);
+    var r1 = Math.floor((cy + CR_PHYS.grappleRange) / CR_TILE);
+    var best = null, bestScore = -1e9;
+
+    for (var r = r0; r <= r1; r++) {
+        for (var c = c0; c <= c1; c++) {
+            if (crGet(level, c, r) !== CR_T.ANCHOR) continue;
+            var ax = c * CR_TILE + CR_TILE / 2;
+            var ay = r * CR_TILE + CR_TILE * 0.72;      // the ring hangs low in its cell
+            var dx = ax - cx, dy = ay - cy;
+            var d = Math.sqrt(dx * dx + dy * dy);
+            if (d > CR_PHYS.grappleRange || d < 18) continue;
+            if (dx < -CR_TILE) continue;                 // never backwards
+            if (ay > cy + CR_TILE) continue;             // never below your feet
+            if (!crLineClear(level, cx, cy, ax, ay)) continue;
+
+            // Forward is worth the most, up is worth a lot, near is a tie-break.
+            var score = dx * 1.6 + (cy - ay) * 1.1 - d * 0.35;
+            if (score > bestScore) { bestScore = score; best = { col: c, row: r, x: ax, y: ay, d: d }; }
+        }
+    }
+    return best;
+}
+
+function crGrappleAttach(b, a) {
+    b.grapple = { x: a.x, y: a.y, len: Math.max(CR_PHYS.grappleRopeMin, a.d) };
+    b.onGround = false;
+    b.jumpsUsed = 1;
+    crSfxGrappleHit();
+}
+
+function crGrappleRelease(b) {
+    if (!b.grapple) return;
+    // A small kick along the way you were already going. An arc that ends in a
+    // shrug does not read as having been worth doing.
+    b.vx *= CR_PHYS.grappleRelease;
+    b.vy *= CR_PHYS.grappleRelease;
+    if (b.vy < -CR_PHYS.maxFall) b.vy = -CR_PHYS.maxFall;
+    b.grapple = null;
+    b.grappleCool = CR_PHYS.grappleCool;
+    crSfxGrappleOff();
+}
+
+/*
+ * The rope, applied AFTER integration: pull the body back onto the circle and
+ * remove whatever velocity was trying to stretch it. Keeping only the
+ * tangential component is what turns falling into swinging, and it is the
+ * entire difference between a grapple and a winch.
+ *
+ * The reel-in is what makes it fast: a shortening rope on a swinging body
+ * conserves angular momentum, so you speed up as you rise -- the same reason a
+ * spinning skater pulls their arms in. It is free dynamism and it costs one
+ * subtraction.
+ */
+function crGrappleStep(level, b, dt) {
+    var g = b.grapple;
+    if (!g) return;
+
+    if (g.len > CR_PHYS.grappleRopeMin) {
+        g.len = Math.max(CR_PHYS.grappleRopeMin, g.len - CR_PHYS.grappleReel * dt);
+    }
+
+    var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    var dx = cx - g.x, dy = cy - g.y;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d < 0.001) return;
+
+    // The rope has gone slack; nothing to do until it is taut again.
+    if (d <= g.len) return;
+
+    var nx = dx / d, ny = dy / d;
+    var pull = d - g.len;
+    b.x -= nx * pull;
+    b.y -= ny * pull;
+
+    var radial = b.vx * nx + b.vy * ny;
+    if (radial > 0) { b.vx -= radial * nx; b.vy -= radial * ny; }
+
+    // A rope that drags you into rock should let go rather than hold you there.
+    if (crSolidForX(crTileAt(level, b.x + b.w / 2, b.y + b.h / 2))) crGrappleRelease(b);
 }
 
 // ===================================================
@@ -624,6 +791,7 @@ function crSetCheckpoint(b) {
 
 function crKill(b, cause) {
     if (!b.alive) return;
+    if (b.grapple) { b.grapple = null; b.grappleCool = 0; }
 
     /* A LIVE CHECKPOINT TURNS A DEATH INTO A SETBACK. It has to still be ahead
        of the avalanche -- otherwise you would respawn inside the wall, and the

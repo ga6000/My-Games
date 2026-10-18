@@ -125,6 +125,35 @@ var CR_PHYS = {
     bounceShove: 80,
     shoveSpeed: 95,         // how hard a mover pushes a standing body out of a doorway
     respawnDelay: 0.75,     // how long a checkpoint respawn costs you
+
+    /*
+     * THE GRAPPLE. One key, and the game does the aiming.
+     *
+     * This is the SpeedRunners answer to "more dynamic and easy to play", and
+     * the two halves of that are not in tension: what makes a grapple feel good
+     * is the ARC, and what makes it hard in most games is the AIM. Take the
+     * aiming away (crFindAnchor picks for you) and all that is left is when to
+     * fire and when to let go -- two decisions, no precision, and a swing that
+     * carries you further than any jump in the game.
+     *
+     * range      how far it will reach for a ring
+     * ropeMin    how short the reel-in will pull you; the swing tightens and
+     *            speeds up as you rise, which is where the "fling" comes from
+     * reel       px/s the rope shortens while you hold on
+     * pump       tangential push from left/right, so you can work a swing the
+     *            way you work a playground swing
+     * release    a small kick on let-go, because an arc that ends in a shrug
+     *            does not read as having been worth doing
+     */
+    grappleRange: 176,
+    /* 46, not 34: the ring is bolted to rock, so a rope that reels in to
+       under a tile and a half swings you straight up into the ceiling it hangs
+       from. Two tiles keeps you clear of it and still tightens the arc. */
+    grappleRopeMin: 46,
+    grappleReel: 85,
+    grapplePump: 560,
+    grappleRelease: 1.12,
+    grappleCool: 0.18,
     restitutionWall: 0.8,   // a stationary player is immovable; you take it all
     restitutionPair: 0.75,  // both moving: equal-mass elastic along the normal
     stillSpeed: 12          // under this, and on the ground, you ARE a wall
@@ -159,7 +188,11 @@ var CR_T = {
     BRANCH: 5,      // springs you on landing
     CATWALK: 6,     // the finish
     OUTPOST: 7,     // the comms structure at both ends
-    VENT: 8         // an opening in the cliff; its gust field is a separate rect
+    VENT: 8,        // an opening in the cliff; its gust field is a separate rect
+    /* A GRAPPLE RING bolted to an overhang. NOT SOLID -- you pass through it,
+       you do not stand on it -- which is why it can live in a cell that would
+       otherwise be air and why line-of-sight never has to special-case it. */
+    ANCHOR: 9
 };
 
 // Which codes stop a body. BRANCH is solid from above only (see crTileSolid).

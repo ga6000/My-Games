@@ -1338,6 +1338,69 @@ function crSafeFloor(level) {
     for (var c = 0; c < level.cols; c++) crSet(level, c, CR_ROW_MAX + 1, CR_T.STONE);
 }
 
+/*
+ * GRAPPLE RINGS, AND THEY ARE ALWAYS A SHORTCUT, NEVER THE WAY THROUGH.
+ *
+ * Placed AFTER crThicken, over gaps the routes already cross by other means,
+ * so a player who never touches the key finishes exactly as before and a
+ * player who does gets there faster and higher. That is the same rule the
+ * chimneys should follow and currently do not: a technique that is required is
+ * a wall in front of everyone who has not learned it yet.
+ *
+ * A ring needs rock directly above it to be bolted to, and air below it to
+ * swing in -- which is also why it reads instantly as a thing you grab rather
+ * than a thing you stand on.
+ */
+function crPlaceAnchors(level, rng) {
+    var placed = 0;
+    var want = 5 + (level.spec.difficulty * 6 | 0);
+
+    for (var lane = 0; lane < level.routes.length && placed < want; lane++) {
+        var route = level.routes[lane];
+        for (var i = 0; i < route.length && placed < want; i++) {
+            var wp = route[i];
+            if (wp.kind !== "jump" && wp.kind !== "gust" && wp.kind !== "spring") continue;
+            if (rng() < 0.25) continue;
+
+            /* OVER THE GAP, NOT BESIDE IT. The first rule asked for a cell with
+               rock above and air below, which sounds like a ceiling and in a
+               crThicken-ed world is almost nowhere: below any rock mass is the
+               one-row corridor, and below THAT is the next floor. It placed
+               zero anchors on every level.
+               A gap is the one place that genuinely has air under it, which is
+               also the only place a swing is worth anything. So: walk the gap's
+               own columns, climb until there is something to bolt to, and
+               check the drop is deep enough to swing in. */
+            var gapCol = Math.floor(wp.x / CR_TILE) + 1;
+            for (var dc = 0; dc < 4 && placed < want; dc++) {
+                var col = gapCol + dc;
+                if (col >= level.cols - 2) break;
+                if (crTileSolid(crGet(level, col, wp.row))) continue;    // not actually a gap here
+
+                for (var up = 2; up <= 5; up++) {
+                    var row = wp.row - up;
+                    if (row < 1) break;
+                    if (crGet(level, col, row) !== CR_T.EMPTY) continue;
+                    if (!crTileSolid(crGet(level, col, row - 1))) continue;  // nothing to bolt to
+
+                    // Three clear rows under the ring, or there is no arc.
+                    var room = true;
+                    for (var k = 1; k <= 3; k++) {
+                        if (crTileSolid(crGet(level, col, row + k))) { room = false; break; }
+                    }
+                    if (!room) continue;
+
+                    crSet(level, col, row, CR_T.ANCHOR);
+                    level.anchors.push({ col: col, row: row });
+                    placed++;
+                    break;
+                }
+                if (placed >= want) break;
+            }
+        }
+    }
+}
+
 // ===================================================
 //   REPAIR AND VERIFY
 // ===================================================
@@ -1511,6 +1574,7 @@ function crBuildLevel(index) {
         routes: [],
         catwalks: [],
         gates: [],
+        anchors: [],
         vents: [],
         gusts: [],
         coins: [],
@@ -1562,6 +1626,7 @@ function crBuildLevel(index) {
     // cannot fill a hole the repair was about to punch.
     crThicken(level);
     if (spec.safeFloor) crSafeFloor(level);
+    crPlaceAnchors(level, rng);
 
     if (spec.bombs) level.objective = "BOMB THROUGH · REACH THE OUTPOST";
     else if (spec.shafts) level.objective = "CLIMB THE CHIMNEYS";

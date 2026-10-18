@@ -19,6 +19,7 @@ function crMakeInput() {
         left: false, right: false, up: false, down: false,
         jump: false,            // held
         jumpPressed: false,     // edge, cleared by the step that consumes it
+        grapple: false,         // HELD -- you let go of the key to let go of the rope
         dash: false,            // edge
         bomb: false             // edge
     };
@@ -60,6 +61,9 @@ function crMakeBody(seat, name, isBot) {
            now comes only from a jump pad, which is a PLACE, and places can be
            queued for, raced to and taken from under somebody. */
         djCharges: 0,           // air jumps in hand, from a pad
+        grapple: null,          // {col, row, x, y, len} while attached
+        grappleCool: 0,
+        aimAt: null,            // the ring F would take right now; drawn, not simulated
         checkpoint: null,       // {x, y} -- set with Q, respawns you here
         respawnIn: 0,
         bombs: 0,
@@ -93,6 +97,7 @@ function crResetBodyForLevel(b, spawn) {
     // Charges and bombs do NOT carry between levels. Each level places its own,
     // so carrying them would let a hoarder trivialise a later one.
     b.djCharges = 0; b.bombs = 0;
+    b.grapple = null; b.grappleCool = 0; b.aimAt = null;
     b.checkpoint = null; b.respawnIn = 0;
     b.finished = false; b.finishedAt = 0;
     b.bounceFlash = 0; b.springFlash = 0;

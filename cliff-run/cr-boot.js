@@ -102,17 +102,23 @@ function crAttachInput(signal) {
         if (me && (e.code === "ShiftLeft" || e.code === "ShiftRight")) me.inp.dash = true;
         if (me && e.code === "KeyE") me.inp.bomb = true;
         if (me && e.code === "KeyQ") crSetCheckpoint(me);
+        // The grapple is HELD: F down fires and holds, F up lets go.
+        if (me && e.code === "KeyF") me.inp.grapple = true;
         if (me && act === "up") me.inp.jumpPressed = true;
     }, { signal: signal });
 
     window.addEventListener("keyup", function (e) {
         var act = CR_KEYMAP[e.code];
         if (act) crKeys[act] = false;
+        var me = crPlayers[0];
+        if (me && e.code === "KeyF") me.inp.grapple = false;
     }, { signal: signal });
 
     // A window that loses focus with a key held would otherwise keep running.
     window.addEventListener("blur", function () {
         for (var k in crKeys) crKeys[k] = false;
+        // A rope still held when the window lost focus would hold forever.
+        if (crPlayers[0]) crPlayers[0].inp.grapple = false;
     }, { signal: signal });
 
     window.addEventListener("resize", crResize, { signal: signal });

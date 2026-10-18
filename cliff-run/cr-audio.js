@@ -308,6 +308,18 @@ function crSfxCollapse() {
     crNoise({ freq: 700, slideTo: 90, dur: 0.42, gain: 0.2 });
     crTone({ freq: 90, slideTo: 40, dur: 0.3, type: "triangle", gain: 0.12 });
 }
+/*
+ * THE GRAPPLE'S THREE SOUNDS, and the miss is the important one. A key that
+ * does nothing has to SAY it did nothing, or the player concludes the mechanic
+ * is unreliable rather than that there was no ring in range.
+ */
+function crSfxGrappleHit() {
+    crNoise({ freq: 2800, slideTo: 900, dur: 0.06, type: "bandpass", gain: 0.2 });
+    crTone({ freq: 880, slideTo: 1400, dur: 0.07, type: "square", gain: 0.16 });
+}
+function crSfxGrappleOff() { crTone({ freq: 1200, slideTo: 480, dur: 0.09, type: "triangle", gain: 0.15 }); }
+function crSfxGrappleMiss() { crTone({ freq: 220, slideTo: 150, dur: 0.07, type: "square", gain: 0.1 }); }
+
 // The three new voices: a pad taken, a pad come back, and a respawn.
 function crSfxCheckpoint() { crSeq([659.25, 987.77], { type: "square", step: 0.07, dur: 0.06, gain: 0.2 }); }
 function crSfxPadReady() { crTone({ freq: 1318.5, dur: 0.04, type: "square", gain: 0.1 }); }

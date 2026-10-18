@@ -217,6 +217,57 @@ is wide, because four finishers park on it.
 
 ---
 
+## The grapple (2026-10-17)
+
+**One key, and the game aims it.** `F` fires at the best ring in range, hold to
+swing, let go to fly. This is the SpeedRunners answer to "more dynamic and easy
+to play", and the two halves of that only pull against each other for other
+mechanics: what makes a grapple feel good is the **arc**, what makes it hard in
+most games is the **aim**. Take the aiming away and what is left is two
+decisions — when to fire, when to let go — neither needing practice, attached to
+the longest, fastest movement in the game.
+
+| piece | file | what it does |
+|---|---|---|
+| `CR_T.ANCHOR` | cr-core.js | a ring bolted to an overhang. **Not solid** — you pass through it |
+| `crFindAnchor` | cr-physics.js | the auto-aim |
+| `crGrappleAttach` / `crGrappleRelease` | cr-physics.js | start and end a swing |
+| `crGrappleStep` | cr-physics.js | the rope constraint |
+| `crPlaceAnchors` | cr-level.js | puts rings over gaps |
+| `crDrawRopes` | cr-render.js | the rope, and the ring you would get |
+
+**The auto-aim does not pick the nearest ring.** It picks the one that throws
+you *forward and up*, because that is what pressing the key meant — nobody fires
+a grapple to go backwards. A ring behind you is rejected outright, above scores
+better than level, distance is only a tie-break, and line of sight is checked so
+you cannot grapple through the cliff. It runs every frame whether or not the key
+is down, because **cr-render.js draws the ring you would get**: being able to see
+the choice is what makes an automatic aim feel like yours rather than the game's.
+
+**The reel-in is where the speed comes from.** A shortening rope on a swinging
+body conserves angular momentum, so you accelerate as you rise — the same reason
+a spinning skater pulls their arms in. Measured on a test swing: **141 px/s in,
+334 px/s out**, nearly three times walking speed, for one keypress.
+
+**Rings are always a shortcut, never the way through** (`crPlaceAnchors` runs
+after `crThicken`, over gaps the routes already cross by other means). A player
+who never touches `F` finishes exactly as before. That is the rule the chimneys
+should follow and currently do not, and it is also why adding the grapple did
+not move the bot finish rate (34% → 35%): the bots ignore the rings entirely and
+are none the worse for it.
+
+Two things worth knowing if you tune it:
+
+- **`grappleRopeMin` is 46, not 34.** The ring is bolted to rock, so reeling in
+  under a tile and a half swings you into the ceiling it hangs from.
+- **The first placement rule put zero anchors on every level.** It asked for a
+  cell with rock above and air below, which in a `crThicken`-ed world is almost
+  nowhere — below any mass is a one-row corridor and below that is the next
+  floor. A gap is the only place with genuine air under it, and the only place a
+  swing is worth anything, so placement walks the gap's own columns.
+
+---
+
 ## The fourth pass: bottlenecks, pads, checkpoints, art (2026-10-17)
 
 The user's verdict after playing: *"95% of the game is walking in a straight
