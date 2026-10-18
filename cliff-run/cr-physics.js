@@ -197,7 +197,6 @@ function crLand(level, b, code, col, row) {
     b.onGround = true;
     b.groundCode = code;
     b.jumpsUsed = 0;
-    b.airJumps = 1;             // the baseline air jump comes back on contact
     b.coyote = crCoyote();
     if (wasAir) crSfxLand();
 
@@ -240,6 +239,14 @@ function crStepBody(level, b, dt) {
     if (b.finished) {
         b.vx = 0; b.vy = 0;
         b.onGround = true;
+        return;
+    }
+
+    // A respawn costs you a beat on the spot -- long enough to read where you
+    // are, short enough that the wall still matters.
+    if (b.respawnIn > 0) {
+        b.respawnIn -= dt;
+        b.vx = 0; b.vy = 0;
         return;
     }
 
@@ -309,29 +316,11 @@ function crStepBody(level, b, dt) {
             b.wallGrace = 0;
             b.buffer = 0;
             b.jumpsUsed = 1;
-            b.airJumps = 1;     // a wall is contact too: leaving one re-arms you
             crSfxWallJump();
-        } else if (b.airJumps > 0) {
-            /* EVERYBODY HAS ONE AIR JUMP, ALWAYS, and it comes back the moment
-               you touch ground or a wall. It used to be a consumable you had
-               to find, which meant the answer to "I mistimed that" was usually
-               "you die". An always-available second jump is the single
-               largest accessibility win available to a platformer: almost
-               every mistake becomes recoverable, and the game gets more
-               dynamic rather than more forgiving-looking, because people start
-               attempting things.
-               The pickup still matters -- it grants an EXTRA stored jump on
-               top of this one (b.djCharges), so a chevron is "I can try the
-               big route" rather than "I am allowed to jump twice". */
-            b.airJumps--;
-            b.vy = CR_PHYS.doubleJumpVel;
-            b.jumpsUsed = 2;
-            b.buffer = 0;
-            crSfxDoubleJump();
         } else if (b.djCharges > 0) {
             b.djCharges--;
             b.vy = CR_PHYS.doubleJumpVel;
-            b.jumpsUsed = 3;
+            b.jumpsUsed = 2;
             b.buffer = 0;
             crSfxDoubleJump();
         }
@@ -420,7 +409,6 @@ function crStepBody(level, b, dt) {
         if (g) {
             b.onGround = true;
             b.groundCode = g.code;
-            b.airJumps = 1;
             b.coyote = crCoyote();
             if (g.code === CR_T.CRUMBLE || g.code === CR_T.TIMED) crTouchTile(level, g.col, g.row);
         } else {
@@ -530,6 +518,30 @@ function crAxisBounce(a, b, axis, overlap, aWall, bWall) {
             mover[vk] = -mover[vk] * CR_PHYS.restitutionWall;
         }
         if (axis === "x" && Math.abs(mover[vk]) < 30) mover[vk] = toward * 40;
+
+        /* A STATIONARY PLAYER IS A WALL, BUT NOT A FIXTURE -- it can be shoved.
+         *
+         * "being stationary makes you a wall" is the brief and it stays true:
+         * you absorb the hit, you do not bounce, the mover takes the
+         * reflection. What it cannot also mean is IMMOVABLE, which is what it
+         * meant until the bottlenecks went in. Four bodies converging on one
+         * shared ledge is the dogpiling the game is now built around, and with
+         * an immovable wall at the front of the queue it is a deadlock: the
+         * three behind cannot pass, nobody has a way out, and the avalanche
+         * takes all four.
+         *
+         * So a mover pressing into a standing body nudges it along. It is a
+         * scrum rather than a traffic jam, and it is the more satisfying
+         * reading of the rule anyway -- somebody standing in the doorway at
+         * the top of the cliff SHOULD be shovable.
+         *
+         * A FINISHED body is exempt and stays immovable: it is parked on the
+         * catwalk by the rules of the finish, not merely standing still.
+         */
+        if (axis === "x" && !wall.finished) {
+            wall[vk] += toward * CR_PHYS.shoveSpeed;
+            wall.bounceFlash = 0.22;
+        }
         mover.bounceFlash = 0.22;
         wall.bounceFlash = 0.12;
         if (mover.dashTime > 0) mover.dashTime = 0;
@@ -591,8 +603,42 @@ function crCheckFate(level, b) {
     }
 }
 
+/*
+ * SETTING A CHECKPOINT. The user's: "a key press that creates a spawn point...
+ * at any solid block at any time, so that they can reattempt difficult jumps
+ * or feats."
+ *
+ * Free, re-settable, and on the ground only -- a checkpoint in mid-air would
+ * make the fall itself meaningless. What keeps it honest is that it ages: the
+ * avalanche is still coming, and a checkpoint the wall has already passed is
+ * worth nothing (crKill). So the question it asks is "is it still worth going
+ * back for", which is a better question than "did you make the jump".
+ */
+function crSetCheckpoint(b) {
+    if (!b.alive || b.finished || !b.onGround) return false;
+    b.checkpoint = { x: b.x, y: b.y };
+    crBurst(b.x + b.w / 2, b.y + b.h, 6, CR_INK.cyan);
+    crSfxCheckpoint();
+    return true;
+}
+
 function crKill(b, cause) {
     if (!b.alive) return;
+
+    /* A LIVE CHECKPOINT TURNS A DEATH INTO A SETBACK. It has to still be ahead
+       of the avalanche -- otherwise you would respawn inside the wall, and the
+       one thing that must never stop mattering is the wall. */
+    if (b.checkpoint && b.checkpoint.x + b.w > crAvalancheX + 12) {
+        b.x = b.checkpoint.x;
+        b.y = b.checkpoint.y;
+        b.vx = 0; b.vy = 0;
+        b.respawnIn = CR_PHYS.respawnDelay;
+        b.bounceFlash = 0.4;
+        crBurst(b.x + b.w / 2, b.y + b.h / 2, 10, CR_INK.cyan);
+        crSfxRespawn();
+        return;
+    }
+
     b.alive = false;
     b.deathCause = cause;
     crBurst(b.x + b.w / 2, b.y + b.h / 2, 14, b.color);

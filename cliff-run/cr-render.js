@@ -385,74 +385,130 @@ function crDrawOutposts(ctx) {
     }
 }
 
+/*
+ * THE OUTPOST, built from the reference the user attached: a brutalist
+ * concrete tower bolted to the mountainside, going green, with a drum-shaped
+ * top floor under a railed roof deck and a trussed catwalk reaching out over
+ * the drop.
+ *
+ * The things that make it read as that building rather than a grey box, in
+ * order of how much they do:
+ *
+ *   - CONCRETE, NOT ROCK. Its own palette (CR_INK.concrete*), so the structure
+ *     separates from the cliff instead of looking carved out of it.
+ *   - BANDED WINDOWS. Long horizontal ribbons of glazing per storey with
+ *     mullions, the way the reference has them, rather than a scatter of lit
+ *     squares. A few dark, one in twelve flickering.
+ *   - THE DRUM. The top floor is inset and rounded off at the corners, with a
+ *     railed deck on top of it. That silhouette is most of the reference.
+ *   - MOSS ON EVERY LEDGE. Every horizontal surface that would hold water
+ *     carries a ragged green fringe, heavier lower down.
+ *   - A TRUSS under each catwalk, and struts into the rock, so the whole thing
+ *     reads as fixed ON rather than grown out of.
+ */
 function crDrawTowerBody(ctx, level, isFinish) {
     var c0 = isFinish ? level.finishCol - 1 : 1;
     var c1 = isFinish ? level.cols - 2 : CR_START_COLS - 2;
     var x0 = c0 * CR_TILE, x1 = (c1 + 1) * CR_TILE;
-    if (x1 < crCam.x - 40 || x0 > crCam.x + CR_VW + 40) return;
+    if (x1 < crCam.x - 60 || x0 > crCam.x + CR_VW + 60) return;
 
-    var top = 8, bottom = (CR_ROW_MAX + 2) * CR_TILE;
+    var deckY = 46;                                   // top of the roof deck
+    var drumY = deckY + 10;                           // the drum floor
+    var bodyY = drumY + 30;
+    var bottom = (CR_ROW_MAX + 2) * CR_TILE;
+    var mid = crSnap((x0 + x1) / 2);
+    var i, y;
 
-    // The hull: a dark plated body with a lit seam down the side facing the run.
-    ctx.fillStyle = CR_INK.rockLow;
-    ctx.fillRect(x0, top, x1 - x0, bottom - top);
-    ctx.fillStyle = CR_INK.rockMid;
-    ctx.fillRect(isFinish ? x1 - 4 : x0, top, 4, bottom - top);
+    // ---- the shaft
+    ctx.fillStyle = CR_INK.concreteMid;
+    ctx.fillRect(x0, bodyY, x1 - x0, bottom - bodyY);
+    ctx.fillStyle = CR_INK.concrete;                  // the lit face
+    ctx.fillRect(isFinish ? x1 - 5 : x0, bodyY, 5, bottom - bodyY);
 
-    // Plating seams, so the hull reads as built rather than cast.
-    ctx.fillStyle = CR_INK.rockLow;
-    for (var sy = top + 10; sy < bottom; sy += 19) {
-        ctx.fillStyle = CR_INK.ground;
-        ctx.globalAlpha = 0.5;
-        ctx.fillRect(x0, crSnap(sy), x1 - x0, 1);
+    // ---- the drum: inset, with its corners knocked off
+    var dIn = 7;
+    ctx.fillStyle = CR_INK.concreteMid;
+    ctx.fillRect(x0 + dIn, drumY, (x1 - x0) - dIn * 2, bodyY - drumY);
+    ctx.fillStyle = CR_INK.concrete;
+    ctx.fillRect(x0 + dIn, drumY, (x1 - x0) - dIn * 2, 3);
+    ctx.fillStyle = CR_INK.ground;                    // rounded shoulders
+    ctx.fillRect(x0 + dIn, drumY, 3, 2);
+    ctx.fillRect(x1 - dIn - 3, drumY, 3, 2);
+
+    // ---- the roof deck and its railing
+    ctx.fillStyle = CR_INK.concreteLow;
+    ctx.fillRect(x0 + dIn - 3, deckY, (x1 - x0) - dIn * 2 + 6, drumY - deckY);
+    ctx.fillStyle = CR_INK.concrete;
+    ctx.fillRect(x0 + dIn - 3, deckY, (x1 - x0) - dIn * 2 + 6, 2);
+    ctx.fillStyle = CR_INK.concreteMid;
+    for (i = x0 + dIn - 2; i < x1 - dIn + 3; i += 7) ctx.fillRect(crSnap(i), deckY - 8, 2, 8);
+    ctx.fillStyle = CR_INK.concrete;
+    ctx.fillRect(x0 + dIn - 3, deckY - 9, (x1 - x0) - dIn * 2 + 6, 2);
+
+    // ---- banded glazing
+    for (y = bodyY + 9, i = 0; y < bottom - 30; y += 24, i++) {
+        ctx.fillStyle = CR_INK.concreteLow;
+        ctx.fillRect(x0 + 4, crSnap(y), (x1 - x0) - 8, 11);
+        for (var wx = x0 + 6; wx < x1 - 7; wx += 10) {
+            var h = crHash2(wx + i * 37, isFinish ? 2 : 1);
+            if (h < 0.2) continue;
+            var lit = h > 0.3 || (Math.floor(crRunTime * 1.4 + h * 9) % 2 === 0);
+            ctx.fillStyle = lit ? CR_INK.cyan : CR_INK.concreteMid;
+            ctx.globalAlpha = lit ? 0.7 : 1;
+            ctx.fillRect(crSnap(wx), crSnap(y + 2), 7, 7);
+            ctx.globalAlpha = 1;
+        }
+        // the sill, and the moss that has taken it
+        ctx.fillStyle = CR_INK.concrete;
+        ctx.fillRect(x0 + 4, crSnap(y + 11), (x1 - x0) - 8, 2);
+        crDrawMoss(ctx, x0 + 4, y + 13, (x1 - x0) - 8, i * 13 + (isFinish ? 5 : 0),
+                   0.25 + 0.5 * (y / bottom));
+    }
+
+    // a lit band on the drum too
+    ctx.fillStyle = CR_INK.concreteLow;
+    ctx.fillRect(x0 + dIn + 3, drumY + 9, (x1 - x0) - dIn * 2 - 6, 10);
+    for (var dx = x0 + dIn + 5; dx < x1 - dIn - 5; dx += 9) {
+        ctx.fillStyle = (Math.floor(crRunTime + dx) % 5) ? CR_INK.cyan : CR_INK.concreteMid;
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(crSnap(dx), drumY + 11, 6, 6);
         ctx.globalAlpha = 1;
     }
 
-    /* WINDOWS. A deterministic grid, most of them lit, a few dark, and one in
-       twelve flickering on a slow beat -- a tower with somebody in it. */
-    var wcols = Math.max(1, Math.floor((x1 - x0 - 8) / 11));
-    for (var wy = top + 14, row = 0; wy < bottom - 26; wy += 21, row++) {
-        for (var wc = 0; wc < wcols; wc++) {
-            var h = crHash2(wc + row * 31, isFinish ? 2 : 1);
-            if (h < 0.22) continue;                       // a dark window
-            var lit = h > 0.3 || (Math.floor(crRunTime * 1.4 + h * 9) % 2 === 0);
-            ctx.fillStyle = CR_INK.ground;
-            ctx.fillRect(crSnap(x0 + 5 + wc * 11), crSnap(wy), 7, 9);
-            ctx.fillStyle = lit ? CR_INK.cyan : CR_INK.rockMid;
-            ctx.globalAlpha = lit ? 0.75 : 1;
-            ctx.fillRect(crSnap(x0 + 6 + wc * 11), crSnap(wy + 1), 5, 7);
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = CR_INK.rockLow;               // the mullion
-            ctx.fillRect(crSnap(x0 + 6 + wc * 11), crSnap(wy + 4), 5, 1);
-        }
-    }
-
-    /* THE STRUTS that bolt it to the mountain -- the detail that says this was
-       carried up here and fixed on, rather than grown out of the rock. */
-    ctx.fillStyle = CR_INK.rockMid;
+    // ---- struts into the mountain
+    ctx.fillStyle = CR_INK.concreteMid;
     var sx = isFinish ? x0 : x1;
     var dir = isFinish ? -1 : 1;
     for (var k = 0; k < 4; k++) {
-        var sy2 = top + 40 + k * 56;
-        if (sy2 > bottom - 20) break;
-        for (var t2 = 0; t2 < 16; t2++) {
-            ctx.fillRect(crSnap(sx + dir * t2), crSnap(sy2 + t2), 2, 2);
-            ctx.fillRect(crSnap(sx + dir * t2), crSnap(sy2 - t2), 2, 2);
+        var sy2 = bodyY + 46 + k * 62;
+        if (sy2 > bottom - 24) break;
+        for (var tt = 0; tt < 18; tt++) {
+            ctx.fillRect(crSnap(sx + dir * tt), crSnap(sy2 + tt), 2, 2);
+            ctx.fillRect(crSnap(sx + dir * tt), crSnap(sy2 - tt), 2, 2);
         }
     }
 
-    /* THE MAST, with guy wires and a beacon. */
-    var mx = crSnap((x0 + x1) / 2);
-    ctx.fillStyle = CR_INK.rockMid;
-    ctx.fillRect(mx - 2, 0, 4, top + 6);
-    ctx.fillStyle = CR_INK.rockLow;
-    for (var g = 0; g < 10; g++) {
-        ctx.fillRect(crSnap(mx - 2 - g), crSnap(g * 1.4), 1, 1);
-        ctx.fillRect(crSnap(mx + 2 + g), crSnap(g * 1.4), 1, 1);
+    // ---- the mast
+    ctx.fillStyle = CR_INK.concreteMid;
+    ctx.fillRect(mid - 2, 0, 4, deckY - 8);
+    ctx.fillStyle = CR_INK.concreteLow;
+    for (var g = 0; g < 14; g++) {
+        ctx.fillRect(crSnap(mid - 2 - g), crSnap(g * 2.6), 1, 1);
+        ctx.fillRect(crSnap(mid + 2 + g), crSnap(g * 2.6), 1, 1);
     }
-    var beacon = (Math.floor(crRunTime * 1.6) % 2) === 0;
-    ctx.fillStyle = beacon ? CR_INK.magenta : CR_INK.rockLow;
-    ctx.fillRect(mx - 2, 0, 4, 4);
+    ctx.fillStyle = (Math.floor(crRunTime * 1.6) % 2) ? CR_INK.magenta : CR_INK.concreteLow;
+    ctx.fillRect(mid - 2, 0, 4, 5);
+}
+
+// A ragged fringe of green along a ledge. Deterministic, so the building
+// weathers the same way every time you look at it.
+function crDrawMoss(ctx, x, y, w, seed, density) {
+    for (var i = 0; i < w; i += 3) {
+        var h = crHash2(i + seed, 53);
+        if (h > density) continue;
+        ctx.fillStyle = h > density * 0.6 ? CR_INK.moss : CR_INK.mossLit;
+        ctx.fillRect(crSnap(x + i), crSnap(y), 3, 1 + (h * 6 | 0));
+    }
 }
 
 /*
@@ -462,18 +518,37 @@ function crDrawTowerBody(ctx, level, isFinish) {
  */
 function crDrawCatwalk(ctx, cw) {
     var x0 = cw.col0 * CR_TILE, x1 = (cw.col1 + 1) * CR_TILE;
-    if (x1 < crCam.x - 40 || x0 > crCam.x + CR_VW + 40) return;
+    if (x1 < crCam.x - 60 || x0 > crCam.x + CR_VW + 60) return;
     var y = cw.row * CR_TILE;
 
-    // Posts every 12px, two rails, and a kick plate at the deck.
-    ctx.fillStyle = CR_INK.rockMid;
-    for (var px = x0 + 2; px < x1; px += 12) ctx.fillRect(crSnap(px), y - 13, 2, 13);
-    ctx.fillStyle = cw.finish ? CR_INK.cyan : CR_INK.rock;
-    ctx.fillRect(x0, y - 14, x1 - x0, 2);
-    ctx.fillStyle = CR_INK.rockMid;
-    ctx.fillRect(x0, y - 7, x1 - x0, 1);
-    ctx.fillStyle = CR_INK.rockLow;
-    ctx.fillRect(x0, y - 2, x1 - x0, 2);
+    // The deck.
+    ctx.fillStyle = CR_INK.concreteMid;
+    ctx.fillRect(x0, y, x1 - x0, 7);
+    ctx.fillStyle = cw.finish ? CR_INK.cyan : CR_INK.concrete;
+    ctx.fillRect(x0, y, x1 - x0, 2);
+
+    /* THE TRUSS. A walkway out over a drop has something holding it up, and in
+       the reference that is a lattice of diagonals under the span. It is also
+       the detail that stops a catwalk reading as a floating platform. */
+    ctx.fillStyle = CR_INK.concreteLow;
+    ctx.fillRect(x0, y + 7, x1 - x0, 2);
+    for (var tx = x0; tx < x1 - 6; tx += 12) {
+        for (var d = 0; d < 7; d++) {
+            ctx.fillRect(crSnap(tx + d), crSnap(y + 9 + d), 2, 2);
+            ctx.fillRect(crSnap(tx + 11 - d), crSnap(y + 9 + d), 2, 2);
+        }
+    }
+
+    // Handrail: posts, a top rail and a mid rail. Not collidable -- it is what
+    // makes a strip of grating read as somewhere a person stands.
+    ctx.fillStyle = CR_INK.concreteMid;
+    for (var px = x0 + 2; px < x1; px += 13) ctx.fillRect(crSnap(px), y - 15, 2, 15);
+    ctx.fillStyle = cw.finish ? CR_INK.cyan : CR_INK.concrete;
+    ctx.fillRect(x0, y - 16, x1 - x0, 2);
+    ctx.fillStyle = CR_INK.concreteMid;
+    ctx.fillRect(x0, y - 8, x1 - x0, 1);
+
+    crDrawMoss(ctx, x0, y + 9, x1 - x0, cw.row * 7, 0.3);
 }
 
 // A vent is hostile if the gust it feeds pushes left -- back toward the
@@ -700,48 +775,86 @@ function crDrawParticles(ctx) {
 // Screen space, not world space: it is the left 5% of the SCREEN, which is what
 // makes it a pace-setter rather than a place. Magenta leading edge because it
 // is the thing in this game most likely to kill you (2.2).
+/*
+ * THE AVALANCHE: ROCKS AND DUST.
+ *
+ * The user's note -- "make it look like actual rocks and dust". It was a field
+ * of same-sized squares, which at any distance is gravel or static. Three
+ * things make it rock instead:
+ *
+ *   - BOULDERS OF VERY DIFFERENT SIZES. A real slide is a few big masses with
+ *     rubble between them, and the big ones are what give it scale. Each is
+ *     two or three overlapping rectangles, which is how you get an irregular
+ *     silhouette out of fillRect.
+ *   - THEY TUMBLE. Each boulder's offset is a function of time, so the mass
+ *     churns rather than shimmering in place.
+ *   - DUST. A billowing front that reaches PAST the kill line, in stepped
+ *     alpha bands (4.9: the era had no gradients). The dust is what sells it
+ *     as moving air rather than a wall of texture, and it is also the warning
+ *     you see before the rock arrives.
+ *
+ * It is drawn in screen space because that is what it is: the left edge of the
+ * screen, the whole way down, at a constant speed.
+ */
 function crDrawAvalanche(ctx) {
     if (crPhase !== "play" && crPhase !== "between") return;
-    // Its real screen position, not a fixed 5%: once the camera clamps at the
-    // end of the level the line keeps creeping (see cr-boot.js), and it has to
-    // be drawn where it actually is or it kills people off-screen.
     var w = crClamp(crAvalancheX - crCam.x, 0, CR_VW);
+    if (w <= 0) return;
+    var t = crRunTime;
 
+    // Behind the front: solid black, because nothing has survived back there.
     ctx.fillStyle = CR_INK.ground;
     ctx.fillRect(0, 0, w, CR_VH);
 
-    // A packed mass, not a sprinkle. It has to read as a WALL of rock coming
-    // at you -- the first version drew 26 small blocks over 288px of height and
-    // looked like grit on the lens.
-    for (var i = 0; i < 90; i++) {
-        var seed = crHash2(i, Math.floor(crRunTime * 12));
-        var bx = seed * w;
-        var by = (i / 90) * CR_VH + (seed - 0.5) * 11;
-        var s = 4 + Math.floor(seed * 6);
-        ctx.fillStyle = seed > 0.7 ? CR_INK.rock : (seed > 0.3 ? CR_INK.rockMid : CR_INK.rockLow);
-        ctx.fillRect(crSnap(bx), crSnap(by), s, s);
+    // ---- the mass
+    var i, h1, h2, bx, by, sz;
+    for (i = 0; i < 70; i++) {
+        h1 = crHash2(i, 3);
+        h2 = crHash2(i, 17);
+        // Tumbling: each boulder drifts on its own clock and wraps.
+        by = (h1 * CR_VH + t * (26 + h2 * 50)) % (CR_VH + 30) - 15;
+        bx = (h2 * w) + Math.sin(t * 1.7 + i) * 3;
+        sz = 3 + Math.floor(h1 * h2 * 26);               // a few big, many small
+        if (bx + sz < 0 || bx > w) continue;
+        ctx.fillStyle = h1 > 0.72 ? CR_INK.rock : (h1 > 0.34 ? CR_INK.rockMid : CR_INK.rockLow);
+        // Two or three overlapping blocks: an irregular lump, not a square.
+        ctx.fillRect(crSnap(bx), crSnap(by), sz, sz);
+        ctx.fillRect(crSnap(bx + sz * 0.45), crSnap(by - sz * 0.3), sz * 0.7, sz * 0.8);
+        if (sz > 10) {
+            ctx.fillStyle = CR_INK.rockLow;
+            ctx.fillRect(crSnap(bx + 2), crSnap(by + sz * 0.5), sz * 0.5, 2);
+        }
     }
 
-    // Jagged teeth along the leading edge, so the boundary is a rock face
-    // rather than a ruled line.
-    ctx.fillStyle = CR_INK.rockMid;
-    for (var k = 0; k < 24; k++) {
-        var ts = crHash2(k, Math.floor(crRunTime * 8) + 5);
-        ctx.fillRect(crSnap(w - 1), crSnap((k / 24) * CR_VH), 2 + Math.round(ts * 7), 7);
+    // ---- the dust front, reaching past the kill line
+    for (var band = 0; band < 4; band++) {
+        var reach = 10 + band * 11;
+        ctx.globalAlpha = (typeof RETRO !== "undefined" ? RETRO.band(1 - band / 4, 4) : 0.4) * 0.26;
+        ctx.fillStyle = CR_INK.dust;
+        for (i = 0; i < 16; i++) {
+            var dh = crHash2(i + band * 29, 41);
+            var dy = (dh * CR_VH + t * (16 + dh * 26)) % (CR_VH + 40) - 20;
+            var dw = 10 + dh * 22;
+            ctx.fillRect(crSnap(w - 6 + dh * reach), crSnap(dy), dw, 7 + (dh * 10 | 0));
+        }
     }
-
-    ctx.fillStyle = CR_INK.magenta;
-    ctx.globalAlpha = 0.55 + 0.45 * Math.abs(Math.sin(crRunTime * 9));
-    ctx.fillRect(crSnap(w), 0, 1, CR_VH);
     ctx.globalAlpha = 1;
 
-    // Dust blowing off the face of it.
-    ctx.fillStyle = CR_INK.rock;
-    for (var k = 0; k < 10; k++) {
-        var s2 = crHash2(k, Math.floor(crRunTime * 9) + 91);
-        ctx.globalAlpha = 0.25 * s2;
-        ctx.fillRect(crSnap(w + s2 * 22), crSnap(s2 * CR_VH), 2, 2);
+    // ---- debris thrown clear of the front
+    ctx.fillStyle = CR_INK.rockMid;
+    for (i = 0; i < 9; i++) {
+        var sh = crHash2(i, Math.floor(t * 3) + 77);
+        var px = w + sh * 30;
+        var py = ((sh * CR_VH) + t * 150) % CR_VH;
+        ctx.globalAlpha = 0.8 - sh * 0.5;
+        ctx.fillRect(crSnap(px), crSnap(py), 2 + (sh * 3 | 0), 2 + (sh * 3 | 0));
     }
+    ctx.globalAlpha = 1;
+
+    // The kill line itself stays readable: this is the thing that ends you.
+    ctx.fillStyle = CR_INK.magenta;
+    ctx.globalAlpha = 0.5 + 0.5 * Math.abs(Math.sin(t * 9));
+    ctx.fillRect(crSnap(w), 0, 1, CR_VH);
     ctx.globalAlpha = 1;
 }
 

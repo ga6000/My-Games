@@ -52,8 +52,16 @@ function crMakeBody(seat, name, isBot) {
         tapDir: 0,
         tapTime: 0,
 
-        airJumps: 1,            // the baseline air jump; refilled on any contact
-        djCharges: 0,           // a STORED extra jump on top of it, from a chevron
+        /* NO FREE AIR JUMP. One build gave everybody a second jump that came
+           back on contact, which is the standard accessibility move and which
+           the user turned down: "I don't think a second jump should stay on."
+           Fair -- an always-on double jump makes almost every gap the same
+           gap, and this game's gaps are supposed to be the decision. A charge
+           now comes only from a jump pad, which is a PLACE, and places can be
+           queued for, raced to and taken from under somebody. */
+        djCharges: 0,           // air jumps in hand, from a pad
+        checkpoint: null,       // {x, y} -- set with Q, respawns you here
+        respawnIn: 0,
         bombs: 0,
 
         coins: 0,
@@ -84,7 +92,8 @@ function crResetBodyForLevel(b, spawn) {
     b.dashTime = 0; b.dashCool = 0; b.dashDir = 0; b.tapDir = 0; b.tapTime = 0;
     // Charges and bombs do NOT carry between levels. Each level places its own,
     // so carrying them would let a hoarder trivialise a later one.
-    b.airJumps = 1; b.djCharges = 0; b.bombs = 0;
+    b.djCharges = 0; b.bombs = 0;
+    b.checkpoint = null; b.respawnIn = 0;
     b.finished = false; b.finishedAt = 0;
     b.bounceFlash = 0; b.springFlash = 0;
     b.face = 1;
@@ -111,7 +120,9 @@ function crSpawnLevelItems(level) {
         crPickups.push({
             kind: level.pickups[i].kind,
             x: level.pickups[i].x, y: level.pickups[i].y,
-            taken: false, bob: i * 0.9
+            // A bomb is still a one-shot pickup; a jump pad is a fixture that
+            // recharges, so `taken` is only ever true for bombs.
+            taken: false, ready: true, cool: 0, bob: i * 0.9
         });
     }
 }
@@ -276,6 +287,17 @@ function crBurst(x, y, n, color) {
     }
 }
 
+// Pads coming back. The only thing on the cliff that gets BETTER with time,
+// which is what makes waiting at one a real decision against the avalanche.
+function crUpdatePads(dt) {
+    for (var i = 0; i < crPickups.length; i++) {
+        var pk = crPickups[i];
+        if (pk.ready || pk.taken) continue;
+        pk.cool -= dt;
+        if (pk.cool <= 0) { pk.ready = true; crSfxPadReady(); }
+    }
+}
+
 function crUpdateParticles(dt) {
     for (var i = crParticles.length - 1; i >= 0; i--) {
         var p = crParticles[i];
@@ -306,12 +328,18 @@ function crCollectFor(b) {
     }
     for (i = 0; i < crPickups.length; i++) {
         var pk = crPickups[i];
-        if (pk.taken) continue;
+        if (pk.taken || !pk.ready) continue;
         if (Math.abs(pk.x - cx) > CR_PICKUP_R + b.w / 2) continue;
         if (Math.abs(pk.y - cy) > CR_PICKUP_R + b.h / 2) continue;
-        pk.taken = true;
-        if (pk.kind === "dj") b.djCharges = Math.min(2, b.djCharges + 1);
-        else b.bombs = Math.min(3, b.bombs + 1);
+        if (pk.kind === "dj") {
+            if (b.djCharges >= 2) continue;        // full hands, leave it lit
+            b.djCharges++;
+            pk.ready = false;                      // the pad goes dark and recharges
+            pk.cool = CR_PAD_RECHARGE;
+        } else {
+            pk.taken = true;
+            b.bombs = Math.min(3, b.bombs + 1);
+        }
         crBurst(pk.x, pk.y, 6, pk.kind === "dj" ? CR_INK.cyan : CR_INK.magenta);
         crSfxPickup();
     }

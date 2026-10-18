@@ -228,9 +228,24 @@ function crMarkCorridor(level, c0, c1, row, rows) {
     }
 }
 
+/*
+ * CR_SHARED is the owner id for ground EVERY route is meant to stand on -- the
+ * bottlenecks. Without it the reservation does exactly the wrong thing at a
+ * gate: lane 0 arrives, claims the corridor, and lanes 1-3 then read it as
+ * somebody else's and route around the one place they were supposed to meet.
+ */
+var CR_SHARED = 255;
+
 function crForeignClear(level, col, row) {
     var v = level.clear[crIdx(level, col, row)];
-    return v !== 0 && v !== (level.buildLane | 0) + 1;
+    return v !== 0 && v !== CR_SHARED && v !== (level.buildLane | 0) + 1;
+}
+
+function crMarkShared(level, c0, c1, row, rows) {
+    var lo = Math.max(0, row - (rows || CR_CORRIDOR_ROWS));
+    for (var c = Math.max(0, c0); c <= c1 && c < level.cols; c++) {
+        for (var r = lo; r <= row; r++) level.clear[crIdx(level, c, r)] = CR_SHARED;
+    }
 }
 
 // Could this route stand on `row` across [c0, c1] without blocking anyone or
@@ -285,8 +300,8 @@ function crBoxFree(level, c0, c1, r0, r1) {
 // The last resort, used only when no row in the band is usable: take the
 // corridor by force. The repair pass in crBuildLevel then re-places anything
 // this broke, so a route can never be left with a hole under a waypoint.
-function crClearCorridor(level, c0, c1, row) {
-    var lo = Math.max(0, row - CR_CORRIDOR_ROWS);
+function crClearCorridor(level, c0, c1, row, rows) {
+    var lo = Math.max(0, row - (rows || CR_CORRIDOR_ROWS));
     for (var c = Math.max(0, c0); c <= c1 && c < level.cols; c++) {
         for (var r = lo; r <= row - 1; r++) {
             if (crGet(level, c, r) === CR_T.CATWALK) continue;
@@ -355,6 +370,138 @@ function crBuildOutpost(level, side) {
 
 function crIsFinishTile(level, col, row) {
     return crGet(level, col, row) === CR_T.CATWALK && col >= level.finishCol;
+}
+
+/*
+ * BOTTLENECKS -- the fix for "95% of the game is walking in a straight line".
+ *
+ * The diagnosis is structural, not cosmetic. The generator built FOUR private
+ * routes, one per lane, that only crossed by accident. Four players each in
+ * their own corridor is four parallel single-player games sharing a screen:
+ * nobody is ever in your way, nothing is ever contested, and the only thing
+ * your neighbours affect is the scoreboard. No amount of extra verbs fixes
+ * that, because the problem is that there is nothing to have a verb AT.
+ *
+ * So the run is now punctuated by GATES: short stretches of ground, at one row,
+ * that EVERY route is routed through. The four of you converge, squeeze onto
+ * the same ledge, bounce off each other (cr-physics.js already makes bodies
+ * springy and a stationary one a wall), and come out the other side in a
+ * different order than you went in. That is the dogpiling the user asked for,
+ * and it arrives from geometry rather than from a scripted event.
+ *
+ * Between gates each lane is pushed toward a DIFFERENT technique (w.prefer),
+ * so the stretch you take to the next bottleneck is a spring run while your
+ * neighbour's is a chimney -- "primary paths with slightly different methods
+ * of getting through at certain points".
+ *
+ * The gate rows deliberately move around the cliff, because a bottleneck at
+ * the same height every time is just a corridor with a wide bit.
+ */
+/* FEWER, AND THEREFORE WORTH MORE. At 19 and 22 columns a 64-86 column level
+   got three or four bottlenecks, and between the shaft each one cuts and the
+   convergence each one forces there was no room left for the stretches they
+   were supposed to punctuate -- the level became the gates. At 40 there are
+   one or two: enough that the four of you are thrown together at least once a
+   level, few enough that the rest of the level is still a level. */
+var CR_GATE_SPACING = 40;       // columns between bottlenecks
+var CR_GATE_APPROACH = 14;      // columns a walker is given to reach one
+
+function crBuildGates(level, rng, runStart, runEnd) {
+    var gates = [];
+    var lo = CR_ROW_MIN + 2, hi = CR_ROW_MAX - 1;
+    var prev = Math.round((lo + hi) / 2);
+    for (var col = runStart + 14; col < runEnd - 12; col += CR_GATE_SPACING) {
+        /* EACH GATE IS A SHORT HOP FROM THE LAST, two to four rows, never a
+           free pick anywhere on the cliff.
+           The first version rolled the row at random over the whole height,
+           which reads fine on paper and is a disaster in motion: a walker that
+           has to climb eleven rows to the next bottleneck spends the entire
+           stretch climbing at two rows a jump, there is no room left for the
+           technique the stretch was supposed to be about, and the avalanche
+           takes everyone. Measured: bot finish 53% -> 25%, almost all of it
+           avalanche deaths.
+           Two rows minimum keeps the vertical movement; four maximum keeps it
+           affordable. */
+        /* A GATE SITS LOW, so every lane reaches it by FALLING INTO IT.
+           Climbing to a shared ledge was the first design and it does not
+           survive four lanes: each built its own staircase over the same
+           fourteen columns at four different heights, so lane 1's step landed
+           in lane 0's body row. crVerifyRoutes went from ~13 flaws over eighty
+           levels to 512, and "ceiling at head height" means a body literally
+           cannot be where its route says it is.
+           Dropping needs no geometry of its own, cannot collide with anybody
+           else's, and the bots already do it without being told. It also reads
+           better: four people falling into the same pit IS the dogpile.
+
+           THE LEDGE SITS MID-CLIFF, not at the bottom. Putting it low makes
+           every drop free and every exit enormous: after the bottleneck all
+           four lanes had to climb back up ten rows, which is where the pace
+           went. Mid-height means a short drop in and a short climb out. */
+        var mid = Math.round((lo + hi) / 2);
+        var row = crClamp(mid + ((rng() * 3 | 0) - 1), lo, hi);
+        if (Math.abs(row - prev) < 2) row = crClamp(row + 2, lo, hi);
+        prev = row;
+        gates.push({ col: col, row: row, w: 4 + (rng() * 3 | 0) });
+    }
+    return gates;
+}
+
+/*
+ * The shared ledge itself. Emitted idempotently -- whichever walker reaches it
+ * first lays the tiles, the rest simply walk onto them -- and marked CR_SHARED
+ * so the reservation lets everyone in.
+ */
+function crEmitGate(level, w, gate) {
+    /* IT BRIDGES ITS OWN APPROACH, and leaving that out put the band-clamp bug
+       straight back into the file. The walker is given CR_GATE_APPROACH
+       columns to climb to the gate row; if it needed more -- lane 3 starting
+       at row 12 with a gate at row 5 needs seven one-row steps, twenty-one
+       columns -- it simply arrived at the gate still at the wrong height, and
+       `w.row = gate.row` then moved the WALKER without building anything to
+       walk on. The route was a waypoint list across a hole, which is the exact
+       shape of the first bug this generator ever had. Lane 3 finished 0% of
+       the time, on every level.
+       So the staircase is finished here, however many columns that takes. The
+       approach window only decides whether it looks graceful. */
+    /* THE SHAFT. Everything above the ledge, across the gate's columns, is cut
+       away and handed to CR_SHARED -- so any lane at any height can walk off
+       its own corridor and drop straight in, and no later route may build in
+       the space they all fall through. This is the whole approach: there is no
+       staircase to collide with because there is no staircase. */
+    var sc0 = gate.col - 1, sc1 = gate.col + gate.w + 1;
+    // Only as tall as a lane might be dropping from. A shaft to the top of
+    // the cliff severs every corridor it passes, which is a lot of geometry to
+    // destroy for an entrance nobody uses from that height.
+    var sTop = Math.max(CR_ROW_MIN - 1, gate.row - 6);
+    for (var sr = sTop; sr < gate.row; sr++) {
+        for (var sc = sc0; sc <= sc1; sc++) {
+            if (crGet(level, sc, sr) === CR_T.CATWALK) continue;
+            crSet(level, sc, sr, CR_T.EMPTY);
+        }
+    }
+    crMarkShared(level, sc0, sc1, gate.row, gate.row);
+
+    // Coming from BELOW is the one case a drop cannot serve, so the walker
+    // steps up inside the shared shaft, where nothing of anyone else's is.
+    var guard = 0;
+    while (w.row > gate.row && guard++ < 16) {
+        w.row -= 1;
+        crSpan(level, w.col, w.col + 2, w.row, CR_T.STONE);
+        w.col += 3;
+        crWp(w.route, (w.col - 1) * CR_TILE, w.row, "walk", null);
+    }
+
+    var c0 = Math.max(gate.col - 1, w.col);
+    var c1 = c0 + gate.w + 1;
+    crClearCorridor(level, c0, c1, gate.row, CR_HEADROOM);
+    crSpan(level, c0, c1, gate.row, CR_T.STONE);
+    crMarkShared(level, c0, c1, gate.row, CR_HEADROOM);
+
+    crWp(w.route, c0 * CR_TILE, gate.row, "walk", { gate: true });
+    w.col = c1 + 1;
+    w.row = gate.row;
+    crWp(w.route, (w.col - 1) * CR_TILE, w.row, "walk", null);
+    return gate.w + 2;
 }
 
 // ===================================================
@@ -712,6 +859,7 @@ function crBuildRoutes(level, rng) {
     // its bridge at a row the staircase never reached. On the 24px grid there
     // are only 11 playable rows, so the worst case is much shorter than it was.
     var runEnd = level.finishCol - 16;
+    level.gates = crBuildGates(level, rng, runStart, runEnd);
     var walkers = [];
     var lane, w;
 
@@ -721,7 +869,10 @@ function crBuildRoutes(level, rng) {
             lane: lane, col: runStart, row: CR_LANE_ROWS[lane],
             route: [], rng: rng,
             runStart: runStart, runEnd: runEnd, targetRow: CR_LANE_ROWS[lane],
-            bombsPlaced: 0, sinceCharge: 0, done: false
+            bombsPlaced: 0, sinceCharge: 0, done: false,
+            // Which bottleneck this walker is heading for, and which technique
+            // it is being pushed toward on the way there.
+            gateIdx: 0, prefer: lane
         };
         // Off the near catwalk and onto the cliff.
         crSpan(level, runStart - 1, runStart + 2, w.row, CR_T.STONE);
@@ -767,6 +918,7 @@ function crStepRoute(level, w, rng, spec) {
     var t = spec.difficulty;
     var converging = p > 0.78;
     var rowBefore = w.row;
+    var before = w.col;
 
     /* IF THE CURRENT ROW IS NO LONGER USABLE, MOVE BEFORE BUILDING.
        Another lane may have built across this row since this walker's last
@@ -814,7 +966,48 @@ function crStepRoute(level, w, rng, spec) {
         }
     }
 
-    var before = w.col;
+    /* ---- the next bottleneck comes before anything else.
+       Reaching the gate is not optional and not negotiable, so this branch
+       TAKES whatever corridor it needs; crRepairRoutes cleans up after it, the
+       same bargain crApproach makes at the far outpost. */
+    var gate = level.gates[w.gateIdx];
+    if (gate && !converging) {
+        var toGate = gate.col - w.col;
+        // Inside the approach window nothing BUT the gate branch may build,
+        // or an ordinary segment lays geometry the shaft is about to cut.
+        if (toGate > 0 && toGate <= 2 && w.row < gate.row) {
+            crEmitRun(level, w, toGate);
+            crMarkCorridor(level, before, w.col - 1, w.row, CR_HEADROOM);
+            return;
+        }
+        if (toGate <= 0) {
+            var usedG = crEmitGate(level, w, gate);
+            w.gateIdx++;
+            // A different technique on the way to the next one, rotated so no
+            // two lanes are doing the same thing in the same stretch.
+            w.prefer = (w.lane + w.gateIdx) % 5;
+            crMarkCorridor(level, before, w.col - 1, w.row, CR_HEADROOM);
+            void usedG;
+            return;
+        }
+        // Scaled to the climb: three columns a row, plus a little slack.
+        var need = 4 + Math.abs(gate.row - w.row) * 3;
+        if (toGate <= CR_GATE_APPROACH && w.row < gate.row) {
+            /* Above the gate: run to its EDGE at this height and walk off. The
+               shaft crEmitGate cuts is what you fall down.
+               The run is clamped so it cannot overshoot into the shaft's
+               columns, and that clamp is the whole fix: an approach run that
+               spanned the gate laid ground inside the shaft, crEmitGate then
+               cut the shaft through it, and crRepairRoutes -- seeing a walk
+               waypoint there with nothing under it -- put the ground back.
+               The three passes undid each other every level and left every
+               level structurally broken. */
+            crEmitRun(level, w, Math.max(1, Math.min(5, toGate)));
+            crMarkCorridor(level, before, w.col - 1, w.row, CR_HEADROOM);
+            return;
+        }
+    }
+
     var used = 0;
 
     if (converging) {
@@ -917,6 +1110,14 @@ function crEmitWeighted(level, w, rng, spec, band, t, ctl) {
     var gapW = exposure <= 2 ? 0.35 : 1;
     var runW = exposure <= 2 ? 2 : 1;
 
+    /* WHAT THIS LANE IS BEING PUSHED TOWARD on this stretch. Rotated after
+       every bottleneck, so the four of you take four different kinds of route
+       to the same place and arrive having done different things -- the
+       "slightly different methods of getting through" the user asked for.
+       A preference is a 3.5x weight, not a rule: the gates still have to be
+       reachable, so a technique that will not fit here is simply not used. */
+    function pref(kind) { return w.prefer === kind ? 3.5 : 1; }
+
     /* EVERY OPTION IS GATED ON THE ROW IT WOULD LAND ON, and the dRow is
        therefore decided HERE rather than inside the closure. The first version
        rolled the dRow inside the emitter, which meant the gate could only be
@@ -946,7 +1147,7 @@ function crEmitWeighted(level, w, rng, spec, band, t, ctl) {
     var roll = rng();
     if (roll < 0.33 && head >= 2) gapRow = -1;
     else if (roll < 0.66 && room >= 2) gapRow = 1 + (rng() * 2 | 0);
-    opt(fits(gapRow, 9, CR_HEADROOM) ? (1.6 + 0.9 * t) * gapW : 0, function () {
+    opt(fits(gapRow, 9, CR_HEADROOM) ? (1.6 + 0.9 * t) * gapW * pref(4) : 0, function () {
         return crEmitGap(level, w, wide, gapRow, spec.djGaps);
     });
 
@@ -971,7 +1172,7 @@ function crEmitWeighted(level, w, rng, spec, band, t, ctl) {
         var tunLen = 3 + (rng() * 3 | 0);
         var tunOk = fits(0, 7, CR_CORRIDOR_ROWS) && w.row - 2 >= 0 &&
                     crBoxFree(level, w.col, w.col + tunLen - 1, w.row - 2, w.row - 2);
-        opt(tunOk ? 0.5 + 0.5 * t : 0, function () {
+        opt(tunOk ? (0.5 + 0.5 * t) * pref(3) : 0, function () {
             return crEmitTunnel(level, w, tunLen);
         });
     }
@@ -997,7 +1198,7 @@ function crEmitWeighted(level, w, rng, spec, band, t, ctl) {
         var brOk = fits(brRow, brReach + 4, 2) &&
                    crBoxFree(level, w.col, w.col + brReach + 2,
                              Math.max(0, w.row - brApex - 1), w.row - 1);
-        opt(brOk ? 0.35 + 0.4 * t : 0, function () {
+        opt(brOk ? (0.35 + 0.4 * t) * pref(0) : 0, function () {
             return crEmitBranch(level, w, brRow);
         });
     }
@@ -1006,7 +1207,7 @@ function crEmitWeighted(level, w, rng, spec, band, t, ctl) {
     // a vent gap you could have jumped is not a mechanic, it is decoration
     // with a sound effect.
     if (spec.vents) {
-        opt(fits(0, 10, 2) ? 0.3 + 0.45 * t : 0, function () {
+        opt(fits(0, 10, 2) ? (0.3 + 0.45 * t) * pref(1) : 0, function () {
             return crEmitVent(level, w, 4 + (rng() * 2 | 0));
         });
     }
@@ -1018,7 +1219,7 @@ function crEmitWeighted(level, w, rng, spec, band, t, ctl) {
         var h = 3;
         var rTop = w.row - h;
         opt((crBoxFree(level, w.col, w.col + 5, rTop - 1, w.row - 1) &&
-             crRowUsable(level, w.col + 5, w.col + 10, rTop)) ? 0.5 * t + 0.15 : 0,
+             crRowUsable(level, w.col + 5, w.col + 10, rTop)) ? (0.5 * t + 0.15) * pref(2) : 0,
             function () { return crEmitShaft(level, w, h); });
     }
 
@@ -1309,6 +1510,7 @@ function crBuildLevel(index) {
         finishCol: spec.cols - CR_END_COLS,
         routes: [],
         catwalks: [],
+        gates: [],
         vents: [],
         gusts: [],
         coins: [],

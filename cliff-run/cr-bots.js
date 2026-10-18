@@ -82,6 +82,15 @@ function crBotThink(level, b, dt) {
     // directions need resetting here.
     inp.left = false; inp.right = false; inp.up = false; inp.down = false;
 
+    /* BOTS SET CHECKPOINTS TOO, every few tiles of real progress. It is not a
+       cheat -- it is the same key the player has, used the way a player would
+       -- and without it the bots are playing a strictly harder game than the
+       human, which makes them a bad measurement of whether the game is
+       finishable. */
+    if (b.onGround && (!b.checkpoint || b.x - b.checkpoint.x > CR_TILE * 5)) {
+        crSetCheckpoint(b);
+    }
+
     if (d.wjCool > 0) d.wjCool -= dt;
     /* THE HOLD IS DECIDED HERE AND RE-ASSERTED BY crBotHold, which is not
        cosmetic. cr-physics.js clips a rising jump the moment `inp.jump` goes

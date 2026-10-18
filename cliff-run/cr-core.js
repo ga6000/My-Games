@@ -123,6 +123,8 @@ var CR_PHYS = {
     bounceHead: -220,       // landing on another player's head
     bounceSquash: 70,       // ...and what it does to the one underneath
     bounceShove: 80,
+    shoveSpeed: 95,         // how hard a mover pushes a standing body out of a doorway
+    respawnDelay: 0.75,     // how long a checkpoint respawn costs you
     restitutionWall: 0.8,   // a stationary player is immovable; you take it all
     restitutionPair: 0.75,  // both moving: equal-mass elastic along the normal
     stillSpeed: 12          // under this, and on the ground, you ARE a wall
@@ -172,6 +174,17 @@ CR_SOLID[CR_T.VENT] = true;
 
 var CR_TIMED_FUSE = 1.4;        // seconds from touch to collapse
 var CR_CRUMBLE_SHAKE = 0.08;    // the instant kind still shakes for a frame or two
+/*
+ * JUMP PADS. The chevron used to be a pickup you consumed; the user's call is
+ * a STATION that recharges on a delay -- "kind of like in Rocket Jump, at
+ * little pads with a dot". The difference matters: a pickup is a thing you
+ * race your neighbours to and then it is gone, while a pad is a place that is
+ * contested over and over, which is exactly the sort of thing four people can
+ * have a fight about. It also pairs with the bottlenecks: a pad ON a gate is a
+ * queue.
+ */
+var CR_PAD_RECHARGE = 3.2;      // seconds before a pad can be taken again
+
 var CR_BOMB_FUSE = 1.6;
 var CR_BOMB_RADIUS = 26;        // blast reach, in px, from the bomb's centre
 
@@ -228,8 +241,16 @@ function crLevelSpec(index) {
            60 -> 80 is ~19-20s a level, about 3.5 minutes for the ten. The
            stalling is the real bug (cliff-run/CLAUDE.md); this is the length
            that is honest about it in the meantime. */
-        cols: Math.round(60 + t * 20),             // 60 -> 80 tiles
-        scroll: 50 + t * 22,                       // 50 -> 72 px/s
+        cols: Math.round(64 + t * 22),             // 64 -> 86 tiles
+        /* 38 -> 56, down a quarter, and the bottlenecks are what paid for it.
+           A gate makes every lane climb to a shared ledge, and climbing buys
+           no ground: the same levels that ran at 53% before gates ran at 28%
+           after, with falls near zero and almost every death the avalanche.
+           The structure was right and the clock was wrong.
+           Slack (moveSpeed / scroll) is now 3.2 falling to 2.1, and a level is
+           about 25 seconds either end -- which is also the "slightly longer
+           levels" that was asked for. */
+        scroll: 38 + t * 18,                       // 38 -> 56 px/s
         forgiveness: crForgiveness(index),
         // "maybe the first two levels lack the ability to fall off the map and
         // lose" -- so they get a floor, and from level 3 the void is real.
@@ -342,7 +363,16 @@ var CR_INK = {
     // it, so the terrain gets brightness and the entities get hue.
     rock: "#6F8FA8",
     rockMid: "#48606F",
-    rockLow: "#263440"
+    rockLow: "#263440",
+    // The outpost is BUILT, so it is not made of the cliff: pale weathered
+    // concrete, with moss on every ledge that has held water. Straight off the
+    // reference the user attached -- a brutalist tower going green.
+    concrete: "#7E8C8A",
+    concreteMid: "#55615F",
+    concreteLow: "#333C3B",
+    moss: "#3E5F3A",
+    mossLit: "#5C8450",
+    dust: "#9FB0AE"
 };
 
 function crLoadInk() {

@@ -308,6 +308,11 @@ function crSfxCollapse() {
     crNoise({ freq: 700, slideTo: 90, dur: 0.42, gain: 0.2 });
     crTone({ freq: 90, slideTo: 40, dur: 0.3, type: "triangle", gain: 0.12 });
 }
+// The three new voices: a pad taken, a pad come back, and a respawn.
+function crSfxCheckpoint() { crSeq([659.25, 987.77], { type: "square", step: 0.07, dur: 0.06, gain: 0.2 }); }
+function crSfxPadReady() { crTone({ freq: 1318.5, dur: 0.04, type: "square", gain: 0.1 }); }
+function crSfxRespawn() { crSeq([392, 523.25, 659.25], { type: "triangle", step: 0.06, dur: 0.07, gain: 0.2 }); }
+
 function crSfxBombPlace() { crTone({ freq: 180, dur: 0.05, type: "square", gain: 0.16 });
                             crTone({ freq: 1200, dur: 0.02, type: "square", gain: 0.08, at: 0.05 }); }
 function crSfxBombBlast() {

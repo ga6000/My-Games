@@ -101,6 +101,7 @@ function crAttachInput(signal) {
         }
         if (me && (e.code === "ShiftLeft" || e.code === "ShiftRight")) me.inp.dash = true;
         if (me && e.code === "KeyE") me.inp.bomb = true;
+        if (me && e.code === "KeyQ") crSetCheckpoint(me);
         if (me && act === "up") me.inp.jumpPressed = true;
     }, { signal: signal });
 
@@ -322,6 +323,7 @@ function crStep(dt) {
     crUpdateTouched(crLevel, dt);
     crUpdateFalling(dt);
     crUpdateBombs(crLevel, dt);
+    crUpdatePads(dt);
     crUpdateParticles(dt);
 
     // ---- controllers, then bodies, then contacts. Order matters: every body

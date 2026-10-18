@@ -217,7 +217,71 @@ is wide, because four finishers park on it.
 
 ---
 
-## Where it stands (2026-10-17, after the third pass)
+## The fourth pass: bottlenecks, pads, checkpoints, art (2026-10-17)
+
+The user's verdict after playing: *"95% of the game is walking in a straight
+line… there needs to be more crossover and player interaction: people
+dogpiling, sometimes bottlenecking into one location or two."*
+
+**That diagnosis is structural and it was right.** The generator built four
+private routes, one per lane, that only crossed by accident — four parallel
+single-player games sharing a screen. Nobody is ever in your way and nothing is
+ever contested, and no number of extra verbs fixes that, because the problem is
+there is nothing to have a verb *at*.
+
+**Bottlenecks (`crBuildGates` / `crEmitGate`).** The run is punctuated by a
+short shared ledge that every route is routed through: a shaft is cut above it,
+each lane walks off its own corridor and drops in, the four of you squeeze onto
+the same ledge and shove each other (a standing body is now **shovable** rather
+than immovable — an immovable one deadlocks a queue). Between gates each lane is
+pushed toward a *different* technique (`w.prefer`), so you and your neighbour
+take different kinds of route to the same place.
+
+**Jump pads replace the chevron pickup.** A pad is a *place*: take it and it
+goes dark for `CR_PAD_RECHARGE` seconds, then lights again. Places can be
+queued for and taken from under somebody; a consumable cannot. The free air jump
+added in the third pass is **gone**, at the user's call.
+
+**Checkpoints (`crSetCheckpoint`, `Q`).** Set one on any solid ground, any time,
+free and re-settable. Dying returns you there instead of ending your run —
+*unless the avalanche has already passed it*, which is what keeps it honest: the
+question becomes "is it still worth going back for".
+
+**Art.** The avalanche is boulders of wildly different sizes (two or three
+overlapping rects each, so the silhouette is irregular), tumbling on their own
+clocks, with a stepped-alpha dust front that reaches *past* the kill line. The
+outposts are rebuilt from the user's reference: concrete rather than rock, with
+its own palette, banded ribbon glazing per storey, an inset drum top floor under
+a railed roof deck, a truss under every catwalk, struts into the mountain, and
+moss on every ledge.
+
+### What this cost, stated plainly
+
+**The bottlenecks took the bot finish rate from 53% to ~34%**, and the mechanism
+is only half understood. What is known:
+
+- deaths are now almost entirely the avalanche, with falls near zero;
+- 196 of 196 dead bots had been **wedged somewhere for over three seconds**;
+- stalls cluster at the gate and in the ten columns before it;
+- `crVerifyRoutes` went from ~13 flaws over eighty levels to **512**, because
+  four lanes each built their own convergence staircase over the same fourteen
+  columns at four different heights and landed in each other's body rows.
+
+Five things were tried and recorded in the code where they happened: constrain
+the gate rows to short hops; make the approach a cheap staircase; have the gate
+bridge its own approach (a genuine re-run of the original band-clamp bug); slow
+the scroll to pay for the climbing; make standing bodies shovable. Each helped a
+little. Replacing the staircases with a **drop-in shaft** helped most, and
+moving the ledge from the cliff bottom to mid-height helped again — a low gate
+makes the drop free and the climb out enormous.
+
+**The remaining ~19 points are not diagnosed.** This is the first thing to pick
+up, and the measurement to start from is `scripts/cliff-run-playtest.js` plus the
+stall-location probe described above.
+
+---
+
+## Where it stood after the third pass (before bottlenecks)
 
 ```
 node scripts/cliff-run-playtest.js            # per-level
