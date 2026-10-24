@@ -56,7 +56,6 @@ function crMakeBotBrain(level, seat) {
         needDouble: 0,
         wjCool: 0,
         shaftSide: 1,
-        bombTimer: 0,
         stuck: 0,
         lastX: 0,
         reacquire: 0
@@ -210,7 +209,6 @@ function crBotThink(level, b, dt) {
     // ---- 4. WAYPOINT
     switch (wp.kind) {
         case "walljump": crBotShaft(level, b, wp, dt); return;
-        case "bomb":     crBotBomb(level, b, wp, dt); return;
         case "jump":     crBotJump(level, b, wp, "jump"); return;
         case "gust":     crBotGust(level, b, wp); return;
         case "spring":   crBotSpring(level, b, wp); return;
@@ -225,7 +223,7 @@ function crBotThink(level, b, dt) {
 // them. Both are features you go UP or WAIT at rather than past, so an x-keyed
 // scan cannot tell when they are finished.
 function crBotBlockingWp(wp) {
-    return !!wp && (wp.kind === "walljump" || wp.kind === "bomb");
+    return !!wp && wp.kind === "walljump";
 }
 
 function crBotWpDone(level, b, wp) {
@@ -233,11 +231,6 @@ function crBotWpDone(level, b, wp) {
     if (wp.kind === "walljump") {
         if (b.y <= wp.data.topY + 10) return true;             // out the top
         if (b.y > wp.y + CR_TILE * 3) return true;             // fell clean out
-        return false;
-    }
-    if (wp.kind === "bomb") {
-        if (crGet(level, wp.data.wallCol, wp.row - 1) !== CR_T.BREAK) return true;
-        if (b.y > wp.y + CR_TILE * 3) return true;
         return false;
     }
     return true;
@@ -423,54 +416,6 @@ function crBotShaft(level, b, wp, dt) {
     }
     if (d.shaftSide < 0) inp.left = true; else inp.right = true;
     void dt;
-}
-
-/*
- * The bomb wall. Four cases and they are tried in this order:
- *   gone      -> walk through
- *   armed     -> walk up to it, set the bomb down, back off while it burns
- *   charged   -> no bomb, but a double-jump charge clears 3 tiles, so take
- *                the alternative solution rather than stalling
- *   neither   -> push right and let the stuck guard hop; last resort
- */
-function crBotBomb(level, b, wp, dt) {
-    var inp = b.inp;
-    var d = b.ai;
-    var wallCol = wp.data.wallCol;
-    var wallX = wallCol * CR_TILE;
-    var gone = crGet(level, wallCol, wp.row - 1) !== CR_T.BREAK;
-
-    if (gone) {
-        inp.right = true;
-        if (b.onGround && crBotBlockedAhead(level, b)) inp.jumpPressed = true;
-        return;
-    }
-
-    if (d.bombTimer > 0) {
-        d.bombTimer -= dt;
-        inp.left = true;            // clear of the blast shove
-        return;
-    }
-
-    if (b.bombs > 0) {
-        if (b.x + b.w < wallX - 3) { inp.right = true; return; }
-        inp.bomb = true;
-        d.bombTimer = CR_BOMB_FUSE + 0.25;
-        return;
-    }
-
-    if (b.djCharges > 0) {
-        inp.right = true;
-        inp.jump = true;
-        if (b.onGround && b.x + b.w >= wallX - 26) {
-            inp.jumpPressed = true;
-            crBotHold(b, 0.34);
-            d.needDouble = 0.34;
-        }
-        return;
-    }
-
-    inp.right = true;
 }
 
 // ===================================================

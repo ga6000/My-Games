@@ -62,8 +62,10 @@ function setupKeyboardControls() {
  * Rendering (Pure Top-Down)
  */
 function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // Fills #screen, not the window: the lift panel owns the right edge.
+    const box = document.getElementById('screen');
+    canvas.width = box ? box.clientWidth : window.innerWidth;
+    canvas.height = box ? box.clientHeight : window.innerHeight;
 }
 
 /**
@@ -331,14 +333,9 @@ function drawExitBurst() {
     ctx.save();
     ctx.translate(wx, wy);
 
-    // The two door halves sliding apart, drawn as blocks over the tunnel.
-    const slide = t * CELL_SIZE * 0.55;
-    ctx.fillStyle = '#0a1a1e';
-    ctx.fillRect(-CELL_SIZE / 2, -CELL_SIZE / 2 - slide, CELL_SIZE, CELL_SIZE / 2);
-    ctx.fillRect(-CELL_SIZE / 2, slide, CELL_SIZE, CELL_SIZE / 2);
-    ctx.fillStyle = INK.cyan;
-    ctx.fillRect(-CELL_SIZE / 2, -2 - slide, CELL_SIZE, 2);
-    ctx.fillRect(-CELL_SIZE / 2, slide, CELL_SIZE, 2);
+    // The two sliding trapdoor halves that stood here until 2026-10-18 are
+    // gone: the well is an elevator now, and its cage gates (gc-elevator.js)
+    // are what slide open. Only the light rings remain.
 
     // Light shafting out: expanding rings for the first pass, then a steady
     // beacon so the well keeps saying "here" for the rest of the level.
@@ -661,8 +658,9 @@ function drawWellGlow() {
 }
 
 function render() {
-    camera.x = player.x - canvas.width / 2;
-    camera.y = player.y - canvas.height / 2;
+    const shake = elevShakeOffset();
+    camera.x = player.x - canvas.width / 2 + shake.x;
+    camera.y = player.y - canvas.height / 2 + shake.y;
 
     // §2.1: pure black. Not #111 -- a vector monitor's black is the absence of
     // beam, and the near-blacks in this repo were a modern dark-theme habit.
@@ -695,6 +693,10 @@ function render() {
         if (z === 0) {
             ctx.globalAlpha = isCurrent ? 1.0 : 0.2;
             for (let i = 0; i < pedestals.length; i++) drawPedestal(ctx, pedestals[i]);
+            // The two elevator cabs (the well's, and the spawn's): their
+            // floors. Seen from a roof the whole cab is drawn here, faint.
+            drawElevatorCabs('under');
+            if (!isCurrent) drawElevatorCabs('over');
             ctx.globalAlpha = 1.0;
         }
 
@@ -735,6 +737,8 @@ function render() {
     }
 
     player.draw(ctx);
+    // The cages go OVER the player, so they stand inside the bars.
+    if (player.z === 0) drawElevatorCabs('over');
     // Last, so the "you are being aimed at" mark is not buried under the very
     // sprite it is marking -- see drawSightReticle() in gc-entities.js.
     drawSightReticle();
@@ -744,6 +748,8 @@ function render() {
     // AFTER the camera restore: these are screen furniture, not world geometry,
     // so they must not be translated by camera.x/y.
     drawExitWash();
+    // The dark that hides the rebuild during an elevator ride.
+    drawElevatorOverlay();
     drawMinimap();
     drawWellIndicator();
     // Under the minimap: every racer's level, and the clears feed. Draws the
@@ -770,6 +776,19 @@ function gameLoop(timestamp) {
 
     let dt = timestamp - lastTime;
     lastTime = timestamp;
+
+    // THE ELEVATOR RIDE owns the frame while it runs: the world is frozen and
+    // only the ride (and the ghosts, so the room still sees you) advance. See
+    // gc-elevator.js.
+    if (elev) {
+        elevUpdate(dt);
+        updateGhosts();
+        broadcastPosition();
+        sidebarFrame();
+        render();
+        requestAnimationFrame(gameLoop);
+        return;
+    }
 
     player.update(dt);
 
@@ -801,6 +820,7 @@ function gameLoop(timestamp) {
     gcAudioFrame();
 
     gcTelemetryFrame();
+    sidebarFrame();
 
     updateGhosts();
     broadcastPosition();

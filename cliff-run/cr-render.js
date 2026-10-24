@@ -51,7 +51,8 @@ function crRender() {
         shakeY = (Math.random() - 0.5) * crCam.shake;
     }
     var ox = -crSnap(crCam.x) + crSnap(shakeX);
-    var oy = crSnap(shakeY);
+    // The camera only moves vertically in the sandbox (crCam.y is 0 in the game).
+    var oy = -crSnap(crCam.y) + crSnap(shakeY);
 
     crDrawBackdrop(ctx, crCam.x);
 
@@ -61,7 +62,6 @@ function crRender() {
     crDrawOutposts(ctx);
     crDrawGusts(ctx);
     crDrawItems(ctx);
-    crDrawBombs(ctx);
     crDrawFalling(ctx);
     crDrawRopes(ctx);
     crDrawBodies(ctx);
@@ -195,8 +195,11 @@ function crDrawTiles(ctx) {
     var c0 = Math.max(0, Math.floor(crCam.x / CR_TILE) - 1);
     var c1 = Math.min(level.cols - 1, Math.ceil((crCam.x + CR_VW) / CR_TILE) + 1);
 
+    var rA = Math.max(0, Math.floor(crCam.y / CR_TILE) - 1);
+    var rB = Math.min(level.rows - 1, Math.ceil((crCam.y + CR_VH) / CR_TILE) + 1);
+
     for (var c = c0; c <= c1; c++) {
-        for (var r = 0; r < CR_ROWS; r++) {
+        for (var r = rA; r <= rB; r++) {
             var code = crGet(level, c, r);
             if (code === CR_T.EMPTY) continue;
             crDrawTile(ctx, level, code, c, r);
@@ -664,17 +667,6 @@ function crDrawItems(ctx) {
     }
 }
 
-function crDrawBombs(ctx) {
-    for (var i = 0; i < crBombs.length; i++) {
-        var b = crBombs[i];
-        var hot = (b.fuse < 0.6) && (Math.floor(b.blink * 12) % 2 === 0);
-        ctx.fillStyle = hot ? CR_INK.hot : CR_INK.magenta;
-        ctx.fillRect(crSnap(b.x - 4), crSnap(b.y - 7), 8, 7);
-        ctx.fillStyle = CR_INK.amber;
-        ctx.fillRect(crSnap(b.x - 1), crSnap(b.y - 10), 2, 3);
-    }
-}
-
 function crDrawFalling(ctx) {
     for (var i = 0; i < crFalling.length; i++) {
         var f = crFalling[i];
@@ -812,10 +804,6 @@ function crDrawBody(ctx, b) {
     if (b.djCharges > 0) {
         ctx.fillStyle = CR_INK.cyan;
         for (var k = 0; k < b.djCharges; k++) ctx.fillRect(x + b.w + 1, y + k * 4, 2, 3);
-    }
-    if (b.bombs > 0) {
-        ctx.fillStyle = CR_INK.magenta;
-        for (var m = 0; m < b.bombs; m++) ctx.fillRect(x - 3, y + m * 4, 2, 3);
     }
 }
 

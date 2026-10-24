@@ -20,8 +20,7 @@ function crMakeInput() {
         jump: false,            // held
         jumpPressed: false,     // edge, cleared by the step that consumes it
         grapple: false,         // HELD -- you let go of the key to let go of the rope
-        dash: false,            // edge
-        bomb: false             // edge
+        dash: false             // edge
     };
 }
 
@@ -66,7 +65,6 @@ function crMakeBody(seat, name, isBot) {
         aimAt: null,            // the ring F would take right now; drawn, not simulated
         checkpoint: null,       // {x, y} -- set with Q, respawns you here
         respawnIn: 0,
-        bombs: 0,
 
         coins: 0,
         score: 0,
@@ -96,7 +94,7 @@ function crResetBodyForLevel(b, spawn) {
     b.dashTime = 0; b.dashCool = 0; b.dashDir = 0; b.tapDir = 0; b.tapTime = 0;
     // Charges and bombs do NOT carry between levels. Each level places its own,
     // so carrying them would let a hoarder trivialise a later one.
-    b.djCharges = 0; b.bombs = 0;
+    b.djCharges = 0;
     b.grapple = null; b.grappleCool = 0; b.aimAt = null;
     b.checkpoint = null; b.respawnIn = 0;
     b.finished = false; b.finishedAt = 0;
@@ -113,7 +111,6 @@ function crResetBodyForLevel(b, spawn) {
 function crSpawnLevelItems(level) {
     crCoins.length = 0;
     crPickups.length = 0;
-    crBombs.length = 0;
     crFalling.length = 0;
     crParticles.length = 0;
 
@@ -205,71 +202,8 @@ function crUpdateFalling(dt) {
         f.vy += CR_PHYS.gravity * dt;
         f.y += f.vy * dt;
         f.spin += dt * 4;
-        if (f.y > CR_VH + 40) crFalling.splice(i, 1);
+        if (f.y > (crLevel ? crLevel.rows * CR_TILE : CR_VH) + 40) crFalling.splice(i, 1);
     }
-}
-
-// ===================================================
-//   BOMBS
-// ===================================================
-// "pick up bombs to set down (with button) next to breakable block blocking
-// the paths". Set down, not thrown -- so placement is at the player's feet and
-// the interesting decision is where to stand, not where to aim.
-function crPlaceBomb(level, b) {
-    if (b.bombs <= 0 || !b.alive || b.finished) return false;
-    b.bombs--;
-    crBombs.push({
-        x: b.x + b.w / 2, y: b.y + b.h - 6,
-        fuse: CR_BOMB_FUSE, owner: b.seat, blink: 0
-    });
-    crSfxBombPlace();
-    return true;
-}
-
-function crUpdateBombs(level, dt) {
-    for (var i = crBombs.length - 1; i >= 0; i--) {
-        var bo = crBombs[i];
-        bo.fuse -= dt;
-        bo.blink += dt;
-        if (bo.fuse > 0) continue;
-        crBombs.splice(i, 1);
-        crDetonate(level, bo);
-    }
-}
-
-function crDetonate(level, bo) {
-    var c0 = Math.floor((bo.x - CR_BOMB_RADIUS) / CR_TILE);
-    var c1 = Math.floor((bo.x + CR_BOMB_RADIUS) / CR_TILE);
-    var r0 = Math.floor((bo.y - CR_BOMB_RADIUS) / CR_TILE);
-    var r1 = Math.floor((bo.y + CR_BOMB_RADIUS) / CR_TILE);
-    for (var r = r0; r <= r1; r++) {
-        for (var c = c0; c <= c1; c++) {
-            if (crGet(level, c, r) !== CR_T.BREAK) continue;
-            var cx = c * CR_TILE + CR_TILE / 2, cy = r * CR_TILE + CR_TILE / 2;
-            var dx = cx - bo.x, dy = cy - bo.y;
-            if (dx * dx + dy * dy > CR_BOMB_RADIUS * CR_BOMB_RADIUS) continue;
-            crSet(level, c, r, CR_T.EMPTY);
-            crBurst(cx, cy, 6, CR_INK.amber);
-        }
-    }
-    // The blast shoves players. It does NOT kill them -- this is a race, and a
-    // bomb you have to set down at your own feet would otherwise be a weapon
-    // you cannot use without dying with the person you used it on.
-    for (var i = 0; i < crBodies.length; i++) {
-        var b = crBodies[i];
-        if (!b.alive || b.finished) continue;
-        var bdx = (b.x + b.w / 2) - bo.x, bdy = (b.y + b.h / 2) - bo.y;
-        var d2 = bdx * bdx + bdy * bdy;
-        if (d2 > 46 * 46) continue;
-        var d = Math.max(6, Math.sqrt(d2));
-        b.vx += (bdx / d) * 190;
-        b.vy += (bdy / d) * 150 - 70;
-        b.onGround = false;
-        b.bounceFlash = 0.2;
-    }
-    crBurst(bo.x, bo.y, 18, CR_INK.magenta);
-    crCam.shake = Math.max(crCam.shake, 5);
-    crSfxBombBlast();
 }
 
 // ===================================================
@@ -341,11 +275,8 @@ function crCollectFor(b) {
             b.djCharges++;
             pk.ready = false;                      // the pad goes dark and recharges
             pk.cool = CR_PAD_RECHARGE;
-        } else {
-            pk.taken = true;
-            b.bombs = Math.min(3, b.bombs + 1);
         }
-        crBurst(pk.x, pk.y, 6, pk.kind === "dj" ? CR_INK.cyan : CR_INK.magenta);
+        crBurst(pk.x, pk.y, 6, CR_INK.cyan);
         crSfxPickup();
     }
 }

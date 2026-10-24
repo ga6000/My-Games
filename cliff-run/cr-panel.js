@@ -38,7 +38,7 @@ function crPanelInit() {
         next: el("cabNext"),
         level: el("cabLevel"), time: el("cabTime"),
         coins: el("cabCoins"), speed: el("cabSpeed"),
-        jumps: el("cabJumps"), bombs: el("cabBombs"),
+        jumps: el("cabJumps"),
         radar: el("cabRadar")
     };
     if (crPanelEls.radar) crRadarCtx = crPanelEls.radar.getContext("2d");
@@ -61,12 +61,11 @@ function crPanelFrame() {
     crSetText(crPanelEls.score, pad(live));
     crSetText(crPanelEls.name, me ? me.name : "");
 
-    crSetText(crPanelEls.level, (crLevelIndex + 1) + "/" + CR_LEVEL_COUNT);
+    crSetText(crPanelEls.level, CR_SANDBOX ? "SANDBOX" : (crLevelIndex + 1) + "/" + CR_LEVEL_COUNT);
     crSetText(crPanelEls.time, crLevelTime.toFixed(1));
     crSetText(crPanelEls.coins, String(me ? me.coins : 0));
     crSetText(crPanelEls.speed, crLevel ? Math.round(crLevel.spec.scroll) + " PX/S" : "--");
     crSetText(crPanelEls.jumps, me ? (me.djCharges > 0 ? "+" + me.djCharges : "--") : "--");
-    crSetText(crPanelEls.bombs, me ? (me.bombs > 0 ? String(me.bombs) : "--") : "--");
 
     crPanelCondition(me);
     crPanelLives();
@@ -144,9 +143,7 @@ function crPanelNext(me) {
         if (me.x - crAvalancheX < 70) text = "MOVE — THE WALL IS ON YOU";
         else if (me.x > crLevel.finishCol * CR_TILE - 140) text = "TAKE A CATWALK";
         else {
-            var wall = crPanelWallAhead(me);
-            if (wall) text = me.bombs > 0 ? "BOMB THE WALL" : "FIND A BOMB";
-            else if (crPanelGustAhead(me)) text = "RIDE THE GUST";
+            if (crPanelGustAhead(me)) text = "RIDE THE GUST";
         }
     } else if (me && !me.alive) {
         text = "ONLY BOTS LEFT";
@@ -154,16 +151,6 @@ function crPanelNext(me) {
         text = "WAIT FOR THE CLIFF";
     }
     crSetText(node, text);
-}
-
-function crPanelWallAhead(me) {
-    var c0 = Math.floor(me.x / CR_TILE);
-    for (var c = c0; c < c0 + 12 && c < crLevel.cols; c++) {
-        for (var r = 0; r < CR_ROWS; r++) {
-            if (crGet(crLevel, c, r) === CR_T.BREAK) return true;
-        }
-    }
-    return false;
 }
 
 function crPanelGustAhead(me) {
@@ -183,7 +170,8 @@ function crPanelRadar() {
     if (!c || !crLevel) return;
     var W = crPanelEls.radar.width, H = crPanelEls.radar.height;
     var sx = W / crLevel.worldW;
-    var sy = H / CR_VH;
+    var rows = crLevel.rows;
+    var sy = H / (rows * CR_TILE);
 
     c.fillStyle = "#000000";
     c.fillRect(0, 0, W, H);
@@ -194,22 +182,20 @@ function crPanelRadar() {
     var th = Math.max(1, Math.ceil(sy * CR_TILE));
     c.fillStyle = CR_INK.rockMid;
     for (var col = 0; col < crLevel.cols; col += 2) {
-        for (var row = 0; row < CR_ROWS; row++) {
+        for (var row = 0; row < rows; row++) {
             var code = crGet(crLevel, col, row);
             if (code === CR_T.EMPTY || code === CR_T.CATWALK) continue;
-            if (code === CR_T.BREAK || code === CR_T.VENT) continue;
+            if (code === CR_T.VENT) continue;
             c.fillRect(col * CR_TILE * sx, row * CR_TILE * sy, tw, th);
         }
     }
 
     // The things you navigate BY, over the top of the terrain.
     var i;
+    // Grapple rings: the sandbox is mostly rings, so they go on the map.
     c.fillStyle = CR_INK.amber;
-    for (col = 0; col < crLevel.cols; col++) {
-        for (row = 0; row < CR_ROWS; row++) {
-            if (crGet(crLevel, col, row) !== CR_T.BREAK) continue;
-            c.fillRect(col * CR_TILE * sx - 1, row * CR_TILE * sy, Math.max(2, tw), th);
-        }
+    for (i = 0; i < crLevel.anchors.length; i++) {
+        c.fillRect(crLevel.anchors[i].col * CR_TILE * sx, crLevel.anchors[i].row * CR_TILE * sy, 2, Math.max(2, th));
     }
     for (i = 0; i < crLevel.vents.length; i++) {
         var v = crLevel.vents[i];
@@ -226,7 +212,7 @@ function crPanelRadar() {
     // Where the screen currently is, and where the wall currently is.
     c.strokeStyle = CR_INK.dim;
     c.lineWidth = 1;
-    c.strokeRect(Math.round(crCam.x * sx) + 0.5, 0.5, Math.round(CR_VW * sx), H - 1);
+    c.strokeRect(Math.round(crCam.x * sx) + 0.5, Math.round(crCam.y * sy) + 0.5, Math.round(CR_VW * sx), Math.round(CR_VH * sy));
     c.fillStyle = CR_INK.magenta;
     c.fillRect(Math.round(crAvalancheX * sx), 0, 1, H);
 

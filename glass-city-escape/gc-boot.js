@@ -41,7 +41,7 @@ function initGame() {
 
     updateHealthUI();
     updateFloorUI(0);
-    document.getElementById('stage-counter').innerText = 'STAGE: ' + currentStage;
+    sidebarSetLevel(currentStage);
     
     // After spawnCollectibles, so the run records the core target it was
     // actually given rather than the previous stage's.
@@ -52,12 +52,17 @@ function initGame() {
     requestAnimationFrame(gameLoop);
 }
 
-function updateFloorUI(z) { document.getElementById('level-counter').innerText = 'FLOOR: ' + z; }
+// The floor is the lift panel's button column now (gc-sidebar.js); this name
+// stays because the stair code, the spawns and the rebuilds all call it.
+function updateFloorUI(z) { sidebarSetFloor(z); }
 function updateCollectUI() {
     // Reads DEPOSITED, not picked up -- the number that gates the exit is the
-    // one on the pedestals. What you are carrying is shown on the player.
+    // one on the pedestals. What you are carrying is shown on the player, and
+    // on its own line of the lift panel (the sidebar is too narrow for both on
+    // one line).
     document.getElementById('collect-counter').innerText =
-        `CORES: ${coresDeposited} / ${totalCollectibles}` + (player.carrying ? '  [+1 HELD]' : '');
+        `CORES: ${coresDeposited} / ${totalCollectibles}`;
+    document.getElementById('carry-flag').innerText = player.carrying ? '+1 HELD' : '';
 }
 
 /**
@@ -80,8 +85,10 @@ const HEART_PIXELS = [
     "0011100",
     "0001000"
 ];
-const HEART_PX = 3;                 // screen px per heart pixel
-const HEART_GAP = 5;
+// 2 px per heart pixel and a 3 px gap: nine hearts are 153 px, which is what
+// fits the lift panel (was 3 / 5 = 234 px when the bar sat over the play field).
+const HEART_PX = 2;                 // screen px per heart pixel
+const HEART_GAP = 3;
 
 // Set when a heart is restored, so the bar can flash the one that came back.
 let healthFlashAt = 0;
@@ -137,6 +144,7 @@ function updateHealthUI() {
 // Tokens are read once, here, because gc-boot is the only file that executes
 // and by now retro.css has certainly parsed.
 loadInkFromCss();
+sidebarInit();
 if (typeof LB !== "undefined") LB.configure({ game: "glass-city-escape" });
 
 MP.connect({

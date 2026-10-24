@@ -184,7 +184,7 @@ var CR_T = {
     STONE: 1,       // stationary
     CRUMBLE: 2,     // falls IMMEDIATELY on touch
     TIMED: 3,       // falls a few seconds after touch
-    BREAK: 4,       // needs a bomb
+    BREAK: 4,       // RETIRED 2026-10-17 with the bombs; kept so tile values do not shift
     BRANCH: 5,      // springs you on landing
     CATWALK: 6,     // the finish
     OUTPOST: 7,     // the comms structure at both ends
@@ -218,8 +218,17 @@ var CR_CRUMBLE_SHAKE = 0.08;    // the instant kind still shakes for a frame or 
  */
 var CR_PAD_RECHARGE = 3.2;      // seconds before a pad can be taken again
 
-var CR_BOMB_FUSE = 1.6;
-var CR_BOMB_RADIUS = 26;        // blast reach, in px, from the bomb's centre
+// ===================================================
+//   SANDBOX SWITCH
+// ===================================================
+/*
+ * TRUE = the free-play sandbox (cr-sandbox.js): one player, no bots, no avalanche,
+ * a camera that follows you, and a big hand-built map. FALSE = the real game.
+ * The user's call 2026-10-17, while the level design is worked out. The real
+ * game's code is untouched by this, so flipping it back is the whole change.
+ * scripts/cliff-run-playtest.js sets it false before it drives anything.
+ */
+var CR_SANDBOX = true;
 
 // ===================================================
 //   THE RUN
@@ -248,7 +257,7 @@ var CR_BASE_SEED = 0x5C11FF;    // replaced by the room seed when MP lands; see 
  *   3-4   the void opens, collapsing blocks, one-block squeezes
  *   5-6   branches and wind tunnels
  *   7-8   wall-jump chimneys
- *   9-10  bomb walls, and gaps only a double jump crosses
+ *   9-10  gaps only a double jump crosses (bomb walls were scrapped 2026-10-17)
  */
 function crLevelSpec(index) {
     var t = index / (CR_LEVEL_COUNT - 1);          // 0..1
@@ -293,7 +302,6 @@ function crLevelSpec(index) {
         branches: index >= 4,
         vents: index >= 4,
         shafts: index >= 6,
-        bombs: index >= 8,
         // Gaps a plain jump cannot cross, which therefore need the charge.
         djGaps: index >= 7,
         difficulty: t
@@ -313,7 +321,6 @@ var crPlayers = [];             // all four, alive or not, for the whole run
 var crBodies = [];              // the ones in play on THIS level
 var crCoins = [];
 var crPickups = [];
-var crBombs = [];
 var crFalling = [];             // blocks that have detached and are in the air
 var crParticles = [];
 var crCam = { x: 0, y: 0, shake: 0 };

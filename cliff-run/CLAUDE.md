@@ -20,6 +20,50 @@ would displace is the user's call. It lives at the repo root (active work) rathe
 
 ---
 
+## Sandbox mode (2026-10-17) — the current default
+
+`CR_SANDBOX = true` in `cr-core.js` puts the game into a free-play lab while the level
+design is worked out. Set it `false` to get the real game back; nothing else needs to change
+(`scripts/cliff-run-playtest.js` sets it false itself).
+
+- one player, **no bots, no avalanche, no pan** — the camera follows you on both axes
+- `cr-sandbox.js`: a hand-built **176 x 64** map (the game is ~86 x 16) — four serpentine
+  passes joined by a chimney, a ring tower and a pad column, with ring forests and floating
+  islands in the air between them. Gap ladders, step ladders, springs, crumble/timed runs, a
+  one-block tunnel, vents, an elevator, wide ring gaps, a 15-tile ring chain. No death: a fall
+  lands on the net, a kill respawns you at your checkpoint or the spawn.
+- keys: **1-4** teleport to the start of each pass, **R** to the spawn, **F** grapple, **Q** checkpoint
+- the point of it is to find what the generator should produce — the verdict on the generated
+  levels was "75% of this map is flat"
+
+**Bombs are scrapped** (2026-10-17): no pickup, no key, no bomb wall, no panel readout, no bot
+behaviour. `CR_T.BREAK` stays as a retired tile code so the other values do not shift.
+
+### The F key was never firing (fixed)
+
+`crAttachInput` returned early for any key not in `CR_KEYMAP` — `if (!act || e.repeat) return` —
+*before* the lines that handled F, Q, E and Shift. So **the grapple, the checkpoint and the
+Shift dash had never once worked**; the code behind them was fine. They are now handled ahead of
+that guard. Verified by dispatching real `keydown` events in the browser (F sets `inp.grapple`,
+Q sets `checkpoint`), not just by stepping the sim.
+
+### Flagged, not solved
+
+- **Bot pathfinding is bad.** Bots walk straight into dead ends without thought. They follow a
+  generated route and have no way to notice a route is a dead end, back out, or choose another.
+  Not touched this pass. (Related and already known: ~35% finish rate, wedged-bot deaths.)
+- **Checkpoint behaviour needs a proper playtest.** It was dead because of the key bug above and
+  now sets and respawns in a headless/browser check, but it has not been played with a human, and
+  the "worth nothing once the wall passes it" rule is untested against real play.
+- **The generated levels' vents are the wrong strength.** `crEmitVent` uses `ay: -790`, tuned when
+  gravity was 760. Gravity is now 1000, so the net is **210 px/s^2 DOWN** — a vent slows your fall
+  rather than carrying you. Nobody has noticed because the bots' finish rate was never attributed to
+  it. The sandbox's vents are set against the real gravity (net lift ~10); the generator's are not.
+- **Verticality of the generated levels.** Four lanes three rows apart on a 16-row screen is flat by
+  construction. The sandbox is the experiment for this; nothing in the generator has changed.
+
+---
+
 ## Files
 
 Classic `<script>` tags, one shared global scope, no modules (`file://`). Every top-level name is
@@ -31,6 +75,7 @@ pass on the page.
 | `cliff-run.html` | the shell: cabinet panel markup + CSS, menu, script order |
 | `cr-core.js` | constants (`CR_PHYS`, `CR_T`, `crLevelSpec`), all run state, teardown plumbing, seeded RNG |
 | `cr-audio.js` | its **own** `AudioContext`: one-shots plus the two sustained voices |
+| `cr-sandbox.js` | the free-play map and its one-player step (see "Sandbox mode") |
 | `cr-level.js` | level generation, the guaranteed route, corridor reservation, repair + verify |
 | `cr-entities.js` | body factory, items, collapsing-block fuses, bombs, particles |
 | `cr-physics.js` | integration, tile collision, wall skills, player-vs-player bounce, death/finish |

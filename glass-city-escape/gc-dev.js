@@ -79,13 +79,13 @@ function gcDevReport() {
 var gcDevActions = [
     {
         label: "STAGE +1",
-        hint: "rebuilds the city",
+        hint: "rebuilds the city, skips the lift ride",
         fn: function () {
             if (!gameRunning) return "not started yet";
             // The real path, bonus and telemetry included: a stage that was
             // skipped by hand would not appear in the run log, and the run log
             // is half of why this panel exists.
-            triggerNextStage();
+            triggerNextStage(true);
             return "now stage " + currentStage;
         }
     },

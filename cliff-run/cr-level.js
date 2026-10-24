@@ -120,12 +120,12 @@ function crMaxGap(launchVel, dRow, speed) {
 function crIdx(level, col, row) { return row * level.cols + col; }
 
 function crGet(level, col, row) {
-    if (col < 0 || col >= level.cols || row < 0 || row >= CR_ROWS) return CR_T.EMPTY;
+    if (col < 0 || col >= level.cols || row < 0 || row >= level.rows) return CR_T.EMPTY;
     return level.tiles[crIdx(level, col, row)];
 }
 
 function crSet(level, col, row, v) {
-    if (col < 0 || col >= level.cols || row < 0 || row >= CR_ROWS) return;
+    if (col < 0 || col >= level.cols || row < 0 || row >= level.rows) return;
     level.tiles[crIdx(level, col, row)] = v;
 }
 
@@ -279,7 +279,7 @@ function crRowUsable(level, c0, c1, row, rows) {
 function crMarkBox(level, c0, c1, r0, r1) {
     var mine = (level.buildLane | 0) + 1;
     for (var c = Math.max(0, c0); c <= c1 && c < level.cols; c++) {
-        for (var r = Math.max(0, r0); r <= r1 && r < CR_ROWS; r++) {
+        for (var r = Math.max(0, r0); r <= r1 && r < level.rows; r++) {
             var k = crIdx(level, c, r);
             if (!level.clear[k]) level.clear[k] = mine;
         }
@@ -287,7 +287,7 @@ function crMarkBox(level, c0, c1, r0, r1) {
 }
 
 function crBoxFree(level, c0, c1, r0, r1) {
-    if (r0 < 0 || r1 >= CR_ROWS) return false;
+    if (r0 < 0 || r1 >= level.rows) return false;
     for (var c = Math.max(0, c0); c <= c1 && c < level.cols; c++) {
         for (var r = r0; r <= r1; r++) {
             if (crGet(level, c, r) !== CR_T.EMPTY) return false;
@@ -759,43 +759,6 @@ function crEmitShaft(level, w, h) {
     return 5 + len;
 }
 
-/*
- * A bolted wall and the bomb that opens it. Three tiles tall on purpose: 48px
- * against a 37.9px jump apex, so it cannot be hopped -- but a player holding a
- * double-jump charge CAN clear it, and that is left in as the alternative
- * solution rather than patched out.
- *
- * The bomb pickup is placed on the approach, far enough back that you meet it
- * before you meet the wall.
- */
-function crEmitBreakable(level, w) {
-    var runLen = 7 + (w.rng() * 3 | 0);
-    crSpan(level, w.col, w.col + runLen - 1, w.row, CR_T.STONE);
-    level.pickups.push({
-        kind: "bomb",
-        x: (w.col + 2) * CR_TILE + 4, y: w.row * CR_TILE - 12
-    });
-    crWp(w.route, (w.col + 2) * CR_TILE, w.row, "walk", { grab: "bomb" });
-
-    var wallCol = w.col + runLen;
-    // Two tiles tall: 48px against a 42px jump apex, so it cannot be hopped --
-    // but a double-jump charge CAN clear it, and that alternative is left in
-    // rather than patched out.
-    crColumn(level, wallCol, w.row - 2, w.row - 1, CR_T.BREAK);
-    crSpan(level, wallCol, wallCol, w.row, CR_T.STONE);
-    // The wall, plus the two columns either side: you have to be able to walk
-    // up to it, set a bomb down and back off, and none of that works if
-    // another lane builds into the space while you are standing in it.
-    crMarkBox(level, wallCol - 2, wallCol + 2, Math.max(0, w.row - 4), w.row);
-    crWp(w.route, (wallCol - 2) * CR_TILE, w.row, "bomb", { wallCol: wallCol });
-
-    var len = 4 + (w.rng() * 3 | 0);
-    crSpan(level, wallCol + 1, wallCol + len, w.row, CR_T.STONE);
-    w.col = wallCol + len + 1;
-    crWp(w.route, (w.col - 1) * CR_TILE, w.row, "walk", null);
-    return runLen + len + 2;
-}
-
 // ===================================================
 //   THE FORCED APPROACH
 // ===================================================
@@ -869,7 +832,7 @@ function crBuildRoutes(level, rng) {
             lane: lane, col: runStart, row: CR_LANE_ROWS[lane],
             route: [], rng: rng,
             runStart: runStart, runEnd: runEnd, targetRow: CR_LANE_ROWS[lane],
-            bombsPlaced: 0, sinceCharge: 0, done: false,
+            sinceCharge: 0, done: false,
             // Which bottleneck this walker is heading for, and which technique
             // it is being pushed toward on the way there.
             gateIdx: 0, prefer: lane
@@ -1024,10 +987,7 @@ function crStepRoute(level, w, rng, spec) {
         else used = crEmitRun(level, w, 4 + (rng() * 3 | 0));
     } else {
         used = crEmitWeighted(level, w, rng, spec, band, t, {
-            bombsPlaced: w.bombsPlaced,
-            allowBomb: spec.bombs && w.bombsPlaced < 1 && p > 0.35 && p < 0.7
         });
-        if (used < 0) { w.bombsPlaced++; used = -used; }
     }
 
     if (used <= 0) {
@@ -1221,13 +1181,6 @@ function crEmitWeighted(level, w, rng, spec, band, t, ctl) {
         opt((crBoxFree(level, w.col, w.col + 5, rTop - 1, w.row - 1) &&
              crRowUsable(level, w.col + 5, w.col + 10, rTop)) ? (0.5 * t + 0.15) * pref(2) : 0,
             function () { return crEmitShaft(level, w, h); });
-    }
-
-    // ---- the bomb walls, at most one per route.
-    if (ctl.allowBomb && head >= 3) {
-        opt((fits(0, 20, CR_CORRIDOR_ROWS) && crBoxFree(level, w.col + 7, w.col + 10, w.row - 3, w.row - 1))
-            ? 1.4 : 0,
-            function () { return -crEmitBreakable(level, w); });
     }
 
     var total = 0, i;
@@ -1435,7 +1388,7 @@ function crRepairRoutes(level) {
      */
     var standing = Object.create(null);
     function claim(c, r) {
-        if (c < 0 || c >= level.cols || r < 0 || r >= CR_ROWS) return;
+        if (c < 0 || c >= level.cols || r < 0 || r >= level.rows) return;
         standing[crIdx(level, c, r)] = true;
         if (crGet(level, c, r) === CR_T.EMPTY) crSet(level, c, r, CR_T.STONE);
     }
@@ -1628,8 +1581,7 @@ function crBuildLevel(index) {
     if (spec.safeFloor) crSafeFloor(level);
     crPlaceAnchors(level, rng);
 
-    if (spec.bombs) level.objective = "BOMB THROUGH · REACH THE OUTPOST";
-    else if (spec.shafts) level.objective = "CLIMB THE CHIMNEYS";
+    if (spec.shafts) level.objective = "CLIMB THE CHIMNEYS";
     else if (spec.vents) level.objective = "RIDE THE GUSTS";
     else if (spec.tunnels) level.objective = "SQUEEZE THROUGH · MIND THE BLOCKS";
     else level.objective = "REACH THE OUTPOST";

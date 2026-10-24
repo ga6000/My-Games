@@ -505,6 +505,8 @@ class Player {
         let cx = Math.floor(px / CELL_SIZE);
         let cy = Math.floor(py / CELL_SIZE);
         if (cx < 0 || cy < 0 || cx >= TOTAL_CELLS || cy >= TOTAL_CELLS) return true;
+        // The well's elevator is a solid steel cage until the exit opens.
+        if (elevCabBlocks(px, py)) return true;
         // solidWall(), not `type === 'wall'`: a pane you have already burst
         // through is a doorway. See gc-core.js for why all six consumers of
         // this question share one predicate.

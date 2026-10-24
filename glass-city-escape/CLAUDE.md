@@ -9,8 +9,9 @@ own audit found per-game docs to be its most reliable artifacts, and this was th
 Classic `<script>` tags, no modules — the `file://` hard constraint. **All files share one global
 scope**, so every top-level name across them must be unique. Run
 `node scripts/check-global-collisions.js` from the repo root after any change here; it reports
-`glass-city-escape\glass_city_escape.html (14 local scripts)` — was 12 before the dev-tools pass
-added `../shared/devtools.js` and `gc-dev.js` (2026-09-07).
+`glass-city-escape\glass_city_escape.html (17 local scripts)` — was 12 before the dev-tools pass
+added `../shared/devtools.js` and `gc-dev.js` (2026-09-07), and 14 before `gc-sidebar.js`, `gc-elevator.js` and
+`zoom-guard.js` were counted (2026-10-18).
 
 | # | File | Owns |
 |---|---|---|
@@ -26,6 +27,8 @@ added `../shared/devtools.js` and `gc-dev.js` (2026-09-07).
 | 9 | `gc-entities.js` | Player, Robot Surveyor, laser bolts, **raster sprite/core/pedestal/shard drawing** |
 | 10 | `gc-world.js` | World generation, **the arena + level curve**, the stepwell, **cores/pedestals/blips/drones**, the pursuit field |
 | 11 | `gc-render.js` | Input, top-down rendering, **the minimap** |
+| 11a | `gc-sidebar.js` | **The lift panel** (2026-10-18): the red seven-segment LEVEL display, the FLOOR button column, `sidebarFrame()` for the post-ding flash. Declarations only |
+| 11b | `gc-elevator.js` | **The elevator** (2026-10-18): the cage drawing, the ride state machine (`elev`), the cab-blocks-you collision rule. Declarations only |
 | 12 | `gc-boot.js` | `initGame`, **the `MP.connect()` call**, `window.startGame` — the only file that executes anything |
 | 13 | `gc-dev.js` | Dev-panel registration, and `gcDevGod`, which `gc-entities.js` reads at its three damage sites. **Last** |
 
@@ -477,6 +480,72 @@ thing it exists to measure.
 > nothing ever attacks. Measured with a virtual clock instead: standing still in the open is dead
 > in **7 s**; moving survives 40 s at 5/20; moving and dashing survives at 20/20.
 
+## The lift panel and the elevator (2026-10-18)
+
+Plan: `GCE_ELEVATOR_PLAN.md`. Closes `HUB_1_0_PLAN.md` Phase 4's "every card gets the cabinet
+panel" for this game, and turns the stepwell's tunnel into a lift. User-directed.
+
+### The sidebar
+
+`#sidebar` is a fixed column down the right edge (`--sb-w`, 184-224 px). **`#screen` stops where it
+starts and `resize()` sizes the canvas from `#screen`, not from the window** — anything positioned
+against `window.innerWidth` in this game is now wrong, including `#message-box` (centred on the
+screen, not the window). Top to bottom: **LEVEL** (red LED digits, `gc-sidebar.js`), **FLOOR** (six
+lift buttons, G..5, the one for `player.z` lit amber), then cores, `+1 HELD`, score and the hearts.
+The old top-left HUD and its `STAGE:` / `FLOOR:` text are gone; `updateFloorUI(z)` is kept as the
+name every caller uses and now lights a button.
+
+> **LEVEL and FLOOR are different things.** Level = the stage (`currentStage`); floor = `player.z`.
+> The red display does **not** follow `currentStage` live: it is told to change by `sidebarSetLevel()`
+> on the elevator's ding, because the world is rebuilt in the dark halfway through the ride and the
+> number has to change when the doors open.
+
+Hearts were shrunk (`HEART_PX` 3 → 2, gap 5 → 3, 153 px for nine) to fit the panel. **The red is a
+deliberate departure from `AESTHETIC_GUIDE.md` §2.2**: it is a physical LED on a prop, not a game
+signal. It carries no meaning the Signal Three do.
+
+### The elevator
+
+The well is an 80 px steel cage (`CAB_HALF` 40) standing on the stepwell's centre tile. **Until the
+last pedestal is filled it is solid** (`elevCabBlocks()`, read by `Player.checkWallCollision`), with
+its gates shut and magenta lamps; when `openEscapeTunnel()` fires the gates slide back and the
+lamps go cyan. The old sliding trapdoor halves in `drawExitBurst()` are gone — the gates are what
+open; the light rings stay.
+
+Walking into it (`Player.update()` still calls `triggerNextStage()` within 27 px of the tile) starts
+**the ride**, a four-phase state machine in `gc-elevator.js`:
+
+| Phase | ms | What happens |
+|---|---|---|
+| `enter` | 750 | player is pulled to the middle; the four gates close; clank |
+| `descend` | 1700 | the cab shrinks into a black shaft, the screen darkens, streaks rise; at the end `advanceStageWorld()` **rebuilds the city, in the dark** |
+| `arrive` | 1300 | the same cab (now at the new spawn, gates shut, scale 2.4) falls in, accelerating; thud, a 9 px shake, a dust ring |
+| `open` | 750 | the gates reopen; then `elevRelease(true)`: **ding**, `sidebarSetLevel`, `sidebarFlash`, the wave burst + "LEVEL n" title, control returns |
+
+- **The world is frozen for the whole ride.** `gameLoop()` hands the frame to `elevUpdate()` while
+  `elev` is set: no drones, bolts, telemetry or audio mix advance (the sustained voices are silenced
+  at `elevBegin`). The player is invulnerable inside by construction, not by a flag. Ghosts and
+  `broadcastPosition()` keep running so the room still sees you.
+- **The ride runs on its own clock** (`elev.pt`, advanced by `dt`, clamped to 100 ms), not
+  `performance.now()`, so the L+G pause and a throttled tab cannot desync the phases.
+- `stageAdvancing` latches `triggerNextStage()` for the whole ride and is cleared by `elevRelease()`.
+- **`triggerNextStage()` was split.** It banks the bonus and the `stage` telemetry event, then starts
+  the ride; `advanceStageWorld()` is the old rebuild. `triggerNextStage(true)` skips the ride (the
+  dev panel's STAGE +1). The wave burst is now armed at the release, not at the rebuild.
+- Every level has a **spawn cab** (`elevSpawnCab()`), drawn at `spawnPoint()`: standing open on
+  level 1, the arrival cab on every later level. It is decoration — only the well's cab collides.
+- Drawing is two passes (`drawCab(cab, 'under' | 'over')`): floor and shaft under the entities, bars,
+  posts and gates over the player, so the player stands *inside* the cage.
+
+> **This SUPERSEDES the Robotron "no pause between levels" rule (2026-09-06)** for the level change:
+> the ride is about 4.5 s with the player locked in. The user asked for it explicitly. The old
+> drone spawn grace (`WAVE_GRACE_MS`) still runs after the release.
+
+**Not done / not verified:** the ride has been driven by hand in the Browser pane (all four phases,
+the release, the instant path, the locked-cab collision), **not played by a person**, and not with
+two clients — a rival's ghost is not drawn inside a cab, and the other players do not see your cage.
+The sidebar was checked at one viewport size only.
+
 ## Aesthetic — VECTOR cabinet, anchor *Battlezone* (2026-09-04)
 
 `AESTHETIC_GUIDE.md` §6.8. Plan: `GCE_PASS_PLAN.md`.
@@ -647,4 +716,4 @@ says the same thing.
 **Level generation uses `MP.random()`, never `Math.random()`** — a stray `Math.random()` in
 `gc-world.js` means two players race different cities.
 
-<!-- doc-sync: 07babfc3 | 2026-10-17 -->
+<!-- doc-sync: bad30df7 | 2026-10-19 -->

@@ -21,6 +21,16 @@
             /* Was #111. §2.1: pure black, because a vector monitor's black is
                the absence of beam -- there is no backlight to leak. */
             --dark-bg: var(--ground);
+            /* The elevator panel down the right edge (2026-10-18). The canvas
+               fills what is left, so everything that was positioned against
+               window.innerWidth is now positioned against #screen. */
+            --sb-w: clamp(184px, 16vw, 224px);
+            /* Hardware colours for the lift panel only. Not signal colours
+               (§2.2): a red LED and a brushed-steel button are PROPS. */
+            --led-red: #ff2a2a;
+            --led-red-dim: rgba(255, 42, 42, 0.11);
+            --steel: #9fb3ba;
+            --steel-dim: #2b3a3f;
         }
         body, html {
             margin: 0;
@@ -38,8 +48,10 @@
            RD Arena uses, which is the raster cabinet this one now follows. */
         #screen {
             position: absolute;
-            inset: 0;
+            top: 0; left: 0; bottom: 0;
+            right: var(--sb-w);
             line-height: 0;
+            overflow: hidden;
         }
         #game-canvas {
             display: block;
@@ -48,31 +60,91 @@
             image-rendering: pixelated;
         }
         
-        /* UI Overlays */
-        #ui-layer {
+        /* THE LIFT PANEL (2026-10-18). Cabinet panel down the right edge: the
+           level in red LED digits, the floor as a column of lift buttons, then
+           the run's numbers. It replaced the top-left HUD, which sat on the
+           play field. */
+        #sidebar {
             position: absolute;
-            top: 15px; left: 15px;
-            pointer-events: none;
-            z-index: 10;
-        }
-        .stats-row {
+            top: 0; right: 0; bottom: 0;
+            width: var(--sb-w);
+            box-sizing: border-box;
+            padding: 14px 12px;
+            background: #000;
+            border-left: 2px solid var(--phos-dim);
             display: flex;
-            gap: 20px;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 10;
+            overflow: hidden;
+            line-height: 1.2;
+        }
+        .sb-label {
+            font-size: 11px;
+            letter-spacing: 3px;
+            color: var(--phos-mid);
+            text-align: center;
+        }
+        /* The bezel the display sits in. */
+        #level-bezel {
+            background: #060606;
+            border: 2px solid var(--steel-dim);
+            border-radius: 3px;
+            padding: 8px 6px;
+            box-shadow: inset 0 0 12px #000;
+        }
+        #level-display {
+            display: block;
+            width: 100%;
+            height: auto;
+            image-rendering: pixelated;
+        }
+        /* The button array: one per floor, top floor at the top, lit while the
+           player is on it. A lit button is amber, which is this cabinet's
+           "where am I" colour already. */
+        #floor-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 10px 0;
             align-items: center;
-            margin-bottom: 8px;
+            background: linear-gradient(90deg, #141b1d, #20292c 50%, #141b1d);
+            border: 2px solid var(--steel-dim);
+            border-radius: 3px;
         }
-        .ui-text {
-            font-size: 24px;
-            font-weight: bold;
-            text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
-            letter-spacing: 1px;
+        .floor-btn {
+            width: 46px; height: 28px;
+            box-sizing: border-box;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 15px; font-weight: bold;
+            color: var(--steel);
+            background: #0b1012;
+            border: 2px solid var(--steel);
+            border-radius: 50% / 60%;
         }
-        /* Mapped by meaning (§2.2): the floor you are on is navigation, the
-           stage is system chrome, cores are the thing you are collecting. */
-        #level-counter { color: var(--sig-cyan); }
-        #stage-counter { color: var(--phos-mid); }
-        #collect-counter { color: var(--sig-amber); font-size: 20px;}
-        #score-counter { color: var(--phos-hot); font-size: 20px;}
+        .floor-btn.lit {
+            color: #000;
+            background: var(--sig-amber);
+            border-color: #fff3c4;
+            box-shadow: 0 0 10px var(--sig-amber), inset 0 0 6px rgba(255,255,255,0.6);
+        }
+        .floor-btn.flash {
+            color: #000;
+            background: var(--phos-hot);
+            border-color: #fff;
+        }
+        #sb-stats {
+            margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            text-shadow: 1px 1px 0 #000;
+        }
+        .ui-text { font-size: 15px; font-weight: bold; letter-spacing: 1px; white-space: nowrap; }
+        /* Mapped by meaning (§2.2): cores are the thing you are collecting. */
+        #collect-counter { color: var(--sig-amber); }
+        #carry-flag { color: var(--phos-hot); font-size: 12px; min-height: 14px; }
+        #score-counter { color: var(--phos-hot); }
         
         /* The heart bar is a CANVAS now (2026-09-06): nine pixel hearts drawn
            as fillRect blocks. It was 20 emoji glyphs in a flex-wrap that ran to
@@ -127,7 +199,7 @@
         /* Message Box */
         #message-box {
             position: absolute;
-            top: 30%; left: 50%;
+            top: 30%; left: calc(50% - var(--sb-w) / 2);
             transform: translate(-50%, -50%);
             background: rgba(0,0,0,0.9);
             border: 2px solid var(--sig-cyan);
@@ -151,17 +223,19 @@
         <div class="retro-scanlines"></div>
     </div>
 
-    <div id="ui-layer">
-        <div class="stats-row">
-            <div id="stage-counter" class="ui-text">STAGE: 1</div>
-            <div id="level-counter" class="ui-text">FLOOR: 0</div>
-        </div>
-        <div class="stats-row">
+    <!-- The lift panel. gc-sidebar.js draws the digits and builds the buttons. -->
+    <aside id="sidebar">
+        <div class="sb-label">LEVEL</div>
+        <div id="level-bezel"><canvas id="level-display" width="132" height="84"></canvas></div>
+        <div class="sb-label">FLOOR</div>
+        <div id="floor-panel"></div>
+        <div id="sb-stats">
             <div id="collect-counter" class="ui-text">CORES: 0 / 0</div>
+            <div id="carry-flag" class="ui-text"></div>
             <div id="score-counter" class="ui-text">SCORE: 0</div>
+            <canvas id="health-canvas"></canvas>
         </div>
-        <canvas id="health-canvas"></canvas>
-    </div>
+    </aside>
     
     <div id="message-box">
         <h2 id="msg-title" style="margin-top:0;">Notice</h2>
@@ -191,6 +265,7 @@
 
 <!-- identity.js must load BEFORE mp-core: mp-core falls back to
      IDENTITY.colorFromName() when there is no server (file:// solo play). -->
+<script src="../shared/zoom-guard.js"></script>
 <script src="../shared/identity.js"></script>
 <script src="../shared/mp-core.js"></script>
 <!-- RETRO.vertexBloom drives the Battlezone corner bloom in gc-render.js;
@@ -223,6 +298,11 @@
 <script src="gc-entities.js"></script>
 <script src="gc-world.js"></script>
 <script src="gc-render.js"></script>
+<!-- The lift panel and the elevator ride (2026-10-18, GCE_ELEVATOR_PLAN.md).
+     Declarations only, after render/world because they call into both at
+     runtime; gc-boot builds the panel. -->
+<script src="gc-sidebar.js"></script>
+<script src="gc-elevator.js"></script>
 <script src="gc-boot.js"></script>
 <!-- LAST: it reads names every file above declares, and registers only. It
      also declares gcDevGod, which gc-entities.js reads at its three damage

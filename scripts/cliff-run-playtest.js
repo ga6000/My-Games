@@ -194,6 +194,7 @@ function snap(sb, expr) { return JSON.parse(vm.runInContext("JSON.stringify(" + 
 // Four bots, one level, stepped at the game's own fixed timestep until every
 // body has finished or died. Returns what happened to each lane.
 function playLevel(sb, baseSeed, levelIndex) {
+    ev(sb, "CR_SANDBOX = false;");
     ev(sb, "CR_BASE_SEED = " + (baseSeed | 0) + ";");
     ev(sb, "crStartRun(true);");               // attract == all four seats bot-driven
     ev(sb, "crStartLevel(" + levelIndex + ");");
@@ -230,6 +231,7 @@ function playLevel(sb, baseSeed, levelIndex) {
 //   DRIVING ONE FULL RUN
 // ===================================================
 function playRun(sb, baseSeed) {
+    ev(sb, "CR_SANDBOX = false;");
     ev(sb, "CR_BASE_SEED = " + (baseSeed | 0) + ";");
     ev(sb, "crStartRun(true);");
 

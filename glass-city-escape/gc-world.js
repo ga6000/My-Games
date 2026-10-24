@@ -756,22 +756,41 @@ function openEscapeTunnel() {
  * over a frozen picture of the old one -- see drawWaveTransition() in
  * gc-render.js. The player is live for all of it; only the drones are held.
  */
-function triggerNextStage() {
-    // The re-entry latch still matters, but for a much shorter window: the
-    // rebuild below is synchronous, so the only thing it guards is a second
-    // call arriving inside it. It is cleared before this function returns.
+function triggerNextStage(instant) {
+    // The re-entry latch: Player.update() calls this every frame the player
+    // stands on the tunnel tile. It stays set for the whole elevator ride and is
+    // cleared by elevRelease() -- see gc-elevator.js.
     if (stageAdvancing) return;
     stageAdvancing = true;
 
     const bonus = PTS_LEVEL + player.health * PTS_PER_HEART;
     addPoints(bonus);
-    gcLevelClearSound();
-    gcWaveSweepSound();
     // Recorded BEFORE the increment, so the run log counts a stage that was
     // actually finished rather than the one just entered.
     gcTelemetryEvent('stage');
+    // Arms the burst's "+bonus" line. The burst itself is armed at the ride's
+    // release, so the title lands with the ding.
+    waveBonus = bonus;
+
+    if (instant) {
+        // The dev panel's STAGE +1: no ride, no ding, the same rebuild.
+        gcLevelClearSound();
+        gcWaveSweepSound();
+        advanceStageWorld();
+        elevRelease(false);
+        return;
+    }
+    // THE ELEVATOR (2026-10-18). The rebuild below runs from elevUpdate(), in
+    // the dark halfway down the shaft.
+    elevBegin();
+}
+
+/**
+ * The rebuild: one stage deeper. Moved out of triggerNextStage() 2026-10-18 so
+ * the elevator ride can call it at its darkest moment.
+ */
+function advanceStageWorld() {
     currentStage++;
-    document.getElementById('stage-counter').innerText = 'STAGE: ' + currentStage;
 
     entities = [];
     // The old stage's bolts and pursuit flood do not survive into a new
@@ -800,13 +819,4 @@ function triggerNextStage() {
     updateHealthUI();
     updateFloorUI(0);
     updateCollectUI();
-
-    // Arms the burst. The bonus rides along so it can be shown ON THE CANVAS
-    // for a moment instead of in a modal nobody asked to read.
-    waveTransitionAt = performance.now();
-    waveBonus = bonus;
-
-    stageAdvancing = false;
 }
-
-

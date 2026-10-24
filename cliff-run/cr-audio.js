@@ -325,13 +325,6 @@ function crSfxCheckpoint() { crSeq([659.25, 987.77], { type: "square", step: 0.0
 function crSfxPadReady() { crTone({ freq: 1318.5, dur: 0.04, type: "square", gain: 0.1 }); }
 function crSfxRespawn() { crSeq([392, 523.25, 659.25], { type: "triangle", step: 0.06, dur: 0.07, gain: 0.2 }); }
 
-function crSfxBombPlace() { crTone({ freq: 180, dur: 0.05, type: "square", gain: 0.16 });
-                            crTone({ freq: 1200, dur: 0.02, type: "square", gain: 0.08, at: 0.05 }); }
-function crSfxBombBlast() {
-    crNoise({ freq: 1800, slideTo: 60, dur: 0.5, gain: 0.34 });
-    crTone({ freq: 70, slideTo: 32, dur: 0.34, type: "sawtooth", gain: 0.2 });
-}
-
 // --- the two deaths, which must not sound alike: the player has to know which
 //     one got them without reading anything.
 function crSfxDeathFall() {

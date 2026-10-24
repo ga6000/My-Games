@@ -353,8 +353,6 @@ function crStepBody(level, b, dt) {
         b.vy = CR_PHYS.jumpVel * CR_PHYS.jumpCutMul;
     }
 
-    // ---- bomb
-    if (inp.bomb) { crPlaceBomb(level, b); inp.bomb = false; }
 
     // ---- horizontal intent
     var want = 0;
@@ -752,7 +750,7 @@ function crSeparate(a, b, ox, oy, share) {
 function crCheckFate(level, b) {
     if (!b.alive || b.finished) return;
 
-    if (b.y > CR_VH + 8) {
+    if (b.y > level.rows * CR_TILE + 8) {
         crKill(b, "fall");
         return;
     }
@@ -792,6 +790,15 @@ function crSetCheckpoint(b) {
 function crKill(b, cause) {
     if (!b.alive) return;
     if (b.grapple) { b.grapple = null; b.grappleCool = 0; }
+
+    // The sandbox has nothing that kills you for good: you go back to your
+    // checkpoint, or the spawn if you never set one.
+    if (CR_SANDBOX) {
+        var home = b.checkpoint || crLevel.spawns[0];
+        b.x = home.x; b.y = home.y; b.vx = 0; b.vy = 0;
+        crBurst(b.x + b.w / 2, b.y + b.h / 2, 10, CR_INK.cyan);
+        return;
+    }
 
     /* A LIVE CHECKPOINT TURNS A DEATH INTO A SETBACK. It has to still be ahead
        of the avalanche -- otherwise you would respawn inside the wall, and the

@@ -31,7 +31,6 @@ function crDevReport() {
     rows.push(["level time", crLevelTime.toFixed(2) + "s"]);
     rows.push(["entities", "coins " + crCoins.filter(function (c) { return !c.taken; }).length +
                            "  items " + crPickups.filter(function (p) { return !p.taken; }).length +
-                           "  bombs " + crBombs.length +
                            "  falling " + crFalling.length +
                            "  armed " + crTouched.size]);
 
@@ -44,7 +43,7 @@ function crDevReport() {
         var detail = Math.round(p.x) + "," + Math.round(p.y) +
                      "  " + (p.onGround ? "gnd" : (p.wallDir ? "wall" + (p.wallDir > 0 ? "R" : "L") : "air")) +
                      (p.dashTime > 0 ? " dash" : "") +
-                     "  dj" + p.djCharges + " bmb" + p.bombs +
+                     "  dj" + p.djCharges + 
                      "  lv" + p.levelsCleared + " sc" + p.score;
         if (wp) {
             detail += "  wp " + p.ai.routeIdx + "/" + route.length + " " + wp.kind;
@@ -84,11 +83,11 @@ var crDevActions = [
     },
     {
         label: "GIVE CHARGES",
-        hint: "2 second-jumps and 3 bombs to you",
+        hint: "2 second-jumps to you",
         fn: function () {
             var me = crPlayers[0];
             if (!me) return "no seat 0";
-            me.djCharges = 2; me.bombs = 3;
+            me.djCharges = 2;
             return "loaded";
         }
     },

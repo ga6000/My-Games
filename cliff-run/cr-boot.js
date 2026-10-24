@@ -79,9 +79,27 @@ function crAttachInput(signal) {
             return;
         }
         if (e.code === "Enter" && !e.repeat) {
-            if (crPhase === "menu" || crPhase === "over") crStartRun(false);
+            if (crPhase === "menu" || crPhase === "over") { crShowMenu(false); crStartRun(false); }
             return;
         }
+        // Sandbox aids: 1-4 jump to the start of each pass, R to the spawn.
+        if (CR_SANDBOX && crPhase === "play" && !e.repeat) {
+            var tp = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, KeyR: 0 }[e.code];
+            if (tp !== undefined) { crSandboxTeleport(crPlayers[0], tp); return; }
+        }
+
+        /* THE ACTION KEYS (F, Q, Shift) MUST BE HANDLED BEFORE THE MOVEMENT
+           GUARD. This used to be `if (!act || e.repeat) return;` ahead of them,
+           and F/Q/Shift are not in CR_KEYMAP, so `act` was undefined and the
+           handler returned before ever reaching them: the grapple, the
+           checkpoint and the shift-dash had never once fired. */
+        var me0 = crPlayers[0];
+        if (me0 && !e.repeat) {
+            if (e.code === "ShiftLeft" || e.code === "ShiftRight") me0.inp.dash = true;
+            if (e.code === "KeyQ") crSetCheckpoint(me0);
+        }
+        // Held, so key-repeat is harmless and no edge is needed.
+        if (me0 && e.code === "KeyF") { me0.inp.grapple = true; e.preventDefault(); return; }
 
         if (!act || e.repeat) {
             if (act) crKeys[act] = true;
@@ -99,11 +117,6 @@ function crAttachInput(signal) {
             if (me.tapDir === dir && me.tapTime > 0) { me.inp.dash = true; me.tapTime = 0; }
             else { me.tapDir = dir; me.tapTime = CR_PHYS.dashTapWindow; }
         }
-        if (me && (e.code === "ShiftLeft" || e.code === "ShiftRight")) me.inp.dash = true;
-        if (me && e.code === "KeyE") me.inp.bomb = true;
-        if (me && e.code === "KeyQ") crSetCheckpoint(me);
-        // The grapple is HELD: F down fires and holds, F up lets go.
-        if (me && e.code === "KeyF") me.inp.grapple = true;
         if (me && act === "up") me.inp.jumpPressed = true;
     }, { signal: signal });
 
@@ -139,7 +152,8 @@ function crReadKeyboard(b) {
 //   RUN AND LEVEL FLOW
 // ===================================================
 function crStartRun(attract) {
-    crAttractRunning = !!attract;
+    crAttractRunning = !!attract && !CR_SANDBOX;
+    attract = crAttractRunning;
     crLevelIndex = 0;
     crScoreTotal = 0;
     crRunTime = 0;
@@ -149,7 +163,8 @@ function crStartRun(attract) {
 
     var name = (typeof MP !== "undefined" && MP.selfName) ? MP.selfName : "P1";
     crPlayers = [];
-    for (var i = 0; i < 4; i++) {
+    // The sandbox is one player and nobody else: no bots to write input.
+    for (var i = 0; i < (CR_SANDBOX ? 1 : 4); i++) {
         // Seats 1-3 are bots "for now" (the spec's words). Seat 0 is a bot
         // only in attract mode, and it is the SAME body and the SAME physics
         // either way -- which is what makes the attract demo the real game.
@@ -162,7 +177,7 @@ function crStartRun(attract) {
 
 function crStartLevel(index) {
     crLevelIndex = index;
-    crLevel = crBuildLevel(index);
+    crLevel = CR_SANDBOX ? crBuildSandbox() : crBuildLevel(index);
     crLevelTime = 0;
     crFinishOrder.length = 0;
     crClearTouched();
@@ -191,6 +206,14 @@ function crStartLevel(index) {
     crReadyLeft = 3;
     crReadyBeeped = -1;
     crPhase = "ready";
+
+    if (CR_SANDBOX) {
+        // No countdown, no wall: park the avalanche where nothing can reach it
+        // and start with the camera already on the player.
+        crAvalancheX = -1e9;
+        crPhase = "play";
+        crSandboxTeleport(crPlayers[0], 0);
+    }
 }
 
 function crAliveCount() {
@@ -256,6 +279,7 @@ function crEndRun(reason) {
 //   THE STEP
 // ===================================================
 function crStep(dt) {
+    if (CR_SANDBOX && crPhase === "play") { crSandboxStep(dt); return; }
     crRunTime += dt;
 
     if (crPhase === "ready") {
@@ -328,7 +352,6 @@ function crStep(dt) {
     // ---- world
     crUpdateTouched(crLevel, dt);
     crUpdateFalling(dt);
-    crUpdateBombs(crLevel, dt);
     crUpdatePads(dt);
     crUpdateParticles(dt);
 
@@ -452,7 +475,7 @@ window.GameInstance = {
         // RETRO.attract REFUSES to attach listeners without a signal -- it
         // warns and returns an inert handle rather than leaking something
         // destroy() cannot remove.
-        if (typeof RETRO !== "undefined" && RETRO.attract) {
+        if (!CR_SANDBOX && typeof RETRO !== "undefined" && RETRO.attract) {
             crAttractCtl = RETRO.attract({
                 idleMs: 20000,
                 signal: crListeners.signal,
@@ -522,7 +545,7 @@ window.GameInstance = {
         crClearAllTracked();
         if (crAttractCtl) { crAttractCtl.destroy(); crAttractCtl = null; }
         crBodies = [];
-        crCoins.length = 0; crPickups.length = 0; crBombs.length = 0;
+        crCoins.length = 0; crPickups.length = 0;
         crFalling.length = 0; crParticles.length = 0;
         crClearTouched();
         // Browsers cap live AudioContexts per page, so an init/destroy cycle
@@ -557,7 +580,6 @@ window.GameInstance = {
                     x: Math.round(p.x),
                     y: Math.round(p.y),
                     charges: p.djCharges,
-                    bombs: p.bombs,
                     wp: p.ai ? p.ai.routeIdx : -1
                 };
             })

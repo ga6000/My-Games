@@ -549,3 +549,37 @@ function gcWaveSweepSound() {
     gcSting("sawtooth", 110, 1400, 0.42, 0.13, 0);
     gcSting("square", 220, 2800, 0.42, 0.07, 0.03);
 }
+
+/* ------------------------------------------------------------------ *
+ *  THE ELEVATOR (2026-10-18, GCE_ELEVATOR_PLAN.md)
+ * ------------------------------------------------------------------ */
+
+// Gate doors: two heavy clanks a beat apart (the two leaves meeting) over a
+// short metallic rattle. The same sound closes the doors and opens them.
+function gcElevDoorSound() {
+    gcSting("square", 190, 70, 0.09, 0.20, 0);
+    gcSting("square", 260, 90, 0.08, 0.17, 0.13);
+    gcSting("sawtooth", 640, 210, 0.30, 0.05, 0.02);
+}
+
+// The car starts to drop: a click, then a low hum that sinks with it.
+function gcElevMotorSound() {
+    gcSting("square", 150, 60, 0.06, 0.18, 0);
+    gcSting("sawtooth", 96, 52, 1.45, 0.10, 0.04);
+    gcSting("triangle", 190, 104, 1.40, 0.07, 0.04);
+}
+
+// Arriving: the cab hitting the floor. A dull body with a little ring on top.
+function gcElevThudSound() {
+    gcSting("sine", 96, 30, 0.38, 0.38, 0);
+    gcSting("sawtooth", 120, 40, 0.22, 0.18, 0);
+    gcSting("square", 920, 300, 0.12, 0.06, 0.02);
+}
+
+// The ding: one bell, a fifth partial above it, long decay. The sound the
+// player is waiting for -- it is the "you may go" of the whole ride.
+function gcElevDingSound() {
+    gcSting("sine", 1318.51, 1318.51, 0.95, 0.24, 0);
+    gcSting("sine", 2637.02, 2637.02, 0.55, 0.07, 0);
+    gcSting("triangle", 1975.53, 1975.53, 0.70, 0.05, 0);
+}
