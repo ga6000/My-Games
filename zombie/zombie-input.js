@@ -429,7 +429,10 @@ function inpBuildUi() {
 
     // Belt and braces for the selection / callout / pinch paths touch events
     // do not cover (a long press on the sidebar, a gesture that starts off the overlay).
-    document.addEventListener("selectstart", function (e) { e.preventDefault(); }, { signal: zSignal() });
+    document.addEventListener("selectstart", function (e) {
+        if (e.target && e.target.closest && e.target.closest("#nameEntry")) return;   // the name box is text
+        e.preventDefault();
+    }, { signal: zSignal() });
     document.addEventListener("gesturestart", function (e) { e.preventDefault(); }, { signal: zSignal(), passive: false });
 }
 

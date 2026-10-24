@@ -472,6 +472,24 @@
         #startprompt .lb-name { font-size: 13px; letter-spacing: 2px; color: var(--phos-mid); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         #startprompt .lb-hint { font-size: 24px; letter-spacing: 6px; color: #FFFFFF; }
         #startprompt .lb-hint.blink { animation: cabBlink 1s steps(1) infinite; }
+        /* The name prompt (2026-10-24): over the ready screen when no name is
+           stored, e.g. a fresh Home Screen install. Above the touch layer
+           (z-index 9) so a tap reaches the text box. */
+        #nameEntry {
+            position: absolute; top: 42%; left: calc((100% - var(--side-w, 0px)) / 2);
+            transform: translate(-50%, -50%); z-index: 30; text-align: center;
+            background: rgba(0,0,0,0.78); padding: 22px 28px; border: 4px solid var(--sig-cyan);
+            color: #FFFFFF; text-shadow: 3px 3px 0 #000;
+        }
+        #nameEntry label { display: block; font-size: 22px; letter-spacing: 8px; color: var(--phos-mid); margin-bottom: 14px; }
+        #nameEntry input, #nameEntry button {
+            font-family: inherit; font-size: 24px; letter-spacing: 3px; padding: 8px 12px;
+            background: #000; color: #FFFFFF; border: 3px solid var(--phos-mid);
+        }
+        #nameEntry input { width: 12ch; }
+        #nameEntry input:focus { outline: none; border-color: var(--sig-cyan); }
+        #nameEntry button { margin-left: 8px; cursor: pointer; color: var(--sig-cyan); border-color: var(--sig-cyan); }
+        #nameEntry .ne-hint { margin-top: 12px; font-size: 13px; letter-spacing: 2px; color: var(--phos-mid); }
         /* The attract run is not your run: its stats, objective and checklist stay out of the panel. */
         body.demo #ui, body.demo #sideNext, body.demo #sideGoals { visibility: hidden; }
         /* Everything that centred on the window now centres on the play area. */

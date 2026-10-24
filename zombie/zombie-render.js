@@ -3930,6 +3930,9 @@ const MOVE_KEYS = { w: 'up', s: 'down', a: 'left', d: 'right' };
 
 window.addEventListener('keydown', function (e) {
     if (e.repeat) return;
+    // Typing in a text box (the ready screen's name prompt) is not play: M and
+    // N must type, not toggle the map and the sound.
+    if (e.target && e.target.tagName === 'INPUT') return;
     const key = e.key.toLowerCase();
 
     // Browsers refuse to start an AudioContext without a user gesture, so
@@ -4061,6 +4064,7 @@ window.addEventListener('mousedown', function (e) {
     // Clicks belong to the manual's tabs while it is open -- otherwise
     // every tab press also fires the gun. The ESC dialog likewise.
     if (codexOpen || helpOpen || winSequenceRunning()) return;
+    if (e.target && e.target.closest && e.target.closest('#nameEntry')) return;
     // The ready screen: a click ticks your square (and unlocks the audio).
     if (typeof lobbyBlocks === "function" && lobbyBlocks()) { lobbyClick(); return; }
     // `|| uiWinShown` fixes a real bug found 2026-09-19: the WIN card says

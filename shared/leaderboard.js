@@ -53,6 +53,7 @@
     var gameId = null;
     var collectionName = "scores";
     var writer = null;          // set once the SDK is up
+    var authUid = null;         // likewise: () -> this device's anonymous uid, or ""
     var reader = null;          // likewise: game id -> Promise of a query snapshot
     var waiting = [];           // callbacks held until the SDK is up (or known not to be)
     var state = "idle";         // idle | loading | ready | unavailable
@@ -113,18 +114,25 @@
             var db = fsMod.getFirestore(app);
 
             /*
-             * Anonymous auth exists only to give Firestore security rules
-             * something to check ("request.auth != null") without making
-             * friends create accounts. It is deliberately NOT awaited before
-             * marking ready: a rules setup that does not require auth should
-             * still accept writes, and a failed sign-in should degrade to
-             * "writes may be rejected", not "leaderboard is dead".
+             * Anonymous auth gives Firestore security rules something to check
+             * ("request.auth != null") without making friends create accounts,
+             * and since 2026-10-24 it is also the device's identity: its uid is
+             * written on every score, so a name can be tied to one device.
+             * The SDK keeps the same anonymous user across reloads (it lives in
+             * the browser's IndexedDB), so the uid is stable per browser.
+             *
+             * A failed sign-in still resolves authDone: it degrades to "writes
+             * may be rejected, and carry no uid", not "leaderboard is dead".
              */
             var authDone = Promise.resolve();
             try {
-                authDone = authMod.signInAnonymously(authMod.getAuth(app)).catch(function (err) {
+                var auth = authMod.getAuth(app);
+                authDone = authMod.signInAnonymously(auth).catch(function (err) {
                     note("anonymous auth failed; writes may be rejected by rules", err);
                 });
+                authUid = function () {
+                    return (auth.currentUser && auth.currentUser.uid) || "";
+                };
             } catch (e) { /* auth module shape changed; not fatal */ }
 
             // Reads wait for the sign-in (a rules setup that needs auth to read
@@ -137,18 +145,26 @@
                 });
             };
 
-            writer = function (doc) {
-                var data = {
-                    game: doc.game,
-                    player: doc.player,
-                    score: doc.score,
-                    room: doc.room,
-                    timestamp: fsMod.serverTimestamp()
-                };
-                // Only games with rounds send one; the rest keep the original
-                // five-field shape rather than writing round: null.
-                if (doc.round != null) data.round = doc.round;
-                return fsMod.addDoc(fsMod.collection(db, collectionName), data);
+            // Writes wait for the sign-in too, so the uid is known when the
+            // doc is built. `bare` drops the optional fields (see write()).
+            writer = function (doc, bare) {
+                return authDone.then(function () {
+                    var data = {
+                        game: doc.game,
+                        player: doc.player,
+                        score: doc.score,
+                        room: doc.room,
+                        timestamp: fsMod.serverTimestamp()
+                    };
+                    if (!bare) {
+                        // Only games with rounds send one; the rest keep the
+                        // original shape rather than writing round: null.
+                        if (doc.round != null) data.round = doc.round;
+                        var uid = authUid ? authUid() : "";
+                        if (uid) data.uid = uid;
+                    }
+                    return fsMod.addDoc(fsMod.collection(db, collectionName), data);
+                });
             };
             state = "ready";
             flush();
@@ -163,6 +179,7 @@
         state = "unavailable";
         writer = null;
         reader = null;
+        authUid = null;
         queue.length = 0;
         release();
         note("score submission is off (this is expected on file:// — open over http(s) to record scores)", why);
@@ -203,6 +220,17 @@
     }
 
     /*
+     * Names are free text, so "Ry", "ry " and "R  y" used to be three players.
+     * Trim and collapse runs of whitespace here; leaderboard.html also groups
+     * case-insensitively when it reads, which covers the rows already written.
+     * Case is kept as typed, because the board shows a player's own spelling.
+     */
+    function normalizeName(name) {
+        var n = String(name == null ? "" : name).replace(/\s+/g, " ").trim().slice(0, 32).trim();
+        return n || "Anonymous";
+    }
+
+    /*
      * Fire and forget. Returns nothing to await on purpose — this is called
      * from game-over paths, and a caller that awaits a leaderboard write is a
      * caller that can be blocked by a slow network at the worst moment.
@@ -225,7 +253,7 @@
 
         var doc = {
             game: String(game),
-            player: String(e.player || "Anonymous").slice(0, 32) || "Anonymous",
+            player: normalizeName(e.player),
             score: Math.round(score),
             room: normalizeRoom(e.room)
         };
@@ -258,25 +286,20 @@
     // Measured 2026-09-20: 182 docs in the collection, every one written
     // before `round` existed, and ZERO with `game: "zombie"` -- which is what
     // a rules rejection of the new field would look like from outside.
-    var OPTIONAL_KEYS = ["round"];
+    //
+    // `uid` (2026-10-24) is optional on the same terms: the device's anonymous
+    // auth uid, added by the writer itself once sign-in has settled.
+    var OPTIONAL_KEYS = ["round", "uid"];
 
     function write(doc, isRetry) {
         try {
-            writer(doc).catch(function (err) {
+            writer(doc, !!isRetry).catch(function (err) {
                 var code = (err && (err.code || err.message)) || String(err);
-                var hasOptional = false;
-                for (var i = 0; i < OPTIONAL_KEYS.length; i++) {
-                    if (doc[OPTIONAL_KEYS[i]] !== undefined) hasOptional = true;
-                }
+                var hasOptional = doc.round !== undefined || !!(authUid && authUid());
                 if (!isRetry && hasOptional) {
-                    var bare = {};
-                    for (var k in doc) {
-                        if (!Object.prototype.hasOwnProperty.call(doc, k)) continue;
-                        if (OPTIONAL_KEYS.indexOf(k) === -1) bare[k] = doc[k];
-                    }
                     note("score write refused (" + code + ") -- retrying without " +
                          OPTIONAL_KEYS.join("/"));
-                    write(bare, true);
+                    write(doc, true);
                     return;
                 }
                 // Never let a failed write break gameplay. This is called from
@@ -350,7 +373,8 @@
      * without a debugger. shared/selftest.html asserts against this.
      */
     function debug() {
-        return { selfUrl: selfUrl, configUrl: configUrl(), state: state, game: gameId, collection: collectionName };
+        return { selfUrl: selfUrl, configUrl: configUrl(), state: state, game: gameId, collection: collectionName,
+                 uid: authUid ? authUid() : "" };
     }
 
     function destroy() {
@@ -365,6 +389,7 @@
         preload: preload,
         submit: submit,
         top: top,
+        normalizeName: normalizeName,
         available: available,
         status: status,
         debug: debug,

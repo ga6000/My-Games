@@ -319,6 +319,15 @@
         // timestamp yet (a write still resolving) counts as the newest.
         const time = r => (r.at ? r.at.getTime() : Infinity);
         runs.sort((a, b) => time(a) - time(b));
+
+        // One player per name, ignoring case and spacing (2026-10-24): "ry",
+        // "Ry" and "Ry " are the same person. Each group shows under the
+        // spelling of its most recent run, so a player who fixes their
+        // capitalisation sees it everywhere. Stored rows are not changed.
+        const nameKey = n => n.replace(/\s+/g, " ").trim().toLowerCase();
+        const shownAs = new Map();
+        for (const r of runs) shownAs.set(nameKey(r.player), r.player.replace(/\s+/g, " ").trim() || "Anonymous");
+        for (const r of runs) r.player = shownAs.get(nameKey(r.player));
         const seen = new Map();
         for (const r of runs) {
             r.run = (seen.get(r.player) || 0) + 1;

@@ -99,7 +99,7 @@ function lobbyBlocks() {
 // ---------------------------------------------------
 function lobbyClick() {
     initAudio();                                   // the click is the browser's audio unlock
-    if (lobbyBusy) return;
+    if (lobbyBusy || lobbyNaming) return;          // a name first (see below)
     if (lobbyRunLive) { lobbyBegin(); return; }    // joining a run in progress
     const me = lobbySelfKey();
     if (!lobbyReady[me]) {
@@ -192,9 +192,16 @@ function lobbyRender(party, allReady) {
     let n = 0;
     for (let i = 0; i < party.length; i++) if (lobbyReady[party[i].id]) n++;
     const sig = party.map(function (m) { return m.id + m.name + m.color + (lobbyReady[m.id] ? 1 : 0); }).join("|") +
-                "#" + lobbyRunLive + meReady + allReady + lobbyVerb();
+                "#" + lobbyRunLive + meReady + allReady + lobbyVerb() + lobbyNaming;
     if (sig === lobbySig) return;
     lobbySig = sig;
+    if (lobbyNaming) {
+        head.textContent = "";
+        row.innerHTML = "";
+        hint.textContent = "";
+        hint.className = "lb-hint";
+        return;
+    }
     if (lobbyRunLive) {
         head.textContent = "A RUN IS UNDER WAY";
         row.innerHTML = "";
@@ -236,6 +243,51 @@ function lobbyFrame(now) {
     } else {
         lobbyGoAt = 0;
     }
+}
+
+// ---------------------------------------------------
+//   A NAME FIRST (2026-10-24)
+// ---------------------------------------------------
+// The hub stores the player's name (gamehub_playerName) and every game reads
+// it from there. A Home Screen install on iOS has its OWN empty storage, so
+// opened that way Zombie had no name and every score went up as "Anonymous".
+// With no name from the URL or storage, the ready screen asks for one first,
+// stores it under the hub's key, and reloads: the room is joined with a name
+// on connect (mp-core's join-room), so a reload is the one clean way to rejoin
+// under it. It asks once per install, because the name is then stored.
+let lobbyNaming = false;
+
+function lobbyNeedsName() {
+    if (!LOBBY_ON || typeof MP === "undefined" || !MP.identity) return false;
+    return !MP.identity().name.trim();
+}
+
+function lobbyAskName() {
+    lobbyNaming = true;
+    const box = document.createElement("form");
+    box.id = "nameEntry";
+    box.innerHTML =
+        "<label for='nameEntryInput'>ENTER YOUR NAME</label>" +
+        "<input id='nameEntryInput' type='text' maxlength='20' autocomplete='off' autocapitalize='words' spellcheck='false' placeholder='e.g. Ry'>" +
+        "<button type='submit'>OK</button>" +
+        "<div class='ne-hint'>SHOWN ON THE LEADERBOARD</div>";
+    document.body.appendChild(box);
+    const input = box.querySelector("input");
+    box.addEventListener("submit", function (e) {
+        e.preventDefault();
+        const name = input.value.replace(/\s+/g, " ").trim().slice(0, 20);
+        if (!name) { input.focus(); return; }
+        try { localStorage.setItem("gamehub_playerName", name); } catch (err) { /* blocked storage */ }
+        // Storage refused it (private mode): carry it in the URL instead, which
+        // mp-core reads first, so this run at least still has the name.
+        let stored = "";
+        try { stored = localStorage.getItem("gamehub_playerName") || ""; } catch (err) { /* blocked */ }
+        if (stored === name) { window.location.reload(); return; }
+        const u = new URL(window.location.href);
+        u.searchParams.set("name", name);
+        window.location.replace(u.href);
+    }, { signal: zSignal() });
+    try { input.focus(); } catch (e) { /* iOS only focuses on a tap */ }
 }
 
 // ---------------------------------------------------
@@ -466,4 +518,5 @@ if (LOBBY_ON) {
         "<div id='lobbyRow' class='lb-row'></div>" +
         "<div id='lobbyHint' class='lb-hint blink'>CLICK TO READY</div>";
     demoStart(false);          // the page has just built map 1; the demo replaces it
+    if (lobbyNeedsName()) lobbyAskName();
 }

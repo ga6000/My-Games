@@ -378,6 +378,15 @@ check("LB.submit without a game id warns instead of writing junk", function () {
     return warned || "accepted a score with no game id";
 });
 
+check("LB.normalizeName trims and collapses spaces, keeps case, defaults to Anonymous", function () {
+    var cases = [["  Ry ", "Ry"], ["R   y", "R y"], ["", "Anonymous"], [null, "Anonymous"], ["   ", "Anonymous"]];
+    for (var i = 0; i < cases.length; i++) {
+        var got = LB.normalizeName(cases[i][0]);
+        if (got !== cases[i][1]) return JSON.stringify(cases[i][0]) + " gave " + JSON.stringify(got);
+    }
+    return true;
+});
+
 check("LB.configure({preload:false}) does not touch the network", function () {
     LB.configure({ game: "selftest", preload: false });
     return LB.status() === "idle" || "status is " + LB.status() + ", expected idle";
