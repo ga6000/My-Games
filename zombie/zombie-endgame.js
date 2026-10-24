@@ -49,9 +49,17 @@ const ROLES = {
                         "minimap. You move 10% faster." },
     gunner:   { name: "GUNNER",   blurb: "+15% DAMAGE, +25% CRATE AMMO",
                 detail: "Every round you fire does 15% more damage (a ricochet keeps it; barrels and perk " +
-                        "effects do not). Crates fill your guns to 125% of their capacity." }
+                        "effects do not). Crates fill your guns to 125% of their capacity." },
+    // ARCADE (2026-10-17). Adding two keys re-deals everyone's class once
+    // (the hash is taken modulo the list's length).
+    butcher:  { name: "BUTCHER",  blurb: "FUNNEL KILLS COUNT DOUBLE, FUNNELS DRAIN FASTER",
+                detail: "Your kills on a funnel put two kills' worth of blood in it. A funnel you stand in " +
+                        "drains into its tank 50% faster." },
+    bulwark:  { name: "BULWARK",  blurb: "DRAWS THE SWARM, TAKES A FOURTH HIT, SHOTS SHOVE",
+                detail: "Zombies near you come for you first. You go down on the fourth hit, not the third. " +
+                        "Your rounds shove what they hit." }
 };
-const ROLE_KEYS = ["medic", "engineer", "scout", "gunner"];
+const ROLE_KEYS = ["medic", "engineer", "scout", "gunner", "butcher", "bulwark"];
 
 // NOT hashToUnit(): that keeps only the low bits of a djb2 hash
 // (`% 10000`), and djb2 low bits cluster hard for similar strings. Across
@@ -70,14 +78,21 @@ function roleForId(netId) {
     return ROLE_KEYS[(h >>> 0) % ROLE_KEYS.length];
 }
 
+// DEV (2026-10-17, the L+G panel's CLASS button): play as a chosen class.
+// Local only -- it changes what this client, and a host for its own player,
+// believe; teammates still deal your class from your token.
+let zDevRoleOverride = null;
+
 function myRole() {
     // The tab token, not the socket id (2026-09-19): the socket id is new on
     // every reconnect, so a wifi drop used to re-deal your class mid-run.
-    return roleForId(netToken);
+    return zDevRoleOverride || roleForId(netToken);
 }
 
 function idHasRole(id, key) {
-    return roleForId((id || "").split(":")[0]) === key;
+    const tok = (id || "").split(":")[0];
+    if (zDevRoleOverride && tok === netToken) return zDevRoleOverride === key;
+    return roleForId(tok) === key;
 }
 
 // ---------------------------------------------------
@@ -385,9 +400,9 @@ function funnelIndexAt(x, y) {
     return -1;
 }
 
-function creditFunnelKill(x, y) {
+function creditFunnelKill(x, y, ownerId) {
     // ARCADE: the funnel is a backlog that drains into the tank (THE BLOOD RUN).
-    if (ZOMBIE_ARCADE) { arcadeCreditFunnelKill(x, y); return; }
+    if (ZOMBIE_ARCADE) { arcadeCreditFunnelKill(x, y, ownerId); return; }
     const i = funnelIndexAt(x, y);
     if (i < 0 || siloFill[i] >= siloCapacity(i)) return;
     siloFill[i]++;

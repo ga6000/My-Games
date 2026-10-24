@@ -479,7 +479,7 @@ function applyWorldSnapshot(msg, now) {
     if (ZOMBIE_ARCADE && typeof msg.df === "number") arcDifficulty = msg.df;
     if (ZOMBIE_ARCADE && !netIsHost && msg.bo) arcadeBlackoutApply(msg.bo, now);
     if (ZOMBIE_ARCADE && !netIsHost) {
-        arcTrays = (msg.tr || []).map(function (t) { return { x: t[0], y: t[1], item: CARD_KEYS[t[2]] || "" }; });
+        arcTrays = (msg.ty || []).map(function (t) { return { x: t[0], y: t[1], item: CARD_KEYS[t[2]] || "" }; });
     }
     if (ZOMBIE_ARCADE && typeof msg.lv === "number" && msg.lv > arcLevelNo) {
         arcadeEnterLevel(msg.lv, now, msg.l1 || [0, 0]);
@@ -554,7 +554,7 @@ function applyWorldSnapshot(msg, now) {
         // A promoted host must not hand out an id that is already live.
         if (ZOMBIE_ARCADE && pu[3] > arcDropSeq) arcDropSeq = pu[3];
         return { x: pu[0], y: pu[1], size: dropSizeFor(type), type: type, id: pu[3], item: item || "",
-                 until: deadlineFrom(pu[5] || 0, now) };
+                 until: deadlineFrom(pu[5] || 0, now), tossBy: pu[6] ? 1 : 0 };
     });
 
     // Other players' bullets only -- ours are simulated locally so our
@@ -584,6 +584,7 @@ function applyWorldSnapshot(msg, now) {
         scoreBoard = sb;
     }
 
+    if (ZOMBIE_ARCADE) satchelFromWire(msg.sat);
     // PERK: DECOY lures, for drawing.
     decoys = (msg.dc || []).map(function (d) {
         return { x: d[0], y: d[1], r: d[2], until: deadlineFrom(d[3], now) };
@@ -637,7 +638,7 @@ function applyWorldSnapshot(msg, now) {
     if (msg.tw && typeof trainApplyWire === "function") trainApplyWire(msg.tw);
     floodActive = !!msg.fl;
     floodRemaining = msg.fr || 0;
-    escapeAt = deadlineFrom(msg.esc || 0, now);
+    escapeAt = !msg.esc ? 0 : msg.esc > 0 ? now + msg.esc : now + msg.esc + 1;
     // Before triggerWin(), so the card this client is about to build already
     // knows whether this client made it.
     if (msg.wab) wonAboard = msg.wab;
@@ -842,7 +843,7 @@ function broadcastWorld() {
             if (!pu.id) return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type)];
             const item = pu.type === "gun" ? WEAPON_KEYS.indexOf(pu.item)
                        : pu.type === "perk" ? CARD_KEYS.indexOf(pu.item) : -1;
-            return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type), pu.id, item, msLeft(pu.until, now)];
+            return [pu.x, pu.y, PICKUP_TYPES.indexOf(pu.type), pu.id, item, msLeft(pu.until, now), pu.tossBy ? 1 : 0];
         }),
         sc: Math.round(scrapPool),
         ki: kills,
@@ -868,6 +869,8 @@ function broadcastWorld() {
                     Math.round(t.aim * 100), msLeft(t.liveAt, now)];
         }) : [],
         // Live DECOY lures, as remaining durations.
+        // ARCADE: the scouts' satchels (THE SATCHEL).
+        sat: ZOMBIE_ARCADE ? satchelToWire() : 0,
         dc: decoys.map(function (d) {
             return [Math.round(d.x), Math.round(d.y), d.r, msLeft(d.until, now)];
         }),
@@ -883,7 +886,9 @@ function broadcastWorld() {
         lv: ZOMBIE_ARCADE ? arcLevelNo : 1,
         df: ZOMBIE_ARCADE ? arcDifficulty : 1,
         bo: ZOMBIE_ARCADE ? arcadeBlackoutWire(now) : 0,
-        tr: ZOMBIE_ARCADE ? arcTrays.map(function (t) { return [t.x, t.y, CARD_KEYS.indexOf(t.item)]; }) : 0,
+        // `ty`, not `tr` (2026-10-17): `tr` is also the traps row further down
+        // this same object, which won -- guests never got the trays.
+        ty: ZOMBIE_ARCADE ? arcTrays.map(function (t) { return [t.x, t.y, CARD_KEYS.indexOf(t.item)]; }) : 0,
         lq: (ZOMBIE_ARCADE && arcLeaveAt) ? Math.max(1, Math.round(arcLeaveEndAt - now)) : 0,
         l1: (ZOMBIE_ARCADE && arcLevelNo >= 2) ? [Math.round(arcL1Seconds * 10) / 10, arcL1Silos] : 0,
 
@@ -908,7 +913,11 @@ function broadcastWorld() {
         sp: siloFlipped.map(function (v) { return v ? 1 : 0; }),
         fl: floodActive ? 1 : 0,
         fr: floodRemaining,
-        esc: msLeft(escapeAt, now),
+        // 2026-10-17: SIGNED. msLeft() is 0 once the gate is open, and a
+        // guest read 0 as "not started" -- so on a guest the gate never
+        // opened: its bar stayed solid, nobody got OUT, and the map never
+        // changed. Negative = opened that many ms ago.
+        esc: !escapeAt ? 0 : (escapeAt > now ? Math.round(escapeAt - now) : -Math.round(now - escapeAt) - 1),
         wn: won ? 1 : 0,
         wab: wonAboard,
         // Per-zone spawn cooldown, as REMAINING DURATIONS (never

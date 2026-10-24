@@ -381,6 +381,55 @@ var zDevActions = [
     }
 ];
 
+// CLASS (2026-10-17: "dev menu options to ... change class"). Cycles
+// MEDIC -> ENGINEER -> SCOUT -> GUNNER -> your dealt class. Local only.
+zDevActions.push({
+    label: "CLASS",
+    hint: "cycle your class (local only — teammates still see your dealt one)",
+    fn: function () {
+        const order = ROLE_KEYS.concat([null]);
+        const at = order.indexOf(zDevRoleOverride);
+        zDevRoleOverride = order[(at + 1) % order.length];
+        guideBuilt = false;                       // the ESC guide lights your class
+        const r = myRole();
+        return "now " + ROLES[r].name + (zDevRoleOverride ? "" : " (your dealt class)");
+    }
+});
+
+// DROPS (2026-10-17: "dev menu options to drop power ups"). A real drop on
+// the ground 70px ahead of you, through the same pickups list the host
+// spawns into, so taking it runs the real path. Host only: drops are the
+// host's.
+function zDevDrop(type, item) {
+    const p = zDevPlayer();
+    if (!p) return "no local player";
+    if (netOnline && !netIsHost) return "HOST ONLY — drops are the host's";
+    const now = Date.now(), size = type === "perk" ? PERK_DROP_SIZE : DROP_SIZE;
+    const fl = Math.hypot(p.facingX || 0, p.facingY || 0) || 1;
+    const fx = (p.facingX || 1) / fl, fy = (p.facingY || 0) / fl;
+    const x = Math.round(p.x + p.size / 2 + fx * 70 - size / 2), y = Math.round(p.y + p.size / 2 + fy * 70 - size / 2);
+    pickups.push({ id: ++arcDropSeq, x: x, y: y, size: size, type: type, item: item || "",
+                   until: now + (DROP_HAZARD[type] ? HAZARD_LIFE_MS : DROP_LIFE_MS) });
+    return (item ? (CARDS[item] ? CARDS[item].name : (WEAPONS[item] ? WEAPONS[item].name : item)) : type.toUpperCase()) + " dropped ahead of you";
+}
+["ammo", "overclock", "rally", "fuel", "shock", "freeze", "turret", "boomgun", "mud", "flare", "jam"].forEach(function (t) {
+    zDevActions.push({
+        label: "DROP " + t.toUpperCase(),
+        hint: DROP_HAZARD[t] ? "hazard — 20s" : "on the ground ahead of you",
+        fn: function () { return zDevDrop(t); }
+    });
+});
+zDevActions.push({
+    label: "DROP GUN",
+    hint: "a random gun, any level",
+    fn: function () { return zDevDrop("gun", DROP_GUNS[Math.floor(Math.random() * DROP_GUNS.length)][1]); }
+});
+zDevActions.push({
+    label: "DROP PERK",
+    hint: "a random perk",
+    fn: function () { return zDevDrop("perk", DROP_PERKS[Math.floor(Math.random() * DROP_PERKS.length)]); }
+});
+
 // One button per perk that can drop in the arcade, each with its own icon.
 // Straight into p.cards like applyTake does -- ignoring slots and drops --
 // because this is for looking at perks, not earning them. Each press adds a

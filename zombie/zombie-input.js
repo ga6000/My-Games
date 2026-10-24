@@ -545,6 +545,7 @@ function inputFrame(now) {
         const cx = p.x + p.size / 2, cy = p.y + p.size / 2;
         mouseX = cx + inpAim.x * INP_AIM_DIST;
         mouseY = cy + inpAim.y * INP_AIM_DIST;
+        zMouseAim = false;                 // the stick is aiming now, not the mouse
     }
 
     // fire: this module's edges only

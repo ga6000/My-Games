@@ -63,6 +63,136 @@ and traps, and the horde switch and generator still stand in the map. Those are 
 *(2026-10-04, later: the field manual, the horde switch and the generator are gone from the map; see
 below. The manual's code is still loaded, just unreachable.)*
 
+### The aim follows a still mouse; lights go under the bodies (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **A still mouse aimed at a fixed spot on the map** (reported as long-standing). `mouseX/Y` are
+  world coordinates and were only worked out on `mousemove`, so walking with the mouse still kept
+  aiming at the ground it was last over. The screen position is kept (`zMouseSX/SY`) and re-mapped
+  through the camera at the top of every `gameLoop` while the mouse is aiming (`zMouseAim`; a
+  deflected stick clears it, the attract run is left alone).
+- **Lights drew over zombies and players.** The lamp pools, floods and window sunlight were drawn
+  after everything; they now go down with the ground, before the bodies (using the light polygons
+  built by the previous frame's lighting pass).
+- **A NaN camera never recovered:** a zero-height canvas (a hidden or minimised window) made the
+  eased scale NaN for good, and every screen-to-world mapping after it. `updateCamera` and the
+  intro camera now refuse a bad scale.
+
+### The silo curve: later tanks ask more, the last asks 100 (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **Quotas** (`ARENA_LAYOUTS[].caps`): map 1 keeps 10 / 15 / 20. From there each tank asks about
+  7.6% more than the one before (20 x (100/20)^(k/22)) and the reservoir's last bay asks **100**:
+
+  | map | tanks | was | total was | total now |
+  |---|---|---|---|---|
+  | 2 | 22, 23, 25, 27, 29 | 8..16 | 60 | 126 |
+  | 3 | 31, 33, 36, 39, 42, 45, 48 | 7..14 | 73 | 274 |
+  | 4 | 52, 56, 60, 64, 69, 75, 80, 86, 93, 100 | 6..8 | 68 | 735 |
+
+  That's what makes the BUTCHER's double blood count most late.
+- **The drain speeds up with the tank** (`funnelDrainMs`): 650ms a unit up to a 20 tank, then
+  650 x 20/cap (130ms at 100), so killing is the limit, not the pipe. Measured on the last bay: 23
+  units drained in 3s. Map 4's long pipes mean each unit lands ~3.6s after it leaves.
+- **Not playtested.** Map 4 is now ~735 funnel kills; with a team killing on a funnel at a few a
+  second that is minutes of play. Check it against the 2–5 minute session goal.
+
+### Multiplayer fixes, easier, aim aids (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **A guest could never leave a map.** `esc` went over as `msLeft(escapeAt)`, which is 0 once the
+  gate is open, and a guest read 0 as "not started": on a guest the gate never opened, its
+  `gateBar` stayed solid, they were never OUT, and the host waited for them forever. `esc` is now
+  signed (negative = opened that long ago). **Verified with two real clients** (local
+  `server.js`, two tabs): the guest sees the gate open and its bar gone; both walked out, 2/2, and
+  both arrived on map 2.
+- **The start trays never reached guests:** the snapshot carried `tr` twice (the trays and the old
+  traps row), and the traps won. The trays ride as `ty` now.
+- **One perk tray per player:** `arcadePlaceTrays` counted `teamSize()` at the instant of the
+  start, when every client has just reset and the host has not yet heard from anyone (1). It
+  takes the lobby party's size too (`arcadePartyIds`).
+- **Each player starts on their own pedestal slot**, above their own tray (`arcadeMyStartX`: the
+  party's ids sorted, so every client agrees). It was a hash of the tab token, which bunched up.
+  Verified: two players, 72px apart.
+- **Easier** ("too hard" for 2 of 3 testers, even on casual): spawns start at 0.6/s (was 0.8) and
+  double every 60s (was 50); each extra player adds 30% (was 40%); the alive cap is 48 + 24 per
+  player (was 60 + 30). The slider now reaches maps 1 and 2: their rate +-60% and cap +-40% of the
+  slider's distance from 1 (was +-10% and nothing). Zombie speed follows it everywhere
+  (`arcDiffSpeed`: casual 0.92, brutal 1.08). **Not measured by a bot sweep or a playtest yet.**
+- **Aim aids** ("bigger crosshair or laser sight in esc menu ... visibility issues"): the ESC
+  menu's **AIM** button cycles STANDARD / LARGE / LASER / LARGE + LASER (`arcAimMode`, kept per
+  browser). LARGE draws a white crosshair and ring with a black outline at the aim point and hides
+  the system cursor. LASER draws a line in your colour from you along your aim until a wall or
+  620px. Drawn after the lighting (`arcadeDrawAim`).
+
+### BUTCHER and BULWARK, the scout's SATCHEL, two turrets each, turrets tire (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **Six classes now** (`ROLE_KEYS` + `butcher`, `bulwark`). The hash deals modulo the list
+  length, so **everyone's dealt class changed once.**
+- **BUTCHER:** their funnel kills add `BUTCHER_BLOOD` (2) to the backlog (`creditFunnelKill` now
+  carries the killer's id); a funnel with a standing butcher inside drains every
+  650 x `BUTCHER_DRAIN_K` (0.667) ms (`butcherInFunnel`). Measured: 4 units drained in 2s against 3.
+- **BULWARK:** absorbs `BULWARK_HIT_STEPS` (3) hits and goes down on the **fourth**
+  (`arcHitSteps(id)`; the red edge pulses on the last step whatever the count). Zombies within
+  `BULWARK_TAUNT_R` (150px) follow a bulwark-seeded flow field and target them (`arcBulwarks`,
+  `arcBulwarkField`, built with the other fields). Their `"shot"` rounds shove what they hit
+  (`BULWARK_PUSH` 4px a step for 90ms, the launch phase already on the wire).
+- **SCOUT is the quartermaster** ("THE SATCHEL"): good drops they walk over go into a host-owned
+  satchel (`arcSatchel`, `SATCHEL_MAX` 2, on the snapshot as `sat`) instead of taking effect,
+  even ones they couldn't use. [Q] (the ping is gone in the arcade) tosses the oldest out 80px
+  ahead (`what: "toss"`) as a drop flagged `tossBy` (7th element of a pickup row), which no scout
+  re-stashes. Their kills drop 50% more (`SCOUT_DROP_K`); their radar draws each drop's time
+  left. The side panel shows the satchel above the perks. Kept over a map change, cleared on a
+  new run.
+- **Turrets:** two per player (`TURRET_PER_PLAYER`; a third retires your oldest; the map cap is
+  now 8). **They tire:** past `TURRET_TIRE_MS` (3:00) of age, life drains an extra
+  `((age - 3:00) / 30s)^2` per ms, so a SALVAGE engineer turret parked on a funnel can't hold the
+  swarm off it forever (the soft lock).
+
+### Dev drops and class, a near-instant medic, a sure-footed scout (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **Dev panel (L+G):** `CLASS` cycles MEDIC, ENGINEER, SCOUT, GUNNER and back to your dealt
+  class (`zDevRoleOverride`, honoured by `myRole()` and by `idHasRole()` for your own id; local
+  only, so teammates still deal yours from your token). `DROP <TYPE>` puts a real drop 70px ahead
+  of you for every team drop, the turret, the Boomgun, each hazard, a random gun and a random perk
+  (`zDevDrop`, host only).
+- **MEDIC:** revives in 0.2s (`MEDIC_REVIVE_K` 0.27 of the arcade's 0.75s) from 1.8x as far
+  (`MEDIC_REVIVE_RANGE_K`: 46 to 83px, 64 to 115 once reviving).
+- **SCOUT:** mud slows them only to 75% (`SCOUT_MUD_SPEED`) for 3s (`SCOUT_MUD_MS`), not 50% for
+  5s. Measured: 3.3 against 4.4, about 3s.
+
+### Engineer turrets carry perks, overclock drives the machines, classes in ESC (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **An ENGINEER's turret reads its owner's perks live** (`eng`, set by the host from the placer's
+  id; `arcadeUpdateTurrets`). OVERDRIVE speeds its fire (`TURRET_OD`, the gun table);
+  RICOCHET/SKEWER/SEEKER go on its rounds; ARC and BLASTCAP proc on its kills (src `"shot"`);
+  SALVAGE kills add `TURRET_SALVAGE_MS` (1.5s) to its bar at the gun perk's chances, capped at a
+  full life (`arcadeTurretKill`); SPITE goes off when it expires or is chewed down
+  (`arcadeTurretSpite`). ATTRACT and LAST STAND do nothing for it. Before this the ENGINEER did
+  nothing at all in the arcade (its traps and windows are gone).
+- **Anyone else's turret is plain:** its rounds are src `"turret"` (not a `PROC_SOURCE`), so
+  ARC/BLASTCAP no longer fire off any player's turret. `updateBullets` passes `b.src` when a bullet
+  has one.
+- **OVERCLOCK drives the machines** (`arcOverclockUntil`, set in `applyTeamPickup` on every
+  client): turrets and the Boomgun fire twice as fast while it lasts (`OVERCLOCK_MACHINE` 0.5).
+- **Measured** (engineer turret into a row of brutes, 1s each): 9 shots plain, 17 with OVERDRIVE
+  x2, 33 with OVERCLOCK on top. SALVAGE x6 added 7.5s over ten kills. SPITE x3 went off on expiry.
+- **MEDIC was slower than everyone in the arcade:** it used a fixed 1.8s against the arcade's flat
+  0.75s revive. It is now 0.6x whatever the revive costs.
+- **The ESC guide has a CLASSES section** (`GUIDE_CLASSES`), arcade-accurate and lighting the
+  player's own. `ROLES`' blurbs still describe the walled game.
+- **Hazards do expire:** `HAZARD_LIFE_MS` (20s), checked.
+
+### ATTRACT pulls, sidebar perks in colour (2026-10-17, branch `zombie-funnel-pipes`)
+
+- **ATTRACT no longer reaches out; it pulls** (`arcadeMagnetDrops`, run every step on every
+  client from `update()`). A takeable drop (not a hazard, not one the holder would refuse) inside
+  `ATTRACT_PULL[stacks]` (96 / 136 / 172 / 204 / 232 / 256px; x0.8 on 10-17, "25% too powerful")
+  slides toward the nearest holder at `(48 + 24 * stacks) * (1 + 3 * closeness^2)` px/s, so it speeds up as it closes. It is taken
+  only when it **touches** you: `arcadeWalkOverDrops` uses no pad now. The speed has no stored
+  velocity, so the host (whose drop positions ride the snapshot) and a guest predicting between
+  snapshots move it alike. Measured at x3 from 157px: 157, 134, 116, 84, 48, then taken, at 100ms
+  steps. ~~`ATTRACT_REACH`~~ is gone.
+- **Held perks in the side panel show the perk's own colour** (`PERK_TINT` behind a white icon),
+  as their drops and the ESC guide already did. They were world-hue icons on black.
+
 ### The blood run: a backlog funnel, one L-shaped pipe, a riser, READY waits for the blood (2026-10-16, branch `zombie-funnel-pipes`)
 
 `zombie-arcade.js` "THE BLOOD RUN". The user's calls: the tank must WAIT for the blood; the funnel
@@ -1158,7 +1288,7 @@ Built as the SEEKER perk; see "Sixth" above.)*
 - **Blackouts are off** in the arcade: no darkening, no monochrome, no card.
 - **The ping is off** (`pingFrom` returns), and **DECOY** is out of the drop pool with it.
   **ATTRACT** is in: a new perk (`CARDS.attract`, `CARD_KEYS` index 11, appended; a magnet icon)
-  that takes drops from 50 / 90 / 130px away (`ATTRACT_REACH`).
+  that takes drops from 50 / 90 / 130px away (`ATTRACT_REACH`). *(Superseded 2026-10-17: it pulls drops to you; see "ATTRACT pulls".)*
 - **Drops +25% again**: 9.4% a kill, guaranteed within 16, up to 10 live.
 - **The arena is a third bigger on each side: 3200×1860.** Tanks sit at centre-left −1150,
   top-middle −600 and centre-right +1100, so the three sets have room. The open terrain scales

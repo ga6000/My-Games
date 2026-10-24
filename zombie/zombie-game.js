@@ -1046,9 +1046,11 @@ function hostHandleBuy(msg) {
     }
 
     // ARCADE: a drop has ONE taker, and this is where it is decided.
+    // ARCADE: a scout hands a satchel drop out (THE SATCHEL).
+    if (msg.what === "toss") { if (ZOMBIE_ARCADE) arcadeHostToss(msg); return; }
     if (msg.what === "drop") {
         if (!ZOMBIE_ARCADE || !arcadeHostTake(msg)) return;
-        const outD = { k: "bought", what: "drop", i: i, id: msg.id, t: msg.t, it: msg.it, x: msg.x, y: msg.y };
+        const outD = { k: "bought", what: "drop", i: i, id: msg.id, t: msg.t, it: msg.it, x: msg.x, y: msg.y, st: msg.st || 0 };
         applyPurchase(outD, now);
         if (netOnline) MP.send(outD);
         return;
@@ -1223,7 +1225,10 @@ function creditScore(ownerId, field, amount, points) {
 function applyTeamPickup(type, ms, now, isHostOrigin) {
     for (let i = 0; i < players.length; i++) {
         const p = players[i];
-        if (type === "overclock") p.overclockUntil = now + ms;
+        if (type === "overclock") {
+            p.overclockUntil = now + ms;
+            if (ZOMBIE_ARCADE) arcOverclockUntil = now + ms;     // turrets too
+        }
         else if (type === "rally") {
             if (p.downed) {
                 p.downed = false;
@@ -1313,6 +1318,7 @@ function update(now, dt) {
     // permanently retiring half the map as a spawn source.
     markHotZones();
 
+    if (ZOMBIE_ARCADE) arcadeMagnetDrops(dt);     // ATTRACT: drops slide toward you
     updatePlayers(now, dt);
     // ALT: after your own movement, before anything reads your position --
     // a rider is carried by the deck under them (za-train.js).
@@ -1659,7 +1665,9 @@ function updateBullets(now) {
                 continue;
             }
 
-            damageZombie(j, b.dmg, b.owner, now, kind === "rocket" ? "rocket" : "shot", b.vx, b.vy);
+            damageZombie(j, b.dmg, b.owner, now, b.src || (kind === "rocket" ? "rocket" : "shot"), b.vx, b.vy);
+            // ARCADE: a turret's kill (SALVAGE puts time back on an engineer's turret).
+            if (b.turretId && zombies.indexOf(z) === -1) arcadeTurretKill(b.turretId, now);
 
             if (kind === "rocket") {
                 rocketBurst(b, now);
@@ -1911,6 +1919,14 @@ function damageZombie(index, dmg, ownerId, now, src, hitVx, hitVy) {
 
     if (z.hp > 0) {
         if (src !== "burn" && src !== "flame") z.flashUntil = now + 50;
+        // BULWARK (2026-10-17): their rounds shove what they hit, a little.
+        if (ZOMBIE_ARCADE && src === "shot" && hitVx !== undefined && ownerId &&
+            !(now < (z.launchUntil || 0)) && idHasRole(ownerId, "bulwark")) {
+            const hl = Math.hypot(hitVx, hitVy) || 1;
+            z.launchUntil = now + BULWARK_PUSH_MS;
+            z.lvx = hitVx / hl * BULWARK_PUSH;
+            z.lvy = hitVy / hl * BULWARK_PUSH;
+        }
         // THE SUPER SPLITTER COMES APART AS YOU SHOOT IT (2026-09-20).
         // Every shot sheds a spawnling, and every SUPER_SPLIT_STEP of
         // damage drops a full splitter. Burn ticks do NOT count as shots --
@@ -1935,8 +1951,8 @@ function damageZombie(index, dmg, ownerId, now, src, hitVx, hitVy) {
     // Only kills ON an active funnel drain into a silo. Everything else
     // in the game rewards killing zombies wherever they are; this is the
     // one system that asks you to fight in a chosen place.
-    creditFunnelKill(z.x + z.size / 2, z.y + z.size / 2);
-    if (ZOMBIE_ARCADE) arcadeMaybeDrop(zcx, zcy, now);
+    creditFunnelKill(z.x + z.size / 2, z.y + z.size / 2, ownerId);
+    if (ZOMBIE_ARCADE) arcadeMaybeDrop(zcx, zcy, now, ownerId);
     hostEvent(SND_KILL, z.x, z.y, Z_TYPE_KEYS.indexOf(z.type));
 
     // IDEA 6: kills near a teammate are worth more. A quiet, always-on
@@ -2204,7 +2220,7 @@ function updateZombies(now, dt) {
     // x1.28 while intensified. Applied HERE rather than written into the
     // zombie at spawn, so throwing the switch speeds up everything already
     // on the map at that instant, not only what comes afterwards.
-    const baseSpeed = zombieSpeedForRound(round) * intensifySpeedMult();
+    const baseSpeed = zombieSpeedForRound(round) * intensifySpeedMult() * (ZOMBIE_ARCADE ? arcDiffSpeed() : 1);
 
     for (let d = decoys.length - 1; d >= 0; d--) if (now >= decoys[d].until) decoys.splice(d, 1);
 
@@ -2220,6 +2236,13 @@ function updateZombies(now, dt) {
         navFieldIsolated = lone ? navFieldFrom(lone, false) : null;
         navFieldIsolatedWide = lone ? navFieldFrom(lone, true) : null;
         navFieldDecoy = decoys.length ? navFieldFrom(decoys, false) : null;
+        // ARCADE: BULWARKs pull the zombies near them (THE BULWARK'S PULL).
+        if (ZOMBIE_ARCADE) {
+            arcBulwarks = targets.filter(function (t) { return !t.downed && idHasRole(t.id, "bulwark"); });
+            const bs = arcBulwarks.map(function (t) { return { x: t.x + (t.size || 16) / 2, y: t.y + (t.size || 16) / 2 }; });
+            arcBulwarkField = bs.length ? navFieldFrom(bs, false) : null;
+            arcBulwarkFieldWide = bs.length ? navFieldFrom(bs, true) : null;
+        }
         navFieldDecoyWide = decoys.length ? navFieldFrom(decoys, true) : null;
         navFieldAt = now;
     }
@@ -2285,6 +2308,16 @@ function updateZombies(now, dt) {
             }
         }
         if (!target) continue;
+        // BULWARK: within reach of one, it is the one they come for.
+        let taunt = null;
+        if (ZOMBIE_ARCADE && arcBulwarks.length && arcBulwarkField && !(z.isolationSeeker && isolated)) {
+            let bd = BULWARK_TAUNT_R;
+            for (let b = 0; b < arcBulwarks.length; b++) {
+                const d = dist(arcBulwarks[b].x, arcBulwarks[b].y, z.x, z.y);
+                if (d < bd) { bd = d; taunt = arcBulwarks[b]; }
+            }
+            if (taunt) target = taunt;
+        }
 
         // Steer along the flow field rather than straight at the player.
         // The field already routes around buildings and through the
@@ -2301,6 +2334,7 @@ function updateZombies(now, dt) {
         // one-cell doors a walker can, so it gets the padded field.
         const wide = navWantsWide(z.size);
         const field = lure ? (wide ? navFieldDecoyWide : navFieldDecoy)
+                    : taunt ? (wide ? arcBulwarkFieldWide : arcBulwarkField)
                     : (z.isolationSeeker && navFieldIsolated)
                         ? (wide ? navFieldIsolatedWide : navFieldIsolated)
                         : (wide ? navFieldAllWide : navFieldAll);
@@ -2613,7 +2647,9 @@ function updateRevives(now, dt) {
         let reviver = null;
         for (let j = 0; j < targets.length; j++) {
             if (i === j || targets[j].downed) continue;
-            const reach = (ref.reviveBy === targets[j].id) ? REVIVE_KEEP : REVIVE_RANGE;
+            // MEDIC (2026-10-17): "wider revive range".
+            const wide = ZOMBIE_ARCADE && idHasRole(targets[j].id, "medic") ? MEDIC_REVIVE_RANGE_K : 1;
+            const reach = ((ref.reviveBy === targets[j].id) ? REVIVE_KEEP : REVIVE_RANGE) * wide;
             if (dist(t.x, t.y, targets[j].x, targets[j].y) < reach) { reviver = targets[j]; break; }
         }
         ref.reviveBy = reviver ? reviver.id : null;
@@ -2621,7 +2657,10 @@ function updateRevives(now, dt) {
             // ROLE: MEDIC revives faster and ignores the escalation the
             // rest of the team pays.
             const medic = idHasRole(reviver.id, "medic");
-            const useNeed = medic ? 3000 * 0.6 : need;
+            // ARCADE (2026-10-17): 40% faster than the arcade's own revive.
+            // The fixed 1.8s here was SLOWER than its flat 0.75s.
+            // 2026-10-17: "near-instant ... cut down just a tad more" -- 0.2s.
+            const useNeed = medic ? (ZOMBIE_ARCADE ? need * MEDIC_REVIVE_K : 3000 * 0.6) : need;
             ref.reviveProgress = (ref.reviveProgress || 0) + (dt / useNeed);
             if (ref.reviveProgress >= 1) {
                 ref.reviveProgress = 0;

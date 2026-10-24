@@ -199,8 +199,8 @@ const CARDS = {
     salvage:   { name: "SALVAGE",    cost: 10000, blurb: "KILLS REFUND AMMO",
                  detail: "30% / 45% / 60% of kills refund a round to the gun in your hands. Less for the sniper and rockets." },
     // ARCADE (2026-10-07): drops only, never sold.
-    attract:   { name: "ATTRACT",    cost: 9000,  blurb: "LONGER PICKUP REACH",
-                 detail: "You take drops from 50 / 90 / 130 / 165 / 195 / 220 px away." },
+    attract:   { name: "ATTRACT",    cost: 9000,  blurb: "DROPS SLIDE TO YOU",
+                 detail: "Drops within 96 / 136 / 172 / 204 / 232 / 256 px slide toward you, faster as they close and with every stack." },
     // ARCADE (2026-10-11, "bullet curving towards the nearest enemy ... this
     // also can stack"): rounds bend toward the nearest zombie ahead of them.
     seeker:    { name: "SEEKER",     cost: 10000, blurb: "ROUNDS CURVE TO ZOMBIES",
@@ -262,6 +262,9 @@ const CRAWL_SPEED = 1.25;
 const BLEED_OUT_MS = 25000;
 const REVIVE_RANGE = 46;
 const REVIVE_KEEP = REVIVE_RANGE + 18;   // once reviving, you keep it out to here
+// ARCADE MEDIC (2026-10-17): near-instant, and from further away.
+const MEDIC_REVIVE_K = 0.27;             // of the arcade's 0.75s: 0.2s
+const MEDIC_REVIVE_RANGE_K = 1.8;        // 46 -> 83px (64 -> 115 once reviving)
 
 // ---------------------------------------------------
 //   PLAYERS
@@ -324,7 +327,9 @@ function spawnPlayer(keepCards) {
 
     // ARCADE MAP 1: you start on the strip under the trays, spread across it.
     if (ZOMBIE_ARCADE && typeof arcadeHasStart === "function" && arcadeHasStart() && !keepCards) {
-        p.x = WORLD_W / 2 + (hashToUnit(netToken) - 0.5) * 300 - 8;
+        // Your own slot on the pedestal, above your perk tray (2026-10-17:
+        // "spawning on individual spaces ... not all in a condensed glob").
+        p.x = arcadeMyStartX() - 8;
         p.y = WORLD_H / 2 + START_SPAWN_DY;
     }
 
@@ -381,7 +386,8 @@ function playerSpeed(p, now) {
     if (p.downed) return CRAWL_SPEED * (cardLevel(p, "laststand") >= 3 ? 1.6 : 1);
     // ROLE: SCOUT moves a little faster.
     // ARCADE: a MUD drop slows its taker (zombie-arcade.js).
-    const mud = ZOMBIE_ARCADE && now < (p.slowUntil || 0) ? MUD_SPEED : 1;
+    // SCOUT (2026-10-17): mud only takes them to 75% (and for 3s, set on the take).
+    const mud = ZOMBIE_ARCADE && now < (p.slowUntil || 0) ? (myRole() === "scout" ? SCOUT_MUD_SPEED : MUD_SPEED) : 1;
     return PLAYER_SPEED * (myRole() === "scout" ? 1.1 : 1) * mud;
 }
 

@@ -290,6 +290,13 @@ let lastZoneShown = -1;
 
 let mouseX = WORLD_W / 2;
 let mouseY = WORLD_H / 2;
+// THE AIM FOLLOWS THE CAMERA (2026-10-17: "if you do not constantly move your
+// mouse ... your actual aim will be locked to a specific point on the map").
+// mouseX/Y are WORLD coordinates, and they were only worked out on mousemove,
+// so a still mouse kept aiming at the spot it was over while you walked away
+// from it. The screen position is kept, and re-mapped through the camera
+// every frame (gameLoop) while the mouse is what is aiming.
+let zMouseSX = 0, zMouseSY = 0, zMouseAim = false;
 
 // ---------------------------------------------------
 //   HUD STATE (2026-09-18)
@@ -512,6 +519,16 @@ const GUIDE_TEAM = [
     ["TURRET", "T", "#00E5FF", "Carried, then placed with a click. Shoots nearby zombies for 15 seconds.", "It doesn't get tired. It doesn't get scared either."],
     ["BOOMGUN", "B", "#FFE680", "A cannon that gets faster the longer you hold the trigger. Its ammo is its time.", "Subtle was never on the shelf."]
 ];
+// CLASSES (2026-10-17): what each class does IN THE ARCADE. ROLES' own
+// blurbs still describe the walled game's traps, windows and pings.
+const GUIDE_CLASSES = [
+    ["medic", "M", "Revives a teammate almost instantly (0.2s, not 0.75s), and from nearly twice as far away.", "Somebody has to keep count."],
+    ["engineer", "E", "Turrets you place carry your perks: OVERDRIVE fires faster; RICOCHET, SKEWER and SEEKER shape its rounds; ARC and BLASTCAP go off on its kills; SALVAGE kills put time back on its bar; SPITE goes off when it dies. ATTRACT and LAST STAND don't carry. Anyone else's turret is plain.", "It does what it's told. You told it everything."],
+    ["scout", "S", "The quartermaster. Good drops you walk over go in your SATCHEL (two) instead of being used; [Q] tosses one out for a teammate (or you) to take. Your kills drop 50% more often, your radar shows how long each drop has left, you move 10% faster, and mud only slows you to 75% for 3s.", "First in, first to see it."],
+    ["butcher", "U", "Your kills on a funnel count double. A funnel you stand in drains into its tank 50% faster.", "Somebody has to do the work."],
+    ["bulwark", "W", "Zombies near you come for you first. You go down on the fourth hit, not the third. Your rounds shove what they hit.", "Stand there. That's the job."],
+    ["gunner", "G", "Every round you fire does 15% more damage. AMMO drops fill your guns to 125%.", "Never once asked how many."]
+];
 const GUIDE_HAZARD = [
     ["MUD", "M", "Slows you to half speed for 5 seconds.", "The road is not what it was."],
     ["FLARE", "!", "A ring of zombies lands around you.", "Somebody wants you found."],
@@ -569,6 +586,12 @@ function renderPickupGuide() {
     for (let i = 0; i < GUIDE_TEAM.length; i++) {
         const t = GUIDE_TEAM[i];
         h += row(glyph(t[1], t[2]), t[0], t[3], t[4]);
+    }
+    h += "<div class='itsec'>CLASSES &mdash; dealt by your name &mdash; yours is lit</div>";
+    const mine = myRole();
+    for (let i = 0; i < GUIDE_CLASSES.length; i++) {
+        const c = GUIDE_CLASSES[i], me = c[0] === mine;
+        h += row(glyph(c[1], me ? ICON_CYAN : "#5A5A5A"), ROLES[c[0]].name + (me ? " &mdash; YOU" : ""), c[2], c[3], me ? "" : "dim");
     }
     h += "<div class='itsec' style='color:#FF2233'>HAZARDS &mdash; do not step</div>";
     for (let i = 0; i < GUIDE_HAZARD.length; i++) {
@@ -667,6 +690,14 @@ function draw() {
     drawLandmarks(now, inView);
     drawDoors(inView);
     drawBarricades(inView);
+    // ARCADE (2026-10-17: "lights are drawing over top of zombies and
+    // players"): the lamp pools, the floods and the sunlight light the
+    // GROUND, so they go down before anything that stands on it. They use
+    // the light polygons the lighting pass built last frame.
+    if (ZOMBIE_ARCADE) {
+        arcadeDrawLamps();                // the lamps and their pools
+        arcadeDrawLight();                // daylight through the warehouse windows
+    }
     drawBlasts(now);
     drawZombies(now, inView);
     if (ZOMBIE_ARCADE) arcadeDrawBandOver(now, inView);
@@ -688,14 +719,13 @@ function draw() {
     // 2026-10-08: the intro shows the lighting too (it used to skip it).
     if (ZOMBIE_ARCADE) { arcadeDrawLighting(); arcadeDrawBladeShade(); } else drawLighting();
     if (ZOMBIE_ARCADE) {
-        arcadeDrawLamps();                // the orange lamps, and their pools
         drawBoomBolts(Date.now());        // over the darkness: it is the brightest thing there is
-        arcadeDrawLight();                // daylight through the warehouse windows
     }
     if (ZOMBIE_ARCADE && !introOn) {
         // Not on the start card (2026-10-12: "turn off the silo 0/10 throbbing
         // on the start screen"): there is no objective until there is a run.
         if (gameStarted) arcadeDrawBeacon(now);
+        if (gameStarted) arcadeDrawAim(now);      // the AIM setting (ESC menu)
         arcadeDrawHurt(now);              // the one-hit buffer's red
     }
     drawOffscreenMarkers(now);
@@ -3697,7 +3727,9 @@ function updateLoadoutHud(me) {
         for (let i = 0; i < CARD_SLOTS; i++) {
             const k = held[i];
             if (k) {
-                h += "<span class='perk' title='" + CARDS[k].name + "'>" + iconImg("perk", k, 3) +
+                // The perk's own colour, as on its drop and in the ESC guide (2026-10-17).
+                h += "<span class='perk' title='" + CARDS[k].name + "' style='background:" + (PERK_TINT[k] || "#552200") + "'>" +
+                     iconImg("perk", k, 3, "#FFFFFF") +
                      "<b>x" + cardLevel(me, k) + "</b></span>";
             } else {
                 h += "<span class='perk empty'></span>";
@@ -3705,6 +3737,7 @@ function updateLoadoutHud(me) {
         }
         uiPerks.innerHTML = h;
     }
+    if (ZOMBIE_ARCADE) arcadeDrawSatchel();
 }
 
 function renderScores() {
@@ -3986,7 +4019,11 @@ window.addEventListener('keydown', function (e) {
 
     if (move) p.keys[move] = true;
     else if ((key === 'f' || key === 'e') && !p.downed) interactWith(p);
-    else if (key === 'q') pingFrom(p);
+    else if (key === 'q') {
+        // ARCADE: the SCOUT hands out what is in the satchel (the ping is gone).
+        if (ZOMBIE_ARCADE && myRole() === "scout") arcadeScoutToss(p);
+        else pingFrom(p);
+    }
 }, { signal: zSignal(), passive: false });
 
 // The wheel cycles through the guns you own. Throttled, because one flick
@@ -4011,6 +4048,9 @@ window.addEventListener('keyup', function (e) {
 }, KEY_OPTS);
 
 window.addEventListener('mousemove', function (e) {
+    zMouseSX = e.clientX;
+    zMouseSY = e.clientY;
+    zMouseAim = true;
     const w = screenToWorld(e.clientX, e.clientY);
     mouseX = w.x;
     mouseY = w.y;
@@ -4124,6 +4164,12 @@ function gameLoop(ts) {
     const dt = zLastDraw ? Math.min(100, Math.max(0, now - zLastDraw)) : 16;
     zLastDraw = now;
     zFrameCount++;                             // drives the flicker budget
+    // The mouse's aim, re-mapped to where the camera is NOW (see zMouseAim).
+    if (zMouseAim && !zDemo) {
+        const w = screenToWorld(zMouseSX, zMouseSY);
+        mouseX = w.x;
+        mouseY = w.y;
+    }
 
     if (typeof inputFrame === "function") inputFrame(now);     // pad + touch (zombie-input.js), read by the step below
     stepSimulation(now, Z_MAX_STEPS);
