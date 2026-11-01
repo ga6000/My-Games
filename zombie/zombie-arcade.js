@@ -1700,11 +1700,15 @@ const ARENA_GATE_DX = 0;          // the exit, in the south wall
 // bay. Totals: 45 / 126 / 274 / 735 (were 45 / 60 / 73 / 68). It is what makes
 // a BUTCHER (double blood on a funnel) worth most late. The drain speeds up
 // with the tank's size to match (funnelDrainMs).
+// ROLLED BACK 2026-11-01 (Ry: "restore kills per silo to prior to ramp-up
+// for a play session tonight"): caps are the pre-curve 45 / 60 / 73 / 68 again.
+// funnelDrainMs stays; at caps <= 20 it is the plain 650ms. Curve values are in
+// commit 9cff682 if it comes back.
 const ARENA_LAYOUTS = {
     1: { funnels: ARENA_FUNNELS, gateDx: ARENA_GATE_DX, caps: [10, 15, 20], clock: 0,
          sets: ["hedge", "warehouse", "forest"] },
     2: { funnels: [[-1360, -750], [-560, 200], [200, -650], [800, 300], [1520, -700]], gateDx: 1360,
-         caps: [22, 23, 25, 27, 29], clock: 60,     // SILO CURVE (2026-10-17): was 8..16
+         caps: [8, 10, 12, 14, 16], clock: 60,     // SILO CURVE (2026-10-17) rolled back 2026-11-01: was 22..29
          sets: ["hedge", "warehouse", "forest", "hedge", "forest"] },
     3: { funnels: [[-2000, -900], [-1100, -450], [-1500, 430], [120, 640], [1100, 380], [2000, -250], [1100, -700]],
          // clock 120 -> 60 on 2026-10-11 ("scale back the map-starting time for 3 & 4"):
@@ -1712,7 +1716,7 @@ const ARENA_LAYOUTS = {
          // Tanks 8..16 -> 7..14 (-15%) and the curve at 0.5x inside the map, from
          // the bot sweep: map 3 is bound by the timeline, so what helps is how
          // slowly the wave level climbs once you are in it.
-         gateDx: 2000, caps: [31, 33, 36, 39, 42, 45, 48], clock: 60, pace: 0.5,   // was 7..14
+         gateDx: 2000, caps: [7, 8, 10, 10, 12, 12, 14], clock: 60, pace: 0.5,   // silo curve rolled back 2026-11-01 (was 31..48)
          sets: ["forest", "hedge", "warehouse", "forest", "hedge", "forest", "hedge"],
          divider: { x: -240, y: -950, w: 480, h: 1370 } },
     // 2026-10-12: the rows moved apart (-250/+170 -> -470/+400) to make room for
@@ -1722,7 +1726,7 @@ const ARENA_LAYOUTS = {
     4: { funnels: [[-1200, -470], [-600, -470], [0, -470], [600, -470], [1200, -470],
                    [1200, 400], [600, 400], [0, 400], [-600, 400], [-1200, 400]],
          // clock 240 -> 100 on 2026-10-11, same reason.
-         gateDx: -1200, caps: [52, 56, 60, 64, 69, 75, 80, 86, 93, 100], clock: 100, pace: 0.6,   // was 6..8
+         gateDx: -1200, caps: [6, 6, 6, 6, 7, 7, 7, 7, 8, 8], clock: 100, pace: 0.6,   // silo curve rolled back 2026-11-01 (was 52..100)
          sets: [], open: true, boss: true, giant: true }
 };
 const ARC_MAX_LEVEL = 4;

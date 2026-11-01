@@ -95,6 +95,13 @@ below. The manual's code is still loaded, just unreachable.)*
 - **Not playtested.** Map 4 is now ~735 funnel kills; with a team killing on a funnel at a few a
   second that is minutes of play. Check it against the 2–5 minute session goal.
 
+### Silo curve rolled back (2026-11-01)
+
+- Ry: "restore kills per silo to prior to ramp-up for a play session tonight". `ARENA_LAYOUTS[].caps`
+  are back to the pre-curve values: map 2 8/10/12/14/16 (60), map 3 7/8/10/10/12/12/14 (73), map 4
+  6,6,6,6,7,7,7,7,8,8 (68); map 1 unchanged 10/15/20 (45). `funnelDrainMs` was kept (it is a no-op at
+  caps <= 20). The curve's numbers are in commit 9cff682 and the table above if it comes back.
+
 ### Multiplayer fixes, easier, aim aids (2026-10-17, branch `zombie-funnel-pipes`)
 
 - **A guest could never leave a map.** `esc` went over as `msLeft(escapeAt)`, which is 0 once the
