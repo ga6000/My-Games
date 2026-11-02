@@ -1361,6 +1361,42 @@
         }
     }
 
+    // All water traces in a few batched paths: segment fade is bucketed into 6 steps
+    // (the RASTER posterize quantizes it anyway), so ~6 strokes replace one per segment.
+    const TB = 6, traceBuckets = Array.from({ length: TB }, () => []), bubBucket = [];
+    function drawTraces(ctx) {
+        for (const b of traceBuckets) b.length = 0;
+        bubBucket.length = 0;
+        const x0 = camX - 40, x1 = camX + width + 40, y0 = camY - 40, y1 = camY + height + 40;
+        for (const t of traces) {
+            const pts = t.pts;
+            for (let i = 1; i < pts.length; i++) {
+                const a = pts[i - 1], b = pts[i];
+                if (b.x < x0 || b.x > x1 || b.y < y0 || b.y > y1) continue;
+                const k = 1 - b.age / TRACE_LIFE;
+                if (k <= 0) continue;
+                if (b.red) {
+                    ctx.strokeStyle = waterBloodCol(b.y, 0.7 * k * b.s + 0.2); ctx.lineWidth = 1 + (1 - k) * 4;
+                    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+                } else traceBuckets[Math.min(TB - 1, Math.floor(k * b.s * TB))].push(a.x, a.y, b.x, b.y);
+            }
+            for (const p of pts) if (p.bub && p.age >= 8 && p.x > x0 && p.x < x1 && p.y > y0 && p.y < y1) bubBucket.push(p);
+        }
+        for (let j = 0; j < TB; j++) {
+            const L = traceBuckets[j]; if (!L.length) continue;
+            const k = (j + 0.5) / TB;
+            ctx.strokeStyle = `rgba(215,238,255,${(0.55 * k).toFixed(3)})`; ctx.lineWidth = 1 + (1 - k) * 4;
+            ctx.beginPath();
+            for (let i = 0; i < L.length; i += 4) { ctx.moveTo(L[i], L[i + 1]); ctx.lineTo(L[i + 2], L[i + 3]); }
+            ctx.stroke();
+        }
+        if (bubBucket.length) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.beginPath();
+            for (const p of bubBucket) { const r = 1.2 + p.age * 0.02, y = p.y - p.age * 0.15; ctx.moveTo(p.x + r, y); ctx.arc(p.x, y, r, 0, Math.PI * 2); }
+            ctx.stroke();
+        }
+    }
+
     class Bullet {
         constructor(x, y, vx, vy) {
             this.x = x; this.y = y; this.vx = vx; this.vy = vy;
@@ -1368,7 +1404,7 @@
             this.dist = 0; this.spent = false; this.spentT = 0; this.dead = false;
             this.wasWet = !this.inside && inWater(x, y);
             this.trace = null;
-            if (!this.inside) { this.trace = new Trace(); this.trace.owner = this; traces.push(this.trace); }
+            if (!this.inside && !(window.__demoActive && shotStats.shots % 2)) { this.trace = new Trace(); this.trace.owner = this; traces.push(this.trace); }   // attract gun: every other round leaves a trace
         }
         stop(sparks) {
             this.spent = true; this.vx = 0; this.vy = 0; this.embedded = true;
@@ -1820,16 +1856,19 @@
         if (window.__demoActive) { pistol.mag = pistol.magMax; pistol.reload = 0; }   // attract: belt-fed, never reloads
         if (pistol.reload > 0 || pistol.cd > 0) return;
         if (pistol.mag <= 0) { startPistolReload(); return; }
-        pistol.mag--; pistol.cd = window.__demoActive ? 3 : 8; pistol.kick = 1; muzzleFlash = 4;
+        pistol.mag--; pistol.cd = window.__demoActive ? 5 : 8; pistol.kick = 1; muzzleFlash = 4;
         const m = muzzle('pistol');
         const spread = (Math.random() - 0.5) * (window.__demoActive ? 0.06 : 0.02);
         bullets.push(new Bullet(m.x, m.y, Math.cos(aim + spread) * 24, Math.sin(aim + spread) * 24));
         const wet = diver.mode === 'swim' && inWater(m.x, m.y);
         if (diver.mode === 'walk') diver.knock -= Math.cos(aim) * 0.8;
         else { diver.vx -= Math.cos(aim) * 0.5; diver.vy -= Math.sin(aim) * 0.5; }
-        if (wet) for (let i = 0; i < 3; i++) bubbles.push(new Bubble(m.x, m.y));
-        const ej = localToWorld(20, -8), ejv = localToWorld(20, -30);
-        particles.push(new Particle('casing', ej.x, ej.y, (ejv.x - ej.x) * 0.12, (ejv.y - ej.y) * 0.12));
+        const mg = window.__demoActive;
+        if (wet) for (let i = 0; i < (mg ? 1 : 3); i++) bubbles.push(new Bubble(m.x, m.y));
+        if (!mg || shotStats.shots % 3 === 0) {
+            const ej = localToWorld(20, -8), ejv = localToWorld(20, -30);
+            particles.push(new Particle('casing', ej.x, ej.y, (ejv.x - ej.x) * 0.12, (ejv.y - ej.y) * 0.12));
+        }
         sfx.pistol(wet); noiseAt(diver.x, diver.y, 750); shotStats.shots++;
         if (pistol.mag === 0) setTimeout(startPistolReload, 220);
     }
@@ -2384,6 +2423,14 @@
         for (let i = bullets.length - 1; i >= 0; i--) { bullets[i].update(); if (bullets[i].dead) bullets.splice(i, 1); }
         for (let i = traces.length - 1; i >= 0; i--) { traces[i].update(); if (traces[i].dead) traces.splice(i, 1); }
         for (let i = particles.length - 1; i >= 0; i--) { particles[i].update(); if (particles[i].dead) particles.splice(i, 1); }
+        // clutter caps (oldest go first): the machine gun in the attract run made 700+ bubbles,
+        // 50+ casings and 500 blood clouds on screen at once
+        const bubCap = window.__demoActive ? 140 : 260;
+        if (bubbles.length > bubCap) bubbles.splice(0, bubbles.length - bubCap);
+        if (particles.length > 90) { let extra = particles.length - 90; for (let i = 0; i < particles.length && extra > 0; i++) if (particles[i].type === 'casing') { particles.splice(i--, 1); extra--; } }
+        const cloudCap = window.__demoActive ? 170 : 320, chunkCap = window.__demoActive ? 110 : 220;
+        if (clouds.length > cloudCap) clouds.splice(0, clouds.length - cloudCap);
+        if (chunks.length > chunkCap) chunks.splice(0, chunks.length - chunkCap);
 
         const lead = window.__demoActive ? 0.12 : 0.22, follow = window.__demoActive ? 0.05 : 0.15;   // the attract camera glides
         const tx = diver.x - width / 2 + (mouseSX - width / 2) * lead;
@@ -2492,7 +2539,7 @@
         if (typeof drawWorldMid === 'function') drawWorldMid(ctx, insideView);
 
         ctx.lineCap = "round";
-        for (const t of traces) t.draw(ctx);
+        drawTraces(ctx);
         for (const f of fishes) f.draw(ctx);
         for (const b of bubbles) b.draw(ctx);
         for (const p of particles) p.draw(ctx);
@@ -2814,7 +2861,7 @@
         return !!r && x > r.ix + 290 && x < r.ix + 390;
     }
     function emitBlood(x, y, dx, dy, amount, spread = 0.6, speed = 5, ichor = false) {
-        amount = Math.round(amount * GORE_MUL);
+        amount = Math.round(amount * GORE_MUL * (window.__demoActive ? 0.5 : 1));   // the attract gun hits 20x a second
         const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
         if (inWater(x, y)) {
             for (let i = 0; i < Math.ceil(amount * 0.35); i++) {
@@ -4138,14 +4185,20 @@
     function pickCoverSpot(b) { return coverCandidates(b)[0] || null; }
 
     // ---- drawing ----
-    const CC = { skin: '#b5a58c', dark: '#5c4a3c', deep: '#2e251e', green: '#5cff6a', mouth: '#7a1a16', bone: '#e2dcc2' };   // pallid flesh, green where it's rotting
+    const CC = { skin: '#b5a58c', dark: '#5c4a3c', deep: '#2e251e', green: '#5cff6a', mouth: '#7a1a16', bone: '#e2dcc2' };
+    const CC_BASE = Object.assign({}, CC);
+    const CC_FLASH = { skin: '#fff4dc', dark: '#d8c4b0', deep: '#9a8a78', green: '#d8ffd8', mouth: '#ff6a5a', bone: '#ffffff' };   // hit flash, replaces a brightness() filter   // pallid flesh, green where it's rotting
     function drawCreature(ctx, c) {
         if (!onScreen(c.x - 80, c.y - 90, 160, 140)) return;
         ctx.save();
         if (c.dead) { drawCreatureCorpse(ctx, c); ctx.restore(); return; }
-        if (c.hitT > 0) ctx.filter = 'brightness(1.9)';
+        const flash = c.hitT > 0;
+        if (flash) Object.assign(CC, CC_FLASH);
+        try { drawCreatureBody(ctx, c); } finally { if (flash) Object.assign(CC, CC_BASE); ctx.restore(); }
+    }
+    function drawCreatureBody(ctx, c) {
         const pul = 0.6 + 0.4 * Math.sin(frame * 0.12 + c.phase);
-        if (c.kind === 'flood') { drawFlood(ctx, c, pul); ctx.restore(); return; }
+        if (c.kind === 'flood') { drawFlood(ctx, c, pul); return; }
         if (c.carried) { ctx.translate(c.x, c.y); ctx.rotate(harpoon.angle + Math.PI / 2); ctx.translate(-c.x, -c.y - 10); }
         const SC = { tank: 1.45, lanky: 1.25 }[c.kind];
         if (c.mode === 'swim') {
@@ -4155,7 +4208,6 @@
             ctx.translate(c.x, c.y + 28); ctx.scale(c.facing * SC, SC);
             if (c.kind === 'tank') drawTank(ctx, c, pul); else drawLanky(ctx, c, pul);
         }
-        ctx.restore();
     }
     const R = (ctx, col, x, y, w, h) => { ctx.fillStyle = col; ctx.fillRect(x, y, w, h); };
     function limb(ctx, col, w, pts) { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'square'; ctx.lineJoin = 'miter'; ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke(); }
@@ -4548,9 +4600,9 @@
     function demoUpdate() {
         demo.t++;
         const live = creatures.filter(c => !c.dead && !c.carried);
-        if (live.length < 9 && demo.t % 45 === 0) demoSpawn(false);
+        if (live.length < 7 && demo.t % 50 === 0) demoSpawn(false);
         for (const c of live) if (!c.aggro) noticePlayer(c);
-        if (creatures.length > 40) { const i = creatures.findIndex(c => c.dead && !c.carried); if (i >= 0) creatures.splice(i, 1); }
+        while (creatures.length > 24) { const i = creatures.findIndex(c => c.dead && !c.carried); if (i < 0) break; creatures.splice(i, 1); }
         // target: stick with one until it dies or is lost; only trade for something much closer
         const seen = (c) => c && !c.dead && !c.carried && Math.hypot(c.x - diver.x, c.y - diver.y) < 1000 && los(diver.x, diver.y, c.x, c.y, false);
         let near = null, nd = Infinity;
