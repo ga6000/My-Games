@@ -4608,54 +4608,147 @@
         const c = camFor(diver.x, diver.y); camX = c.x; camY = c.y; demo.ang = 0;
     }
     // ---- the crab-snake (attract run only, never in normal play) ----
-    // A segmented armoured serpent with crab legs down its length and two great
-    // pincers, twice as thick as a rig column (LEG_W 90 -> 180px). It roams the
-    // right-hand side of the map and soaks up the god diver's fire; it can't die.
+    // A segmented, rotting serpent with jointed tendrils down its length and a
+    // lamprey-and-pincer head, twice as thick as a rig column (LEG_W 90 -> 180px).
+    // It roams the right-hand side of the map. Tendrils crawl, reach for the diver
+    // (limited by length and a cone off their side), and when one closes on him it
+    // grabs and hauls him toward the body. Shooting the body section a tendril pair
+    // grows from breaks that section and severs its tendrils; they regrow later.
+    // The snake itself can't die.
     let snake = null;
-    const SN = 34, SN_GAP = 30, SN_R = LEG_W;   // radius = column width, so it is 2x as thick
+    const SN = 24, SN_GAP = 42, SN_R = LEG_W;   // radius = column width, so it is 2x as thick
     const SN_BOX = { x0: 8750, x1: 9350, y0: 1800, y1: 3500 };   // right of the god diver's patch, at his depth
+    const TJ = 6, T_CONE = 1.25, SEG_HP = 10, REGROW = 1100;
+    const hash = (i) => { const v = Math.sin(i * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
     function makeSnake() {
         const segs = [];
         const hx = 9300, hy = 2600;
-        for (let i = 0; i < SN; i++) segs.push({ x: hx + i * SN_GAP, y: hy + Math.sin(i * 0.4) * 30, hitT: 0 });
-        snake = { segs, ang: Math.PI, t: 0, tx: 9000, ty: hy, claw: 0, retT: 0, puffT: 0 };
+        for (let i = 0; i < SN; i++) segs.push({ x: hx + i * SN_GAP, y: hy + Math.sin(i * 0.4) * 30, hitT: 0, hp: SEG_HP, broken: 0, nx: 0, ny: 1, tx: -1, ty: 0 });
+        const tendrils = [];
+        for (let i = 2; i < SN - 4; i += 2) for (const side of [1, -1]) {
+            const maxLen = snakeR(i) * 2.4 + 70;
+            tendrils.push({ i, side, maxLen, len: maxLen, state: 'crawl', grabT: 0, cd: 0, pts: Array.from({ length: TJ }, () => ({ x: segs[i].x, y: segs[i].y })), tip: { x: segs[i].x, y: segs[i].y + 100 }, alive: true, ph: hash(i * 3 + side) * 6 });
+        }
+        snake = { segs, tendrils, severed: [], ang: Math.PI, t: 0, tx: 9000, ty: hy, claw: 0, retT: 0, puffT: 0, grabbing: null };
     }
     function snakeR(i) { return i === 0 ? SN_R * 1.15 : SN_R * (1 - 0.62 * Math.pow(i / (SN - 1), 1.4)); }
+    function tendrilBase(t) { const g = snake.segs[t.i], r = snakeR(t.i); return { x: g.x + g.nx * t.side * r * 0.78, y: g.y + g.ny * t.side * r * 0.78 }; }
     function updateSnake() {
         const S = snake, h = S.segs[0];
         S.t++;
         if (S.puffT > 0) S.puffT--;
-        // wander target inside its box; re-pick when reached or bored
         if (--S.retT <= 0 || Math.hypot(S.tx - h.x, S.ty - h.y) < 160) {
             S.tx = SN_BOX.x0 + Math.random() * (SN_BOX.x1 - SN_BOX.x0);
             S.ty = SN_BOX.y0 + Math.random() * (SN_BOX.y1 - SN_BOX.y0);
             S.retT = 360 + Math.random() * 300;
         }
-        // slither: steer toward the target with a sine weave
+        const grabbed = !!S.grabbing;
         const want = Math.atan2(S.ty - h.y, S.tx - h.x) + Math.sin(S.t * 0.045) * 0.75;
         let da = want - S.ang; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
         S.ang += Math.max(-0.035, Math.min(0.035, da));
-        const sp = 2.6 + Math.sin(S.t * 0.02) * 0.8;
+        const sp = (2.6 + Math.sin(S.t * 0.02) * 0.8) * (grabbed ? 0.35 : 1);   // it slows to feed
         h.x += Math.cos(S.ang) * sp; h.y += Math.sin(S.ang) * sp;
         h.x = Math.max(SN_BOX.x0 - 250, Math.min(mapW - 120, h.x));
         h.y = Math.max(waterLevel + 260, Math.min(getTerrainY(h.x) - 160, h.y));
-        // follow the leader at a fixed gap
         for (let i = 1; i < SN; i++) {
             const a = S.segs[i - 1], b = S.segs[i], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
             b.x = a.x + dx / d * SN_GAP; b.y = a.y + dy / d * SN_GAP;
             b.y = Math.min(b.y, getTerrainY(b.x) - snakeR(i) * 0.6);
         }
-        for (const g of S.segs) if (g.hitT > 0) g.hitT--;
-        S.claw = 0.5 + 0.5 * Math.sin(S.t * 0.07);
+        for (let i = 0; i < SN; i++) {
+            const g = S.segs[i], a = S.segs[Math.max(0, i - 1)], b = S.segs[Math.min(SN - 1, i + 1)];
+            const tx = a.x - b.x, ty = a.y - b.y, tl = Math.hypot(tx, ty) || 1;
+            g.tx = tx / tl; g.ty = ty / tl; g.nx = -g.ty; g.ny = g.tx;
+            if (g.hitT > 0) g.hitT--;
+            if (g.broken > 0 && --g.broken === 0) { g.hp = SEG_HP; for (const t of S.tendrils) if (t.i === i) { t.alive = true; t.len = 0; t.state = 'crawl'; t.cd = 120; const B = tendrilBase(t); for (const p of t.pts) { p.x = B.x; p.y = B.y; } t.tip.x = B.x; t.tip.y = B.y; } }
+        }
+        S.claw = 0.5 + 0.5 * Math.sin(S.t * (grabbed ? 0.16 : 0.07));
+        // tendrils
+        let reaching = 0;
+        const dvx = diver.x, dvy = diver.y;
+        for (const t of S.tendrils) { const B = tendrilBase(t); t._d = Math.hypot(B.x - dvx, B.y - dvy); }
+        const order = S.tendrils.slice().sort((p, q) => p._d - q._d);
+        for (const t of order) {
+            if (!t.alive) continue;
+            if (t.len < t.maxLen) t.len = Math.min(t.maxLen, t.len + 0.6);   // regrowing
+            if (t.cd > 0) t.cd--;
+            const g = S.segs[t.i], B = tendrilBase(t), nx = g.nx * t.side, ny = g.ny * t.side;
+            const ddx = dvx - B.x, ddy = dvy - B.y, dd = Math.hypot(ddx, ddy) || 1;
+            const off = Math.acos(Math.max(-1, Math.min(1, (ddx * nx + ddy * ny) / dd)));
+            const inReach = window.__demoActive && dd < t.len * 1.3 && off < T_CONE && t.len > t.maxLen * 0.6;
+            if (t.state === 'grab') {
+                t.grabT++;
+                if (!window.__demoActive || t.grabT > 210 || dd > t.len * 1.5) { t.state = 'crawl'; t.cd = 150; if (S.grabbing === t) S.grabbing = null; }
+            } else if (inReach && t.cd <= 0 && reaching < 5) t.state = 'reach';
+            else t.state = 'crawl';
+            let TX, TY, spd;
+            if (t.state === 'grab') {
+                TX = dvx; TY = dvy; spd = 30;
+                // haul him in toward the body
+                const k = Math.min(1, t.grabT / 25) * 0.62;
+                diver.vx += (-ddx / dd) * k; diver.vy += (-ddy / dd) * k;
+            } else if (t.state === 'reach') {
+                reaching++;
+                // aim at him, clamped to the tendril's cone and length
+                let ang = Math.atan2(ddy, ddx);
+                const base = Math.atan2(ny, nx);
+                let rel = ang - base; while (rel > Math.PI) rel -= Math.PI * 2; while (rel < -Math.PI) rel += Math.PI * 2;
+                rel = Math.max(-T_CONE, Math.min(T_CONE, rel));
+                const L = Math.min(dd, t.len * 0.98);
+                TX = B.x + Math.cos(base + rel) * L; TY = B.y + Math.sin(base + rel) * L; spd = 7;
+                if (Math.hypot(t.tip.x - dvx, t.tip.y - dvy) < 36 && !S.grabbing) { t.state = 'grab'; t.grabT = 0; S.grabbing = t; }
+            } else {
+                // crawl: a slow, rowing gait down the body, tips curling under
+                const sw = Math.sin(S.t * 0.09 - t.i * 0.5 + t.ph);
+                const ax = nx * 0.75 + g.tx * sw * 0.55, ay = ny * 0.75 + g.ty * sw * 0.55 + 0.35;
+                const al = Math.hypot(ax, ay) || 1;
+                TX = B.x + ax / al * t.len * 0.82; TY = B.y + ay / al * t.len * 0.82; spd = 4;
+            }
+            const mx = TX - t.tip.x, my = TY - t.tip.y, ml = Math.hypot(mx, my);
+            if (ml > spd) { t.tip.x += mx / ml * spd; t.tip.y += my / ml * spd; } else { t.tip.x = TX; t.tip.y = TY; }
+            // FABRIK: base fixed, tip chases, 2 passes
+            const P = t.pts, sl = t.len / (TJ - 1);
+            for (let it = 0; it < 2; it++) {
+                P[TJ - 1].x = t.tip.x; P[TJ - 1].y = t.tip.y;
+                for (let j = TJ - 2; j >= 0; j--) { const dx = P[j].x - P[j + 1].x, dy = P[j].y - P[j + 1].y, d = Math.hypot(dx, dy) || 1; P[j].x = P[j + 1].x + dx / d * sl; P[j].y = P[j + 1].y + dy / d * sl; }
+                P[0].x = B.x; P[0].y = B.y;
+                for (let j = 1; j < TJ; j++) { const dx = P[j].x - P[j - 1].x, dy = P[j].y - P[j - 1].y, d = Math.hypot(dx, dy) || 1; P[j].x = P[j - 1].x + dx / d * sl; P[j].y = P[j - 1].y + dy / d * sl; }
+            }
+            t.tip.x = P[TJ - 1].x; t.tip.y = P[TJ - 1].y;
+        }
+        for (let k = S.severed.length - 1; k >= 0; k--) {
+            const v = S.severed[k];
+            v.life++; v.vy = Math.min(1.4, v.vy + 0.03); v.vx *= 0.97;
+            for (let j = 0; j < v.pts.length; j++) { const p = v.pts[j]; p.x += v.vx + Math.sin(v.life * 0.2 + j) * 0.6 * Math.max(0, 1 - v.life / 120); p.y += v.vy; }
+            if (v.life % 6 === 0 && v.life < 90) emitBlood(v.pts[0].x, v.pts[0].y, 0, 1, 0.4, 1, 1, true);
+            if (v.life > 360) S.severed.splice(k, 1);
+        }
+    }
+    function breakSegment(i, bl) {
+        const S = snake, g = S.segs[i];
+        g.broken = REGROW; g.hp = 0;
+        emitBlood(g.x, g.y, bl ? -bl.vx : 0, bl ? -bl.vy : -1, 10, 1.2, 6, true);
+        emitBlood(g.x, g.y, 0, -1, 6, 1.2, 4);
+        for (const t of S.tendrils) if (t.i === i && t.alive) {
+            t.alive = false;
+            if (S.grabbing === t) S.grabbing = null;
+            S.severed.push({ pts: t.pts.map(p => ({ x: p.x, y: p.y })), w: snakeR(i) * 0.24, vx: t.side * g.nx * 2, vy: t.side * g.ny * 2 - 1, life: 0 });
+            if (S.severed.length > 10) S.severed.shift();
+        }
+        sfx.squelch && sfx.squelch();
     }
     function snakeHitBullet(bl) {
         if (bl.inside) return false;
         const S = snake;
-        for (let i = 0; i < SN; i += 1) {
+        for (let i = 0; i < SN; i++) {
             const g = S.segs[i], r = snakeR(i);
             if (Math.abs(g.x - bl.x) > r || Math.abs(g.y - bl.y) > r) continue;
             if (Math.hypot(g.x - bl.x, g.y - bl.y) > r) continue;
             g.hitT = 6; shotStats.hits++;
+            // the hit section, or its neighbour, may carry a tendril pair
+            const ti = (i % 2 === 0) ? i : (i + 1 < SN - 4 ? i + 1 : i - 1);
+            const tg = S.segs[ti];
+            if (ti >= 2 && ti < SN - 4 && !tg.broken && S.tendrils.some(t => t.i === ti && t.alive)) { tg.hp -= 1; tg.hitT = 6; if (tg.hp <= 0) breakSegment(ti, bl); }
             if (S.puffT <= 0) { emitBlood(bl.x, bl.y, -bl.vx, -bl.vy, 2, 0.7, 3, true); S.puffT = 5; }
             if (Math.random() < 0.3) particles.push(new Particle('spark', bl.x, bl.y, -bl.vx * 0.1 + (Math.random() - 0.5) * 3, -bl.vy * 0.1 + (Math.random() - 0.5) * 3));
             bl.stop(false);
@@ -4668,70 +4761,103 @@
         for (let i = 0; i < SN; i++) { const g = snake.segs[i], d = Math.hypot(g.x - x, g.y - y) - snakeR(i); if (d < bd) { bd = d; best = g; best.i = i; } }
         return { g: best, d: bd };
     }
-    const SNC = { shell: '#4a3a30', plate: '#8a6e58', rim: '#b5a58c', belly: '#2e251e', leg: '#5c4a3c', tip: '#e2dcc2', hit: '#fff4dc' };
+    const SNC = { shell: '#3e302a', plate: '#7a5e4a', rim: '#a8957a', belly: '#241c18', flesh: '#8e3a3e', fleshHi: '#c0605c', wound: '#5a0c10', leg: '#4a3a30', legHi: '#7a6450', tip: '#e2dcc2', hit: '#fff4dc', pus: '#9cff8a', barn: '#c8c0a8' };
+    function strokeChain(ctx, P, w0, w1, col) {
+        // two tapered halves, one path each (a stroke per joint was too many draw calls)
+        ctx.strokeStyle = col; const m = P.length >> 1;
+        ctx.lineWidth = w0 * 0.85 + w1 * 0.15; ctx.beginPath(); ctx.moveTo(P[0].x, P[0].y); for (let j = 1; j <= m; j++) ctx.lineTo(P[j].x, P[j].y); ctx.stroke();
+        ctx.lineWidth = w0 * 0.3 + w1 * 0.7; ctx.beginPath(); ctx.moveTo(P[m].x, P[m].y); for (let j = m + 1; j < P.length; j++) ctx.lineTo(P[j].x, P[j].y); ctx.stroke();
+    }
+    function drawTendril(ctx, P, w, grab) {
+        strokeChain(ctx, P, w, 3, SNC.leg);
+        strokeChain(ctx, P, w * 0.45, 1.5, grab ? SNC.fleshHi : SNC.legHi);
+        ctx.fillStyle = SNC.flesh;   // suckers
+        for (let j = 1; j < P.length - 1; j += 2) { const s = Math.max(2, w * 0.3 * (1 - j / P.length)); ctx.fillRect(P[j].x - s / 2, P[j].y - s / 2, s, s); }
+        const a = P[P.length - 1], b = P[P.length - 2], ang = Math.atan2(a.y - b.y, a.x - b.x);
+        ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(ang); ctx.fillStyle = SNC.tip;   // hooked claw
+        ctx.beginPath(); ctx.moveTo(0, -4); ctx.lineTo(14, grab ? 8 : 2); ctx.lineTo(9, 6); ctx.lineTo(0, 4); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(10, grab ? -6 : -1); ctx.lineTo(6, -3); ctx.fill();
+        ctx.restore();
+    }
     function drawSnake(ctx) {
         const S = snake, segs = S.segs;
         let any = false;
-        for (const g of segs) if (onScreen(g.x - 260, g.y - 260, 520, 520)) { any = true; break; }
+        for (const g of segs) if (onScreen(g.x - 400, g.y - 400, 800, 800)) { any = true; break; }
         if (!any) return;
-        ctx.save(); ctx.lineCap = 'square'; ctx.lineJoin = 'miter';
-        // legs first (behind the body): a jointed crab leg pair on every other segment
-        for (let i = 2; i < SN - 2; i += 2) {
-            const a = segs[i - 1], b = segs[i + 1], g = segs[i], r = snakeR(i);
-            const tx = b.x - a.x, ty = b.y - a.y, tl = Math.hypot(tx, ty) || 1, nx = -ty / tl, ny = tx / tl;
-            const ph = S.t * 0.12 - i * 0.55;
-            for (const side of [1, -1]) {
-                const sw = Math.sin(ph + (side > 0 ? 0 : Math.PI)) * 0.5;
-                const bx = g.x + nx * side * r * 0.75, by = g.y + ny * side * r * 0.75;
-                const kx = bx + nx * side * r * 0.75 + tx / tl * r * sw, ky = by + ny * side * r * 0.75 + ty / tl * r * sw - r * 0.25;
-                const fx = kx + nx * side * r * 0.55 - tx / tl * r * 0.35 * sw, fy = ky + ny * side * r * 0.55 + r * 0.45;
-                ctx.strokeStyle = SNC.leg; ctx.lineWidth = Math.max(5, r * 0.16);
-                ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(kx, ky); ctx.lineTo(fx, fy); ctx.stroke();
-                ctx.fillStyle = SNC.tip; ctx.fillRect(fx - 3, fy - 3, 6, 6);
-            }
-        }
-        // body: tail to head, an armoured plate per segment
+        ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        for (const v of S.severed) drawTendril(ctx, v.pts, v.w, false);
+        // tendrils behind the body
+        const vis = (t) => t.alive && onScreen(Math.min(t.pts[0].x, t.tip.x) - 30, Math.min(t.pts[0].y, t.tip.y) - 30, Math.abs(t.tip.x - t.pts[0].x) + 60, Math.abs(t.tip.y - t.pts[0].y) + 60);
+        for (const t of S.tendrils) if (vis(t) && t.side < 0) drawTendril(ctx, t.pts, snakeR(t.i) * 0.24 * (0.4 + 0.6 * t.len / t.maxLen), t.state === 'grab');
+        // body, tail to head: membrane, then plate, then rot
         for (let i = SN - 1; i >= 1; i--) {
-            const g = segs[i], r = snakeR(i), hit = g.hitT > 0;
-            ctx.fillStyle = hit ? SNC.hit : SNC.belly; ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = hit ? SNC.hit : SNC.shell; ctx.beginPath(); ctx.arc(g.x, g.y - r * 0.08, r * 0.9, 0, Math.PI * 2); ctx.fill();
-            if (i % 2 === 0) {
-                ctx.fillStyle = hit ? SNC.hit : SNC.plate; ctx.beginPath(); ctx.arc(g.x, g.y - r * 0.18, r * 0.62, Math.PI * 1.05, Math.PI * 1.95); ctx.fill();
-                ctx.fillStyle = SNC.rim; ctx.fillRect(g.x - 3, g.y - r * 0.98, 6, r * 0.22);   // dorsal spike
+            const g = segs[i], r = snakeR(i), hit = g.hitT > 0, hs = hash(i);
+            const p = segs[i - 1];
+            ctx.fillStyle = hit ? SNC.hit : SNC.flesh;   // stretched membrane toward the next section
+            ctx.beginPath(); ctx.arc((g.x + p.x) / 2, (g.y + p.y) / 2, r * 0.97, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = hit ? SNC.hit : SNC.belly; ctx.beginPath(); ctx.arc(g.x, g.y, r * 0.95, 0, Math.PI * 2); ctx.fill();
+            if (g.broken) {   // cracked open: raw meat
+                ctx.fillStyle = SNC.wound; ctx.beginPath(); ctx.arc(g.x, g.y, r * 0.82, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = SNC.flesh; ctx.beginPath(); ctx.arc(g.x - r * 0.1, g.y - r * 0.1, r * 0.5, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = SNC.fleshHi; ctx.fillRect(g.x - r * 0.3, g.y - r * 0.25, r * 0.25, r * 0.12);
+                ctx.fillStyle = SNC.tip; for (let k = 0; k < 5; k++) { const a = k * 1.26 + hs; ctx.fillRect(g.x + Math.cos(a) * r * 0.7 - 3, g.y + Math.sin(a) * r * 0.7 - 3, 6, 6); }   // shell shards
+                continue;
             }
+            ctx.fillStyle = hit ? SNC.hit : SNC.shell; ctx.beginPath(); ctx.arc(g.x, g.y - r * 0.08, r * 0.86, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = hit ? SNC.hit : SNC.plate; ctx.beginPath(); ctx.arc(g.x, g.y - r * 0.2, r * 0.6, Math.PI * 1.02, Math.PI * 1.98); ctx.fill();
+            if (i % 2) {   // cracks
+                ctx.strokeStyle = SNC.belly; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(g.x - r * 0.3, g.y - r * 0.5); ctx.lineTo(g.x - r * 0.1 + hs * 10, g.y - r * 0.15); ctx.lineTo(g.x + r * 0.25, g.y - r * 0.3); ctx.stroke();
+            }
+            if (hs > 0.45) { ctx.fillStyle = SNC.flesh; ctx.beginPath(); ctx.arc(g.x + (hs - 0.5) * r, g.y + r * 0.2, r * 0.18, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = SNC.wound; ctx.beginPath(); ctx.arc(g.x + (hs - 0.5) * r, g.y + r * 0.22, r * 0.09, 0, Math.PI * 2); ctx.fill(); }   // lesion
+            if (i % 3 === 0) {   // pustules
+                for (let k = 0; k < 3; k++) { const a = -2.4 + k * 0.7 + hs, rr = r * (0.09 + hash(i + k) * 0.06); ctx.fillStyle = SNC.pus; ctx.beginPath(); ctx.arc(g.x + Math.cos(a) * r * 0.62, g.y + Math.sin(a) * r * 0.62, rr, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#eaffe0'; ctx.fillRect(g.x + Math.cos(a) * r * 0.62 - 2, g.y + Math.sin(a) * r * 0.62 - rr * 0.5, 3, 3); }
+            }
+            if (i % 2 === 0) { ctx.fillStyle = SNC.barn; ctx.fillRect(g.x - 4, g.y - r * 1.02, 8, r * 0.24); ctx.fillRect(g.x + r * 0.4, g.y - r * 0.85, 5, r * 0.15); }   // spines, barnacles
         }
-        // head: a crab carapace with stalk eyes and two great pincers
+        // tendrils in front of the body
+        for (const t of S.tendrils) if (vis(t) && t.side > 0) drawTendril(ctx, t.pts, snakeR(t.i) * 0.24 * (0.4 + 0.6 * t.len / t.maxLen), t.state === 'grab');
+        // head: crab carapace, pincers, a lamprey mouth and a cluster of eyes
         const h = segs[0], r = snakeR(0), dir = Math.atan2(h.y - segs[1].y, h.x - segs[1].x);
         ctx.translate(h.x, h.y); ctx.rotate(dir);
         for (const side of [1, -1]) {
             const open = 0.25 + S.claw * 0.55;
-            ctx.save(); ctx.translate(r * 0.55, side * r * 0.75); ctx.rotate(side * (0.35 + Math.sin(S.t * 0.05 + side) * 0.12));
+            ctx.save(); ctx.translate(r * 0.5, side * r * 0.78); ctx.rotate(side * (0.35 + Math.sin(S.t * 0.05 + side) * 0.12));
             ctx.strokeStyle = SNC.leg; ctx.lineWidth = r * 0.22; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(r * 0.7, side * r * 0.15); ctx.stroke();
+            ctx.strokeStyle = SNC.flesh; ctx.lineWidth = r * 0.07; ctx.beginPath(); ctx.moveTo(r * 0.3, side * r * 0.06); ctx.lineTo(r * 0.36, side * r * 0.08); ctx.stroke();
             ctx.translate(r * 0.75, side * r * 0.15);
-            ctx.fillStyle = SNC.plate; ctx.beginPath(); ctx.ellipse(r * 0.25, 0, r * 0.42, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = SNC.plate; ctx.beginPath(); ctx.ellipse(r * 0.25, 0, r * 0.45, r * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = SNC.pus; ctx.beginPath(); ctx.arc(r * 0.15, -side * r * 0.12, r * 0.07, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = SNC.rim;
-            ctx.save(); ctx.translate(r * 0.55, -side * r * 0.08); ctx.rotate(-side * open);
-            ctx.beginPath(); ctx.moveTo(0, -r * 0.1); ctx.lineTo(r * 0.75, 0); ctx.lineTo(0, r * 0.1); ctx.fill(); ctx.restore();
-            ctx.save(); ctx.translate(r * 0.55, side * r * 0.08); ctx.rotate(side * open * 0.6);
-            ctx.beginPath(); ctx.moveTo(0, -r * 0.08); ctx.lineTo(r * 0.55, 0); ctx.lineTo(0, r * 0.08); ctx.fill(); ctx.restore();
+            ctx.save(); ctx.translate(r * 0.6, -side * r * 0.08); ctx.rotate(-side * open);
+            ctx.beginPath(); ctx.moveTo(0, -r * 0.11); ctx.lineTo(r * 0.8, 0); ctx.lineTo(0, r * 0.11); ctx.fill();
+            ctx.fillStyle = SNC.tip; for (let k = 1; k < 4; k++) ctx.fillRect(r * 0.18 * k, side * r * 0.05, 4, 6);   // serrations
+            ctx.restore();
+            ctx.save(); ctx.translate(r * 0.6, side * r * 0.08); ctx.rotate(side * open * 0.6);
+            ctx.fillStyle = SNC.rim; ctx.beginPath(); ctx.moveTo(0, -r * 0.08); ctx.lineTo(r * 0.58, 0); ctx.lineTo(0, r * 0.08); ctx.fill(); ctx.restore();
             ctx.restore();
         }
         const hit = h.hitT > 0;
-        ctx.fillStyle = hit ? SNC.hit : SNC.belly; ctx.beginPath(); ctx.ellipse(0, 0, r * 1.05, r * 0.95, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = hit ? SNC.hit : SNC.shell; ctx.beginPath(); ctx.ellipse(-r * 0.05, 0, r * 0.95, r * 0.85, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = hit ? SNC.hit : SNC.plate; ctx.beginPath(); ctx.ellipse(-r * 0.15, 0, r * 0.6, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
-        for (const side of [1, -1]) {   // eye stalks
-            ctx.strokeStyle = SNC.leg; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(r * 0.6, side * r * 0.3); ctx.lineTo(r * 1.05, side * r * 0.42); ctx.stroke();
-            ctx.fillStyle = '#5cff6a'; ctx.fillRect(r * 1.05 - 6, side * r * 0.42 - 6, 12, 12);
-        }
-        ctx.fillStyle = '#7a1a16'; ctx.fillRect(r * 0.85, -r * 0.16, r * 0.2, r * 0.32);   // mandibles
+        ctx.fillStyle = hit ? SNC.hit : SNC.flesh; ctx.beginPath(); ctx.ellipse(-r * 0.1, 0, r * 1.08, r * 0.98, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = hit ? SNC.hit : SNC.shell; ctx.beginPath(); ctx.ellipse(-r * 0.12, 0, r * 0.95, r * 0.86, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = hit ? SNC.hit : SNC.plate; ctx.beginPath(); ctx.ellipse(-r * 0.3, 0, r * 0.55, r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+        // lamprey mouth: a ring of hooked teeth around a red gullet, pulsing
+        const mo = r * (0.38 + 0.08 * S.claw);
+        ctx.fillStyle = SNC.wound; ctx.beginPath(); ctx.arc(r * 0.6, 0, mo, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#1a0406'; ctx.beginPath(); ctx.arc(r * 0.62, 0, mo * 0.45, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = SNC.tip;
+        for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2 + S.t * 0.01; ctx.save(); ctx.translate(r * 0.6 + Math.cos(a) * mo * 0.8, Math.sin(a) * mo * 0.8); ctx.rotate(a + Math.PI); ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(mo * 0.32, 0); ctx.lineTo(0, 3); ctx.fill(); ctx.restore(); }
+        ctx.strokeStyle = 'rgba(200,230,190,0.55)'; ctx.lineWidth = 2;   // drool strands
+        for (let k = 0; k < 3; k++) { const yy = (k - 1) * mo * 0.6, sway = Math.sin(S.t * 0.05 + k) * 8; ctx.beginPath(); ctx.moveTo(r * 0.6 + mo * 0.6, yy); ctx.quadraticCurveTo(r * 0.9 + sway, yy + 20, r * 0.75 + sway, yy + 45 + k * 10); ctx.stroke(); }
+        const EYES = [[0.05, -0.55, 11], [0.25, -0.38, 7], [-0.1, -0.7, 6], [0.05, 0.55, 11], [0.25, 0.4, 8], [-0.12, 0.68, 5], [0.32, -0.6, 5]];
+        for (const [ex, ey, es] of EYES) { ctx.fillStyle = SNC.belly; ctx.fillRect(r * ex - es / 2 - 2, r * ey - es / 2 - 2, es + 4, es + 4); ctx.fillStyle = '#5cff6a'; ctx.fillRect(r * ex - es / 2, r * ey - es / 2, es, es); ctx.fillStyle = '#081a08'; ctx.fillRect(r * ex - 1, r * ey - es / 4, 3, es / 2); }
         ctx.restore();
     }
     function drawSnakeGlows(ctx) {
         const S = snake;
         for (let i = 0; i < SN; i += 3) {
             const g = S.segs[i], x = g.x - camX, y = g.y - camY;
-            if (x < -120 || y < -120 || x > width + 120 || y > height + 120) continue;
+            if (g.broken || x < -120 || y < -120 || x > width + 120 || y > height + 120) continue;
             const r = i === 0 ? 46 : 24, pul = 0.25 + 0.15 * Math.sin(S.t * 0.08 - i * 0.4);
             drawGlow(ctx, x, y - snakeR(i) * 0.4, r, '92,255,106', pul);
         }
@@ -4781,37 +4907,58 @@
             c._vx = c._px === undefined ? 0 : c.x - c._px; c._vy = c._py === undefined ? 0 : c.y - c._py; c._px = c.x; c._py = c.y;
         }
         while (creatures.length > 30) { const i = creatures.findIndex(c => c.dead && !c.carried); if (i < 0) break; creatures.splice(i, 1); }
-        // target: anything that gets close comes first; otherwise pour fire into the crab-snake;
-        // otherwise the nearest creature in sight. Sticky, so the gun doesn't flick about.
+        // target: only what the gun can actually reach (RANGE_WATER, where rounds start
+        // dying). Priority: the tendril section holding him; anything in range that's
+        // closing; a crab-snake section that still carries tendrils; any in-range section.
+        // Out of range he tracks the nearest threat but holds fire.
+        const EFF = RANGE_WATER - 20;
         const sees = (x, y, range) => Math.hypot(x - diver.x, y - diver.y) < range && los(diver.x, diver.y, x, y, false);
         let close = null, cd = Infinity, near = null, nd = Infinity;
         for (const c of live) {
             const d = Math.hypot(c.x - diver.x, c.y - diver.y);
             if (d < nd && d < 900 && los(diver.x, diver.y, c.x, c.y, false)) { nd = d; near = c; }
-            if (d < 330 && d < cd) { cd = d; close = c; }
+            if (d < EFF && d < cd && los(diver.x, diver.y, c.x, c.y, false)) { cd = d; close = c; }
         }
-        let snakeTgt = null;
+        let snakeTgt = null, holdSeg = null;
         if (snake) {
-            const h = snake.segs[0];
-            if (sees(h.x, h.y, 1150)) snakeTgt = h;
-            else { const sn = snakeNearest(diver.x, diver.y); if (sn.d < 1050 && sees(sn.g.x, sn.g.y, 1250)) snakeTgt = sn.g; }
+            if (snake.grabbing) holdSeg = snake.segs[snake.grabbing.i];
+            let bs = Infinity;
+            for (let i = 0; i < SN; i++) {
+                const g = snake.segs[i], d = Math.hypot(g.x - diver.x, g.y - diver.y);
+                if (d - snakeR(i) * 0.6 > EFF) continue;
+                const armed = i >= 2 && i < SN - 4 && i % 2 === 0 && !g.broken && snake.tendrils.some(t => t.i === i && t.alive);
+                const score = d - (armed ? 200 : 0) - (snake.tendrils.some(t => t.i === i && t.alive && t.state === 'reach') ? 120 : 0);
+                if (score < bs && los(diver.x, diver.y, g.x, g.y, false)) { bs = score; snakeTgt = g; }
+            }
         }
         demo.tgtT++;
-        const valid = (t) => t && (t.isCreature ? (!t.dead && !t.carried && sees(t.x, t.y, 1000)) : sees(t.x, t.y, 1250));
-        if (close && demo.tgt !== close && (!demo.tgt || !demo.tgt.isCreature || demo.tgtT > 25)) { demo.tgt = close; demo.tgtT = 0; }
-        else if (!valid(demo.tgt) || (!demo.tgt.isCreature && !close && snakeTgt && demo.tgt !== snakeTgt && demo.tgtT > 90)) { demo.tgt = close || snakeTgt || near; demo.tgtT = 0; }
-        else if (demo.tgt && demo.tgt.isCreature && !close && snakeTgt && demo.tgtT > 40) { demo.tgt = snakeTgt; demo.tgtT = 0; }
+        const inRange = (t) => t && (t.isCreature ? (!t.dead && !t.carried && sees(t.x, t.y, EFF + 40)) : (!t.broken && Math.hypot(t.x - diver.x, t.y - diver.y) - SN_R * 0.6 < EFF + 40));
+        const threatNear = close && cd < 200;
+        if (holdSeg && !holdSeg.broken) { demo.tgt = holdSeg; }
+        else if (threatNear && demo.tgt !== close) { demo.tgt = close; demo.tgtT = 0; }
+        else if (!inRange(demo.tgt) || (demo.tgtT > 60 && !demo.tgt.isCreature && snakeTgt && snakeTgt !== demo.tgt)) { demo.tgt = close || snakeTgt || null; demo.tgtT = 0; }
+        demo.track = demo.tgt || near || (snake ? snakeNearest(diver.x, diver.y).g : null);   // where the gun points when nothing is in range
         const best = demo.tgt, bd = best ? Math.hypot(best.x - diver.x, best.y - diver.y) : Infinity;
         // dodge: score 16 headings (and holding still) by where every threat will be in
         // 12 and 28 frames, the crab-snake's body, rock/rig/surface ahead, the home loop
         // and the current heading; then steer toward the winner, faster the closer the danger
         const threats = live.filter(c => Math.abs(c.x - diver.x) < 700 && Math.abs(c.y - diver.y) < 700);
+        const tips = snake ? snake.tendrils.filter(t => t.alive && t.state !== 'crawl' && Math.abs(t.tip.x - diver.x) < 500 && Math.abs(t.tip.y - diver.y) < 500).map(t => t.tip) : [];
         const sSegs = snake ? snake.segs.filter((g, i) => i % 2 === 0 && Math.abs(g.x - diver.x) < 600 && Math.abs(g.y - diver.y) < 600) : [];
         let danger = 0;
         for (const c of threats) danger = Math.max(danger, 1 - Math.hypot(c.x - diver.x, c.y - diver.y) / 340);
         for (const g of sSegs) danger = Math.max(danger, 1 - (Math.hypot(g.x - diver.x, g.y - diver.y) - snakeR(snake.segs.indexOf(g))) / 260);
         demo.danger = danger;
-        const ax = demo.anchor.x + Math.cos(demo.t * 0.0018) * 220 - diver.x, ay = demo.anchor.y + Math.sin(demo.t * 0.003) * 220 - diver.y, ad = Math.hypot(ax, ay) || 1;
+        // home: the patrol loop, or, when nothing's on him, a firing spot just inside gun
+        // range of the crab-snake (and just outside most of its tendrils' reach)
+        let hxw = demo.anchor.x + Math.cos(demo.t * 0.0018) * 220, hyw = demo.anchor.y + Math.sin(demo.t * 0.003) * 220;
+        if (snake && !close) {
+            const sn = snakeNearest(diver.x, diver.y), g = sn.g, r = snakeR(g.i);
+            const vx = diver.x - g.x, vy = diver.y - g.y, vl = Math.hypot(vx, vy) || 1;
+            const want = r + RANGE_WATER * 0.72 + Math.sin(demo.t * 0.01) * 40;
+            hxw = g.x + vx / vl * want; hyw = g.y + vy / vl * want;
+        }
+        const ax = hxw - diver.x, ay = hyw - diver.y, ad = Math.hypot(ax, ay) || 1;
         let bestU = DODGE_DIRS[16], bestS = -Infinity;
         for (const u of DODGE_DIRS) {
             let sc = 0;
@@ -4823,8 +4970,9 @@
                 }
                 for (const g of sSegs) {
                     const d = Math.hypot(g.x - px, g.y - py) - snakeR(snake.segs.indexOf(g));
-                    if (d < 220) sc -= ((220 - d) / 220) ** 2 * 1.3 * w;
+                    if (d < 200) sc -= ((200 - d) / 200) ** 2 * 1.3 * w;
                 }
+                for (const tp of tips) { const d = Math.hypot(tp.x - px, tp.y - py); if (d < 140) sc -= ((140 - d) / 140) ** 2 * 1.2 * w; }
             }
             if (u[0] || u[1]) for (const [st, w] of [[50, 2.5], [110, 1.5], [170, 0.8]]) {
                 const qx = diver.x + u[0] * st, qy = diver.y + u[1] * st;
@@ -4847,14 +4995,14 @@
         // aim: an angle that turns at a capped rate toward the (led) target, held at a
         // fixed radius so the camera's look-ahead stays steady
         const s0 = shoulder();
-        const want = best ? Math.atan2(best.y + (best._vy || 0) * 8 - s0.y, best.x + (best._vx || 0) * 8 - s0.x)
+        const aimAt = demo.track;
+        const want = aimAt ? Math.atan2(aimAt.y + (aimAt._vy || 0) * 8 - s0.y, aimAt.x + (aimAt._vx || 0) * 8 - s0.x)
                           : (demo.mvx < 0 ? Math.PI : 0) + Math.sin(demo.t * 0.01) * 0.15;
         let da = want - demo.ang; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
         const tr = 0.045 + 0.035 * Math.max(0, demo.danger), turn = Math.max(-tr, Math.min(tr, da * 0.14));
         demo.ang += turn;
         mouseSX = s0.x + Math.cos(demo.ang) * 240 - camX; mouseSY = s0.y + Math.sin(demo.ang) * 240 - camY;
-        let onTarget = best && Math.abs(da) < (best.isCreature ? 0.2 : 0.38);
-        if (!onTarget && snakeTgt) { let ds = Math.atan2(snakeTgt.y - s0.y, snakeTgt.x - s0.x) - demo.ang; while (ds > Math.PI) ds -= Math.PI * 2; while (ds < -Math.PI) ds += Math.PI * 2; if (Math.abs(ds) < 0.4) onTarget = true; }   // swinging past the crab-snake: keep the trigger down   // the crab-snake is a wall of armour: spray it
+        const onTarget = !!best && Math.abs(da) < (best.isCreature ? 0.2 : 0.3);   // in effective range only
         mouseDown = false; mousePressed = false;
         // every so often, a harpoon into something close, reeled into a stock bash
         if (demo.harpT > 0) demo.harpT--;
