@@ -168,7 +168,11 @@
     <div id="attract"><div><div class="title">SCUBA SHOOTER</div><div class="tag">POP 10 SPECIMENS · GET TO THE HELICOPTER</div></div><div class="go">CLICK OR PRESS ANY KEY TO DIVE</div></div>
     <div id="endCard"><div class="big" id="endBig">MAP CLEARED</div><div class="sub" id="endSub"></div><div class="runscore" id="runScore"></div><div class="sub" id="endHub" style="visibility:hidden;color:var(--sig-cyan)">CLICK OR PRESS ENTER FOR THE HUB</div></div>
 
+<!-- L+G dev panel: the shared panel loads first, scuba-dev.js registers last -->
+<script src="../shared/devtools.js"></script>
 <script>
+    // dev-panel knobs (scuba-dev.js drives them; shipped values are all 1/false)
+    const DEV = window.SCUBA_DEV = { speed: 1, dark: 1, god: false, snake: 1, music: 1 };
     const canvas = document.getElementById('simCanvas');
     const ctx = canvas.getContext('2d');
     const hudCanvas = document.getElementById('hudCanvas');
@@ -267,7 +271,7 @@
     window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouseDown = false; });
     window.addEventListener('keydown', (e) => {
         const key = e.key.toLowerCase();
-        if (window.__demoActive) { if (!e.repeat && !['shift', 'control', 'alt', 'meta', 'tab'].includes(key)) { e.preventDefault(); diveIn(); } return; }
+        if (window.__demoActive) { if (!e.repeat && !['shift', 'control', 'alt', 'meta', 'tab', 'l', 'g'].includes(key)) { e.preventDefault(); diveIn(); } return; }
         if (window.__introActive) { if (key === ' ' || key === 'enter' || key === 'escape') { e.preventDefault(); audio(); skipIntro(); } return; }
         if (keys.hasOwnProperty(key)) keys[key] = true;
         if (key === ' ') { e.preventDefault(); if (!e.repeat) spacePressed = true; }
@@ -2593,12 +2597,12 @@
 
         // --- darkness + local lights (night everywhere, deeper is darker) ---
         const depthRatio = Math.max(0, Math.min(1, (camY + height / 2 - waterLevel) / (mapH - waterLevel)));
-        const darkness = Math.min(0.8, 0.5 + depthRatio * 0.45) * (intro.active ? 0.62 : 1);   // the flyover lifts the dark a little so the level reads
+        const darkness = Math.min(0.8, 0.5 + depthRatio * 0.45) * (intro.active ? 0.62 : 1) * DEV.dark;   // the flyover lifts the dark a little so the level reads
         const visLamps = lamps.filter(l => l.x > camX - 300 && l.x < camX + width + 300 && l.y > camY - 300 && l.y < camY + height + 300);
         lightCtx.setTransform(k, 0, 0, k, 0, 0);
         lightCtx.globalCompositeOperation = 'source-over';
         lightCtx.clearRect(0, 0, width, height);
-        lightCtx.fillStyle = `rgba(2, 5, 15, ${darkness})`;
+        lightCtx.fillStyle = `rgba(2, 5, 15, ${Math.min(0.97, darkness)})`;
         lightCtx.fillRect(0, 0, width, height);
         lightCtx.globalCompositeOperation = 'destination-out';
         const cut = (x, y, r, a) => {
@@ -2824,7 +2828,7 @@
     // GAME: specimens to pop, walking bots, Evil Dead blood, wounds
     // ==================================================================
     const GORE = 3;                     // 1 grounded, 2 horror, 3 Evil Dead
-    const GORE_MUL = [0, 1, 2, 4][GORE];
+    let GORE_MUL = [0, 1, 2, 4][GORE];   // let: the dev panel's GORE slider rescales it
     const BLOOD = [122, 8, 18];         // viscera red (Ry's call): gore is world material, not a signal
     const ICHOR = [120, 255, 110];
     sfx.hurt = () => { tone(220, 90, 0.25, 'sawtooth', 0.14); noise(0.18, 'lowpass', 600, 0.25); };
@@ -2835,7 +2839,7 @@
     // ---------------- wounds: Zombie's two-step buffer, magenta not red ----------------
     const wound = { level: 0, invuln: 0, lastHit: -9999, flash: 0 };
     function damagePlayer() {
-        if (window.__demoActive) return;   // the attract diver never dies
+        if (window.__demoActive || DEV.god) return;   // the attract diver never dies; nor does a dev-panel god
         if (gameOver || frame < wound.invuln) return;
         wound.level++; wound.invuln = frame + 72; wound.lastHit = frame; wound.flash = 12;   // 1.2s untouchable
         sfx.hurt();
@@ -3774,7 +3778,7 @@
     const hz = (semi) => 146.83 * Math.pow(2, semi / 12);   // around D3
     function startMusic() {
         const a = actx, t = a.currentTime;
-        const master = a.createGain(); master.gain.setValueAtTime(0.0001, t); master.gain.exponentialRampToValueAtTime(0.16, t + 5);
+        const master = a.createGain(); master.gain.setValueAtTime(0.0001, t); master.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.16 * DEV.music), t + 5);
         const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700; lp.Q.value = 0.7;
         lp.connect(master); master.connect(a.destination);
         const dl = a.createDelay(2); dl.delayTime.value = 0.72; const fb = a.createGain(); fb.gain.value = 0.5; const wet = a.createGain(); wet.gain.value = 0.55;
@@ -4978,11 +4982,11 @@
             let dir;
             if (los(h.x, h.y, tx, ty, false)) { const d = Math.hypot(tx - h.x, ty - h.y) || 1; dir = [(tx - h.x) / d, (ty - h.y) / d]; }
             else { const fld = flowField(tx, ty); if (fld) dir = flowDir(fld, h.x, h.y, tx, ty); else { const d = Math.hypot(tx - h.x, ty - h.y) || 1; dir = [(tx - h.x) / d, (ty - h.y) / d]; } }
-            let cap = grabbed ? 2 : 5.2;
+            let cap = (grabbed ? 2 : 5.2) * DEV.snake;
             // he's out of the water (deck, ladder, helicopter): line up under him and lunge
             const dry = diver.y < surfaceAt(diver.x) - 10;
-            if (dry && Math.abs(tx - h.x) < 320 && h.y - surfaceAt(h.x) < 520) { const d = Math.hypot((tx - h.x) * 0.4, 1) || 1; dir = [(tx - h.x) * 0.4 / d, -1 / d]; cap = 10.5; }
-            S.vx += dir[0] * 0.28; S.vy += dir[1] * 0.28;
+            if (dry && Math.abs(tx - h.x) < 320 && h.y - surfaceAt(h.x) < 520) { const d = Math.hypot((tx - h.x) * 0.4, 1) || 1; dir = [(tx - h.x) * 0.4 / d, -1 / d]; cap = 10.5 * DEV.snake; }
+            S.vx += dir[0] * 0.28 * DEV.snake; S.vy += dir[1] * 0.28 * DEV.snake;
             const sp = Math.hypot(S.vx, S.vy); if (sp > cap) { S.vx *= cap / sp; S.vy *= cap / sp; }
         } else { S.vy += 0.42; S.vx *= 0.995; }   // airborne: it only clears the water with momentum, and not by much
         if (wetHead !== S.wasWet) { splash(h.x, S.vy * 4); for (let i = 0; i < 12; i++) bubbles.push(new Bubble(h.x + (Math.random() - 0.5) * 120, surfaceAt(h.x) + 10)); }
@@ -5240,12 +5244,13 @@
     let last = performance.now(), acc = 0;
     const STEP = 1000 / 60;
     function loop(t) {
-        acc += Math.min(100, t - last); last = t;
+        acc += Math.min(100, t - last) * DEV.speed; last = t;
         while (acc >= STEP) { if (!paused && !gameOver) { if (window.__demoActive) demoUpdate(); else if (finale.active) finaleUpdate(); else if (intro.active) introUpdate(); else if (heli.boarded) boardUpdate(); else update(); } acc -= STEP; }
         draw();
         requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
 </script>
+<script src="scuba-dev.js"></script>
 </body>
 </html>

@@ -582,6 +582,12 @@
     function close() {
         if (!isOpen) return;
         isOpen = false;
+        // Hand focus back to the page. A button or slider clicked inside the panel
+        // otherwise keeps focus after the panel hides, every later keystroke then
+        // counts as "in the panel" and is swallowed: the game goes deaf and L+G
+        // can't reopen it. Caught 2026-11-02 building Scuba Shooter's panel.
+        var ae = document.activeElement;
+        if (panel && ae && ae !== document.body && panel.contains(ae) && typeof ae.blur === "function") ae.blur();
         if (panel) panel.classList.remove("dv-open");
         if (refreshTimer) { clearTracked(refreshTimer); refreshTimer = null; }
         if (cfg.onClose) {
@@ -629,7 +635,7 @@
     // Caught 2026-09-07 by driving the panel from the browser rather than
     // reading the code and believing it.
     function inPanel(target) {
-        if (!panel || !target || typeof target.nodeType !== "number") return false;
+        if (!isOpen || !panel || !target || typeof target.nodeType !== "number") return false;
         return panel.contains(target);
     }
 

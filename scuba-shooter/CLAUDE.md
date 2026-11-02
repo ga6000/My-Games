@@ -1,6 +1,6 @@
 # Scuba Shooter
 
-Single file: `scuba-shooter.html` (no `../shared/` imports; the fonts are inlined). Built 2026-11-01/02 in a Claude project thread from the Gemini "Deep Ocean Exploration" prototype. Promoted to the hub board 2026-11-02 at Ry's request (solo, stamped SOLO).
+`scuba-shooter.html` (fonts inlined), plus the L+G dev panel: `../shared/devtools.js` loads first and `scuba-dev.js` registers last (both guarded, so the page runs without them). Built 2026-11-01/02 in a Claude project thread from the Gemini "Deep Ocean Exploration" prototype. Promoted to the hub board 2026-11-02 at Ry's request (solo, stamped SOLO).
 
 - **Loop:** an intro flyover (Space skips), drop from a hovering helicopter, pop the 10 green specimens without dying, then ESCAPE: the crab-snake erupts from the seabed and hunts you while you swim to the helicopter's ladder.
 - **Intro (2026-11-02):** one zoomed-out (`viewZ` = `INTRO_Z` 0.34) Catmull-Rom loop of camera centres (down the left, along the seabed bases, up the right, back across the surface), trapezoid-eased, always in inside view, then zooms in to play scale on the diver. `viewZ` works by running `drawWorldPass` with a logical viewport of width/viewZ.
@@ -11,4 +11,5 @@ Single file: `scuba-shooter.html` (no `../shared/` imports; the fonts are inline
 - **Style:** RASTER only (the original palette was removed 2026-11-02): renders at 1/3 resolution through an SVG posterize filter.
 - **Systems:** one walk/swim controller over floor segments (`seg`), a floor nav graph (`buildNav`/`navPath`) for bots and creatures, a 50px water flow field for swimmers, crossings at moonpools/airlocks/ladders (`entries`). Zombie wound rules with a magenta edge (`damagePlayer`). GORE 3 blood baked into decal tiles. 14 creatures (`CK` kinds tank/lanky/flood, speeds ×1.3 on 2026-11-02).
 - **Session length:** not yet tuned to SCOPE_RULES' 2–5 minutes, and not playtested with the group.
+- **Dev panel (L+G, 2026-11-02):** `scuba-dev.js`. Objectives (skip intro, pop next / go to next specimen, leave one, pop all → finale, skip to escape, call heli, win, die), spawns (tank, lanky, flood, swarm, kill/clear all), crab-snake (release hunting, burst cutscene, freeze, sever/regrow tendrils, remove), player (god, heal, infinite ammo, teleports), clear clutter, restart. Sliders: game speed, creature speed (rescales `CK`), snake speed, darkness, gore (`GORE_MUL`), music volume. The game reads its knobs from `DEV` (= `window.SCUBA_DEV`). Pauses the game while open unless RUN BEHIND PANEL. The attract's any-key handler ignores L and G so the combo works there.
 - **Hub link:** the Esc menu's Return to hub and the end card both point at `../index.html`.
