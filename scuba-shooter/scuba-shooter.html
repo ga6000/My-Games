@@ -2411,6 +2411,8 @@
         updatePistol();
         updateHarpoon();
         spacePressed = false;
+        if (crates.length) updateCrates();
+        if (snake && snake.hunt && !window.__demoActive) updateSnake();
 
         for (const f of fishes) f.update();
         for (let i = fishes.length - 1; i >= 0; i--) if (fishes[i].gone) fishes.splice(i, 1);
@@ -2514,8 +2516,20 @@
     const STARS = Array.from({ length: 140 }, (_, i) => [((i * 7919) % 1000) / 1000 * mapW, ((i * 104729) % 1000) / 1000 * (waterLevel - 60), (i % 3) + 1]);
     let insideViewNow = false, lastFlashPts = null;
 
+    // viewZ < 1 zooms the camera out (the intro flyover). The world pass runs with a
+    // logical viewport of width/viewZ x height/viewZ, so culling, lights and glows all
+    // just see a bigger screen; the canvases stay the same size.
+    let viewZ = 1;
     function draw() {
-        const k = 1 / RS;
+        const W0 = width, H0 = height;
+        if (viewZ !== 1) { width = W0 / viewZ; height = H0 / viewZ; }
+        try { drawWorldPass(); } finally { width = W0; height = H0; }
+        drawHudLayer();
+        if (frame % 4 === 0) updatePanel();
+        drawGauge();
+    }
+    function drawWorldPass() {
+        const k = viewZ / RS;
         ctx.setTransform(k, 0, 0, k, 0, 0);
         ctx.clearRect(0, 0, width, height);
         wtexts.length = 0;
@@ -2579,7 +2593,7 @@
 
         // --- darkness + local lights (night everywhere, deeper is darker) ---
         const depthRatio = Math.max(0, Math.min(1, (camY + height / 2 - waterLevel) / (mapH - waterLevel)));
-        const darkness = Math.min(0.8, 0.5 + depthRatio * 0.45);
+        const darkness = Math.min(0.8, 0.5 + depthRatio * 0.45) * (intro.active ? 0.62 : 1);   // the flyover lifts the dark a little so the level reads
         const visLamps = lamps.filter(l => l.x > camX - 300 && l.x < camX + width + 300 && l.y > camY - 300 && l.y < camY + height + 300);
         lightCtx.setTransform(k, 0, 0, k, 0, 0);
         lightCtx.globalCompositeOperation = 'source-over';
@@ -2657,9 +2671,6 @@
         ctx.restore();
 
         if (fade > 0) { ctx.fillStyle = `rgba(0,0,0,${fade})`; ctx.fillRect(0, 0, width, height); }
-        drawHudLayer();
-        if (frame % 4 === 0) updatePanel();
-        drawGauge();
     }
 
     // full-resolution layer above the world: world text, prompts, mask blood, the hit edge
@@ -2693,7 +2704,7 @@
         hctx.setTransform(1, 0, 0, 1, 0, 0);
         hctx.clearRect(0, 0, width, height);
         hctx.textBaseline = 'alphabetic';
-        for (const [str, x, y, font, color, align] of wtexts) {
+        if (viewZ === 1) for (const [str, x, y, font, color, align] of wtexts) {
             const sx = x - Math.round(camX), sy = y - Math.round(camY);
             if (sx < -300 || sx > width + 300 || sy < -50 || sy > height + 50) continue;
             hctx.font = font;
@@ -2706,6 +2717,16 @@
         }
         if (typeof drawScreenFx === 'function') drawScreenFx(hctx);
         if (typeof drawIntroOverlay === 'function') drawIntroOverlay(hctx);
+        if (escBanner > 0) {   // ESCAPE, blinking in, after the crab-snake breaks out
+            escBanner--;
+            if (escBanner < 140 || Math.floor(escBanner / 6) % 2) {
+                hctx.font = Math.round(Math.min(96, width * 0.07)) + 'px "Press Start 2P", monospace';
+                hctx.textAlign = 'center'; hctx.fillStyle = '#000'; hctx.fillText('ESCAPE', width / 2 + 6, height * 0.36 + 6);
+                hctx.fillStyle = '#FF2E88'; hctx.fillText('ESCAPE', width / 2, height * 0.36);
+                hctx.font = '14px "Press Start 2P", monospace'; hctx.fillStyle = '#E8FFF4'; hctx.fillText('GET TO THE HELICOPTER', width / 2, height * 0.36 + 44);
+                hctx.textAlign = 'left';
+            }
+        }
     }
 
     function drawPrompts(ctx) {
@@ -3057,7 +3078,7 @@
         for (let i = 0; i < 9; i++) chunks.push({ x: cx, y: cy, vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 10 - 2, r: 3 + Math.random() * 5, rot: 0, vr: (Math.random() - 0.5) * 0.4, rest: false, inside: s.inside, life: 0 });
         maskHit(cx, cy, 12);
         sfx.pop();
-        if (specimens.every(q => q.popped)) setTimeout(startExtraction, 1400);
+        if (specimens.every(q => q.popped) && !window.__demoActive) startFinale();
     }
     const chunks = [];
     function updateChunks() {
@@ -3403,6 +3424,7 @@
         for (const b of bots) if (!interiorAt(b.x, b.y + 20)) drawBot(ctx, b);
         for (const c of creatures) if (!cInside(c)) drawCreature(ctx, c);
         if (snake) drawSnake(ctx);
+        if (crates.length || finale.by) drawCrates(ctx);
     }
     function drawChunk(ctx, c) {
         ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.rot);
@@ -3739,6 +3761,79 @@
             amb.hg.gain.setTargetAtTime(inside ? 0.025 : 0, t, 0.5);
         }
         if (--creakT <= 0) { creakT = 360 + Math.random() * 600; creak(insideViewNow ? 1 : diver.isSubmerged ? 0.7 : 0.45); }
+        updateMusic();
+    }
+
+    // ---- music: an eerie, contextual score, all synthesized ----
+    // A low D drone (two sines and a filtered, wobbling saw), slow Phrygian pad notes
+    // through a long feedback delay, rare high bells in the deep. It darkens with depth,
+    // muffles inside the bases, opens up topside. Threat (creatures closing in) brings a
+    // heartbeat and a minor-second throb; the escape adds a driving pulse.
+    const music = { m: null, noteT: 90, beatT: 0, pulseT: 0, bellT: 400, inten: 0 };
+    const PHRYG = [0, 1, 3, 5, 7, 8, 10];
+    const hz = (semi) => 146.83 * Math.pow(2, semi / 12);   // around D3
+    function startMusic() {
+        const a = actx, t = a.currentTime;
+        const master = a.createGain(); master.gain.setValueAtTime(0.0001, t); master.gain.exponentialRampToValueAtTime(0.16, t + 5);
+        const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700; lp.Q.value = 0.7;
+        lp.connect(master); master.connect(a.destination);
+        const dl = a.createDelay(2); dl.delayTime.value = 0.72; const fb = a.createGain(); fb.gain.value = 0.5; const wet = a.createGain(); wet.gain.value = 0.55;
+        dl.connect(fb); fb.connect(dl); dl.connect(wet); wet.connect(lp);
+        const droneG = a.createGain(); droneG.gain.value = 0.5; droneG.connect(lp);
+        const mk = (type, f, g, det = 0) => { const o = a.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = det; const gg = a.createGain(); gg.gain.value = g; o.connect(gg); o.start(); return { o, gg }; };
+        const d1 = mk('sine', hz(-12), 0.5), d2 = mk('sine', hz(-5), 0.18);
+        const saw = mk('sawtooth', hz(-12), 0.12, 7), sawF = a.createBiquadFilter(); sawF.type = 'lowpass'; sawF.frequency.value = 260; sawF.Q.value = 6;
+        const lfo = a.createOscillator(); lfo.frequency.value = 0.07; const lfoG = a.createGain(); lfoG.gain.value = 140; lfo.connect(lfoG); lfoG.connect(sawF.frequency); lfo.start();
+        d1.gg.connect(droneG); d2.gg.connect(droneG); saw.gg.connect(sawF); sawF.connect(droneG);
+        music.m = { master, lp, dl, droneG, d2, sawF };
+    }
+    function mNote(f, dur, gain, type = 'triangle', send = 1, attack = 1.2) {
+        const a = actx, t = a.currentTime, M = music.m;
+        const o = a.createOscillator(); o.type = type; o.frequency.value = f;
+        const v = a.createOscillator(); v.frequency.value = 4.5; const vg = a.createGain(); vg.gain.value = f * 0.004; v.connect(vg); vg.connect(o.frequency); v.start(t); v.stop(t + dur + 0.1);
+        const g = a.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g); g.connect(M.lp); if (send) { const sg = a.createGain(); sg.gain.value = send; g.connect(sg); sg.connect(M.dl); }
+        o.start(t); o.stop(t + dur + 0.1);
+    }
+    function mThump(gain) {
+        const a = actx, t = a.currentTime, M = music.m;
+        for (const [dt, gk] of [[0, 1], [0.24, 0.7]]) {
+            const o = a.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(70, t + dt); o.frequency.exponentialRampToValueAtTime(38, t + dt + 0.22);
+            const g = a.createGain(); g.gain.setValueAtTime(0.0001, t + dt); g.gain.linearRampToValueAtTime(gain * gk, t + dt + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.3);
+            o.connect(g); g.connect(M.master); o.start(t + dt); o.stop(t + dt + 0.35);
+        }
+    }
+    function updateMusic() {
+        if (!actx || window.__demoActive) return;
+        if (!music.m) startMusic();
+        const M = music.m;
+        const depth = Math.max(0, Math.min(1, (diver.y - waterLevel) / (SEABED - waterLevel)));
+        const wet = diver.mode === 'swim' && diver.isSubmerged, inside = insideViewNow, escape = !!(snake && snake.hunt);
+        let near = 0;
+        for (const c of creatures) if (!c.dead && c.aggro && Math.abs(c.x - diver.x) < 800 && Math.abs(c.y - diver.y) < 800) near++;
+        const want = Math.min(1, near / 4 + (escape ? 0.75 : 0) + (wound.level * 0.15));
+        music.inten += (want - music.inten) * 0.01;
+        const I = music.inten;
+        if (frame % 20 === 0) {
+            const t = actx.currentTime;
+            M.lp.frequency.setTargetAtTime(inside ? 420 : wet ? 900 - depth * 450 + I * 500 : 1400, t, 1.2);
+            M.droneG.gain.setTargetAtTime((0.45 + depth * 0.35 + I * 0.25) * (inside ? 0.8 : 1), t, 1.5);
+            M.d2.o.frequency.setTargetAtTime(hz(I > 0.5 ? -11 : -5), t, 2);   // the fifth sours into a minor second under threat
+            M.sawF.Q.setTargetAtTime(6 + I * 8, t, 1);
+        }
+        // slow pad notes, lower in the deep, more often under threat
+        if (--music.noteT <= 0) {
+            const deg = PHRYG[(Math.random() * PHRYG.length) | 0], oct = depth > 0.6 ? -12 : (Math.random() < 0.3 ? 12 : 0);
+            mNote(hz(deg + oct), 4 + Math.random() * 3, 0.07, Math.random() < 0.5 ? 'triangle' : 'sine', 0.8);
+            if (Math.random() < 0.35 + I * 0.4) mNote(hz(deg + oct + (I > 0.5 ? 1 : 7)), 4, 0.04, 'sine', 0.8, 1.8);   // a second voice; a cluster when it's bad
+            music.noteT = (150 + Math.random() * 220) / (1 + I * 1.5);
+        }
+        // bells in the deep, only when it's quiet
+        if (--music.bellT <= 0) { music.bellT = 500 + Math.random() * 700; if (wet && depth > 0.35 && I < 0.35) mNote(hz(PHRYG[(Math.random() * 7) | 0] + 24), 5, 0.035, 'sine', 1, 0.02); }
+        // heartbeat under threat
+        if (I > 0.3 && --music.beatT <= 0) { mThump(0.18 + I * 0.25); music.beatT = Math.round(60 * 60 / (62 + 60 * I)); }
+        // the escape drives a low pulse, D and E-flat
+        if (escape && --music.pulseT <= 0) { music.pulseT = 15; const k = (frame / 15 | 0) % 8; mNote(hz(-12 + (k === 3 || k === 7 ? 1 : 0)), 0.32, 0.06, 'sawtooth', 0.15, 0.01); }
     }
 
     // ---- water flow field (50px grid) ----
@@ -4421,7 +4516,7 @@
         heli.tx = tx; heli.state = 'return'; heli.vx = heli.vy = 0; heli.ladder = 0;
         heli.x = tx < mapW / 2 ? tx - 1700 : tx + 1700; heli.y = HELI_HOVER_Y - 300;
         heli.baseY = HELI_HOVER_Y;
-        document.querySelector('.cab-goal').textContent = 'EXTRACT: SWIM TO THE HELICOPTER LADDER.';
+        document.querySelector('.cab-goal').textContent = 'ESCAPE: SWIM TO THE HELICOPTER LADDER.';
     }
     function boardHeli() {
         heli.boarded = true; heli.state = 'depart'; heli.departT = 0; heli.vx = 0; heli.vy = 0;
@@ -4486,57 +4581,76 @@
     }
 
     // ---- intro sweep ----
-    const intro = { active: true, shots: [], i: 0, t: 0, from: null, fadeT: 0 };
+    const intro = { active: true, t: 0, dur: 0, loopDur: 0, pts: null, lens: null, total: 0, fadeT: 0, endX: 0, endY: 0 };
     function introActive() { return intro.active; }
     window.__introActive = true;
     function camFor(x, y) { return { x: Math.max(0, Math.min(mapW - width, x - width / 2)), y: Math.max(0, Math.min(mapH - height, y - height / 2)) }; }
-    function specLabel(s) {
-        const r = rooms.find(r => s.x >= r.ix && s.x <= r.ix + r.iw && s.y <= r.floor + 2 && s.y >= r.iy);
-        return r ? r.name + ' · ' + Math.round((r.floor - waterLevel) / 30) + 'M' : 'OPEN WATER · ' + Math.round((s.y - waterLevel) / 30) + 'M';
+    const INTRO_Z = 0.34;
+    // Catmull-Rom through a closed loop of camera centres: down the left, along the
+    // seabed bases, up the right, back across the surface (a big rounded O)
+    function crPoint(P, i, t) {
+        const n = P.length, p0 = P[(i - 1 + n) % n], p1 = P[i % n], p2 = P[(i + 1) % n], p3 = P[(i + 2) % n], t2 = t * t, t3 = t2 * t;
+        const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+        return [f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])];
     }
     function buildIntro() {
-        const S = intro.shots, F = (ms) => Math.round(ms * 0.06);
-        S.push({ kind: 'map', dur: F(1700), caption: specimens.length + ' SPECIMENS TO POP' });
-        // nearest-neighbour tour from the helicopter
-        const left = specimens.slice(); let px = heli.x, py = heli.y, k = 0;
-        while (left.length) {
-            left.sort((a, b) => Math.hypot(a.x - px, a.y - py) - Math.hypot(b.x - px, b.y - py));
-            const s = left.shift(); k++;
-            S.push({ kind: 'move', x: s.x, y: s.y - 30, inside: s.inside });
-            S.push({ kind: 'hold', dur: F(650), x: s.x, y: s.y - 30, inside: s.inside, caption: 'SPECIMEN ' + k + '  ' + specLabel(s) });
-            px = s.x; py = s.y;
+        // the loop sits inside what the zoomed-out camera can centre on, so it never clamps into a kink
+        const w = width / INTRO_Z, h = height / INTRO_Z;
+        let xL = Math.max(w / 2 + 20, 1900), xR = Math.min(mapW - w / 2 - 20, 8500), yT = Math.max(h / 2 + 20, 1300), yB = Math.min(mapH - h / 2 - 20, 5600);
+        if (xL > xR) xL = xR = mapW / 2;
+        if (yT > yB) yT = yB = mapH / 2;
+        const xm = (xL + xR) / 2, ym = (yT + yB) / 2;
+        const P = [[xL, yT], [xL, ym], [xL + (xm - xL) * 0.15, yB], [xm, yB], [xR - (xR - xm) * 0.15, yB], [xR, ym], [xR, yT], [xm, yT - 60]];
+        // sample to a dense polyline with cumulative lengths (constant-speed travel)
+        const pts = [], lens = [0];
+        for (let i = 0; i < P.length; i++) for (let k = 0; k < 40; k++) pts.push(crPoint(P, i, k / 40));
+        pts.push(pts[0].slice());
+        for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+        intro.pts = pts; intro.lens = lens; intro.total = lens[lens.length - 1];
+        intro.loopDur = 60 * 10.5; intro.dur = intro.loopDur + 60 * 2.6; intro.fadeT = 42;
+        viewZ = INTRO_Z; introCam(0);
+    }
+    function introAt(d) {
+        const L = intro.lens; let lo = 0, hi = L.length - 1;
+        while (hi - lo > 1) { const m = (lo + hi) >> 1; if (L[m] <= d) lo = m; else hi = m; }
+        const k = (d - L[lo]) / Math.max(1e-6, L[hi] - L[lo]), a = intro.pts[lo], b = intro.pts[hi];
+        return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+    }
+    function centreCam(cx, cy, z) {
+        const w = width / z, h = height / z;
+        camX = Math.max(0, Math.min(mapW - w, cx - w / 2)); camY = Math.max(0, Math.min(mapH - h, cy - h / 2));
+    }
+    const smooth = (t) => t * t * (3 - 2 * t);
+    function introCam(t) {
+        if (t <= intro.loopDur) {
+            // ease in and out of the loop; constant speed in between
+            // trapezoid velocity: ease in, cruise, ease out
+            const u = t / intro.loopDur, A = 0.1;
+            const e = (u < A ? u * u / (2 * A) : u < 1 - A ? u - A / 2 : (1 - A) - (1 - u) * (1 - u) / (2 * A)) / (1 - A);
+            const [cx, cy] = introAt(intro.total * Math.min(1, e));
+            viewZ = INTRO_Z; centreCam(cx, cy, viewZ);
+            intro.endX = cx; intro.endY = cy;
+        } else {
+            // close in on the diver, zooming to play scale
+            const u = smooth(Math.min(1, (t - intro.loopDur) / (intro.dur - intro.loopDur)));
+            viewZ = INTRO_Z + (1 - INTRO_Z) * u;
+            const c = camFor(diver.x, diver.y), gx = c.x + width / 2, gy = c.y + height / 2;   // where play's camera will sit
+            centreCam(intro.endX + (gx - intro.endX) * u, intro.endY + (gy - intro.endY) * u, viewZ);
         }
-        S.push({ kind: 'move', x: heli.x, y: heli.y - 30, inside: false });
-        S.push({ kind: 'hold', dur: F(1100), x: heli.x, y: heli.y - 30, inside: false, caption: 'EXTRACTION · HELICOPTER' });
-        // durations for moves: Zombie's ~1450px/s, clamped 550-1500ms
-        let cx = heli.x, cy = heli.y;
-        for (const sh of S) if (sh.kind === 'move') { const d = Math.hypot(sh.x - cx, sh.y - cy); sh.dur = F(Math.max(550, Math.min(1500, d / 1450 * 1000))); sh.fx = cx; sh.fy = cy; cx = sh.x; cy = sh.y; }
-        else if (sh.x !== undefined) { cx = sh.x; cy = sh.y; }
-        // the map card cuts straight to the first specimen
-        S[1].dur = 1; const c0 = camFor(S[1].x, S[1].y); camX = c0.x; camY = c0.y;
-        intro.fadeT = 42;
     }
-    function introView() {
-        const sh = intro.shots[intro.i];
-        return sh && sh.inside !== undefined ? sh.inside : false;
-    }
+    function introView() { return true; }   // the flyover shows every base from the inside
     function introUpdate() {
         frame++;
+        if (actx) updateAmbient();
         updateHeli();
         for (const s of specimens) if (s.hitT > 0) s.hitT--;
         if (intro.fadeT > 0) intro.fadeT--;
-        const sh = intro.shots[intro.i];
-        if (!sh) { endIntro(); return; }
         intro.t++;
-        if (sh.kind === 'move') {
-            const k = ease(Math.min(1, intro.t / sh.dur));
-            const a = camFor(sh.fx, sh.fy), b = camFor(sh.x, sh.y);
-            camX = a.x + (b.x - a.x) * k; camY = a.y + (b.y - a.y) * k;
-        } else if (sh.kind === 'hold') { const b = camFor(sh.x, sh.y); camX = b.x; camY = b.y; }
-        if (intro.t >= sh.dur) { intro.i++; intro.t = 0; }
+        introCam(intro.t);
+        if (intro.t >= intro.dur) endIntro();
     }
     function endIntro() {
-        intro.active = false; window.__introActive = false;
+        intro.active = false; window.__introActive = false; viewZ = 1;
         for (const k in keys) keys[k] = false; mouseDown = false; spacePressed = false;
         startFrame = frame;
         const c = camFor(diver.x, diver.y); camX = c.x; camY = c.y;
@@ -4545,26 +4659,12 @@
     // map card, captions, the stepped fade
     function drawIntroOverlay(h) {
         if (!intro.active) return;
-        const sh = intro.shots[intro.i] || {};
-        if (sh.kind === 'map') {
-            h.fillStyle = '#000'; h.fillRect(0, 0, width, height);
-            const sc = Math.min((width - 80) / 240, (height - 160) / 160), w = 240 * sc, hh = 160 * sc, ox = (width - w) / 2, oy = (height - hh) / 2 + 30;
-            h.imageSmoothingEnabled = false; h.drawImage(radarBase, ox, oy, w, hh);
-            h.strokeStyle = '#E8E8E8'; h.lineWidth = 3; h.strokeRect(ox - 2, oy - 2, w + 4, hh + 4);
-            const blink = Math.floor(frame / 12) % 2;
-            for (const s of specimens) { h.fillStyle = blink ? '#5cff6a' : '#2a8a33'; h.fillRect(ox + s.x / mapW * w - 5, oy + (s.y - 10) / mapH * hh - 5, 10, 10); }
-            h.fillStyle = blink ? '#FFFFFF' : '#FD8B4A'; h.fillRect(ox + heli.x / mapW * w - 6, oy + heli.y / mapH * hh - 4, 12, 8);
-            h.font = '22px "Press Start 2P", monospace'; h.textAlign = 'center'; h.fillStyle = '#E8FFF4';
-            h.fillText(sh.caption, width / 2, oy - 26);
-        } else if (sh.caption) {
+        const cap = specimens.length + ' SPECIMENS TO POP  ·  THEN GET TO THE HELICOPTER';
+        if (intro.t < intro.loopDur) {
             h.font = '14px "Press Start 2P", monospace'; h.textAlign = 'center';
-            const tw = h.measureText(sh.caption).width + 28;
+            const tw = h.measureText(cap).width + 28;
             h.fillStyle = 'rgba(0,0,0,0.8)'; h.fillRect(width / 2 - tw / 2, height - 86, tw, 34);
-            h.fillStyle = '#E8FFF4'; h.fillText(sh.caption, width / 2, height - 62);
-            // brackets on the subject
-            const bx = sh.x - camX, by = sh.y - camY, r = 56, t = 12;
-            h.fillStyle = '#E8FFF4';
-            for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { h.fillRect(bx + sx * r - (sx > 0 ? t : 0), by + sy * r - (sy > 0 ? 3 : 0), t, 3); h.fillRect(bx + sx * r - (sx > 0 ? 3 : 0), by + sy * r - (sy > 0 ? t : 0), 3, t); }
+            h.fillStyle = '#E8FFF4'; h.fillText(cap, width / 2, height - 62);
         }
         h.font = '10px "Press Start 2P", monospace'; h.textAlign = 'right'; h.fillStyle = 'rgba(232,255,244,0.6)';
         h.fillText('SPACE: SKIP', width - 16, 24);
@@ -4598,7 +4698,7 @@
     function startDemo() {
         window.__demoActive = true; document.body.classList.add('demo');
         document.querySelector('#wPistol span').textContent = '[1] MACHINE GUN';
-        intro.active = false; window.__introActive = false;
+        intro.active = false; window.__introActive = false; viewZ = 1;
         demo.anchor = waterAt(8250, 2600);
         makeSnake();
         diver.x = demo.anchor.x; diver.y = demo.anchor.y; toSwim(); diver.vx = 0; diver.vy = 0;
@@ -4643,17 +4743,22 @@
             S.retT = 360 + Math.random() * 300;
         }
         const grabbed = !!S.grabbing;
-        const want = Math.atan2(S.ty - h.y, S.tx - h.x) + Math.sin(S.t * 0.045) * 0.75;
-        let da = want - S.ang; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
-        S.ang += Math.max(-0.035, Math.min(0.035, da));
-        const sp = (2.6 + Math.sin(S.t * 0.02) * 0.8) * (grabbed ? 0.35 : 1);   // it slows to feed
-        h.x += Math.cos(S.ang) * sp; h.y += Math.sin(S.ang) * sp;
-        h.x = Math.max(SN_BOX.x0 - 250, Math.min(mapW - 120, h.x));
-        h.y = Math.max(waterLevel + 260, Math.min(getTerrainY(h.x) - 160, h.y));
+        if (S.mode === 'burst') {   // erupting out of the seabed
+            h.x += S.vx; h.y += S.vy; S.vy = S.vy * 0.986 + 0.03; S.vx = S.vx * 0.99 + Math.sin(S.t * 0.06) * 0.25; S.ang = Math.atan2(S.vy, S.vx);
+        } else if (S.hunt) snakeHunt(S, h, grabbed);
+        else {
+            const want = Math.atan2(S.ty - h.y, S.tx - h.x) + Math.sin(S.t * 0.045) * 0.75;
+            let da = want - S.ang; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
+            S.ang += Math.max(-0.035, Math.min(0.035, da));
+            const sp = (2.6 + Math.sin(S.t * 0.02) * 0.8) * (grabbed ? 0.35 : 1);   // it slows to feed
+            h.x += Math.cos(S.ang) * sp; h.y += Math.sin(S.ang) * sp;
+            h.x = Math.max(SN_BOX.x0 - 250, Math.min(mapW - 120, h.x));
+            h.y = Math.max(waterLevel + 260, Math.min(getTerrainY(h.x) - 160, h.y));
+        }
         for (let i = 1; i < SN; i++) {
             const a = S.segs[i - 1], b = S.segs[i], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
             b.x = a.x + dx / d * SN_GAP; b.y = a.y + dy / d * SN_GAP;
-            b.y = Math.min(b.y, getTerrainY(b.x) - snakeR(i) * 0.6);
+            if (S.mode !== 'burst') b.y = Math.min(b.y, getTerrainY(b.x) - snakeR(i) * 0.6);
         }
         for (let i = 0; i < SN; i++) {
             const g = S.segs[i], a = S.segs[Math.max(0, i - 1)], b = S.segs[Math.min(SN - 1, i + 1)];
@@ -4675,10 +4780,11 @@
             const g = S.segs[t.i], B = tendrilBase(t), nx = g.nx * t.side, ny = g.ny * t.side;
             const ddx = dvx - B.x, ddy = dvy - B.y, dd = Math.hypot(ddx, ddy) || 1;
             const off = Math.acos(Math.max(-1, Math.min(1, (ddx * nx + ddy * ny) / dd)));
-            const inReach = window.__demoActive && dd < t.len * 1.3 && off < T_CONE && t.len > t.maxLen * 0.6;
+            const live = window.__demoActive || (S.hunt && diver.mode === 'swim' && !diver.hidden);
+            const inReach = live && dd < t.len * 1.3 && off < T_CONE && t.len > t.maxLen * 0.6;
             if (t.state === 'grab') {
                 t.grabT++;
-                if (!window.__demoActive || t.grabT > 210 || dd > t.len * 1.5) { t.state = 'crawl'; t.cd = 150; if (S.grabbing === t) S.grabbing = null; }
+                if (!live || t.grabT > 210 || dd > t.len * 1.5) { t.state = 'crawl'; t.cd = 150; if (S.grabbing === t) S.grabbing = null; }
             } else if (inReach && t.cd <= 0 && reaching < 5) t.state = 'reach';
             else t.state = 'crawl';
             let TX, TY, spd;
@@ -4696,7 +4802,7 @@
                 rel = Math.max(-T_CONE, Math.min(T_CONE, rel));
                 const L = Math.min(dd, t.len * 0.98);
                 TX = B.x + Math.cos(base + rel) * L; TY = B.y + Math.sin(base + rel) * L; spd = 7;
-                if (Math.hypot(t.tip.x - dvx, t.tip.y - dvy) < 36 && !S.grabbing) { t.state = 'grab'; t.grabT = 0; S.grabbing = t; }
+                if (Math.hypot(t.tip.x - dvx, t.tip.y - dvy) < 36 && !S.grabbing) { t.state = 'grab'; t.grabT = 0; S.grabbing = t; if (S.hunt) damagePlayer(); }
             } else {
                 // crawl: a slow, rowing gait down the body, tips curling under
                 const sw = Math.sin(S.t * 0.09 - t.i * 0.5 + t.ph);
@@ -4787,11 +4893,12 @@
         ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         for (const v of S.severed) drawTendril(ctx, v.pts, v.w, false);
         // tendrils behind the body
-        const vis = (t) => t.alive && onScreen(Math.min(t.pts[0].x, t.tip.x) - 30, Math.min(t.pts[0].y, t.tip.y) - 30, Math.abs(t.tip.x - t.pts[0].x) + 60, Math.abs(t.tip.y - t.pts[0].y) + 60);
+        const vis = (t) => t.alive && segs[t.i].y - snakeR(t.i) * 0.3 < getTerrainY(segs[t.i].x) && onScreen(Math.min(t.pts[0].x, t.tip.x) - 30, Math.min(t.pts[0].y, t.tip.y) - 30, Math.abs(t.tip.x - t.pts[0].x) + 60, Math.abs(t.tip.y - t.pts[0].y) + 60);
         for (const t of S.tendrils) if (vis(t) && t.side < 0) drawTendril(ctx, t.pts, snakeR(t.i) * 0.24 * (0.4 + 0.6 * t.len / t.maxLen), t.state === 'grab');
         // body, tail to head: membrane, then plate, then rot
         for (let i = SN - 1; i >= 1; i--) {
             const g = segs[i], r = snakeR(i), hit = g.hitT > 0, hs = hash(i);
+            if (g.y - r * 0.3 > getTerrainY(g.x)) continue;   // still underground
             const p = segs[i - 1];
             ctx.fillStyle = hit ? SNC.hit : SNC.flesh;   // stretched membrane toward the next section
             ctx.beginPath(); ctx.arc((g.x + p.x) / 2, (g.y + p.y) / 2, r * 0.97, 0, Math.PI * 2); ctx.fill();
@@ -4860,6 +4967,119 @@
             if (g.broken || x < -120 || y < -120 || x > width + 120 || y > height + 120) continue;
             const r = i === 0 ? 46 : 24, pul = 0.25 + 0.15 * Math.sin(S.t * 0.08 - i * 0.4);
             drawGlow(ctx, x, y - snakeR(i) * 0.4, r, '92,255,106', pul);
+        }
+    }
+
+    // ---- the escape: after the last specimen pops, the crab-snake erupts from the seabed ----
+    function snakeHunt(S, h, grabbed) {
+        const wetHead = h.y > surfaceAt(h.x) + 6;
+        if (wetHead) {
+            const tx = diver.x, ty = diver.y;
+            let dir;
+            if (los(h.x, h.y, tx, ty, false)) { const d = Math.hypot(tx - h.x, ty - h.y) || 1; dir = [(tx - h.x) / d, (ty - h.y) / d]; }
+            else { const fld = flowField(tx, ty); if (fld) dir = flowDir(fld, h.x, h.y, tx, ty); else { const d = Math.hypot(tx - h.x, ty - h.y) || 1; dir = [(tx - h.x) / d, (ty - h.y) / d]; } }
+            let cap = grabbed ? 2 : 5.2;
+            // he's out of the water (deck, ladder, helicopter): line up under him and lunge
+            const dry = diver.y < surfaceAt(diver.x) - 10;
+            if (dry && Math.abs(tx - h.x) < 320 && h.y - surfaceAt(h.x) < 520) { const d = Math.hypot((tx - h.x) * 0.4, 1) || 1; dir = [(tx - h.x) * 0.4 / d, -1 / d]; cap = 10.5; }
+            S.vx += dir[0] * 0.28; S.vy += dir[1] * 0.28;
+            const sp = Math.hypot(S.vx, S.vy); if (sp > cap) { S.vx *= cap / sp; S.vy *= cap / sp; }
+        } else { S.vy += 0.42; S.vx *= 0.995; }   // airborne: it only clears the water with momentum, and not by much
+        if (wetHead !== S.wasWet) { splash(h.x, S.vy * 4); for (let i = 0; i < 12; i++) bubbles.push(new Bubble(h.x + (Math.random() - 0.5) * 120, surfaceAt(h.x) + 10)); }
+        S.wasWet = wetHead;
+        h.x += S.vx; h.y += S.vy;
+        h.x = Math.max(200, Math.min(mapW - 120, h.x));
+        if (h.y > getTerrainY(h.x) - 140) { h.y = getTerrainY(h.x) - 140; S.vy = Math.min(0, S.vy); }
+        S.ang = Math.atan2(S.vy, S.vx);
+        // its mouth hurts
+        if (!diver.hidden && Math.hypot(h.x - diver.x, h.y - diver.y) < snakeR(0) * 0.95 + 16) {
+            const before = wound.level; damagePlayer();
+            if (wound.level !== before && diver.mode === 'swim') { const d = Math.hypot(diver.x - h.x, diver.y - h.y) || 1; diver.vx += (diver.x - h.x) / d * 9; diver.vy += (diver.y - h.y) / d * 9; }
+        }
+    }
+    const finale = { active: false, phase: '', t: 0, bx: 0, by: 0, shake: 0 };
+    let escBanner = 0;
+    const crates = [];
+    function startFinale() {
+        finale.active = true; finale.phase = 'out'; finale.t = 0;
+        mouseDown = false; for (const k in keys) keys[k] = false;
+        // burst point: under the seabed tube nearest the middle of the bases
+        let best = null, bd = Infinity;
+        for (const t of tubes) { if (t.y < F0 - 400) continue; const d = Math.abs(t.x + t.w / 2 - 6000); if (d < bd) { bd = d; best = t; } }
+        finale.bx = best ? best.x + best.w / 2 : 6000; finale.by = getTerrainY(finale.bx);
+    }
+    function burstFx() {
+        const bx = finale.bx, by = finale.by;
+        for (let i = 0; i < 11; i++) {
+            const w = 40 + Math.random() * 70, hgt = 30 + Math.random() * 50;
+            crates.push({ x: bx + (Math.random() - 0.5) * 220, y: by - 60 - Math.random() * 60, vx: (Math.random() - 0.5) * 16, vy: -9 - Math.random() * 12, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.25, w, h: hgt, ph: Math.random() * 6, kind: (Math.random() * 3) | 0 });
+        }
+        while (crates.length > 16) crates.shift();
+        for (let i = 0; i < 60; i++) bubbles.push(new Bubble(bx + (Math.random() - 0.5) * 300, by - Math.random() * 200));
+        for (let i = 0; i < 26; i++) particles.push(new Particle('spark', bx + (Math.random() - 0.5) * 200, by - 30, (Math.random() - 0.5) * 14, -Math.random() * 14));
+        emitBlood(bx, by - 80, 0, -1, 14, 1.4, 8, true);
+        splat(false, bx, by, 60, 0, 0, 'floor');
+        finale.shake = 26;
+        if (actx) { noise(1.4, 'lowpass', 160, 0.6); tone(70, 28, 1.6, 'sawtooth', 0.25); noise(0.5, 'bandpass', 900, 0.3, 0.1); }
+    }
+    function updateCrates() {
+        for (const c of crates) {
+            const top = surfaceAt(c.x) - c.h * 0.3;
+            if (c.y > top + 4) { c.vy -= 0.11; c.vx *= 0.985; c.vy *= 0.985; c.vr *= 0.99; }   // buoyant: they rise
+            else { c.vy += (top - c.y) * 0.04; c.vy *= 0.85; c.vx *= 0.97; c.vr *= 0.9; c.rot += (Math.round(c.rot / (Math.PI / 2)) * (Math.PI / 2) - c.rot) * 0.05; }   // bob on the surface, settle flat
+            c.x += c.vx; c.y += c.vy; c.rot += c.vr;
+            c.x = Math.max(20, Math.min(mapW - 20, c.x));
+            if (c.y > getTerrainY(c.x) - 10) { c.y = getTerrainY(c.x) - 10; c.vy = -Math.abs(c.vy) * 0.3; }
+        }
+    }
+    function drawCrates(ctx) {
+        for (const c of crates) {
+            if (!onScreen(c.x - c.w, c.y - c.w, c.w * 2, c.w * 2)) continue;
+            ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.rot);
+            ctx.fillStyle = '#9aa6b0'; ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
+            ctx.fillStyle = '#3a434b'; ctx.fillRect(-c.w / 2 + 4, -c.h / 2 + 4, c.w - 8, c.h - 8);
+            if (c.kind === 0) { ctx.fillStyle = '#FFB000'; for (let x = -c.w / 2 + 4; x < c.w / 2 - 8; x += 12) ctx.fillRect(x, -c.h / 2 + 4, 6, 5); }   // hazard stripe
+            else if (c.kind === 1) { ctx.fillStyle = '#8fc6d8'; ctx.beginPath(); ctx.arc(0, 0, Math.min(c.w, c.h) * 0.18, 0, Math.PI * 2); ctx.fill(); }   // porthole
+            else { ctx.strokeStyle = '#7a858e'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-c.w / 2 + 4, -c.h / 2 + 4); ctx.lineTo(c.w / 2 - 4, c.h / 2 - 4); ctx.moveTo(c.w / 2 - 4, -c.h / 2 + 4); ctx.lineTo(-c.w / 2 + 4, c.h / 2 - 4); ctx.stroke(); }
+            ctx.restore();
+        }
+        if (finale.by) {   // the blown-out hole it came from
+            const x = finale.bx, y = finale.by;
+            if (onScreen(x - 200, y - 60, 400, 120)) { ctx.fillStyle = '#0a0606'; ctx.beginPath(); ctx.ellipse(x, y + 6, 150, 34, 0, Math.PI, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#2c3e50'; for (let k = -3; k <= 3; k++) ctx.fillRect(x + k * 46 - 10, y - 18 - Math.abs(3 - Math.abs(k)) * 8, 20, 14); }
+        }
+    }
+    function finaleUpdate() {
+        const F = finale;
+        F.t++; frame++;
+        if (F.phase === 'out') {   // freeze and fade to black
+            fade = Math.min(1, F.t / 30);
+            if (F.t >= 34) {
+                makeSnake();
+                const S = snake; S.mode = 'burst'; S.hunt = false; S.vx = -1.5; S.vy = -17; S.wasWet = true;
+                for (let i = 0; i < SN; i++) { const g = S.segs[i]; g.x = F.bx + Math.sin(i * 0.5) * 20; g.y = F.by + 40 + i * SN_GAP; }
+                for (const t of S.tendrils) { const B = { x: S.segs[t.i].x, y: S.segs[t.i].y }; for (const p of t.pts) { p.x = B.x; p.y = B.y; } t.tip.x = B.x; t.tip.y = B.y; }
+                viewZ = 0.7; centreCam(F.bx, F.by - 380, viewZ);
+                F.camX = camX; F.camY = camY;
+                F.phase = 'burst'; F.t = 0;
+            }
+        } else if (F.phase === 'burst') {   // fade in on the seabed tunnel; it erupts
+            fade = Math.max(0, 1 - F.t / 16);
+            if (F.t === 14) burstFx();
+            if (F.t >= 14) updateSnake();
+            updateCrates(); updateBlood();
+            for (let i = bubbles.length - 1; i >= 0; i--) { bubbles[i].update(); if (bubbles[i].dead) bubbles.splice(i, 1); }
+            for (let i = particles.length - 1; i >= 0; i--) { particles[i].update(); if (particles[i].dead) particles.splice(i, 1); }
+            if (F.shake > 0) F.shake *= 0.93;
+            // follow the head up out of the hole
+            const h = snake.segs[0], w = width / viewZ, hh = height / viewZ;
+            F.camX += (Math.max(0, Math.min(mapW - w, h.x - w / 2)) - F.camX) * 0.06; F.camY += (Math.max(0, Math.min(mapH - hh, Math.min(F.by - hh * 0.55, h.y - hh * 0.4))) - F.camY) * 0.06;
+            camX = F.camX + (Math.random() - 0.5) * F.shake; camY = F.camY + (Math.random() - 0.5) * F.shake;
+            if (F.t >= 150) { F.phase = 'cut'; F.t = 0; }
+        } else if (F.phase === 'cut') {   // snap back to the diver
+            if (F.t <= 8) fade = F.t / 8;
+            if (F.t === 9) { viewZ = 1; const c = camFor(diver.x, diver.y); camX = c.x; camY = c.y; snake.mode = ''; snake.hunt = true; escBanner = 170; startExtraction(); }
+            if (F.t > 9) fade = Math.max(0, 1 - (F.t - 9) / 12);
+            if (F.t >= 22) { fade = 0; F.active = false; }
         }
     }
 
@@ -5021,7 +5241,7 @@
     const STEP = 1000 / 60;
     function loop(t) {
         acc += Math.min(100, t - last); last = t;
-        while (acc >= STEP) { if (!paused && !gameOver) { if (window.__demoActive) demoUpdate(); else if (intro.active) introUpdate(); else if (heli.boarded) boardUpdate(); else update(); } acc -= STEP; }
+        while (acc >= STEP) { if (!paused && !gameOver) { if (window.__demoActive) demoUpdate(); else if (finale.active) finaleUpdate(); else if (intro.active) introUpdate(); else if (heli.boarded) boardUpdate(); else update(); } acc -= STEP; }
         draw();
         requestAnimationFrame(loop);
     }
