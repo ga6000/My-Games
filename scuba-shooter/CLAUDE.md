@@ -1,0 +1,10 @@
+# Scuba Shooter
+
+Single file: `scuba-shooter.html` (no `../shared/` imports; the fonts are inlined). Built 2026-11-01/02 in a Claude project thread from the Gemini "Deep Ocean Exploration" prototype. Promoted to the hub board 2026-11-02 at Ry's request (solo, stamped SOLO).
+
+- **Loop:** a Zombie-style intro sweep (Space skips), drop from a hovering helicopter, pop the 10 green specimens without dying, swim to the helicopter's ladder to extract.
+- **End:** a Zombie-style typed score readout (`renderRunScore`): specimens popped ×5,000, NPCs alive ×2,000, accuracy ×20,000 (hits/shots on creatures and specimens, `shotStats`), and on a win time bonus (300 − seconds) ×100 plus 25,000 for extracting. Click or Enter returns to `../index.html`.
+- **Style:** RASTER only (the original palette was removed 2026-11-02): renders at 1/3 resolution through an SVG posterize filter.
+- **Systems:** one walk/swim controller over floor segments (`seg`), a floor nav graph (`buildNav`/`navPath`) for bots and creatures, a 50px water flow field for swimmers, crossings at moonpools/airlocks/ladders (`entries`). Zombie wound rules with a magenta edge (`damagePlayer`). GORE 3 blood baked into decal tiles. 14 creatures (`CK` kinds tank/lanky/flood, speeds ×1.3 on 2026-11-02).
+- **Session length:** not yet tuned to SCOPE_RULES' 2–5 minutes, and not playtested with the group.
+- **Hub link:** the Esc menu's Return to hub and the end card both point at `../index.html`.

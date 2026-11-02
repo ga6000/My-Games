@@ -54,8 +54,8 @@ const PAGE_SIZE = 6;
 // FIVE board games now play together and nothing on the board carries the
 // MULTIPLAYER SOON stamp any more. The stamp machinery below stays wired up --
 // it is what the shelf will come back through.
-// All 5 fit on one page at PAGE_SIZE = 6, so paging is currently a no-op
-// that stays wired up for when the list grows back.
+// All 6 fit on one page at PAGE_SIZE = 6 (Scuba Shooter made six on
+// 2026-11-02), so paging is still a no-op; a seventh card starts page 2.
 const GAMES = [
     // ONE Zombie again, 2026-09-26. `zombie-alt/` existed for a day as a
     // second card so the evacuation train could be playtested without
@@ -66,7 +66,10 @@ const GAMES = [
     { id: "space-tracer",         icon: "🚀",  title: "Space Tracer",         desc: "Multiplayer Ship Combat",        href: "gyro-space/space-tracer.html", isNew: true, mp: true },
     { id: "glass-city-escape",    icon: "🏙️",  title: "Glass City Escape",    desc: "Building-Hopping Race",          href: "glass-city-escape/glass_city_escape.html", isNew: true, mp: true },
     { id: "rd-arena",             icon: "🧫",  title: "RD Arena",             desc: "Reaction-Diffusion Arena",       href: "rd-arena/RDArena.html", isNew: true, mp: true },
-    { id: "four-d-pong",          icon: "🏓",  title: "4D Pong",              desc: "Four-Way Tug-Of-War Pong",       href: "four-d-pong/four-d-pong.html", isNew: true, mp: true }
+    { id: "four-d-pong",          icon: "🏓",  title: "4D Pong",              desc: "Four-Way Tug-Of-War Pong",       href: "four-d-pong/four-d-pong.html", isNew: true, mp: true },
+    // 2026-11-02: Scuba Shooter joined as the sixth card on Ry's call (solo,
+    // so it carries `solo: true` and the SOLO stamp, not MULTIPLAYER SOON).
+    { id: "scuba-shooter",        icon: "🤿",  title: "Scuba Shooter",        desc: "Oil-Rig Dive Shooter",           href: "scuba-shooter/scuba-shooter.html", isNew: true, solo: true }
 ];
 
 // Derived once rather than written per game, so "does this play
@@ -85,6 +88,7 @@ const GAMES = [
 GAMES.forEach(g => {
     if (g.mp) return;
     if (g.couch) { g.stamp = "COUCH 2-4P"; return; }
+    if (g.solo) { g.stamp = "SOLO"; return; }   // single-player by design, no multiplayer promised
     g.stamp = g.broken ? "COMING SOON" : "MULTIPLAYER SOON";
 });
 
