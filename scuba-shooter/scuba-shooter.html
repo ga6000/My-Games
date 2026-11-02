@@ -2385,9 +2385,10 @@
         for (let i = traces.length - 1; i >= 0; i--) { traces[i].update(); if (traces[i].dead) traces.splice(i, 1); }
         for (let i = particles.length - 1; i >= 0; i--) { particles[i].update(); if (particles[i].dead) particles.splice(i, 1); }
 
-        const tx = diver.x - width / 2 + (mouseSX - width / 2) * 0.22;
-        const ty = diver.y - height / 2 + (mouseSY - height / 2) * 0.22;
-        camX += (tx - camX) * 0.15; camY += (ty - camY) * 0.15;
+        const lead = window.__demoActive ? 0.12 : 0.22, follow = window.__demoActive ? 0.05 : 0.15;   // the attract camera glides
+        const tx = diver.x - width / 2 + (mouseSX - width / 2) * lead;
+        const ty = diver.y - height / 2 + (mouseSY - height / 2) * lead;
+        camX += (tx - camX) * follow; camY += (ty - camY) * follow;
         camX = Math.max(0, Math.min(mapW - width, camX));
         camY = Math.max(0, Math.min(mapH - height, camY));
 
@@ -4502,7 +4503,7 @@
     // update() through the same keys/mouse the player uses. Any click or key starts the
     // real run by reloading the page (sessionStorage flag), so nothing of it carries over.
     // Off with ?nodemo=1 (the headless tests use it).
-    const demo = { t: 0, anchor: null, ax: 0, ay: 0, harpT: 360, stuckT: 0 };
+    const demo = { t: 0, anchor: null, ax: 0, ay: 0, harpT: 360, stuckT: 0, tgt: null, tgtT: 0, ang: 0, mvx: 0, mvy: 0, kx: 0, ky: 0 };
     const DEMO_ON = (() => {
         try {
             if (new URLSearchParams(location.search).get('nodemo') === '1') return false;
@@ -4528,7 +4529,7 @@
         heliRemoveSeg(); heli.state = 'away'; heli.x = -2000;
         current = 'pistol';
         for (let i = 0; i < 5; i++) demoSpawn(true);
-        const c = camFor(diver.x, diver.y); camX = c.x; camY = c.y; demo.ax = diver.x + 300; demo.ay = diver.y;
+        const c = camFor(diver.x, diver.y); camX = c.x; camY = c.y; demo.ang = 0;
     }
     const DEMO_KINDS = ['flood', 'lanky', 'flood', 'tank', 'lanky', 'flood'];
     function demoSpawn(near) {
@@ -4550,30 +4551,45 @@
         if (live.length < 9 && demo.t % 45 === 0) demoSpawn(false);
         for (const c of live) if (!c.aggro) noticePlayer(c);
         if (creatures.length > 40) { const i = creatures.findIndex(c => c.dead && !c.carried); if (i >= 0) creatures.splice(i, 1); }
-        // target: the nearest creature in sight
-        let best = null, bd = Infinity;
+        // target: stick with one until it dies or is lost; only trade for something much closer
+        const seen = (c) => c && !c.dead && !c.carried && Math.hypot(c.x - diver.x, c.y - diver.y) < 1000 && los(diver.x, diver.y, c.x, c.y, false);
+        let near = null, nd = Infinity;
         for (const c of live) {
             const d = Math.hypot(c.x - diver.x, c.y - diver.y);
-            if (d < 950 && d < bd && los(diver.x, diver.y, c.x, c.y, false)) { bd = d; best = c; }
+            if (d < 900 && d < nd && los(diver.x, diver.y, c.x, c.y, false)) { nd = d; near = c; }
         }
-        // move: keep distance from everything close, drift around a lazy loop
+        demo.tgtT++;
+        if (!seen(demo.tgt)) { demo.tgt = near; demo.tgtT = 0; }
+        else if (near && near !== demo.tgt && demo.tgtT > 50 && nd < 0.45 * Math.hypot(demo.tgt.x - diver.x, demo.tgt.y - diver.y)) { demo.tgt = near; demo.tgtT = 0; }
+        const best = demo.tgt, bd = best ? Math.hypot(best.x - diver.x, best.y - diver.y) : Infinity;
+        // move: smoothed steering (no bang-bang), with hysteresis on the keys
         let mx = 0, my = 0;
         for (const c of live) {
             const dx = diver.x - c.x, dy = diver.y - c.y, d = Math.hypot(dx, dy) || 1;
-            if (d < 340) { const k = (340 - d) / 340 * 2.2; mx += dx / d * k; my += dy / d * k; }
+            if (d < 300) { const k = (300 - d) / 300 * 1.6; mx += dx / d * k; my += dy / d * k; }
         }
-        const hx = demo.anchor.x + Math.cos(demo.t * 0.004) * 520 - diver.x, hy = demo.anchor.y + Math.sin(demo.t * 0.0067) * 300 - diver.y;
+        const hx = demo.anchor.x + Math.cos(demo.t * 0.0018) * 420 - diver.x, hy = demo.anchor.y + Math.sin(demo.t * 0.003) * 220 - diver.y;
         const hd = Math.hypot(hx, hy) || 1;
-        mx += hx / hd * Math.min(1, hd / 220); my += hy / hd * Math.min(1, hd / 220);
+        mx += hx / hd * Math.min(1, hd / 260); my += hy / hd * Math.min(1, hd / 260);
         if (diver.y < waterLevel + 150) my += 1.5;
         if (diver.y > getTerrainY(diver.x) - 200) my -= 1.5;
+        demo.mvx += (mx - demo.mvx) * 0.03; demo.mvy += (my - demo.mvy) * 0.03;
+        const hyst = (v, k) => k > 0 ? (v > 0.15 ? 1 : 0) : k < 0 ? (v < -0.15 ? -1 : 0) : (v > 0.55 ? 1 : v < -0.55 ? -1 : 0);
+        demo.kx = hyst(demo.mvx, demo.kx); demo.ky = hyst(demo.mvy, demo.ky);
         for (const k in keys) keys[k] = false;
-        keys.a = mx < -0.3; keys.d = mx > 0.3; keys.w = my < -0.3; keys.s = my > 0.3;
-        // aim: lead the target, with a quick human-ish settle
-        const tx = best ? best.x + (best.vx || 0) * 6 : diver.x + diver.facing * 300, ty = best ? best.y + (best.vy || 0) * 6 : diver.y + Math.sin(demo.t * 0.02) * 40;
-        demo.ax += (tx - demo.ax) * 0.35; demo.ay += (ty - demo.ay) * 0.35;
-        mouseSX = demo.ax - camX; mouseSY = demo.ay - camY;
-        const onTarget = best && Math.hypot(tx - demo.ax, ty - demo.ay) < 60;
+        // cruise, don't sprint: pulse the keys (drag smooths the speed), harder only when something is close
+        const ph = demo.t % 10, dx = Math.min(0.9, 0.3 + Math.abs(demo.mvx) * 0.35) * 10, dy = Math.min(0.9, 0.3 + Math.abs(demo.mvy) * 0.35) * 10;
+        keys.a = demo.kx < 0 && ph < dx; keys.d = demo.kx > 0 && ph < dx; keys.w = demo.ky < 0 && ph < dy; keys.s = demo.ky > 0 && ph < dy;
+        // aim: an angle that turns at a capped rate toward the (led) target, held at a
+        // fixed radius so the camera's look-ahead stays steady
+        const s0 = shoulder();
+        const want = best ? Math.atan2(best.y + (best.vy || 0) * 8 - s0.y, best.x + (best.vx || 0) * 8 - s0.x)
+                          : (demo.mvx < 0 ? Math.PI : 0) + Math.sin(demo.t * 0.01) * 0.15;
+        let da = want - demo.ang; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2;
+        const turn = Math.max(-0.045, Math.min(0.045, da * 0.12));
+        demo.ang += turn;
+        mouseSX = s0.x + Math.cos(demo.ang) * 240 - camX; mouseSY = s0.y + Math.sin(demo.ang) * 240 - camY;
+        const onTarget = best && Math.abs(da) < 0.14;
         mouseDown = false; mousePressed = false;
         // every so often, a harpoon into something close, reeled into a stock bash
         if (demo.harpT > 0) demo.harpT--;
