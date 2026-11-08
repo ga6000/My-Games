@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raster Reel — dev test</title>
+<!--
+  RASTER REEL (dev only, 2026-11-08). Not a hub game and not on the board.
+
+  Plays the board games live, side by side, and lays ONE shared raster filter
+  over every game's main canvas so a raster look can be weighed across games at
+  once. No game file is changed: each game runs untouched in its own iframe, its
+  canvas is hidden (still rendering), and a filtered copy is drawn in its place
+  each frame. The game's DOM HUD stays on top, unfiltered.
+
+  Needs http, not file://: the page reads the games' canvases through their
+  iframes, which browsers only allow same-origin.
+      node scripts/dev-serve.js     then open  http://localhost:8123/raster-reel/raster-reel.html
+
+  Experiment for the hub anthology raster direction. See raster-reel/README.md.
+-->
+<link rel="stylesheet" href="../shared/retro.css">
+<style>
+  :root { --panel-w: 300px; --line: #1d2a26; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--phos-hot, #e8fff4);
+    font-family: var(--font-ui, monospace); font-size: 18px; overflow: hidden; }
+  #app { display: flex; height: 100%; }
+
+  /* ---------- control panel ---------- */
+  #panel { width: var(--panel-w); flex: none; height: 100%; overflow-y: auto; border-right: 2px solid var(--line);
+    padding: 10px 12px 40px; background: #030605; }
+  #panel h1 { font-family: var(--font-display, monospace); font-size: 13px; color: var(--sig-magenta, #ff2e88);
+    margin: 4px 0 2px; letter-spacing: 1px; }
+  #panel .sub { color: var(--phos-mid, #8fa89c); font-size: 15px; margin-bottom: 10px; line-height: 1.1; }
+  .sec { border-top: 1px solid var(--line); padding: 8px 0 4px; }
+  .sec > h2 { font-family: var(--font-display, monospace); font-size: 9px; color: var(--sig-cyan, #00e5ff);
+    margin: 2px 0 8px; letter-spacing: 1px; }
+  .row { display: block; margin-bottom: 6px; }
+  .row > span { display: flex; justify-content: space-between; color: #9fb8b4; font-size: 16px; }
+  .row > span b { color: var(--sig-amber, #ffb000); font-weight: normal; }
+  .row input[type=range] { width: 100%; accent-color: var(--sig-magenta, #ff2e88); }
+  .row select, .row textarea, .btns button, .tile-head button, #layoutBar button {
+    font-family: var(--font-ui, monospace); font-size: 16px; background: #000; color: var(--phos-hot, #e8fff4);
+    border: 1px solid #2e4a44; padding: 2px 6px; cursor: pointer; }
+  .row select { width: 100%; }
+  .row textarea { width: 100%; height: 70px; font-size: 13px; resize: vertical; cursor: text; }
+  .chk { display: flex; align-items: center; gap: 6px; color: #9fb8b4; font-size: 16px; margin-bottom: 4px; cursor: pointer; }
+  .btns { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+  .btns button:hover, .tile-head button:hover, #layoutBar button:hover { border-color: var(--sig-cyan, #00e5ff); }
+  button.on { border-color: var(--sig-magenta, #ff2e88) !important; color: var(--sig-magenta, #ff2e88) !important; }
+  .hint { color: var(--phos-mid, #8fa89c); font-size: 14px; line-height: 1.15; }
+  #msg { color: var(--sig-amber, #ffb000); font-size: 14px; min-height: 16px; }
+
+  /* ---------- stage ---------- */
+  #stageWrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #layoutBar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 2px solid var(--line); }
+  #layoutBar .grow { flex: 1; }
+  #layoutBar .stat { color: var(--phos-mid, #8fa89c); font-size: 15px; }
+  #stage { flex: 1; position: relative; min-height: 0; padding: 6px; display: grid; gap: 6px; }
+  #stage.grid  { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
+  #stage.focus { grid-template-columns: repeat(5, 1fr); grid-template-rows: 3fr 1fr; }
+  #stage.focus .tile.big { grid-column: 1 / -1; grid-row: 1; }
+  #stage.solo .tile { display: none; }
+  #stage.solo .tile.big { display: flex; grid-column: 1 / -1; grid-row: 1 / -1; }
+
+  .tile { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    border: 2px solid var(--line); background: #000; }
+  .tile.active { border-color: var(--sig-amber, #ffb000); }
+  .tile-head { display: flex; align-items: center; gap: 5px; padding: 2px 5px; background: #030605;
+    border-bottom: 1px solid var(--line); flex: none; white-space: nowrap; overflow: hidden; }
+  .tile-head .name { font-family: var(--font-display, monospace); font-size: 9px; letter-spacing: 1px; }
+  .tile-head .cab { font-size: 13px; padding: 0 4px; border: 1px solid; }
+  .tile-head .cab.vector { color: var(--sig-cyan, #00e5ff); }
+  .tile-head .cab.raster { color: var(--sig-amber, #ffb000); }
+  .tile-head .grow { flex: 1; }
+  .tile-head .snd { font-size: 13px; color: var(--phos-mid, #8fa89c); }
+  .tile.active .tile-head .snd { color: var(--sig-amber, #ffb000); }
+  .tile-head button { font-size: 13px; padding: 0 4px; }
+  .tile-body { position: relative; flex: 1; overflow: hidden; min-height: 0; }
+  .tile-body iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: #000; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <h1>RASTER REEL</h1>
+    <div class="sub">Live games, one shared filter. Click a tile to play it; only the tile you're playing has sound.</div>
+
+    <div class="sec">
+      <h2>PRESETS</h2>
+      <div class="row"><select id="presetSel"></select></div>
+      <div class="btns">
+        <button id="presetSave">Save as…</button>
+        <button id="presetDel">Delete</button>
+        <button id="presetExport">Export JSON</button>
+        <button id="presetImport">Import</button>
+      </div>
+      <div class="row"><textarea id="presetJson" spellcheck="false" placeholder="Export fills this; paste JSON here then Import."></textarea></div>
+      <div id="msg"></div>
+    </div>
+
+    <div id="controls"></div>
+
+    <div class="sec">
+      <h2>COMPARE</h2>
+      <div class="hint">Hold <b>\</b> (outside a game) or the RAW button to see every game unfiltered. Each tile also has its own FX toggle. Scuba, Zombie and RD Arena start unfiltered as references.</div>
+    </div>
+  </aside>
+
+  <main id="stageWrap">
+    <div id="layoutBar">
+      <button data-layout="grid" class="on">Grid</button>
+      <button data-layout="focus">Focus</button>
+      <button data-layout="solo">Solo</button>
+      <button id="reelBtn">Reel ▶</button>
+      <span class="stat" id="reelStat"></span>
+      <span class="grow"></span>
+      <button id="rawBtn">RAW</button>
+      <button id="allFx">FX all on</button>
+      <button id="vecFx">FX Vector only</button>
+      <span class="stat" id="fps"></span>
+    </div>
+    <div id="stage" class="grid"></div>
+  </main>
+</div>
+<script src="rr-reel.js"></script>
+</body>
+</html>
