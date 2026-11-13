@@ -66,6 +66,30 @@ Firestore write-only). See `cliff-run/SERVER_NOTES.md` § "Cross-game rewards".
 - 2026-10-17 · zombie-rail · Multiplayer for the rail sandbox — the wire format is already implied (broadcast each body's route anchor + scalar and DERIVE every car, never interpolate)
 - 2026-10-17 · zombie-rail · Pump noise as a real wave trigger with a difficulty curve, once zombies are more than the placeholder straight-line chaser in `rail-zomb.js`
 
+### Notebook notes (2026-11-13, Ry)
+
+Transcribed from Ry's older notebook. Fit, conflicts and proposed standards rewrites (R1-R11):
+`NOTEBOOK_NOTES_2026-11-13.md`.
+
+- 2026-11-13 · hub · Hand-painted cabinet side-art for every card, one shared style, replacing the emoji icons — R3
+- 2026-11-13 · hub · Every game boots LOAD → TITLE → ATTRACT (with join) → READY border screen (Robotron/Defender, "not live") → PLAY — R4
+- 2026-11-13 · hub · Floating score toasts and one 80s-sized point scale across all hub games — R5
+- 2026-11-13 · hub · A Star Wars style chapter crawl per game, placing it in the story — R6
+- 2026-11-13 · hub · Each game its own catchy tune, all on one shared theme — R1
+- 2026-11-13 · hub · Story-progress unlocks per player stored in a cookie (same system as "Cross-game rewards" above)
+- 2026-11-13 · hub · Party session: X games, per-player totals, readout between games and at the end, one winner — R9
+- 2026-11-13 · hub · Target roster of 12 to 18 titles (conflicts with rule 8) — R7
+- 2026-11-13 · hub · Distant goal: couch play with several controllers on one screen, designed in from the start (conflicts with the 2026-09-01 removal) — R11
+- 2026-11-13 · gyro-fleet · Siphon power-ups from vaporised drops, asteroids, trash and wrecks; medic siphon heals minor damage — §2.1
+- 2026-11-13 · gyro-fleet · Wrecks don't vanish: drifting hulls and debris stay breakable — §2.1
+- 2026-11-13 · gyro-fleet · Any collision breaks your bot; right-click to move, spacebar for hyperdrive (try at the controls playtest) — §2.1
+- 2026-11-13 · gyro-fleet · The battle timeline: launch, spool, long burn, can't turn at light speed, re-burst, asteroid belt, 30 s fight — §2.1
+- 2026-11-13 · rd-arena · Roll back to before the server update; cheapest route is pointing the hub card at `rd-arena.pre-mp/` — §2.2
+- 2026-11-13 · rd-arena · Belly of the Beast chapter: slide into the Manhattan Hurl as the player-select screen; ULTRAKILL-like loop with 2-4 choices per player — §2.2
+- 2026-11-13 · new · Hurl satellite rail shooter: weaken the Hurl from orbit before RD Arena — §2.3
+- 2026-11-13 · new · EIEI Aliens: farmer shoot-'em-up, aliens rushing the farm — §2.4
+- 2026-11-13 · new · Desert Code Racer: Major Havoc style vector racer, cyber bike carrying launch codes across the desert under mothership beams (sketch in `concepts/`) — §2.5
+
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)
