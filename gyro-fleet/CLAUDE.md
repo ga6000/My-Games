@@ -45,6 +45,8 @@ away, because `glHole` needs one.
 
 ## The one-loop design (Ry, 2026-11-13)
 
+Gyro Fleet is the hub story's FINAL game. Space Tracer is scrapped; a second, smaller game on this engine, TAKEOFF (Earth launch-to-orbit battle in low orbit), comes before it and is scoped for later.
+
 Launch from the hex bay, jump between 3 sites, crack breathing vents, shoot wrecks into SIPHON (the one currency: medic heals with it, anyone calls bots with it). Site 3 is the enemy mothership (The Tide); after it falls every remaining enemy floods toward the main player character, and surviving that wins. "Auto" is not a class: it's a FOLLOW / AUTO wing order. Each class gets a distinct ship look. Pass order: flight -> one site (vents, wrecks, siphon) -> classes + wing orders + ship looks -> The Tide, the flood, round end, hub card.
 
 ## Pass log
