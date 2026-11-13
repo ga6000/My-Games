@@ -37,10 +37,13 @@ window.addEventListener("keydown", function (e) {
     // SPACE drops the drive to gear 0 — the quick brake when fine-tuning an
     // approach. Q: the flown ship; E: formations holding a selected ship.
     // (2026-09-11: it was hold-to-charge before the drive became gears.)
+    // Gyro Fleet (2026-11-13): in Q, hold SPACE = jump drive (gf-flight.js).
     if (e.code === "Space") {
         e.preventDefault();
-        if (!e.repeat) glShiftGear(0);
+        if (!e.repeat) { if (glMode === "q") gfJumpPress(); else glShiftGear(0); }
     }
+    // Hold SHIFT = strafe (Q): the ship holds its line, the gun follows the cursor.
+    if ((e.code === "ShiftLeft" || e.code === "ShiftRight") && glMode === "q" && !e.repeat) gfStrafeSet(true);
     // U: ultradrive (gl-ultra.js) — Q mode, the flown ship, solo. Tap to
     // charge; tap again to abort the charge or to drop out of the drive.
     // (U ultradrive is off in Gyro Fleet pass 1: it crosses light-years, and
@@ -73,9 +76,10 @@ window.addEventListener("keydown", function (e) {
 
     // Shift+↑/↓: drive gear, the keyboard twin of Shift+wheel (2026-09-12).
     // Not a pan — and no auto-repeat, or holding it would race to gear 9.
+    // (Gyro Fleet: E only now. Q has no gears; see gf-flight.js.)
     if (e.shiftKey && (e.code === "ArrowUp" || e.code === "ArrowDown")) {
         e.preventDefault();
-        if (!e.repeat) glShiftGear(e.code === "ArrowUp" ? 1 : -1);
+        if (!e.repeat && glMode === "e") glShiftGear(e.code === "ArrowUp" ? 1 : -1);
         return;
     }
     if (e.code === "ArrowLeft")  { glPan.x = -1; e.preventDefault(); }
@@ -88,8 +92,16 @@ window.addEventListener("keydown", function (e) {
 });
 
 window.addEventListener("keyup", function (e) {
+    if (e.code === "Space") gfJumpRelease();
+    if (e.code === "ShiftLeft" || e.code === "ShiftRight") gfStrafeSet(false);
     if (e.code === "ArrowLeft" || e.code === "ArrowRight") glPan.x = 0;
     if (e.code === "ArrowUp" || e.code === "ArrowDown") glPan.y = 0;
+});
+
+// A lost focus (alt-tab) must not leave thrust, strafe or a spool held down.
+window.addEventListener("blur", function () {
+    gfThrustSet(false); gfStrafeSet(false);
+    if (gfFlight.jump === "spool") gfJumpRelease();
 });
 
 // Right-click is a game command in E mode, never the browser's menu.
@@ -120,9 +132,9 @@ glCanvas.addEventListener("mousedown", function (e) {
             }
             glSyncPanelFromParams();
         } else {
-            // Q (2026-09-12): lock / release the flown ship's trajectory,
-            // aimed at the click. gl-sim.js glToggleTrajLock.
-            glToggleTrajLock(wx, wy);
+            // Q (Gyro Fleet, 2026-11-13): hold right mouse = thrust. Replaces
+            // the lab's trajectory lock. Released on the window's mouseup.
+            gfThrustSet(true);
         }
         return;
     }
@@ -132,16 +144,9 @@ glCanvas.addEventListener("mousedown", function (e) {
         glDrag = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, add: e.shiftKey };
         return;
     }
-    // Q mode: shift-click drops a probe tangential to the nearest hole — the
-    // quickest way to ask "what would happen if I let go right here" — and a
-    // plain click fires.
-    if (e.shiftKey) {
-        const nh = glNearestHole(wx, wy) || glHole;
-        const a = Math.atan2(wy - nh.y, wx - nh.x) + Math.PI / 2;
-        glSpawnProbe(wx, wy, Math.cos(a) * GLP.v.probeSpeed, Math.sin(a) * GLP.v.probeSpeed);
-    } else if (glShip.isAlive) {
-        glFire(glShip.x, glShip.y, glShip.angle);
-    }
+    // Q mode: a click fires toward the cursor (gf-flight.js). Gyro Fleet
+    // dropped the lab's shift-click probe: Shift is strafe now.
+    gfFire();
 });
 
 window.addEventListener("mousemove", function (e) {
@@ -151,6 +156,7 @@ window.addEventListener("mousemove", function (e) {
 // Box select finishes on the WINDOW, not the canvas, so releasing over the
 // panel still completes the drag instead of leaving a box stuck on screen.
 window.addEventListener("mouseup", function (e) {
+    if (e.button === 2) gfThrustSet(false);
     if (!glDrag || e.button !== 0) return;
     const d = glDrag;
     glDrag = null;
@@ -201,7 +207,7 @@ glCanvas.addEventListener("wheel", function (e) {
     if (glMinimapHit(e.clientX, e.clientY)) { glMinimapStep(dy > 0 ? 1 : -1); return; }
     // Shift+wheel: drive gear, up = faster (2026-09-11). Throttled, since a
     // trackpad sends a burst of events per gesture.
-    if (e.shiftKey) {
+    if (e.shiftKey && glMode === "e") {   // Gyro Fleet: formations only; Q has no gears
         const now = performance.now();
         if (now - glGearWheelT > 120) { glGearWheelT = now; glShiftGear(dy < 0 ? 1 : -1); }
         return;

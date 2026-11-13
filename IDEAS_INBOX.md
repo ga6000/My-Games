@@ -66,6 +66,8 @@ Firestore write-only). See `cliff-run/SERVER_NOTES.md` § "Cross-game rewards".
 - 2026-10-17 · zombie-rail · Multiplayer for the rail sandbox — the wire format is already implied (broadcast each body's route anchor + scalar and DERIVE every car, never interpolate)
 - 2026-10-17 · zombie-rail · Pump noise as a real wave trigger with a difficulty curve, once zombies are more than the placeholder straight-line chaser in `rail-zomb.js`
 
+- 2026-11-13 · hub (Ry) · Each crew class has a DISTINCT SHIP/CHARACTER LOOK, the same across every game with classes (Gyro Fleet wings, Zombie roles): one silhouette and one class colour per crew member. Proposed as a standards rewrite to `AESTHETIC_GUIDE.md`; Gyro Fleet builds it in its classes pass — `gyro-fleet/CLAUDE.md` "one-loop design"
+
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)

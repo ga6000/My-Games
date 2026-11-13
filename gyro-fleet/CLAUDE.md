@@ -36,15 +36,20 @@ away, because `glHole` needs one.
 
 ## Design calls so far (Ry, 2026-11-07 / 11-08)
 
-- PvE only. Auto-brake at the edge of a battle (not built yet). Opt-in ram with an impact frame (not built yet).
+- PvE only. Auto-brake at the edge of a battle (built in the flight pass). Opt-in ram with an impact frame (not built yet).
 - No drift and no stopping dead: strafing is a committed pass, tuned by playtest.
 - Six crew classes, a hex spawn room, and each crew member commands a wing of bots of their class.
 - The human mothership is 5 km, solid hull plus lattice mesh. The Tide (alien mothership) is about
   Florida-sized.
 - Creatures: aircrab, airkrill (minion), Bellwether (alpha, breath sync), The Tide, the Hurls.
 
+## The one-loop design (Ry, 2026-11-13)
+
+Launch from the hex bay, jump between 3 sites, crack breathing vents, shoot wrecks into SIPHON (the one currency: medic heals with it, anyone calls bots with it). Site 3 is the enemy mothership (The Tide); after it falls every remaining enemy floods toward the main player character, and surviving that wins. "Auto" is not a class: it's a FOLLOW / AUTO wing order. Each class gets a distinct ship look. Pass order: flight -> one site (vents, wrecks, siphon) -> classes + wing orders + ship looks -> The Tide, the flood, round end, hub card.
+
 ## Pass log
 
 | Pass | Plan | State |
 |---|---|---|
-| 1 (2026-11-08) | `GYRO_FLEET_PASS_1_PLAN.md` | Enemies in groups, breath rule, Bellwether wave. **Not yet human-played.** Next: Ry's controls playtest. |
+| 1 (2026-11-08) | `GYRO_FLEET_PASS_1_PLAN.md` | Enemies in groups, breath rule, Bellwether wave. Ry played it 2026-11-08: navigation was the problem. |
+| flight (2026-11-13) | `GYRO_FLEET_FLIGHT_PLAN.md` | Right-click thrust, Space jump + auto-brake, Shift strafe, gears gone from Q (`gf-flight.js`). **Not yet human-played.** |

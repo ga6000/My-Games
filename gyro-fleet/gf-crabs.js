@@ -575,6 +575,7 @@ function gfDrawCreature(c, cr, z) {
 //   Draw: overlay (screen space, never lensed)
 // ---------------------------------------------------
 function gfDrawOverlay(c) {
+    gfFlightOverlay(c);   // gf-flight.js: spool aim line, strafe lines, drive cues
     if (!gfHive) return;
     c.save();
     c.font = "11px monospace";

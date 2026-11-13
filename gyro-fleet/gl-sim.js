@@ -77,6 +77,7 @@ function glUpdateShipOne(s, dt) {
             // ship beside Earth still in gear 9 would be a light-year off in a second.
             s.hyperActive = false; s.hyperRemaining = 0; s.hyperPeakV = 0;
             glHyperGear = 0;
+            gfFlightReset();
             s.speed = s.baseSpeed;
             s.deathCause = "";
         }
@@ -110,6 +111,8 @@ function glUpdateShipOne(s, dt) {
     }
     if (!s.autoOrbit && s.autoLock) { s.autoLock = null; s.autoTarget = null; }   // re-engaging takes a fresh lock
     // Flown by hand: the mouse — or, with the trajectory locked, the held heading.
+    // Gyro Fleet flight (gf-flight.js): a burst or a strafe holds the heading.
+    if (desired === null && direct) desired = gfFlightHeading(s);
     if (desired === null && direct) desired = s.trajLock !== null ? s.trajLock : Math.atan2(glMouse.y - glCY, glMouse.x - glCX);
     if (desired === null) {
         // Loiter centre cleared every frame: a home point can sit in a well,
@@ -143,7 +146,9 @@ function glUpdateShipOne(s, dt) {
     // span a real-scale galaxy: a pilot needs everything from 10,000 km/s
     // (settling onto a moon) to a light-year a second. Above 1.8x cruise any
     // ship grips like a burn (the authority line below).
-    if (direct && glHyperGear > 0 && !s.autoOrbit) s.speedMul = glGearMul(glHyperGear);
+    // Gyro Fleet (2026-11-13): the flown ship's speed comes from gf-flight.js
+    // (thrust / cruise / jump), not from gears.
+    if (direct && !s.autoOrbit) s.speedMul = gfFlightSpeedMul(s, dt);
     if (!s.hyperActive) s.speed = s.baseSpeed * s.speedMul;
     if (s.hyperActive) {
         // A burst in an evenly spaced ring GRIPS rather than sprints

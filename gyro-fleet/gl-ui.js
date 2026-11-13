@@ -143,7 +143,7 @@ function glBuildPanel() {
         '<kbd>E</kbd>: <kbd>F</kbd> spawns a ship at the cursor, left-drag box-selects (shift adds), ' +
         'right-click sends the selection there in a delta (on a planet: it orbits on arrival), <kbd>O</kbd> ' +
         'rings it round the nearest body, <kbd>Shift+wheel</kbd> or <kbd>Shift+↑↓</kbd> sets the formation\'s ' +
-        'gear. In Q: <kbd>U</kbd> ultradrive, <kbd>right-click</kbd> locks the trajectory. Arrows pan.</p></div>';
+        'gear. In Q: hold <kbd>right-click</kbd> thrust, hold <kbd>space</kbd> jump, hold <kbd>shift</kbd> strafe. Arrows pan.</p></div>';
 
     // (The Black holes roster — pick, add, remove, generate field — went
     // 2026-09-12 at the user's request: holes come from the galaxy now.)
@@ -366,7 +366,8 @@ function glUpdateHud() {
         // it shows the first selected formation's gear.
         const gs = glMode === "e" ? glFleetGroups() : null;
         const gear = gs ? (gs.length ? (gs[0].gear || 0) : 0) : glHyperGear;
-        hyper = "<span style='color:" + (gear ? "#FFB000" : "#cfe9e6") + "'>GEAR " + gear + "/" +
+        if (!gs) hyper = gfFlightHudLine();   // Gyro Fleet: Q has a drive, not gears
+        else hyper = "<span style='color:" + (gear ? "#FFB000" : "#cfe9e6") + "'>GEAR " + gear + "/" +
             Math.round(GLP.v.hyperGearMax) + " &nbsp; ×" + glFmtMul(glGearMul(gear)) + " = " +
             glFmtSpeed(s.baseSpeed * glGearMul(gear)) +
             (gs ? " &nbsp; " + gs.length + " formation" + (gs.length === 1 ? "" : "s") : "") +
