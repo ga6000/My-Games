@@ -273,6 +273,10 @@
      LB no-ops entirely on file://. -->
 <script src="../shared/retro.js"></script>
 <script src="../shared/leaderboard.js"></script>
+<!-- The hub session (2026-11-13); this game's side is gc-party.js.
+     party.js must follow mp-core.js. -->
+<script src="../shared/hubscore.js"></script>
+<script src="../shared/party.js"></script>
 <!-- The L+G dev panel. BEFORE this game's own files: its error capture only
      sees throws that happen after it installs, and its keydown listener has to
      be attached before setupKeyboardControls()' so a combo press can be
@@ -303,6 +307,7 @@
      runtime; gc-boot builds the panel. -->
 <script src="gc-sidebar.js"></script>
 <script src="gc-elevator.js"></script>
+<script src="gc-party.js"></script>
 <script src="gc-boot.js"></script>
 <!-- LAST: it reads names every file above declares, and registers only. It
      also declares gcDevGod, which gc-entities.js reads at its three damage

@@ -83,6 +83,7 @@ class Entity {
 
     hit(dmg, angle) {
         if (this.dead) return;
+        if (!this.isPlayer) rdScoreHit(dmg);     // rd-party.js
         // Enemies are host-authoritative (MP_ROLLOUT.md 2 step 3). A client
         // that is not the host reports the hit and lets the host decide -- two
         // clients both killing the same grunt would otherwise each spawn its
@@ -126,6 +127,7 @@ class Entity {
         if (this.isPlayer) {
             createBloodSplatter(this.x, this.y, impactAngle, { count: 250 });
             deaths++;
+            rdScoreDeath();
             screenShake = 24;
             trackTimeout(() => {
                 player = new Entity(worldWidth / 2, worldHeight / 2, 'player');

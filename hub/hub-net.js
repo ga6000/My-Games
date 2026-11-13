@@ -199,7 +199,10 @@ function startCountdown(gameId, delayMs) {
     stopCountdown();
     isLaunching = true;
 
-    let remaining = Math.ceil((delayMs || 3000) / 1000);
+    // Alone the server sends no delay: no 3-2-1, the party just sets out.
+    if (!delayMs) { renderBottomBar(); launchDepart(game); return; }
+
+    let remaining = Math.ceil(delayMs / 1000);
     countdownGame.textContent = game.title;
     countdownNumber.textContent = remaining;
     countdownOverlay.hidden = false;
@@ -209,9 +212,13 @@ function startCountdown(gameId, delayMs) {
         countdownNumber.textContent = Math.max(0, remaining);
     }, 1000);
 
+    // When the count ends the party walks to the tile, a chapter card
+    // names it, and then the game opens (hub-crew.js).
     countdownTimer = trackTimeout(() => {
-        window.location.href = gameHref(game);
-    }, delayMs || 3000);
+        if (countdownTick) { clearTracked(countdownTick); countdownTick = null; }
+        countdownTimer = null;
+        launchDepart(game);
+    }, delayMs);
 
     renderBottomBar();
 }
@@ -220,6 +227,7 @@ function stopCountdown() {
     if (countdownTimer) { clearTracked(countdownTimer); countdownTimer = null; }
     if (countdownTick) { clearTracked(countdownTick); countdownTick = null; }
     countdownOverlay.hidden = true;
+    departCancel();
     isLaunching = false;
 }
 
@@ -228,7 +236,7 @@ function stopCountdown() {
 // exactly where they always did.
 function launchSolo(gameId) {
     const game = gameById(gameId);
-    if (game) window.location.href = gameHref(game);
+    if (game) { renderBottomBar(); launchDepart(game); }
 }
 
 

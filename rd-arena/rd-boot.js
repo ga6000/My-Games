@@ -24,6 +24,7 @@ function loop() {
 
     updateRD();
     updateSprays();
+    rdPartyTick();
 
     // The packet clock. Repacks on RDNET.INTERVAL_MS and advances the morph;
     // driven from the loop rather than a timer, so it cannot outlive destroy().

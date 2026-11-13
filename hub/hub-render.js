@@ -29,6 +29,9 @@ function gameHref(game) {
         // hub=1: this game was opened from the board, so when it ends it
         // shows its score and comes back here, session or not (party.js).
         + "&hub=1"
+        // The character this player picked (hub-crew.js); the game has it
+        // before its socket opens, and with no server at all.
+        + (crewMyRole() ? "&role=" + encodeURIComponent(crewMyRole()) : "")
         + (SERVER_OVERRIDE ? "&server=" + encodeURIComponent(SERVER_OVERRIDE) : "");
 }
 
@@ -152,6 +155,8 @@ function renderPaths() {
     const order = { off: 0, done: 1, open: 2 };
     parts.sort((x, y) => order[x.state] - order[y.state]);
     pathLayer.innerHTML = parts.map(p => p.html).join("");
+    // The party stands on the board the paths were just measured from.
+    renderTokens();
 }
 
 function renderPageDots() {
@@ -304,7 +309,7 @@ function waitingHint(names) {
     // Nobody left but you: the ask is yours, so say the ask rather than
     // "waiting for you", which reads like the room is stuck on itself.
     if (names.length === 1 && names[0] === myName) {
-        return "Click a game to vote — everyone votes, then Continue";
+        return "Pick a game";
     }
     const s = waitingClause(names);
     return s.charAt(0).toUpperCase() + s.slice(1);
@@ -320,12 +325,12 @@ function idleHint() {
 
     let anyVotes = false;
     votesByGame.forEach(voters => { if (voters.size > 0) anyVotes = true; });
-    if (!anyVotes) return "Click a game to vote — everyone votes, then Continue";
+    if (!anyVotes) return "Pick a game";
 
     const waiting = pendingVoters();
     return waiting.length > 0
         ? waitingHint(waiting)
-        : "It's a tie — someone needs to switch their vote";
+        : "Tied";
 }
 
 // For a second click on the tile you already chose. It keeps the vote
@@ -333,14 +338,12 @@ function idleHint() {
 function ownChoiceHint(gameId) {
     const game = gameById(gameId);
     const title = game ? game.title : "That game";
-    if (!lobbyOnline()) return title + " is already your pick — the button below plays it solo";
+    if (!lobbyOnline()) return title + " is your pick";
 
     const waiting = pendingVoters();
-    if (waiting.length > 0) return title + " is already your vote — " + waitingClause(waiting);
+    if (waiting.length > 0) return title + " is your vote — " + waitingClause(waiting);
 
-    return effectiveLeader() === gameId
-        ? title + " is already your vote — click Continue below when you're ready"
-        : title + " is already your vote — it needs the most votes to unlock Continue";
+    return effectiveLeader() === gameId ? title + " is your vote" : title + " is your vote — it is not winning";
 }
 
 function renderBottomBarInner() {
@@ -368,7 +371,7 @@ function renderBottomBarInner() {
         continueDots.hidden = true;
         continueLabel.textContent = "PLAY " + game.title.toUpperCase() + " SOLO";
         continueBtn.title = "Opens the game just for you";
-        continueHint.textContent = connectionHint() + " • play solo now, or wait and your pick becomes your vote";
+        continueHint.textContent = connectionHint();
         return;
     }
 
@@ -396,15 +399,15 @@ function renderBottomBarInner() {
         ).join("");
 
     if (waiting.length > 0) {
-        continueBtn.title = "Everyone in the room votes before it can start";
+        continueBtn.title = "";
         continueHint.textContent = waitingHint(waiting);
         return;
     }
 
     continueBtn.title = "";
     continueHint.textContent = isLaunching
-        ? "Everyone's ready — click again to cancel"
-        : `${readyNames.length}/${total} ready • everyone must click Continue`;
+        ? "Setting out"
+        : (total > 1 ? `${readyNames.length}/${total} ready` : "");
 }
 
 function renderAll() {
@@ -524,6 +527,7 @@ function anchorUnder(clientX, clientY) {
 // ===================================================
 function showHub() {
     identityOverlay.hidden = true;
+    if (tokenLayer) tokenLayer.dataset.sig = "";
     renderAll();
 }
 

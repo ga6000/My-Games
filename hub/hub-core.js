@@ -65,24 +65,35 @@ const GAMES = [
     //
     // ACT I · LANDFALL
     { id: "alien-outpost",        act: 1, title: "Alien Outpost",        desc: "The Meatball Comes Down",        soon: true },
+    // 2026-11-13 (Ry): EIEI Aliens is ACT I, "soon after the meatball
+    // landing": deflated aircrabs rushing a farmer who holds the yard.
+    { id: "eiei-aliens",          act: 1, title: "EIEI Aliens",          desc: "They Rush The Farm",             soon: true },
     // 2026-11-02: Scuba Shooter joined on Ry's call (solo, so the SOLO stamp).
-    { id: "scuba-shooter",        act: 1, title: "Scuba Shooter",        desc: "Oil-Rig Dive Shooter",           href: "scuba-shooter/scuba-shooter.html", solo: true },
+    // 2026-11-13: it reports a score, so it counts in a session; each player
+    // dives alone and the scores are ranked.
+    { id: "scuba-shooter",        act: 1, title: "Scuba Shooter",        desc: "Oil-Rig Dive Shooter",           href: "scuba-shooter/scuba-shooter.html", solo: true, party: true },
     // ACT II · SPREAD
     // ONE Zombie again, 2026-09-26 (`zombie-alt/` was merged back; the
     // pre-merge Zombie is `ae0f19d` if it is ever wanted).
     { id: "zombie",               act: 2, title: "Zombie",               desc: "The Inspired At The Gate",       href: "zombie/Zombie.html", mp: true, party: true },
-    { id: "glass-city-escape",    act: 2, title: "Glass City Escape",    desc: "Rooftop Run Above The Swarm",    href: "glass-city-escape/glass_city_escape.html", mp: true },
+    { id: "glass-city-escape",    act: 2, title: "Glass City Escape",    desc: "Rooftop Run Above The Swarm",    href: "glass-city-escape/glass_city_escape.html", mp: true, party: true },
     { id: "four-d-pong",          act: 2, title: "4D Pong",              desc: "Bat The Tendrils Back",          href: "four-d-pong/four-d-pong.html", mp: true, party: true },
     // ACT III · ESCALATION
     { id: "hurl-strike",          act: 3, title: "Hurl Strike",          desc: "Orbital Rail Shooter",           soon: true },
-    { id: "rd-arena",             act: 3, title: "RD Arena",             desc: "Belly Of The Beast",             href: "rd-arena/RDArena.html", mp: true },
+    { id: "rd-arena",             act: 3, title: "RD Arena",             desc: "Belly Of The Beast",             href: "rd-arena/RDArena.html", mp: true, party: true },
     // ACT IV · LAUNCH
     { id: "code-racer",           act: 4, title: "Desert Code Racer",    desc: "Carry The Launch Codes",         soon: true },
     { id: "cliff-run",            act: 4, title: "Cliff Run",            desc: "Up The Mountain Base",           soon: true },
     { id: "text-editor-wars",     act: 4, title: "Text Editor Wars",     desc: "The Inspired Hack The Launch",   soon: true },
     // ACT V · COUNTERATTACK
-    { id: "space-tracer",         act: 5, title: "Space Tracer",         desc: "First Fights In Orbit",          href: "gyro-space/space-tracer.html", mp: true, party: true },
-    { id: "gyro-fleet",           act: 5, title: "Gyro Fleet",           desc: "Out To The Tide",                soon: true }
+    // 2026-11-13 (Ry): Space Tracer is to be replaced by TAKEOFF, the smaller
+    // of two games on the Gyro engine: Earth launch to low orbit, a battle
+    // on the way up. TAKEOFF is not built. Until it is, the tile carries its
+    // name and opens the Space Tracer build as a stand-in, so ACT V has
+    // something to play; the id stays `space-tracer` (scores, leaderboard).
+    { id: "space-tracer",         act: 5, title: "Takeoff",              desc: "Earth To Low Orbit",             href: "gyro-space/space-tracer.html", mp: true, party: true },
+    // The final game: three sites, then the raid on the Tide.
+    { id: "gyro-fleet",           act: 5, title: "Gyro Fleet",           desc: "Three Sites And The Final Raid", soon: true }
 ];
 
 // The five acts of the story (names accepted by Ry 2026-11-08). One column

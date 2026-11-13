@@ -34,10 +34,11 @@
 //
 // TO ADD A GAME: give it an `act` in GAMES (hub-core.js), a STORY_PATHS
 // entry, and list it in whatever leads to it. Nothing else reads the story.
-const STORY_START = ["alien-outpost", "scuba-shooter"];
+const STORY_START = ["alien-outpost"];
 
 const STORY_PATHS = {
-    "alien-outpost":     ["scuba-shooter", "zombie"],
+    "alien-outpost":     ["eiei-aliens"],
+    "eiei-aliens":       ["scuba-shooter", "zombie"],
     "scuba-shooter":     ["zombie", "glass-city-escape"],
     "zombie":            ["glass-city-escape", "hurl-strike"],
     "glass-city-escape": ["four-d-pong", "rd-arena"],
@@ -118,14 +119,14 @@ function partyLockReason(game) {
     if (game.soon) return "IN DEVELOPMENT";
     const open = partyOpenIds();
     if (!open || open.has(game.id)) return null;
-    if (!game.party) return "FREE PLAY ONLY";
+    if (!game.party) return "NOT IN THE STORY YET";
     return storyIsBehind(game.id) ? "EARLIER CHAPTER" : "LATER CHAPTER";
 }
 
 // A small label on an OPEN tile: what kind of round it will be.
 function partyTileNote(game) {
     if (partyActive() && !game.party) return "UNSCORED";
-    if (game.solo) return "SOLO";
+    if (game.solo) return "SOLO RUNS";
     return "";
 }
 
@@ -185,11 +186,9 @@ function partyPathState(from, to) {
 }
 
 function partyLockHint(game) {
-    const why = partyLockReason(game);
-    if (why === "IN DEVELOPMENT") return game.title + " is still being built";
-    if (why === "FREE PLAY ONLY") return game.title + " doesn't score in a party yet. It is open in free play";
-    if (why === "EARLIER CHAPTER") return game.title + " is an earlier chapter. The story only moves forward";
-    return game.title + " comes later in the story. Play one of the lit games first";
+    // Short on purpose (Ry, 2026-11-13: less hand-holding). The stamp on
+    // the tile already says why.
+    return game.title + ": " + (partyLockReason(game) || "").toLowerCase();
 }
 
 
@@ -230,7 +229,7 @@ try { partyLocalMode = sessionStorage.getItem("gamehub_localMode") === "1"; } ca
 // asks which kind this is: a story party or free play. Both are sessions
 // on the server, so both route every game back here with a readout.
 function partyModeScreenUp() {
-    if (!myName || !identityOverlay.hidden) return false;
+    if (!myName || !identityOverlay.hidden || splashUp) return false;
     if (partyOverlayMode) return false;
     if (partyActive()) return false;
     if (partySession && partySession.done && partySeenWant() > partySeenRounds()) return false;
@@ -253,6 +252,9 @@ function partySessionChanged(next) {
     }
 
     if (!partySession) partyOverlayMode = "";
+    // Free play does not chain games (Ry, 2026-11-13): the game's own card
+    // showed the round, so there is nothing to read out here.
+    if (partySession && partySession.mode !== "story") partyMarkSeen();
     if (partySession && partySeenWant() > partySeenRounds() && partySession.rounds.length > 0) {
         partyOverlayMode = partySession.done ? "final" : "readout";
         // Come back to the part of the story the session is in.
@@ -264,6 +266,7 @@ function partySessionChanged(next) {
     attractRepaint();
     renderParty();
     renderBottomBar();
+    renderTokens();
 }
 
 function partySend(msg) {
@@ -321,14 +324,15 @@ function partyHeadline() {
     if (partySession.done) return "SESSION OVER";
     const n = partySession.rounds.length + 1;
     return partySession.mode === "story"
-        ? "STORY PARTY · GAME " + Math.min(n, partySession.total) + " OF " + partySession.total
-        : "FREE PLAY · GAME " + n;
+        ? "STORY · GAME " + Math.min(n, partySession.total) + " OF " + partySession.total
+        : "FREE PLAY";
 }
 
 function renderPartyBar() {
     if (!myName) { partyBar.hidden = true; partyBar.innerHTML = ""; return; }
 
-    const stand = partySession ? partySession.standings.map(r =>
+    const story = !!partySession && partySession.mode === "story";
+    const stand = story ? partySession.standings.map(r =>
         `<span class="party-stand${r.place === 1 && r.points > 0 ? " is-lead" : ""}">${partyDot(r.color)}${escapeHtml(r.name)} <b>${r.points}</b></span>`
     ).join("") : "";
 
@@ -336,23 +340,20 @@ function renderPartyBar() {
     // came back early): say where the group is.
     const inPlay = partySession && partySession.current ? gameById(partySession.current.gameId) : null;
     const late = inPlay
-        ? `<span class="party-tag is-alert">IN PLAY: ${escapeHtml(inPlay.title).toUpperCase()} · VOTE IT TO JOIN</span>`
+        ? `<span class="party-tag is-alert">IN PLAY: ${escapeHtml(inPlay.title).toUpperCase()}</span>`
         : "";
-
-    const canCall = partyActive() && partySession.mode !== "story" && partySession.rounds.length > 0 && !partySession.current;
 
     partyBar.hidden = false;
     partyBar.innerHTML =
         `<span class="party-tag">${partyHeadline()}</span>` + late + stand +
         '<span class="party-spacer"></span>' +
-        (partySession && partySession.rounds.length ? '<button class="top-btn" data-party="standings">Standings</button>' : "") +
-        (canCall ? '<button class="top-btn" data-party="finish" title="End free play here and name the winner">Call it</button>' : "") +
-        `<button class="top-btn" data-party="end" title="Back to the first screen: story party or free play">Change mode</button>`;
+        (story && partySession.rounds.length ? '<button class="top-btn" data-party="standings">Standings</button>' : "") +
+        `<button class="top-btn" data-party="end">Change mode</button>`;
 }
 
 function partyStandingsTable() {
     const top = Math.max(1, partySession.standings.length ? partySession.standings[0].points : 1);
-    return '<table class="party-table"><tr><th></th><th>STANDINGS</th><th class="n">1STS</th><th class="n">PARTY</th></tr>' +
+    return '<table class="party-table"><tr><th></th><th>STANDINGS</th><th class="n">1STS</th><th class="n">POINTS</th></tr>' +
         partySession.standings.map((r, i) =>
             `<tr class="party-reveal${r.name === myName ? " is-you" : ""}" style="--i:${i + 4}"><td>${partyOrdinal(r.place)}</td>` +
             `<td>${partyDot(r.color)}${escapeHtml(r.name)}` +
@@ -363,7 +364,7 @@ function partyStandingsTable() {
 }
 
 function partyRoundTable(round) {
-    return '<table class="party-table"><tr><th></th><th>PLAYER</th><th class="n">SCORE</th><th class="n">PARTY</th></tr>' +
+    return '<table class="party-table"><tr><th></th><th>PLAYER</th><th class="n">SCORE</th><th class="n">POINTS</th></tr>' +
         round.results.map((r, i) =>
             `<tr class="party-reveal${r.name === myName ? " is-you" : ""}" style="--i:${i}"><td>${partyOrdinal(r.place)}</td>` +
             `<td>${partyDot(r.color)}${escapeHtml(r.name)}</td><td class="n">${partyNumber(r.score)}</td>` +
@@ -375,10 +376,10 @@ function renderModeScreen() {
     const online = lobbyOnline() && serverHasSessions;
     const count = Object.keys(roomMembers).length;
     const foot = partyPending
-        ? `<span class="mode-blink">CONNECTING TO THE GAME SERVER. ${partyPending.mode === "story" ? "STORY PARTY" : "FREE PLAY"} STARTS WHEN IT ANSWERS</span>` +
+        ? '<span class="mode-blink">CONNECTING</span>' +
           '<button class="top-btn" data-party="local">Play solo without it</button>'
         : online
-            ? `ROOM ${escapeHtml(myRoom)} · ${count} PLAYER${count === 1 ? "" : "S"} HERE · ANYONE CAN PICK, EVERYONE GETS IT`
+            ? `ROOM ${escapeHtml(myRoom)} · ${count} PLAYER${count === 1 ? "" : "S"}`
             : escapeHtml(connectionHint()).toUpperCase() +
               ' <button class="top-btn" data-party="local">Play solo without it</button>';
 
@@ -389,18 +390,15 @@ function renderModeScreen() {
         '<span class="mode-go">START</span></div>';
 
     return '<div class="mode-screen">' +
-        '<div class="mode-kicker">PLAYER SELECT COMPLETE</div>' +
         "<h2>CHOOSE YOUR SESSION</h2>" +
         '<div class="mode-cards">' +
-        card("story", "STORY PARTY",
-            ["FOLLOW THE INVASION ACT BY ACT. THE PATH ONLY GOES FORWARD.",
-             "EACH GAME PAYS 10 / 7 / 5 / 3 BY SCORE. ONE WINNER AT THE END."],
+        card("story", "STORY",
+            ["THE INVASION, ACT BY ACT. ONE WINNER."],
             '<div class="mode-len">' + PARTY_LENGTHS.map(n =>
                 `<button class="party-opt" data-party-total="${n}" aria-pressed="${n === partySetupTotal}">${n}</button>`).join("") +
             "<span>GAMES</span></div>") +
         card("free", "FREE PLAY",
-            ["ANY GAME, ANY ORDER.",
-             "A RUNNING SCORE AFTER EVERY GAME. CALL IT WHEN YOU HAVE HAD ENOUGH."]) +
+            ["ANY GAME. HIGH SCORES COUNT."]) +
         "</div>" +
         `<div class="mode-foot">${foot}</div>` +
         "</div>";
@@ -408,7 +406,8 @@ function renderModeScreen() {
 
 function renderPartyOverlay() {
     const modeUp = partyModeScreenUp();
-    if (!modeUp && (!partyOverlayMode || !partySession)) {
+    const crewUp = !modeUp && crewScreenUp();
+    if (!modeUp && !crewUp && (!partyOverlayMode || !partySession)) {
         partyOverlay.hidden = true;
         partyOverlay.className = "";
         partyOverlay.innerHTML = "";
@@ -425,13 +424,22 @@ function renderPartyOverlay() {
         return;
     }
 
+    // Character select comes straight after (hub-crew.js).
+    if (crewUp) {
+        partyOverlay.hidden = false;
+        partyOverlay.className = "is-mode";
+        partyOverlay.innerHTML = renderCrewScreen();
+        artRepaint();
+        return;
+    }
+
     if (partyOverlayMode === "final") {
         const winners = partySession.winners || [];
         html =
             '<div class="party-kicker">SESSION OVER</div>' +
             `<h2>${partySession.rounds.length} GAME${partySession.rounds.length === 1 ? "" : "S"} PLAYED</h2>` +
             `<div class="party-winner">${escapeHtml(winners.join(" & ")).toUpperCase() || "NOBODY"}<br>${winners.length > 1 ? "SHARE THE WIN" : "WINS"}</div>` +
-            partyStandingsTable() +
+            crewPodiumHtml() +
             '<div class="party-row"><button class="party-go" data-party="dismiss">NEW SESSION</button></div>';
 
     } else {
@@ -441,16 +449,17 @@ function renderPartyOverlay() {
         html =
             `<div class="party-kicker">${escapeHtml(g ? g.title : "").toUpperCase()}</div>` +
             `<h2>AFTER GAME ${partySession.rounds.length}${of}</h2>` +
-            `<div class="party-sub">${round && round.cleared ? "CLEARED TOGETHER · +" + partySession.clearBonus + " EACH" : "PLACEMENT POINTS 10 / 7 / 5 / 3"}</div>` +
+            (round && round.cleared ? `<div class="party-sub">CLEARED TOGETHER · +${partySession.clearBonus} EACH</div>` : "") +
             (round ? partyRoundTable(round) : "") +
             partyStandingsTable() +
             '<div class="party-row"><button class="party-go" data-party="dismiss">' +
-            (partySession.done ? "CLOSE" : "PICK THE NEXT GAME") + "</button></div>";
+            (partySession.done ? "CLOSE" : "CONTINUE") + "</button></div>";
     }
 
     partyOverlay.hidden = false;
     partyOverlay.className = "";
     partyOverlay.innerHTML = '<div class="party-card">' + html + "</div>";
+    artRepaint();
     const focus = partyOverlay.querySelector(".party-go");
     if (focus) { try { focus.focus(); } catch (e) { /* not focusable yet */ } }
 }
@@ -490,8 +499,6 @@ function partyClick(e) {
             partyLocalMode = false;
             try { sessionStorage.removeItem("gamehub_localMode"); } catch (e2) { /* nothing stored */ }
             if (partySession) partySend({ type: "session-end" });
-        } else if (act === "finish") {
-            partySend({ type: "session-finish" });
         } else if (act === "standings") {
             partyOverlayMode = partySession && partySession.done ? "final" : "readout";
         } else if (act === "dismiss") {
@@ -504,11 +511,18 @@ function partyClick(e) {
     }
 
     const pick = e.target.closest("[data-mode-pick]");
-    if (pick) partyPick(pick.dataset.modePick);
+    if (pick) { partyPick(pick.dataset.modePick); return; }
+
+    const who = e.target.closest("[data-crew-pick]");
+    if (who) {
+        crewFocus = Math.max(0, CREW.KEYS.indexOf(who.dataset.crewPick));
+        crewPick(who.dataset.crewPick);
+    }
 }
 
 // Arrow keys and Enter on the first screen. True when the key was used.
 function partyKey(e) {
+    if (!partyModeScreenUp() && crewScreenUp()) return crewKey(e);
     if (!partyModeScreenUp()) {
         if (partyOverlayMode && e.key === "Enter") {
             const go = partyOverlay.querySelector(".party-go");
@@ -518,7 +532,7 @@ function partyKey(e) {
     }
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         partyModeFocus = partyModeFocus === "story" ? "free" : "story";
-        hubSoundVote();
+        hubSoundMove();
         renderPartyOverlay();
     } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         const i = PARTY_LENGTHS.indexOf(partySetupTotal) + (e.key === "ArrowUp" ? 1 : -1);
