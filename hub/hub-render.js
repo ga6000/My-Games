@@ -21,7 +21,12 @@ function gameHref(game) {
     if (!myName) return game.href;
     return game.href
         + "?name=" + encodeURIComponent(myName)
-        + "&room=" + encodeURIComponent(myRoom);
+        + "&room=" + encodeURIComponent(myRoom)
+        // party=1 lets the game skip its title and attract before the socket
+        // is even open (shared/bootflow.js); the session itself arrives from
+        // the server.
+        + (partyActive() && game.party ? "&party=1" : "")
+        + (SERVER_OVERRIDE ? "&server=" + encodeURIComponent(SERVER_OVERRIDE) : "");
 }
 
 // Rebuilding the whole page of tiles on every vote would tear down the
@@ -56,11 +61,15 @@ function renderTiles() {
     // entirely. The only ways into a game from here are now the launch
     // countdown and the bottom bar's solo button.
     games.forEach(g => {
+        // In a party session a tile that is not on the path is locked, and
+        // says why (hub-party.js). Outside a session `lock` is always null.
+        const lock = partyLockReason(g);
         parts.push(`
-            <div class="tile${g.id === leader ? " is-leader" : ""}" data-game-id="${escapeAttr(g.id)}">
+            <div class="tile${g.id === leader ? " is-leader" : ""}${lock ? " is-locked" : ""}" data-game-id="${escapeAttr(g.id)}">
+                ${lock ? `<div class="tile-stamp blocked tile-lock">${escapeHtml(lock)}</div>` : ""}
                 <button class="vote-check" data-game-id="${escapeAttr(g.id)}" title="Vote for this game" aria-label="Vote for ${escapeAttr(g.title)}"></button>
                 ${g.isNew ? '<div class="new-badge">NEW</div>' : ""}
-                ${g.stamp ? `<div class="tile-stamp${g.broken ? " blocked" : ""}">${escapeHtml(g.stamp)}</div>` : ""}
+                ${g.stamp && !lock ? `<div class="tile-stamp${g.broken ? " blocked" : ""}">${escapeHtml(g.stamp)}</div>` : ""}
                 <div class="tile-icon">${g.icon}</div>
                 <div class="tile-title">${escapeHtml(g.title)}</div>
                 <div class="tile-desc">${escapeHtml(g.desc)}</div>
@@ -338,6 +347,7 @@ function renderAll() {
     renderTiles();
     renderPageDots();
     renderBottomBar();
+    renderParty();
 }
 
 
@@ -465,6 +475,8 @@ function showIdentityOverlay() {
     Object.keys(remoteCursorElements).forEach(removeRemoteCursor);
     presenceList = [];
     serverHasLobby = false;
+    partySession = null;
+    serverHasSessions = false;
     serverLeaderGameId = null;
     readyNames = [];
     offlinePick = null;

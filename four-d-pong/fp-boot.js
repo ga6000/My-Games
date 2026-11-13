@@ -140,6 +140,7 @@ function scoreGoal(concededSeat) {
     var scorer = tugScore(concededSeat);
     if (seats[scorer]) seats[scorer].goals++;
     sfxGoal(scorer);
+    pongGoalToast(scorer);
 
     var w = tugWinner();
     if (w >= 0) {
@@ -305,6 +306,7 @@ function loop(now) {
     if (tugTick(dtMs / 1000)) drawBarbells();
 
     renderFrame();
+    pongPartyTick();     // ready check, the border, the party report (fp-party.js)
     if (attractCtl) attractCtl.tick();
 }
 
@@ -329,6 +331,7 @@ function attachMenu(signal) {
     }, { signal: signal });
 
     startBtnEl.addEventListener("click", function () {
+        if (pongReadyGate()) return;
         sfxUi();
         startMatch();
     }, { signal: signal });
@@ -374,6 +377,7 @@ window.GameInstance = {
         applyMode(modeKey);
         setPhase("menu");
         updateNetHud();
+        pongBootIntro();     // LOAD -> TITLE; skipped inside a party session
     },
 
     start: function () {
@@ -408,6 +412,9 @@ window.GameInstance = {
         // Browsers cap live AudioContexts per page, so an init/destroy cycle
         // that never closes one eventually fails to create another.
         if (typeof SFX !== "undefined") SFX.destroy();
+        if (typeof BOOTFLOW !== "undefined") BOOTFLOW.destroy();
+        if (typeof HUBSCORE !== "undefined") HUBSCORE.destroy();
+        if (typeof PARTY !== "undefined") PARTY.destroy();
     },
 
     getState: function () {

@@ -151,6 +151,10 @@ function handleServerMessage(data) {
         stopCountdown();
         flashHint("Launch cancelled — " + (data.reason || "something changed"));
 
+    } else if (data.type === "session") {
+        serverHasSessions = true;
+        partySessionChanged(data.session || null);
+
     } else if (data.type === "presence") {
         presenceList = data.players || [];
         renderRoster();

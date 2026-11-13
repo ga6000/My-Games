@@ -54,6 +54,13 @@ tileGrid.addEventListener("click", (e) => {
     const onBadge = !!e.target.closest(".vote-check");
     const isMine = myChoice() === gameId;
 
+    // A locked tile takes no vote; it says why instead (hub-party.js).
+    const lockedGame = gameById(gameId);
+    if (lockedGame && partyLockReason(lockedGame)) {
+        flashHint(partyLockHint(lockedGame));
+        return;
+    }
+
     // A second click on your own tile KEEPS the vote. Anyone used to
     // tiles launching games will click again when nothing opens, and a
     // toggle here would quietly undo the vote they just cast.

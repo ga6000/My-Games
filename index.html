@@ -684,6 +684,98 @@
             border-radius: 4px;
             white-space: nowrap;
         }
+            /* ===== PARTY SESSION (hub/hub-party.js, HUB_1_0_PLAN.md Phase 7) ===== */
+        #partyBar {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 6px 14px;
+            border-bottom: 2px solid var(--sig-amber);
+            background: var(--ground);
+            font-size: 0.78rem;
+            letter-spacing: 1px;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        #partyBar[hidden] { display: none; }
+        .party-tag { color: var(--sig-amber); }
+        .party-stand { display: inline-flex; align-items: center; gap: 5px; color: var(--phos-hot); }
+        .party-stand .player-dot { width: 9px; height: 9px; border-radius: 0; display: inline-block; }
+        .party-stand.is-lead { color: var(--sig-amber); }
+        .party-spacer { flex: 1 1 auto; }
+        /* The story path: stacked chips per stage, arrows between. */
+        .story-path { display: inline-flex; align-items: center; gap: 6px; }
+        .story-col { display: inline-flex; flex-direction: column; gap: 3px; align-items: stretch; }
+        .story-col-label { font-size: 0.6rem; color: var(--sig-cyan); text-align: center; }
+        .story-chip {
+            font-size: 0.66rem;
+            padding: 3px 8px;
+            border: 2px solid var(--phos-mid);
+            color: var(--phos-mid);
+            text-align: center;
+        }
+        .story-chip.is-open { border-color: var(--sig-amber); color: var(--sig-amber); }
+        .story-chip.is-played { border-color: var(--sig-cyan); color: var(--ground); background: var(--sig-cyan); }
+        .story-chip.is-off { border-style: dashed; opacity: 0.6; }
+        .story-arrow { color: var(--sig-cyan); font-size: 0.8rem; }
+
+        .tile.is-locked { border-color: #444; cursor: not-allowed; }
+        .tile.is-locked .tile-icon, .tile.is-locked .tile-title, .tile.is-locked .tile-desc { opacity: 0.28; }
+        .tile.is-locked .vote-check, .tile.is-locked .new-badge { display: none; }
+        .tile-stamp.tile-lock { border-color: var(--sig-cyan); color: var(--sig-cyan); letter-spacing: 1px; }
+
+        #partyOverlay {
+            position: fixed;
+            inset: 0;
+            z-index: 800;
+            background: rgba(0, 0, 0, 0.86);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        #partyOverlay[hidden] { display: none; }
+        .party-card {
+            background: var(--ground);
+            border: 4px solid var(--sig-cyan);
+            box-shadow: 0 0 0 4px var(--ground), 0 0 0 8px var(--sig-magenta, #FF2E88);
+            padding: 22px 26px;
+            width: min(600px, 94vw);
+            max-height: 92vh;
+            overflow-y: auto;
+            text-align: center;
+            color: var(--phos-hot);
+        }
+        .party-card h2 { font-size: clamp(0.9rem, 3vmin, 1.3rem); color: var(--sig-amber); margin-bottom: 8px; letter-spacing: 1px; }
+        .party-card .party-sub { font-size: 0.8rem; color: var(--sig-cyan); line-height: 1.9; margin-bottom: 14px; }
+        .party-card table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-bottom: 16px; }
+        .party-card th { font-weight: normal; font-size: 0.72rem; color: var(--sig-cyan); border-bottom: 2px solid var(--sig-cyan); }
+        .party-card th, .party-card td { padding: 7px 6px; text-align: left; white-space: nowrap; }
+        .party-card .n { text-align: right; }
+        .party-card tr.is-you td { background: rgba(0, 229, 255, 0.14); }
+        .party-card .party-gain { color: var(--sig-amber); }
+        .party-card .player-dot { width: 10px; height: 10px; border-radius: 0; display: inline-block; margin-right: 7px; vertical-align: middle; }
+        .party-winner { font-size: clamp(1rem, 4.5vmin, 1.9rem); color: var(--sig-amber); margin: 10px 0 16px; line-height: 1.4;
+                        text-shadow: 3px 3px 0 var(--sig-magenta, #FF2E88); animation: partyWin 0.6s steps(2, start) infinite; }
+        @keyframes partyWin { 50% { color: var(--phos-hot); } }
+        .party-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
+        .party-row .party-label { flex-basis: 100%; font-size: 0.72rem; color: var(--sig-cyan); }
+        .party-opt, .party-go {
+            font-family: inherit;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            padding: 10px 14px;
+            border: 2px solid var(--sig-cyan);
+            background: transparent;
+            color: var(--sig-cyan);
+            cursor: pointer;
+        }
+        .party-opt[aria-pressed="true"] { background: var(--sig-cyan); color: var(--ground); }
+        .party-go { border-color: var(--sig-amber); background: var(--sig-amber); color: var(--ground); }
+        .party-go.is-quiet { background: transparent; color: var(--sig-amber); }
+        .party-note { font-size: 0.72rem; line-height: 1.9; color: var(--phos-mid); margin-bottom: 14px; }
+        @media (prefers-reduced-motion: reduce) { .party-winner { animation: none; } }
     </style>
 </head>
 <body>
@@ -697,9 +789,13 @@
         </div>
         <div id="playerStrip"><span id="rosterEmpty">Not connected</span></div>
         <div class="top-block">
+            <button class="top-btn" id="partyBtn" hidden title="Play several games in a row with a running score and one winner">Party</button>
             <a class="top-btn" id="leaderboardLink" href="leaderboard.html">🏆 Scores</a>
         </div>
     </header>
+
+    <!-- ===== PARTY SESSION BAR (hub/hub-party.js; empty outside a session) ===== -->
+    <div id="partyBar" hidden></div>
 
     <!-- ===== BOARD ===== -->
     <main id="board">
@@ -725,6 +821,9 @@
         <div id="countdownNumber">3</div>
         <div id="countdownGame"></div>
     </div>
+
+    <!-- Party session: setup, the standings between games, the final readout. -->
+    <div id="partyOverlay" hidden></div>
 
     <div id="identityOverlay">
         <div class="identity-card">
@@ -771,6 +870,7 @@
 <script src="hub/hub-core.js"></script>
 <script src="hub/hub-layout.js"></script>
 <script src="hub/hub-render.js"></script>
+<script src="hub/hub-party.js"></script>
 <script src="hub/hub-net.js"></script>
 <script src="hub/hub-attract.js"></script>
 <script src="hub/hub-boot.js"></script>

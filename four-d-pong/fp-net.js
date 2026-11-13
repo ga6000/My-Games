@@ -83,12 +83,28 @@ function assignSeats() {
     for (var i = 0; i < peers.length; i++) {
         if (peers[i].id && peers[i].id !== MP.selfId) ids.push(peers[i].id);
     }
-    // Stable order, so a rejoin does not reshuffle everyone who was already
-    // playing. Sorting by id is arbitrary but consistent.
     ids.sort();
 
+    // SEATS ARE STICKY (2026-11-13). This used to deal seats by sorted id on
+    // every join, which was stable for a REjoin but not for a new arrival: a
+    // late joiner whose id sorted first moved everyone already playing one
+    // seat along, mid-rally, and their goals stayed behind with the seat.
+    // Whoever has a seat keeps it; newcomers take the lowest free one. With
+    // two humans the live seats are 0 and 1, so a kept seat of 2 or 3
+    // (someone left a four-way match) is dealt again.
     var map = {};
-    for (var s = 0; s < ids.length && s < 4; s++) map[ids[s]] = s;
+    var taken = {};
+    var limit = ids.length <= 2 ? 2 : 4;
+    for (var k = 0; k < ids.length && k < 4; k++) {
+        var had = net.seatOf[ids[k]];
+        if (had !== undefined && had >= 0 && had < limit && !taken[had]) { map[ids[k]] = had; taken[had] = true; }
+    }
+    for (var s = 0; s < ids.length && s < 4; s++) {
+        if (map[ids[s]] !== undefined) continue;
+        for (var free = 0; free < 4; free++) {
+            if (!taken[free]) { map[ids[s]] = free; taken[free] = true; break; }
+        }
+    }
 
     net.humans = Math.min(ids.length, 4);
     applySeatMap(map, net.humans);
@@ -331,7 +347,7 @@ function applySnapshot(m) {
     // Sound goals off the CHANGED NUMBER rather than off an event.
     if (prevGoals && m.G) {
         for (var g = 0; g < 4; g++) {
-            if (m.G[g] > prevGoals[g]) { sfxGoal(g); break; }
+            if (m.G[g] > prevGoals[g]) { sfxGoal(g); pongGoalToast(g); break; }
         }
     }
     if (prevPhase !== "over" && m.ph === "over") {
@@ -440,6 +456,8 @@ function applyRemoteInputs() {
 //   WIRING
 // ===================================================
 function onNetMessage(payload, from) {
+    // The shared ready check's ticks ride the same relay (shared/bootflow.js).
+    if (typeof BOOTFLOW !== "undefined" && BOOTFLOW.onMessage(payload, from)) return;
     if (!payload || !payload.t) return;
 
     if (payload.t === "s") {

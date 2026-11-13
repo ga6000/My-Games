@@ -379,6 +379,20 @@
             fire("onMessage", data.payload, data.from, data.name);
             return;
         }
+
+        // Party session snapshot (shared/party.js; server.js "PARTY
+        // SESSION"). The server sends it only to the game that is the
+        // session's game in flight, so a game outside a session never
+        // sees one and behaves exactly as before.
+        if (data.type === "session") {
+            MP.session = data.session || null;
+            MP.sessionAt = (typeof performance !== "undefined" ? performance.now() : Date.now());
+            fire("onSession", MP.session);
+            if (typeof window.PARTY !== "undefined" && window.PARTY.onSession) {
+                try { window.PARTY.onSession(MP.session); } catch (e) { console.error("MP: error in PARTY.onSession", e); }
+            }
+            return;
+        }
     }
 
     // ---- public API ----
@@ -387,6 +401,8 @@
         selfName: "",
         selfColor: null,
         room: "",
+        session: null,      // the party session, when this game is its game in flight
+        sessionAt: 0,
 
         // Start a session. Safe to call once per page.
         connect: function (o) {
@@ -411,6 +427,16 @@
                 payload: payload,
                 echo: !!echo
             }));
+            return true;
+        },
+
+        // Send a message the SERVER handles itself, rather than relays.
+        // Only shared/party.js uses this (type "session-report"); games
+        // keep using send(), which is what keeps the server free of
+        // per-game message types.
+        sendServer: function (msg) {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+            socket.send(JSON.stringify(msg));
             return true;
         },
 
@@ -486,6 +512,7 @@
             selfId = null;
             hostId = null;
             readyFired = false;
+            MP.session = null;
             status = "idle";
         },
 

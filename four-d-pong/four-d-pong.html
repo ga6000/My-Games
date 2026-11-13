@@ -394,6 +394,12 @@
 <script src="../shared/mp-core.js"></script>
 <script src="../shared/retro.js"></script>
 <script src="../shared/sfx.js"></script>
+<!-- Hub party session (2026-11-13): the shared point scale and toasts, the
+     session reporter, and the LOAD / TITLE / READY screens. One global each.
+     This game's side of all three is fp-party.js. -->
+<script src="../shared/hubscore.js"></script>
+<script src="../shared/party.js"></script>
+<script src="../shared/bootflow.js"></script>
 <!-- The L+G dev panel. BEFORE this game's own files: its error capture only
      sees throws that happen after it installs, and its keydown listener has
      to be attached before fp-input.js's so a combo press can be stopped from
@@ -406,6 +412,7 @@
 <script src="fp-tug.js"></script>
 <script src="fp-ai.js"></script>
 <script src="fp-net.js"></script>
+<script src="fp-party.js"></script>
 <script src="fp-audio.js"></script>
 <script src="fp-render.js"></script>
 <script src="fp-input.js"></script>

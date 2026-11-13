@@ -121,22 +121,27 @@ function releaseAll() {
 
 function onKeyDown(e) {
     if (e.repeat) return;
+    // The title card is up: that key press is for it (fp-party.js).
+    if (!pongIntroDone) return;
     held[e.code] = true;
 
     // Space is pause during play and start-the-countdown from the menu, which
     // is how the original behaved and what anyone who has played it will try.
     if (e.code === "Space") {
         e.preventDefault();
-        if (phase === "menu") { startMatch(); return; }
+        // A shared match starts through the ready check, not a lone Space.
+        if (phase === "menu") { if (!pongReadyGate()) startMatch(); return; }
         if (phase === "play") { setPhase("paused"); return; }
         if (phase === "paused") { setPhase("play"); return; }
         return;
     }
 
-    if (e.code === "Enter" && phase === "over") { startMatch(); return; }
+    // In a party session the match is the round: no rematch and no menu,
+    // the result card takes the group back to the hub.
+    if (e.code === "Enter" && phase === "over") { if (!pongInSession()) startMatch(); return; }
 
     if (e.code === "Escape") {
-        if (phase !== "menu") showMenu();
+        if (phase !== "menu" && !pongInSession()) showMenu();
         return;
     }
 

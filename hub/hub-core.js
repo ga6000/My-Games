@@ -62,11 +62,11 @@ const GAMES = [
     // touching the game the group already played; it was merged back and the
     // folder deleted the same evening, on the user's call. The pre-merge
     // Zombie is `ae0f19d` if it is ever wanted back.
-    { id: "zombie",               icon: "🧟",  title: "Zombie",               desc: "Open-Map Arcade",                href: "zombie/Zombie.html", isNew: true, mp: true },
-    { id: "space-tracer",         icon: "🚀",  title: "Space Tracer",         desc: "Multiplayer Ship Combat",        href: "gyro-space/space-tracer.html", isNew: true, mp: true },
+    { id: "zombie",               icon: "🧟",  title: "Zombie",               desc: "Open-Map Arcade",                href: "zombie/Zombie.html", isNew: true, mp: true, party: true },
+    { id: "space-tracer",         icon: "🚀",  title: "Space Tracer",         desc: "Multiplayer Ship Combat",        href: "gyro-space/space-tracer.html", isNew: true, mp: true, party: true },
     { id: "glass-city-escape",    icon: "🏙️",  title: "Glass City Escape",    desc: "Building-Hopping Race",          href: "glass-city-escape/glass_city_escape.html", isNew: true, mp: true },
     { id: "rd-arena",             icon: "🧫",  title: "RD Arena",             desc: "Reaction-Diffusion Arena",       href: "rd-arena/RDArena.html", isNew: true, mp: true },
-    { id: "four-d-pong",          icon: "🏓",  title: "4D Pong",              desc: "Four-Way Tug-Of-War Pong",       href: "four-d-pong/four-d-pong.html", isNew: true, mp: true },
+    { id: "four-d-pong",          icon: "🏓",  title: "4D Pong",              desc: "Four-Way Tug-Of-War Pong",       href: "four-d-pong/four-d-pong.html", isNew: true, mp: true, party: true },
     // 2026-11-02: Scuba Shooter joined as the sixth card on Ry's call (solo,
     // so it carries `solo: true` and the SOLO stamp, not MULTIPLAYER SOON).
     { id: "scuba-shooter",        icon: "🤿",  title: "Scuba Shooter",        desc: "Oil-Rig Dive Shooter",           href: "scuba-shooter/scuba-shooter.html", isNew: true, solo: true }
@@ -156,7 +156,14 @@ function destroy() {
 // (which used a different scheme entirely and agreed with the server 0
 // times out of 10). Don't reintroduce a local copy -- call IDENTITY.
 // `node scripts/check-identity-parity.js` proves it still matches the server.
-const SERVER_URL = "wss://my-games-faxi.onrender.com";
+// ?server=ws://localhost:8123 points the hub at a local server, the same
+// override shared/mp-core.js has had since the start. gameHref() carries it
+// into the game, so a local test stays on one server end to end.
+const SERVER_OVERRIDE = (function () {
+    try { return new URLSearchParams(window.location.search).get("server") || ""; }
+    catch (e) { return ""; }
+})();
+const SERVER_URL = SERVER_OVERRIDE || "wss://my-games-faxi.onrender.com";
 
 // Thin alias so the call sites below read as they always did.
 const getColorFromName = (name) => IDENTITY.colorFromName(name);
@@ -188,6 +195,10 @@ const identityOverlay = document.getElementById("identityOverlay");
 const identityNameInput = document.getElementById("identityNameInput");
 const identityRoomInput = document.getElementById("identityRoomInput");
 const identityJoinBtn = document.getElementById("identityJoinBtn");
+
+const partyBtn = document.getElementById("partyBtn");
+const partyBar = document.getElementById("partyBar");
+const partyOverlay = document.getElementById("partyOverlay");
 
 
 
@@ -235,6 +246,13 @@ let isLaunching = false;
 // labelled solo launch instead (HUB_LOBBY_PLAN.md §9c; this used to be a
 // visibly disabled Continue button, back when tiles were still links).
 let serverHasLobby = false;
+
+// The party session, as the server last described it (hub-party.js), or
+// null. `serverHasSessions` goes true on the first "session" message, which
+// a server older than 2026-11-13 never sends: the PARTY button stays hidden
+// rather than offering something that would silently do nothing.
+let partySession = null;
+let serverHasSessions = false;
 
 // Connection attempts that have closed since the last one that opened. Zero
 // means the first attempt is still pending -- a cold Render start (tens of
