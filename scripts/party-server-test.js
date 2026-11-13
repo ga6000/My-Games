@@ -70,11 +70,21 @@ async function launch(hubs, gameId) {
     ok(d.session && d.session.rounds.length === 1, "session survived the empty hub");
     ok(d.session.standings.find(x => x.name === "Dee").points === 0, "late joiner at zero");
     ok(a.session.standings[0].name === "Bob" && a.session.standings[0].points === 12, "standings 12");
-    await launch([a, b, c, d], "space-tracer");
+    // Dee stays behind on the hub; the other three launch without her...
+    d.close(); await sleep(100);
+    await launch([a, b, c], "space-tracer");
 
     // round 2: Cy leaves mid-game with a live score, Dee never reports but leaves
     ga = await client("space-tracer", R, "Ann"); gb = await client("space-tracer", R, "Bob");
-    gc = await client("space-tracer", R, "Cy"); const gd = await client("space-tracer", R, "Dee");
+    gc = await client("space-tracer", R, "Cy");
+    ga.send({ type: "session-report", score: 4000, final: false }); await sleep(100);
+    // ...and she follows late, through the hub, on her own launch. The round
+    // in flight must survive that.
+    const d2 = await client("_hub", R, "Dee");
+    ok(d2.session.current && d2.session.current.gameId === "space-tracer", "late joiner's hub sees the game in flight");
+    await launch([d2], "space-tracer");
+    const gd = await client("space-tracer", R, "Dee");
+    ok(gd.session && gd.session.current && gd.session.rounds.length === 1, "late joiner lands in the same round");
     gc.send({ type: "session-report", score: 900, final: false }); await sleep(100); gc.close();
     ga.send({ type: "session-report", score: 5000, final: true });
     gb.send({ type: "session-report", score: 300, final: true });

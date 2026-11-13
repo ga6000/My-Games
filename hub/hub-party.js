@@ -238,9 +238,16 @@ function renderPartyBar() {
         `<span class="party-stand${r.place === 1 && r.points > 0 ? " is-lead" : ""}">${partyDot(r.color)}${escapeHtml(r.name)} ${r.points}</span>`
     ).join("");
 
+    // Someone on the hub while a round is being played is a late joiner (or
+    // came back early): say where the group is.
+    const inPlay = partySession.current ? gameById(partySession.current.gameId) : null;
+    const late = inPlay
+        ? `<span class="party-tag">IN PLAY: ${escapeHtml(inPlay.title).toUpperCase()} · VOTE IT TO JOIN</span>`
+        : "";
+
     partyBar.hidden = false;
     partyBar.innerHTML =
-        `<span class="party-tag">${head}</span>` + stand +
+        `<span class="party-tag">${head}</span>` + late + stand +
         (partySession.mode === "story" && !partySession.done ? renderStoryPath() : "") +
         '<span class="party-spacer"></span>' +
         (partySession.rounds.length ? '<button class="top-btn" data-party="standings">Standings</button>' : "") +
