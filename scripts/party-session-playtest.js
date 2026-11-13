@@ -93,18 +93,21 @@ async function shot(page, name) {
     for (const p of [a, b]) await p.click(`.tile[data-game-id="${GAME}"]`);
     await a.waitForSelector("#continueBtn:not([hidden]):not([disabled])");
     for (const p of [a, b]) await p.click("#continueBtn");
-    await Promise.all([a, b].map(p => p.waitForURL(u => !/index\.html/.test(u.toString()), { timeout: 10000 })));
+    // Polled, not waitForURL: Space Tracer's page never reaches "load" in a
+    // sandbox that cannot fetch the Firebase SDK.
+    for (let t = 0; t < 100 && [a, b].some(p => /index\.html/.test(p.url())); t++) await sleep(150);
     ok(/party=1/.test(a.url()), "the game link carries party=1");
 
-    for (const p of [a, b]) await p.waitForFunction(() => typeof PARTY !== "undefined" && PARTY.active(), null, { timeout: 15000 });
-    ok(true, "both games joined the session");
+    await a.waitForSelector("#bfBorder", { timeout: 15000 });
     ok(!(await a.$("#bfIntro")), "title card skipped inside a session");
-    await a.waitForSelector("#bfBorder", { timeout: 10000 });
     await sleep(600);
     await shot(a, "3-ready-border");
 
-    // Ready check: both tick.
-    if (await a.$("#bfReady")) {
+    if (GAME === "space-tracer") {
+        // Drop-in arena: each player's ready check is their own, and the
+        // game only joins the room once they are through it.
+        for (const p of [a, b]) await p.click("#bfReady");
+    } else if (GAME === "four-d-pong") {
         await a.click("#bfReady");
         await sleep(300);
         ok(!!(await a.$("#bfReady")), "one tick does not start a two-player round");
@@ -113,8 +116,16 @@ async function shot(page, name) {
         ok(true, "everyone ticked: the round starts");
     } else {
         // Zombie keeps its own ready squares (the model the shared one copies).
-        for (const p of [a, b]) await p.mouse.click(640, 360);
+        await sleep(1500);
+        await a.mouse.click(640, 360);
+        await sleep(400);
+        ok(await a.evaluate(() => !gameStarted), "one tick does not start a two-player round");
+        await b.mouse.click(640, 360);
+        for (const p of [a, b]) await p.waitForFunction(() => gameStarted && !zDemo, null, { timeout: 10000 });
+        ok(true, "everyone ticked: the round starts");
     }
+    for (const p of [a, b]) await p.waitForFunction(() => typeof PARTY !== "undefined" && PARTY.active(), null, { timeout: 15000 });
+    ok(true, "both games joined the session");
     await sleep(5000);
     await shot(a, "4-playing");
     ok(!(await a.$("#bfBorder")), "the border is gone once play is live");

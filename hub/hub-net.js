@@ -129,7 +129,16 @@ function handleServerMessage(data) {
         serverHasLobby = true;
         serverLeaderGameId = data.leaderGameId || null;
         readyNames = data.ready || [];
-        if (!data.launching) stopCountdown();
+        // A running countdown is NOT stopped from here (2026-11-13). This
+        // line used to read `if (!data.launching) stopCountdown();`, and it
+        // could strand a player on the hub: the server's own launch timer
+        // ends at the same moment the clients' do, so when the first friend
+        // navigated away, their leave produced a lobby message saying
+        // "not launching" -- and anyone whose countdown was a few
+        // milliseconds behind had it cancelled and watched the others go.
+        // (Found by scripts/party-session-playtest.js, where latency is ~0
+        // and the race is nearly even.) Every real cancel arrives as its own
+        // "launch-cancel" message, handled below, so nothing is lost.
 
         // A game picked while the lobby was down -- typically during a
         // Render cold start -- becomes a real vote now instead of being

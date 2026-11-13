@@ -94,6 +94,11 @@ function animate(now){
         }
     }
 
+    // The attract run, before the game starts; the party round clock after
+    // (both st-party.js).
+    if (!gameStarted && stDemo) stDemoStep(dt, now);
+    stPartyTick();
+
     drawScene();
     
     frameTime = performance.now() - frameStartTime;

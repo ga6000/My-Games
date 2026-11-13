@@ -42,8 +42,13 @@ const DISTANCE_SCALE = 100;
 // (distance isn't part of this baseline since distance during those 30
 // seconds is player-behavior-dependent, not a fixed rate).
 const TIME_POINTS_PER_SECOND = 10;
-const KILL_BONUS = TIME_POINTS_PER_SECOND * 30; // = 300
-const ASTEROID_KILL_BONUS = KILL_BONUS / 20; // = 15, per your 1/20 spec
+// THE HUB SCALE (2026-11-13, AESTHETIC_GUIDE.md 4.13, shared/hubscore.js).
+// These were 300 and 15. A ship kill is the big event of this game, so it is
+// an OBJECTIVE (1,000); an asteroid is a GRUNT (100), scaled by its size.
+// Both still take the streak multiplier. A strong three-minute life lands
+// around the hub's par of 25,000.
+const KILL_BONUS = 1000;
+const ASTEROID_KILL_BONUS = 100;
 
 let lifeStartTime = Date.now();
 let lifeStartX = 0;
@@ -123,7 +128,7 @@ function showMultiplierCallout() {
 const scoreDisplayEl = document.getElementById("scoreDisplay");
 function updateScoreDisplay() {
     if (!scoreDisplayEl) return;
-    scoreDisplayEl.textContent = `SCORE: ${Math.round(lifeScore)}`;
+    scoreDisplayEl.textContent = `SCORE: ${Math.round(lifeScore).toLocaleString("en-US")}`;
 }
 
 // Called when THIS client's bullet is confirmed (by the server relay) to
@@ -141,6 +146,7 @@ function updateScoreDisplay() {
 function creditKill(killType, sizeRatio = 1) {
     if (killType === "asteroid") {
         lifeScore += ASTEROID_KILL_BONUS * sizeRatio * currentMultiplier();
+        stToast(ASTEROID_KILL_BONUS * sizeRatio * currentMultiplier());
         updateBestScoreLive();
         return; // No streak change, no callout -- asteroid kills are a flat top-up, not a combo event
     }
@@ -150,6 +156,7 @@ function creditKill(killType, sizeRatio = 1) {
     // thing scored (including this kill's own follow-on frames) benefits
     // from the new, higher multiplier.
     lifeScore += KILL_BONUS * currentMultiplier();
+    stToast(KILL_BONUS * currentMultiplier());
     lifeKillStreak += 1;
     showMultiplierCallout();
     updateScoreDisplay();
@@ -189,7 +196,8 @@ function reportLifeEnded() {
     // function on every single death, which silently skipped the score
     // relay and the per-life counter resets below it. typeof is the one
     // check that's safe against a never-declared identifier.
-    if (typeof submitScoreToFirebase === "function") {
+    // Not the attract run's lives (st-party.js): nobody flew those.
+    if (!stDemo && typeof submitScoreToFirebase === "function") {
         submitScoreToFirebase(ship.name || "Anonymous", finalScore, currentRoomCode);
     }
 

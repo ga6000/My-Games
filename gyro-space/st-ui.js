@@ -172,7 +172,8 @@ enterGameBtn.addEventListener("click", () => {
     if (scoreDisplayEl) scoreDisplayEl.style.display = "block";
     updateScoreDisplay();
     updateScoreboardDisplay(); // Show the panel now -- don't wait on another player's score-update to arrive first, or a solo player never sees it
-    seedAsteroidField(); // One-time, here rather than on page load -- asteroids shouldn't drift/exist while sitting on the start screens
+    if (!stAsteroidsSeeded) { stAsteroidsSeeded = true; seedAsteroidField(); } // (the attract run may have seeded it already)
+    // One-time, here rather than on page load -- asteroids shouldn't drift/exist while sitting on the start screens
     const dashMeterContainerEl = document.getElementById("dashMeterContainer");
     if (dashMeterContainerEl) dashMeterContainerEl.style.display = "block";
 

@@ -114,7 +114,10 @@ button{
     window.submitScoreToFirebase = async function(playerName, score, roomCode) {
         try {
             await addDoc(collection(db, "scores"), {
-                game: "space-tracer",
+                // "-v2" since 2026-11-13: scores are on the hub point scale
+                // now (st-game.js), so they go on a fresh board. The old
+                // "space-tracer" entries stay stored, on their old scale.
+                game: "space-tracer-v2",
                 player: playerName || "Anonymous",
                 score: score,
                 room: roomCode || "public",
@@ -187,6 +190,12 @@ button{
 <!-- RETRO.vertexBloom puts a hot dot on every ship hull vertex (§4.3); the
      trail uses a two-pass beam overdraw (§4.2) built on the same idea. -->
 <script src="../shared/retro.js"></script>
+<!-- Hub party session (2026-11-13): the shared point scale and toasts, the
+     session reporter, and the LOAD / TITLE / READY screens. One global each.
+     This game's side of all three is st-party.js. -->
+<script src="../shared/hubscore.js"></script>
+<script src="../shared/party.js"></script>
+<script src="../shared/bootflow.js"></script>
 
 <!-- Current life's running score. Top-right, always visible once the
      game starts. Sits above #scoreboard rather than inside it, since
@@ -254,6 +263,7 @@ button{
 <script src="st-ui.js"></script>
 <script src="st-motion.js"></script>
 <script src="st-draw.js"></script>
+<script src="st-party.js"></script>
 <script src="st-boot.js"></script>
     
 </body>

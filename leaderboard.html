@@ -171,9 +171,12 @@
           subtitle: "Every run. Score: kills, revives, rounds and silos. Escaping doubles it",
           scoreHead: "Score", roundHead: "Round", fmt: s => s.toLocaleString("en-US"),
           read: readZombieRun },
-        { id: "space-tracer", title: "Gyro Space",
-          subtitle: "Every run. Score is single-life survival time",
-          scoreHead: "Time", roundHead: null, fmt: s => s + "s",
+        // "space-tracer-v2" since 2026-11-13: the game scores on the hub point
+        // scale now (kills 1,000, asteroids 100), so it has a fresh board. The
+        // old "space-tracer" runs are still stored, on their old scale.
+        { id: "space-tracer-v2", title: "Space Tracer",
+          subtitle: "Every life, on the hub point scale",
+          scoreHead: "Score", roundHead: null, fmt: s => s.toLocaleString("en-US"),
           read: d => isFinite(Number(d.score)) ? { score: Number(d.score), round: null } : null },
     ];
 
