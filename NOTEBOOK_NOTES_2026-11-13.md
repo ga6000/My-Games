@@ -126,16 +126,17 @@ and leaves Space Tracer as it is. Ry's call if that's wrong.
 | Any collision breaks you | NEW. Harsh, but fits "expendable bots" |
 | Objectives light-years away; hyperdrive at 100x; hard to aim at hyper speed | ALREADY close (gears / ultradrive) |
 | Spawn at a mothership, choose a "Gearport" (exit) | ALREADY close (hex spawn room, one exit per class) |
-| Inspiration: Dreadnought Factor, and "Cobol Deluxe" | NEW refs. "Cobol Deluxe" is read as **Bosconian** (already the reference); confirm |
+| Inspiration: Dreadnought Factor and Kobo Deluxe | NEW refs. Kobo Deluxe is a Bosconian-style shooter, so it agrees with the existing Bosconian reference |
 | Enemy battleship-style destructor | PARTLY (Gyro Fleet's enemy capital is a creature: the hive / The Tide) |
-| Power-ups in space: vaporise, then siphon drops, asteroids, trash, debris | NEW |
+| Power-ups in space: vaporise, then siphon drops, asteroids, trash, debris | NEW. **Ry, 2026-11-13: siphon fills ONE currency, spent on healing and on calling in bots** |
 | Dead enemies don't vanish; drifting wrecks stay breakable | NEW |
 | Siphon heals minor injuries, medic only | NEW |
 | No momentum | ALREADY (Ry leaning against momentum) |
-| Movement only on right-click; spacebar = hyperdrive | NEW control scheme. Gyro Fleet controls are waiting on Ry's playtest; try this then |
+| Movement only on right-click; spacebar = hyperdrive | NEW control scheme. **Ry, 2026-11-13: holding right-click is thrust** (not click-to-move, which feels RTS). Gyro Fleet controls are waiting on Ry's playtest; try this then |
 | Classes: Medic (wide heal), Auto (picks for you), Attack (damage), Defense (survives slow bumps / light fire, recharges) | CONFLICT. The crew is now 6 classes (medic, engineer, scout, gunner, butcher, bulwark). Map: Medic = Maren, Attack = Greer, Defense = Booke. "Auto" has no crew match: drop it, or make it a mode any class can use |
 | Battle timeline (launch, 2 s spool, 10 s flight, can't turn at light speed, slow / correct / re-burst, asteroid belt, 30 s battle) | PARTLY. Fits the 1-4 minute round. Conflicts lightly with "auto-brake on arrival" and "no stopping dead"; the timeline has the player slowing by choice, which is compatible |
 | Outcomes: kamikaze, flee, fight and shoot bits, heal allies, take out the enemy mothership | ALREADY (kamikaze impact frame is decided) |
+| Round structure (Ry, 2026-11-13) | **Three sites ending in a raid.** The third site is the enemy mothership; the final raid is every remaining enemy on Earth flooding toward the MPC |
 
 ### 2.2 RD Arena
 
@@ -153,12 +154,11 @@ and leaves Space Tracer as it is. Ry's call if that's wrong.
 - **Chapter: the Belly of the Beast.** Collaborators / a cult working with the invaders try to
   stop the crew's plan to purge the beasts from inside with fire. In this chapter the crew
   risks joining the alien hive mind to use its power and kill it before losing control. NEW.
-  ("MPC" in the transcription is read as the crew / player characters; confirm.)
+  (MPC = main player character, Ry 2026-11-13.)
 - **Opening:** the crew drops into the Hurl, the cone pit in central Manhattan with the Hudson
   pouring in, slides into the Belly, catches a catwalk, and climbs down at the edge of the inner
   cliff. **The slide is the player-select screen** when RD Arena starts a fresh session. NEW.
-- **Loop direction:** less roguelite, more like ULTRAKILL, or a medieval 2.5D (transcribed
-  "2v2D") flesh escape that evolves, with 2 to 4 choices per player that bend their path. Loop
+- **Loop direction:** less roguelite, more like ULTRAKILL, or a medieval 2D flesh escape that evolves, with 2 to 4 choices per player that bend their path. Loop
   needs a lot more refining. Everything else in the RD Arena docs still stands.
 
 ### 2.3 New concept: Hurl satellite rail shooter
@@ -213,7 +213,8 @@ Recorded in project memory (hub chronology) as well as here.
 1. Apply any of the standards rewrites R1-R11? (R7 board size, R10 round length and R11 couch
    play are the ones that change existing rules.)
 2. Couch play: foundation now, or someday idea?
-3. Gyro Space notes go to Gyro Fleet, not Space Tracer: right?
+3. Gyro Space notes go to Gyro Fleet, not Space Tracer: right? (Siphon currency, three-site
+   structure and hold-right-click thrust were answered 2026-11-13; see §2.1.)
 4. Gyro classes: drop "Auto", or keep it as a mode?
 5. RD Arena: move it near the end, or keep it in Act III and add a late level?
 6. RD Arena rollback: repoint the hub card at `rd-arena.pre-mp/`?
