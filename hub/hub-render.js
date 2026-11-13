@@ -26,6 +26,9 @@ function gameHref(game) {
         // is even open (shared/bootflow.js); the session itself arrives from
         // the server.
         + (partyActive() && game.party ? "&party=1" : "")
+        // hub=1: this game was opened from the board, so when it ends it
+        // shows its score and comes back here, session or not (party.js).
+        + "&hub=1"
         + (SERVER_OVERRIDE ? "&server=" + encodeURIComponent(SERVER_OVERRIDE) : "");
 }
 
@@ -49,44 +52,106 @@ function syncBoard() {
     }
 }
 
-function renderTiles() {
-    const leader = effectiveLeader();
-    renderedLeader = leader;
-    const games = gamesOnPage(currentPage);
-    const parts = [];
-
-    // A tile is a VOTE, not a link (HUB_LOBBY_PLAN.md §9). It used to be
-    // <a href> straight into the game, so the obvious click -- "I pick
-    // this one" -- skipped the vote, Continue and the ready-check
-    // entirely. The only ways into a game from here are now the launch
-    // countdown and the bottom bar's solo button.
-    games.forEach(g => {
-        // In a party session a tile that is not on the path is locked, and
-        // says why (hub-party.js). Outside a session `lock` is always null.
-        const lock = partyLockReason(g);
-        parts.push(`
-            <div class="tile${g.id === leader ? " is-leader" : ""}${lock ? " is-locked" : ""}" data-game-id="${escapeAttr(g.id)}">
-                ${lock ? `<div class="tile-stamp blocked tile-lock">${escapeHtml(lock)}</div>` : ""}
-                <button class="vote-check" data-game-id="${escapeAttr(g.id)}" title="Vote for this game" aria-label="Vote for ${escapeAttr(g.title)}"></button>
-                ${g.isNew ? '<div class="new-badge">NEW</div>' : ""}
-                ${g.stamp && !lock ? `<div class="tile-stamp${g.broken ? " blocked" : ""}">${escapeHtml(g.stamp)}</div>` : ""}
-                <div class="tile-icon">${g.icon}</div>
+function tileHtml(g, leader) {
+    // A tile that cannot be voted says why (hub-party.js): a chapter still
+    // in development, or one the story path has not reached.
+    const lock = partyLockReason(g);
+    const played = partyPlayedCount(g.id);
+    const cls = "tile"
+        + (g.id === leader ? " is-leader" : "")
+        + (lock ? " is-locked" : "")
+        + (g.soon ? " is-soon" : "")
+        + (played ? " is-played" : "")
+        + (partyActive() && !lock ? " is-open" : "");
+    const note = lock ? "" : partyTileNote(g);
+    return `
+        <div class="${cls}" data-game-id="${escapeAttr(g.id)}" data-game="${escapeAttr(g.id)}">
+            <canvas class="tile-art" width="${ART_W}" height="${ART_H}" data-art="${escapeAttr(g.id)}"></canvas>
+            <span class="tile-corner tc-a"></span><span class="tile-corner tc-b"></span>
+            ${lock ? `<div class="tile-stamp tile-lock">${escapeHtml(lock)}</div>` : ""}
+            ${note ? `<div class="tile-note">${escapeHtml(note)}</div>` : ""}
+            ${played ? '<div class="tile-played">PLAYED</div>' : ""}
+            <button class="vote-check" data-game-id="${escapeAttr(g.id)}" title="Vote for this game" aria-label="Vote for ${escapeAttr(g.title)}"></button>
+            <div class="tile-plate">
                 <div class="tile-title">${escapeHtml(g.title)}</div>
                 <div class="tile-desc">${escapeHtml(g.desc)}</div>
             </div>
-        `);
-    });
+        </div>`;
+}
 
-    // Empty slots keep every page's tiles the same size. Without them a
-    // 5-tile last page would stretch its tiles to fill an 8-slot grid and
-    // look like a different screen.
-    for (let i = games.length; i < PAGE_SIZE; i++) {
-        parts.push('<div class="tile tile-empty"></div>');
-    }
+// The board is the story: one column per ACT, the act's games stacked in
+// it, a break between acts, and the paths between games drawn across the
+// breaks (renderPaths). A tile is still a VOTE, not a link
+// (HUB_LOBBY_PLAN.md §9): the only ways into a game are the launch
+// countdown and the bottom bar's solo button.
+function renderTiles() {
+    const leader = effectiveLeader();
+    renderedLeader = leader;
+    const acts = actsOnPage(currentPage);
 
-    tileGrid.innerHTML = parts.join("");
+    tileGrid.style.setProperty("--acts", String(acts.length));
+    tileGrid.innerHTML = acts.map(act => {
+        const games = gamesInAct(act.n);
+        const here = partyActAt() === act.n;
+        return `
+            <section class="act-col${here ? " is-here" : ""}" data-act="${act.n}">
+                <header class="act-head">
+                    <span class="act-n">ACT ${act.numeral}</span>
+                    <span class="act-name">${escapeHtml(act.name)}</span>
+                </header>
+                <div class="act-tiles">${games.map(g => tileHtml(g, leader)).join("")}</div>
+            </section>`;
+    }).join("");
+
     renderAllVoteChecks();
+    cursorApply();
     applyGridShape();
+    artRepaint();
+    renderPaths();
+}
+
+// The flow chart's lines. Drawn into one SVG laid over the board, from the
+// tiles' measured boxes, so it follows whatever shape the board took. All
+// right angles: across a break the line leaves a tile's side, runs to the
+// middle of the break, and turns; inside an act it drops straight down.
+function renderPaths() {
+    if (!pathLayer) return;
+    const box = tileGrid.getBoundingClientRect();
+    if (!box.width) { pathLayer.innerHTML = ""; return; }
+    pathLayer.setAttribute("viewBox", `0 0 ${Math.round(box.width)} ${Math.round(box.height)}`);
+    pathLayer.setAttribute("width", Math.round(box.width));
+    pathLayer.setAttribute("height", Math.round(box.height));
+
+    const rect = id => {
+        const el = tileGrid.querySelector('.tile[data-game-id="' + id + '"]');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { l: r.left - box.left, r: r.right - box.left, t: r.top - box.top, b: r.bottom - box.top,
+                 cx: (r.left + r.right) / 2 - box.left, cy: (r.top + r.bottom) / 2 - box.top };
+    };
+
+    const parts = [];
+    Object.keys(STORY_PATHS).forEach(from => {
+        const a = rect(from);
+        if (!a) return;
+        STORY_PATHS[from].forEach(to => {
+            const b = rect(to);
+            if (!b) return;
+            const state = partyPathState(from, to);
+            let d;
+            if (Math.abs(a.cx - b.cx) < 4) {
+                d = `M${Math.round(a.cx)} ${Math.round(a.b)} V${Math.round(b.t)}`;
+            } else {
+                const mx = Math.round((a.r + b.l) / 2);
+                d = `M${Math.round(a.r)} ${Math.round(a.cy)} H${mx} V${Math.round(b.cy)} H${Math.round(b.l)}`;
+            }
+            parts.push({ state: state, html: `<path class="path-line is-${state}" d="${d}"/>` });
+        });
+    });
+    // Lit lines last, so they sit on top of the dim ones they share a run with.
+    const order = { off: 0, done: 1, open: 2 };
+    parts.sort((x, y) => order[x.state] - order[y.state]);
+    pathLayer.innerHTML = parts.map(p => p.html).join("");
 }
 
 function renderPageDots() {

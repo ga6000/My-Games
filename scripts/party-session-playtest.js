@@ -37,6 +37,8 @@ function ok(cond, label) { console.log((cond ? "PASS " : "FAIL ") + label); if (
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // How each game's round is brought to its real end from the test.
+const STORY = FULL || GAME === "zombie";
+
 const END_ROUND = {
     "four-d-pong": async (host) => host.evaluate(() => { seats[0].goals = 3; seats[1].goals = 1; endMatch(0); sendSnapshot(true); }),
     "space-tracer": async (host, guest) => {
@@ -62,13 +64,15 @@ async function shot(page, name) {
 }
 
 async function playRound(a, b, game, n, last) {
+    // A story party counts "GAME n OF 3"; free play is open-ended.
+    const OF = STORY ? " OF 3" : "";
     for (const p of [a, b]) await p.click(`.tile[data-game-id="${game}"]`);
     await a.waitForSelector("#continueBtn:not([hidden]):not([disabled])");
     for (const p of [a, b]) await p.click("#continueBtn");
     // Polled, not waitForURL: Space Tracer's page never reaches "load" in a
     // sandbox that cannot fetch the Firebase SDK.
     for (let t = 0; t < 100 && [a, b].some(p => /index\.html/.test(p.url())); t++) await sleep(150);
-    ok(/party=1/.test(a.url()), "the game link carries party=1");
+    ok(/party=1/.test(a.url()) && /hub=1/.test(a.url()), "the game link carries party=1 and hub=1");
 
     await a.waitForSelector("#bfBorder", { timeout: 15000 });
     ok(!(await a.$("#bfIntro")), "title card skipped inside a session");
@@ -108,24 +112,24 @@ async function playRound(a, b, game, n, last) {
 
     for (const p of [a, b]) await p.waitForFunction(() => document.querySelector("#partyCard table"), null, { timeout: 25000 });
     const card = await a.textContent("#partyCard");
-    ok(new RegExp(last ? "FINAL GAME" : "GAME " + n + " OF 3").test(card) && /STANDINGS/.test(card), "result card shows the round and the standings");
+    ok(new RegExp(last ? "FINAL GAME" : "GAME " + n + OF).test(card) && /STANDINGS/.test(card), "result card shows the round and the standings");
     await shot(a, n + "-5-result-card");
 
     await Promise.all([a, b].map(async p => { await p.click("#partyHubBtn"); await p.waitForURL(/index\.html/); }));
     for (const p of [a, b]) await p.waitForSelector("#partyOverlay:not([hidden])", { timeout: 10000 });
     if (last) {
         const fin = await a.textContent("#partyOverlay");
-        ok(/PARTY OVER/.test(fin) && /WINS|SHARE THE WIN/.test(fin), "hub shows the final readout and a winner");
+        ok(/SESSION OVER/.test(fin) && /WINS|SHARE THE WIN/.test(fin), "hub shows the final readout and a winner");
         await shot(a, n + "-final");
         return;
     }
     const readout = await a.textContent("#partyOverlay");
-    ok(new RegExp("AFTER GAME " + n + " OF 3").test(readout), "hub shows the readout after game " + n);
+    ok(new RegExp("AFTER GAME " + n + OF).test(readout), "hub shows the readout after game " + n);
     const pts = await a.evaluate(() => partySession.standings.map(r => r.name + ":" + r.points).join(" "));
     ok(/:\d+/.test(pts), "standings carry placement points (" + pts + ")");
     await shot(a, n + "-hub-readout");
     for (const p of [a, b]) await p.click('[data-party="dismiss"]');
-    ok((await a.textContent("#partyBar")).includes("GAME " + (n + 1) + " OF 3"), "session bar moves on to game " + (n + 1));
+    ok((await a.textContent("#partyBar")).includes("GAME " + (n + 1) + OF), "session bar moves on to game " + (n + 1));
     await shot(a, n + "-hub-next");
 }
 
@@ -133,34 +137,36 @@ async function playRound(a, b, game, n, last) {
     const browser = await chromium.launch();
     const a = await player(browser, "Ann");
     const b = await player(browser, "Bob");
-    await a.waitForSelector("#partyBtn:not([hidden])", { timeout: 8000 });
-    ok(true, "PARTY button appears once the server offers sessions");
+    // The first screen: story party or free play.
+    await a.waitForSelector(".mode-screen", { timeout: 8000 });
+    await b.waitForSelector(".mode-screen", { timeout: 8000 });
+    ok(true, "the first screen asks for story party or free play");
+    await shot(a, "1-mode");
 
-    await a.click("#partyBtn");
     await a.click('[data-party-total="3"]');
-    await a.click('[data-party-mode="story"]');
-    await shot(a, "1-setup");
-    await a.click('[data-party="start"]');
-    await b.waitForSelector("#partyBar:not([hidden])");
-    ok((await b.textContent("#partyBar")).includes("GAME 1 OF 3"), "both see the session bar");
+    await a.click('[data-mode-pick="story"] h3');
+    for (const p of [a, b]) await p.waitForFunction(() => partySession && partySession.mode === "story");
+    ok(!(await b.$(".mode-screen")), "one pick starts the session for the whole room");
+    ok((await b.textContent("#partyBar")).includes("GAME 1 OF 3"), "both see the session strip");
 
-    // Story path: only the starting stack's party game is open at first.
+    // Story path: only the first playable chapter is open at the start.
     const locked = await a.$$eval(".tile.is-locked", els => els.map(e => e.dataset.gameId));
-    ok(locked.includes("space-tracer") && locked.includes("four-d-pong") && !locked.includes("zombie"),
+    ok(locked.includes("space-tracer") && locked.includes("four-d-pong") && locked.includes("gyro-fleet") && !locked.includes("zombie"),
         "story start: zombie open, later chapters locked (" + locked.join(",") + ")");
+    ok((await a.$$(".act-col")).length === 5 && (await a.$$(".path-line")).length > 8, "five act columns with paths drawn between them");
     await a.click('.tile[data-game-id="space-tracer"]');
     await sleep(200);
     ok(!(await a.$('.tile[data-game-id="space-tracer"].is-mine')), "a locked tile takes no vote");
     await shot(a, "2-story-board");
 
-    if (!FULL && GAME !== "zombie") {
-        // Free play for the other games: restart the session.
+    if (!STORY) {
+        // Free play for the other games: back to the first screen.
         await a.click('[data-party="end"]');
-        await a.waitForSelector("#partyBtn:not([hidden])");
-        await a.click("#partyBtn");
-        await a.click('[data-party-mode="free"]');
-        await a.click('[data-party="start"]');
-        await b.waitForFunction(() => partySession && partySession.mode === "free");
+        await b.waitForSelector(".mode-screen");
+        await a.click('[data-mode-pick="free"] h3');
+        await b.waitForFunction(() => partySession && partySession.mode === "free" && partySession.total === 0);
+        const lockedFree = await a.$$eval(".tile.is-locked", els => els.map(e => e.dataset.gameId));
+        ok(!lockedFree.includes("rd-arena") && lockedFree.includes("gyro-fleet"), "free play: every built game open, unbuilt ones dark");
     }
 
     if (FULL) {
@@ -168,7 +174,7 @@ async function playRound(a, b, game, n, last) {
         const order = ["zombie", "four-d-pong", "space-tracer"];
         for (let i = 0; i < order.length; i++) {
             if (i > 0) {
-                const open = await a.$$eval(".tile:not(.is-locked):not(.tile-empty)", els => els.map(e => e.dataset.gameId));
+                const open = await a.$$eval(".tile:not(.is-locked)", els => els.map(e => e.dataset.gameId));
                 ok(open.includes(order[i]) && !open.includes(order[i - 2] || "none"),
                     "story path after " + order[i - 1] + ": open = " + open.join(","));
             }

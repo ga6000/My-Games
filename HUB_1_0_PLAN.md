@@ -385,7 +385,7 @@ winner at the end**. Small groups (2 to 4), free-for-all, no teams.
 | Who wins | **Placement points.** Each game ranks players by their own score and pays 10 / 7 / 5 / 3, plus 2 each if the group beats the game. Ties share the better place. Session ties break on most firsts, then raw score. |
 | PvE and one victor | Every hub game is co-op against the game. You clear it together and race each other for score inside it. |
 | Length | 3, 5 or 7 games, picked at the start. |
-| Which game next | **Story path** or **free play**, picked at the start. Either way the existing vote and ready check choose from the open tiles. |
+| Which game next | **Story party** or **free play**, picked on the hub's first screen (Phase 7b). Either way the existing vote and ready check choose from the open tiles. |
 | Round length | 2 to 7 minutes (`SCOPE_RULES.md` rule 0). |
 | Luck-heavy games | Not weighted. Every game counts the same. |
 | Drop-outs and late joiners | Someone who drops keeps their points and whatever score they had. A late joiner starts the session at zero. |
@@ -423,6 +423,36 @@ hub. See `HUB_LOBBY_PLAN.md` §10.
 
 **Not in this phase:** a per-player unlock store, same-screen play, cabinet art, music, the
 chapter crawl, and party wiring for Glass City, RD Arena, Scuba Shooter and Cliff Run.
+
+### Phase 7b: the hub as a level select (Ry, 2026-11-13, same day, after a first solo try)
+
+Ry's first try found the session unreachable: it only started from a small PARTY button in the
+top bar, so a game opened without pressing it just restarted itself when it ended and never came
+back to the board. Everything below follows from that report.
+
+| Ry asked for | What changed |
+|---|---|
+| "Party mode or free play to be the first screen" | After the name and room, the hub asks **STORY PARTY or FREE PLAY** (`partyModeScreenUp()` in `hub/hub-party.js`). Both are server sessions, so both route every game back to the board with a readout. The PARTY button is gone. One pick starts it for the whole room. |
+| "Directed back to the game selection screen" | Every link from the board carries `hub=1`. A game opened that way always ends in `PARTY.finish()`: a session's result card, or, with no round behind it (offline, a game that does not score), a local score card with GAME SELECT and PLAY AGAIN. |
+| "Make the game tiles into the flow chart" | The board is one column per **ACT** (`GAMES[].act`, `ACTS` in `hub/hub-core.js`), a dashed break between acts, and a line for every `STORY_PATHS` edge drawn from the tiles' measured boxes (`renderPaths()` in `hub/hub-render.js`). The story-path strip above the board is gone: the tiles are the path. Pages remain: five acts on a wide screen, three on a narrow one, two on a phone. |
+| "Revise stages to match game narrative ... ACT I, ACT II" | Acts I to V as accepted 2026-11-08: Landfall, Spread, Escalation, Launch, Counterattack. |
+| "Unfinished games just as tiles" | `soon: true` entries (Alien Outpost, Hurl Strike, Desert Code Racer, Cliff Run, Text Editor Wars, Gyro Fleet): drawn dark with IN DEVELOPMENT, never votable. |
+| "Overhaul the hub aesthetic" | See `AESTHETIC_GUIDE.md` §6.0, note of 2026-11-13. Emoji icons replaced by pixel marquee scenes (`hub/hub-art.js`). |
+| "Improve the score read out at each of the 3 games" | `HUBSCORE.hud()`: a `1UP / HI-SCORE` strip for games with no cabinet panel yet (Space Tracer, 4D Pong; Zombie has the panel). The result card tallies the score up in steps, reveals the table a row at a time, and draws the standings as bars. |
+
+**Free play is open-ended** (`total: 0` on the server): a running score after every game, no last
+game, and CALL IT (`session-finish`) names the winner whenever the group has had enough. Games
+without `party: true` are open in free play and marked UNSCORED; launching one is not a round
+(the hub sends the list of scored games with `session-start`).
+
+**Story path rules now.** A story begins in ACT I. Chapters that cannot be played yet are passed
+through, so with today's three scored games the path is Zombie, then 4D Pong or Space Tracer.
+The lit amber lines on the board show the way from where the session is.
+
+**Verified** headless: `scripts/party-session-playtest.js` (per game and `--full`),
+`scripts/hub-solo-playtest.js` (one player online by keyboard, and one with no server at all),
+`scripts/party-server-test.js`. **Not verified:** how any of it feels to a person, and phones
+beyond a 390 px wide screenshot.
 
 ---
 

@@ -11,7 +11,8 @@
  *
  * Covers: the session outliving the empty hub room, ranking and ties, the
  * clear bonus, a late joiner, a player who drops mid-round, the final
- * winner, and a cancelled launch. Never run it against the live server: it
+ * winner, a cancelled launch, and open-ended free play (unscored games,
+ * session-finish). Never run it against the live server: it
  * starts and ends sessions.
  */
 const path = require("path");
@@ -109,6 +110,28 @@ async function launch(hubs, gameId) {
     a.send({ type: "ready-update", ready: true, gameId: "zombie" }); await sleep(200);
     a.send({ type: "ready-update", ready: false, gameId: "zombie" }); await sleep(200);
     ok(a.session && a.session.current === null, "cancelled launch leaves no round open");
+    a.send({ type: "session-end" }); await sleep(100);
+
+    // Free play (2026-11-13): open-ended, only listed games are rounds, and
+    // "session-finish" names the winner.
+    a.send({ type: "session-start", mode: "free", total: 0, games: ["zombie"] }); await sleep(150);
+    ok(a.session && a.session.total === 0 && a.session.mode === "free", "open-ended free play starts");
+    a.send({ type: "session-finish" }); await sleep(100);
+    ok(a.session && !a.session.done, "nothing to call before a game has been played");
+    await launch([a], "rd-arena");
+    a = await client("_hub", R, "Ann");
+    ok(a.session && a.session.current === null, "an unscored game is not a round");
+    for (let i = 1; i <= 2; i++) {
+        await launch([a], "zombie");
+        const g = await client("zombie", R, "Ann");
+        g.send({ type: "session-report", score: 500 * i, final: true }); await sleep(150);
+        ok(g.session.rounds.length === i && !g.session.done, "free play round " + i + " scored, session still open");
+        g.close(); await sleep(100);
+        a = await client("_hub", R, "Ann");
+    }
+    a.send({ type: "session-finish" }); await sleep(150);
+    ok(a.session && a.session.done && a.session.winners.join() === "Ann", "session-finish names the winner");
+    a.send({ type: "session-end" }); await sleep(100);
     a.close();
     console.log(fails ? fails + " FAILED" : "ALL PASSED");
     process.exit(fails ? 1 : 0);

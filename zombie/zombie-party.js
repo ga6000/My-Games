@@ -70,7 +70,8 @@ function zPartyFinish() {
     const total = id ? runScoreFor(id).total : 0;
     PARTY.finish({
         score: typeof HUBSCORE !== "undefined" ? HUBSCORE.snap(total) : total,
-        cleared: !!won
+        cleared: !!won,
+        game: "zombie"
     });
 }
 

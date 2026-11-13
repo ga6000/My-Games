@@ -949,5 +949,12 @@ Update this section when any part of the guide actually lands.
 - **Fixed on the way:** the hub countdown race that could strand a player (`HUB_LOBBY_PLAN.md`
   §10a); 4D Pong seats reshuffling when someone joins.
 - **Not yet played by a human.** Verified headless only (`scripts/party-session-playtest.js`).
+- **Later the same day, after Ry's first solo try** (`HUB_1_0_PLAN.md` Phase 7b): the hub's first
+  screen is STORY PARTY or FREE PLAY; the board is the story as ACT I to V columns with drawn
+  paths and pixel marquee art (`hub/hub-art.js`) in place of emoji; unbuilt chapters sit on it
+  dark; every game opened from the board returns to it (`hub=1`, `PARTY.finish()`), session or
+  not; free play is an open-ended session; `HUBSCORE.hud()` gives Space Tracer and 4D Pong a
+  `1UP / HI-SCORE` strip. `AESTHETIC_GUIDE.md` §6.0's "change the skin, not the layout" is
+  superseded, dated, on Ry's instruction.
 
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

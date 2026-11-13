@@ -111,11 +111,40 @@ pageDots.addEventListener("click", (e) => {
     if (dot) setPage(Number(dot.dataset.page));
 }, { signal: hubSignal });
 
+// The whole hub can be driven from the keyboard, like a cabinet's select
+// screen: the first screen and the readouts (partyKey), then the board.
 document.addEventListener("keydown", (e) => {
     if (!identityOverlay.hidden) return;
-    if (e.key === "ArrowLeft") setPage(currentPage - 1);
-    else if (e.key === "ArrowRight") setPage(currentPage + 1);
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", " "];
+    if (!keys.includes(e.key)) return;
+    // A focused button keeps its own Enter and Space.
+    const onButton = e.target && e.target.closest && e.target.closest("button, a, input");
+    if (onButton && (e.key === "Enter" || e.key === " ") && !partyModeScreenUp()) return;
+
+    if (partyKey(e)) { e.preventDefault(); return; }
+    e.preventDefault();
+
+    if (e.key === "ArrowLeft") cursorMove(-1, 0);
+    else if (e.key === "ArrowRight") cursorMove(1, 0);
+    else if (e.key === "ArrowUp") cursorMove(0, -1);
+    else if (e.key === "ArrowDown") cursorMove(0, 1);
+    else {
+        // Enter on your own pick moves on to Continue; otherwise it picks.
+        if (cursorGameId && myChoice() !== cursorGameId) {
+            const el = tileGrid.querySelector('.tile[data-game-id="' + cursorGameId + '"]');
+            if (el) el.click();
+        } else if (!continueBtn.hidden && !continueBtn.disabled) {
+            continueBtn.click();
+        } else if (!cursorGameId) {
+            cursorMove(1, 0);
+        }
+    }
 }, { signal: hubSignal });
+
+// Paths are measured from the tiles, so they are redrawn when fonts land
+// (the plates change height) as well as on every resize.
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderPaths);
 
 window.addEventListener("resize", () => {
     applyGridShape();
@@ -185,6 +214,17 @@ window.addEventListener("pageshow", (e) => {
     // trackInterval so destroy() still tears the hub down through one path.
     startHubAudio();
     startAttract();
+    startArt();
+
+    tickerEl.innerHTML = [
+        "A CHARRED MASS FELL OUT OF THE SKY OVER THE PINES",
+        "THEY BREATHE TOGETHER. COUNT THE BREATHS",
+        "<b>THE INSPIRED</b> DO NOT ANSWER TO THEIR NAMES",
+        "MANHATTAN REPORTS A PIT WHERE THE HUDSON WAS",
+        "ALL POWERS: ONE SHIP, FIVE KILOMETRES, MONTHS NOT YEARS",
+        "LIGHTNING OVER FLORIDA SHOWS A SHAPE IN THE CLOUD: <b>THE TIDE</b>",
+        "MAREN · ELODIE · SOREN · GREER · BEX · BOOKE: REPORT IN"
+    ].join(" &nbsp; /// &nbsp; ");
 
     const stored = loadStoredIdentity();
     identityNameInput.value = stored.name;

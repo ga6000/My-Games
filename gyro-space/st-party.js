@@ -119,7 +119,7 @@ function stClock(leftMs) {
     if (!stClockEl) {
         stClockEl = document.createElement("div");
         stClockEl.id = "stPartyClock";
-        stClockEl.style.cssText = "position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:20;" +
+        stClockEl.style.cssText = "position:absolute;top:38px;left:50%;transform:translateX(-50%);z-index:20;" +
             "font-family:'Press Start 2P','VT323',monospace;font-size:16px;color:#FFB000;text-shadow:2px 2px 0 #000;pointer-events:none";
         document.body.appendChild(stClockEl);
     }
@@ -138,17 +138,26 @@ function stPartyEnd(score) {
     cancelBeamCharge();
     resetDashState();
     const final = (typeof HUBSCORE !== "undefined") ? HUBSCORE.snap(score) : Math.round(score);
-    PARTY.finish({ score: final, cleared: false });
+    PARTY.finish({ score: final, cleared: false, game: "space-tracer" });
 }
 
 // Once a frame, from animate().
 function stPartyTick() {
-    if (typeof PARTY === "undefined" || !gameStarted || stRoundOver) return;
-    if (!PARTY.active()) return;
+    if (!gameStarted) return;
+    // The score strip, in place of the old "SCORE: n" box: this life's
+    // score on the hub scale, and the best on this machine.
+    if (typeof HUBSCORE !== "undefined" && HUBSCORE.hud) {
+        if (scoreDisplayEl) scoreDisplayEl.style.display = "none";
+        HUBSCORE.hud({ game: "space-tracer", score: HUBSCORE.snap(Math.max(0, lifeScore)), color: ship.color,
+                       label: typeof PARTY !== "undefined" ? PARTY.label() : "" });
+    }
+    if (typeof PARTY === "undefined" || stRoundOver) return;
+    // A round on the clock: a session's round, or any game the hub opened.
+    if (!PARTY.wanted()) return;
     const left = PARTY.timeLeft(ST_ROUND_MS, ST_GRACE_MS);
     if (left === null) return;
     stClock(left);
-    PARTY.live(bestLifeScore);
+    if (PARTY.active()) PARTY.live(bestLifeScore);
     if (left <= 0) stPartyEnd(Math.max(bestLifeScore, Math.round(lifeScore)));
 }
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>My Games Hub</title>
+    <title>Game Hub</title>
 
     <!-- The shared token layer (AESTHETIC_GUIDE.md 2 and 3), loaded BEFORE this
          page style block so anything below can override a token.
@@ -16,431 +16,421 @@
     <link rel="stylesheet" href="shared/retro.css">
     <style>
         /* ===================================================
-           LAYOUT MODEL
-           Three fixed bands, no page scroll anywhere:
+           THE HUB, 2026-11-13 OVERHAUL (Ry)
+           The page is a game's level-select screen, not a web page listing
+           games. Top to bottom, no page scroll anywhere:
 
-             [ top buffer ]   room code + who's in the room
-             [   board    ]   one page of game tiles, sized to fit
-             [ bottom buf ]   blank until a game is winning, then Continue
+             [ ticker  ]   one line of story, always moving
+             [ top bar ]   wordmark, room code, who is here
+             [ session ]   which mode, the running score
+             [  board  ]   the story as ACT columns of marquee tiles,
+                           paths drawn between them
+             [ bottom  ]   blank until a game is winning, then Continue
 
-           The board never scrolls -- tiles are sized FROM the space
-           available rather than the page growing to fit the tiles. That's
-           the whole point of paging: on any screen you see a full page of
-           tiles at a readable size, and you flip pages instead of scrolling.
+           DEVIATION from AESTHETIC_GUIDE.md §6.0 "change the skin, not the
+           layout", on Ry's instruction 2026-11-13: the six-tile grid became
+           act columns. What §6.0 was protecting is kept: three fixed bands,
+           no scroll, pages you flip through, nothing that can cover the
+           board on a phone.
+
+           House rules for this sheet: square corners, 2px rules, no easing
+           (things step or they snap), black ground, the Signal Three keep
+           their meanings (cyan system, amber value/selection, magenta
+           danger).
         =================================================== */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         [hidden] { display: none !important; }
 
-        html, body {
-            height: 100%;
-            width: 100%;
-            overflow: hidden;
-        }
+        html, body { height: 100%; width: 100%; overflow: hidden; }
 
         body {
             background-color: var(--ground);
             color: var(--phos-mid);
             font-family: var(--font-ui);
+            font-size: 18px;
             height: 100vh;
             height: 100dvh;
             display: flex;
             flex-direction: column;
-            /* Persistent buffers. Named here so the countdown overlay can
-               stop short of the bottom bar and leave the Continue button
-               clickable while the timer runs -- a player must be able to
-               back out during those 3 seconds. */
-            --bottom-h: 104px;
-            --top-h: 68px;
+            /* Named so the countdown overlay can stop short of the bottom
+               bar and leave Continue clickable while the timer runs. */
+            --bottom-h: 92px;
+            --act-gap: clamp(16px, 3.2vw, 46px);
         }
+        @media (max-width: 640px) { body { --bottom-h: 80px; font-size: 16px; } }
 
-        @media (max-width: 640px) {
-            body { --bottom-h: 88px; --top-h: 60px; }
+        /* Arriving (first load, or back from a game): the screen is drawn
+           on in bands, the way a cabinet changes screens. */
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            background: var(--ground);
+            pointer-events: none;
+            animation: hubWipe 0.45s steps(9, end) forwards;
         }
+        @keyframes hubWipe { from { clip-path: inset(0 0 0 0); } to { clip-path: inset(100% 0 0 0); } }
 
-        /* ===================================================
-           TOP BUFFER -- room identity + roster
-           This replaces the old fixed-position sidebar. That sidebar
-           became `width:100%; height:100vh` under 768px, which covered
-           the entire games list with no way back to it -- joining a room
-           on a phone was a dead end. A band across the top can't do that.
-        =================================================== */
+        button { font-family: inherit; }
+        button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--phos-hot); outline-offset: 2px; }
+
+        /* ---- ticker ---- */
+        #tickerBar {
+            flex: 0 0 auto;
+            height: 22px;
+            overflow: hidden;
+            border-bottom: 2px solid var(--phos-dim);
+            white-space: nowrap;
+            font-size: 16px;
+            line-height: 20px;
+            letter-spacing: 2px;
+            color: var(--phos-mid);
+        }
+        #ticker { display: inline-block; padding-left: 100%; animation: tickerRun 70s steps(700, end) infinite; }
+        #ticker b { color: var(--sig-magenta); font-weight: normal; }
+        @keyframes tickerRun { to { transform: translateX(-100%); } }
+
+        /* ---- top bar ---- */
         #topBar {
             flex: 0 0 auto;
-            min-height: var(--top-h);
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 16px;
             padding: 8px clamp(10px, 2vw, 22px);
-            border-bottom: 2px solid var(--sig-cyan);
             background: var(--ground);
         }
+        .top-block { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 
-        .top-block {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex: 0 0 auto;
+        #wordmark {
+            font-family: var(--font-display);
+            font-size: clamp(0.7rem, 2vmin, 1.05rem);
+            color: var(--phos-hot);
+            letter-spacing: 2px;
+            line-height: 1.3;
+            text-shadow: 2px 2px 0 var(--lung-dark, #6E1F35);
         }
+        #wordmark small { display: block; font-family: var(--font-ui); font-size: 15px; letter-spacing: 3px; color: var(--phos-mid); text-shadow: none; }
 
-        .top-label {
-            font-size: 0.6rem;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: var(--phos-dim);
-            font-weight: bold;
-        }
+        .top-label { font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: var(--phos-mid); }
 
         #roomCode {
             font-family: var(--font-display);
-            font-size: clamp(0.8rem, 2.0vmin, 1.1rem);   /* display face runs wide */
-            font-weight: bold;
+            font-size: clamp(0.8rem, 2.0vmin, 1.05rem);
             letter-spacing: 3px;
             color: var(--sig-cyan);
+            padding: 6px 8px;
+            border: 2px solid var(--sig-cyan);
         }
 
         .top-btn {
-            font-family: inherit;
-            font-size: 0.65rem;
+            font-size: 17px;
             text-transform: uppercase;
             letter-spacing: 1px;
-            padding: 5px 10px;
+            padding: 3px 10px 4px;
             border: 2px solid var(--sig-cyan);
-            border-radius: 6px;
             background: transparent;
             color: var(--sig-cyan);
             cursor: pointer;
             text-decoration: none;
             white-space: nowrap;
         }
-
         .top-btn:hover { background: var(--sig-cyan); color: var(--ground); }
 
-        /* The roster. Horizontal chips rather than a vertical list,
-           because this band is short and wide. Scrolls sideways on its
-           own if a big group joins -- the PAGE still never scrolls. */
+        /* The roster. Scrolls sideways on its own if a big group joins;
+           the PAGE still never scrolls. */
         #playerStrip {
             flex: 1 1 auto;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             overflow-x: auto;
             overflow-y: hidden;
-            scrollbar-width: thin;
+            scrollbar-width: none;
             min-width: 0;
         }
-
         .player-chip {
             display: flex;
             align-items: center;
-            gap: 6px;
-            padding: 4px 10px;
-            background: transparent;
+            gap: 7px;
+            padding: 2px 10px 3px;
             border: 2px solid var(--phos-dim);
-            border-radius: 999px;
-            font-size: 0.75rem;
+            font-size: 18px;
+            text-transform: uppercase;
             white-space: nowrap;
             flex: 0 0 auto;
         }
+        .player-chip.is-you { border-color: var(--phos-hot); color: var(--phos-hot); }
+        .player-chip.is-ready { border-color: var(--sig-cyan); background: rgba(0, 229, 255, 0.14); }
+        /* In this room code but inside a game: shown, muted, and NOT part
+           of the ready-check (they can't click Continue from in there). */
+        .player-chip.in-game { border-style: dashed; color: var(--phos-mid); }
+        .player-game-tag, .player-you-tag { font-size: 14px; color: var(--phos-mid); letter-spacing: 1px; }
+        .roster-divider { flex: 0 0 auto; width: 2px; height: 20px; background: var(--phos-dim); }
+        .player-dot { width: 10px; height: 10px; flex-shrink: 0; display: inline-block; }
+        #rosterEmpty { font-size: 16px; color: var(--phos-mid); text-transform: uppercase; letter-spacing: 1px; }
 
-        .player-chip.is-you { border-color: var(--phos-hot); color: var(--phos-hot); font-weight: bold; }
-
-        .player-chip.is-ready { border-color: var(--sig-cyan); background: rgba(0, 229, 255, 0.12); }
-
-        /* Someone in this room code who is inside a game. Shown because
-           "who's around" should include them, muted because they are NOT
-           part of the ready-check -- they can't click Continue from in
-           there, and counting them would stall every launch. */
-        .player-chip.in-game {
-            background: transparent;
-            border-style: dashed;
-            border-color: var(--phos-dim);
-            color: var(--phos-dim);
+        /* A phone held upright: the wordmark gives its line to the roster. */
+        @media (max-width: 640px) {
+            #topBar { flex-wrap: wrap; gap: 6px 10px; padding: 6px 8px; }
+            #wordmark small, .top-label { display: none; }
+            #playerStrip { order: 5; flex-basis: 100%; }
         }
 
-        .player-game-tag {
-            font-size: 0.6rem;
-            color: var(--phos-dim);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .roster-divider {
+        /* ---- session strip (hub/hub-party.js) ---- */
+        #partyBar {
             flex: 0 0 auto;
-            width: 2px;
-            height: 20px;
-            background: var(--phos-dim);
-            margin: 0 2px;
-        }
-
-        .player-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-
-        .player-you-tag {
-            font-size: 0.6rem;
-            color: var(--phos-dim);
-            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 5px clamp(10px, 2vw, 22px);
+            border-top: 2px solid var(--sig-cyan);
+            border-bottom: 2px solid var(--sig-cyan);
+            font-size: 18px;
             letter-spacing: 1px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            white-space: nowrap;
         }
-
-        #rosterEmpty {
-            font-size: 0.72rem;
-            color: var(--phos-dim);
-            font-style: italic;
-        }
+        .party-tag { color: var(--sig-amber); font-family: var(--font-display); font-size: 0.6rem; }
+        .party-tag.is-alert { animation: hubBlink 1s steps(2, start) infinite; }
+        .party-stand { display: inline-flex; align-items: center; gap: 6px; color: var(--phos-hot); text-transform: uppercase; }
+        .party-stand b { font-weight: normal; color: var(--sig-amber); }
+        .party-stand.is-lead { text-decoration: underline; text-underline-offset: 4px; }
+        .party-spacer { flex: 1 1 auto; }
+        @keyframes hubBlink { to { visibility: hidden; } }
 
         /* ===================================================
-           BOARD -- the paged tile grid
+           BOARD: the story, as a level select
         =================================================== */
         #board {
             flex: 1 1 auto;
             min-height: 0;
             display: flex;
             align-items: stretch;
-            gap: clamp(4px, 1.2vw, 14px);
-            padding: clamp(8px, 1.6vmin, 20px) clamp(6px, 1.4vw, 18px);
+            gap: clamp(4px, 1vw, 12px);
+            padding: clamp(6px, 1.4vmin, 16px) clamp(6px, 1.2vw, 16px) 4px;
         }
 
         .page-arrow {
             flex: 0 0 auto;
             align-self: center;
-            width: clamp(32px, 4.5vw, 54px);
-            height: clamp(64px, 18vmin, 150px);
+            width: clamp(26px, 3vw, 40px);
+            height: clamp(60px, 16vmin, 120px);
             border: 2px solid var(--sig-cyan);
-            border-radius: 10px;
             background: transparent;
             color: var(--sig-cyan);
-            font-size: clamp(1.1rem, 3vmin, 2rem);
-            font-family: inherit;
+            font-size: clamp(1.1rem, 3vmin, 1.8rem);
             line-height: 1;
             cursor: pointer;
-            transition: background 0.15s ease, transform 0.15s ease;
         }
-
-        .page-arrow:hover:not(:disabled) { background: var(--sig-cyan); color: var(--ground); transform: scale(1.05); }
-        .page-arrow:disabled { opacity: 0.2; cursor: default; }
+        .page-arrow:hover:not(:disabled) { background: var(--sig-cyan); color: var(--ground); }
+        .page-arrow:disabled { visibility: hidden; }
 
         #boardInner {
             flex: 1 1 auto;
             min-width: 0;
             display: flex;
             flex-direction: column;
-            gap: clamp(6px, 1.2vmin, 12px);
+            gap: 4px;
         }
+
+        #gridWrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+
+        /* The lines of the flow chart, under the tiles (hub-render.js). */
+        #pathLayer { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: visible; }
+        .path-line { fill: none; stroke: var(--phos-dim); stroke-width: 2; shape-rendering: crispEdges; }
+        .path-line.is-done { stroke: var(--sig-cyan); stroke-width: 4; }
+        .path-line.is-open { stroke: var(--sig-amber); stroke-width: 4; stroke-dasharray: 8 6; animation: pathMarch 0.5s steps(2, end) infinite; }
+        @keyframes pathMarch { to { stroke-dashoffset: -14; } }
 
         #tileGrid {
             flex: 1 1 auto;
-            min-height: 0;
-            display: grid;
-            grid-template-columns: repeat(var(--cols, 4), 1fr);
-            grid-template-rows: repeat(var(--rows, 2), 1fr);
-            gap: clamp(6px, 1.4vmin, 18px);
-        }
-
-        #pageDots {
-            flex: 0 0 auto;
-            height: 18px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .page-dot {
-            width: 9px;
-            height: 9px;
-            border-radius: 50%;
-            border: 2px solid var(--sig-cyan);
-            background: transparent;
-            padding: 0;
-            cursor: pointer;
-        }
-
-        .page-dot.active { background: var(--sig-cyan); }
-
-        /* ---- tiles ---- */
-        .tile {
-            position: relative;
             min-width: 0;
             min-height: 0;
-            overflow: hidden;
+            display: grid;
+            grid-template-columns: repeat(var(--acts, 5), minmax(0, 1fr));
+            gap: var(--act-gap);
+        }
+
+        .act-col { position: relative; z-index: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+
+        /* The break between acts: a dashed rule down the middle of the gap. */
+        .act-col + .act-col::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: calc(var(--act-gap) / -2 - 1px);
+            border-left: 2px dashed var(--phos-dim);
+            opacity: 0.7;
+        }
+
+        .act-head { flex: 0 0 auto; text-align: center; line-height: 1.25; padding-bottom: 4px; border-bottom: 2px solid var(--phos-dim); }
+        .act-n { display: block; font-family: var(--font-display); font-size: clamp(0.62rem, 1.7vmin, 0.95rem); color: var(--phos-hot); letter-spacing: 2px; }
+        .act-name { display: block; font-size: clamp(14px, 2vmin, 19px); letter-spacing: 3px; color: var(--phos-mid); }
+        .act-col.is-here .act-head { border-bottom-color: var(--sig-amber); }
+        .act-col.is-here .act-n { color: var(--sig-amber); }
+        .act-col.is-here .act-name::after { content: " · YOU ARE HERE"; color: var(--sig-amber); }
+
+        .act-tiles {
+            flex: 1 1 auto;
+            min-height: 0;
             display: flex;
             flex-direction: column;
-            align-items: center;
             justify-content: center;
-            gap: clamp(2px, 0.8vmin, 8px);
-            padding: clamp(6px, 1.6vmin, 18px);
-            border: 2px solid var(--sig-cyan);
-            border-radius: 10px;
+            gap: clamp(10px, 2.4vmin, 26px);
+        }
+
+        #pageDots { flex: 0 0 auto; height: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .page-dot { width: 10px; height: 10px; border: 2px solid var(--sig-cyan); background: transparent; padding: 0; cursor: pointer; }
+        .page-dot.active { background: var(--sig-cyan); }
+        #pageDots:has(.page-dot:only-child) { visibility: hidden; }
+
+        /* ---- a tile: a cabinet marquee ---- */
+        .tile {
+            position: relative;
+            /* Every tile is a third of its column, however many the act
+               has, so the board reads as one grid with gaps in it. */
+            flex: 0 1 calc((100% - 2 * clamp(10px, 2.4vmin, 26px)) / 3);
+            min-height: 0;
+            overflow: hidden;
+            border: 2px solid var(--phos-mid);
             background: var(--ground);
-            color: var(--phos-mid);
-            text-decoration: none;
             cursor: pointer;
-            transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+            --hue: var(--world-hue, var(--phos-mid));
         }
-
-        .tile:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 0 14px rgba(0, 229, 255, 0.45);
-            background: rgba(0, 229, 255, 0.10);
-        }
-
-        .tile:active { transform: translateY(-1px); }
-
-        /* The game the room is currently voting in. Marked on the tile as
-           well as on the Continue button so it's obvious WHICH game the
-           button at the bottom is about, without reading the label. */
-        .tile.is-leader {
-            border-color: var(--sig-amber);
-            box-shadow: 0 0 0 2px rgba(255, 176, 0, 0.45);
-            background: rgba(255, 176, 0, 0.12);
-        }
-
-        /* YOUR vote (or, with no server, your pick) -- the same hot ink as
-           your own roster chip. The whole tile rather than one dot in the
-           badge, because a tile click has to visibly do something now that
-           it no longer opens the game (HUB_LOBBY_PLAN.md §9). Inset, so it
-           can't nudge the grid. */
-        .tile.is-mine { box-shadow: inset 0 0 0 2px var(--phos-hot); }
-        .tile.is-leader.is-mine { box-shadow: 0 0 0 2px rgba(255, 176, 0, 0.45), inset 0 0 0 2px var(--phos-hot); }
-
-        .tile-icon { font-size: clamp(1.3rem, 5.5vmin, 3rem); line-height: 1; }
-
-        .tile-title {
-            font-size: clamp(0.68rem, 2.1vmin, 1.15rem);
-            font-weight: 700;
-            font-family: var(--font-display);
-            text-transform: uppercase;
-            text-align: center;
-            line-height: 1.2;
-        }
-
-        .tile-desc {
-            font-size: clamp(0.55rem, 1.4vmin, 0.8rem);
-            color: var(--phos-dim);
-            font-family: var(--font-ui);
-            font-style: italic;
-            text-align: center;
-            line-height: 1.25;
-        }
-
-        /* Set by JS when the computed tile height leaves no room for the
-           description -- measured, not guessed at with a media query,
-           because tile height depends on the board height rather than on
-           any single breakpoint. */
-        #tileGrid.dense .tile-desc { display: none; }
-        #tileGrid.dense .tile-icon { font-size: clamp(1.1rem, 4vmin, 2rem); }
-
-        /* Attract mode (§4.8). Steps rather than fades -- a smooth pulse reads
-           as a modern web page immediately. Suppressed entirely whenever anyone
-           else is in the room; see hub/hub-attract.js. */
-        .tile.attract-on {
-            border-color: var(--sig-amber);
-            box-shadow: 0 0 0 2px rgba(255, 176, 0, 0.5), 0 0 18px rgba(255, 176, 0, 0.35);
-            animation: hub-attract-blink 1.5s steps(2, end) infinite;
-        }
-
-        @keyframes hub-attract-blink {
-            0%, 60%  { background: rgba(255, 176, 0, 0.14); }
-            61%, 100% { background: var(--ground); }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            .tile.attract-on { animation: none; background: rgba(255, 176, 0, 0.14); }
-        }
-
-        .tile-empty {
-            border-style: dashed;
-            border-color: var(--phos-dim);
-            background: none;
-            cursor: default;
-            pointer-events: none;
-        }
-
-        .new-badge {
+        .tile-art {
             position: absolute;
-            top: 8px;
-            right: 8px;
-            background: var(--sig-amber);
-            color: var(--ground);
-            padding: 3px 7px;
-            font-size: 0.5rem;
-            font-weight: bold;
-            border-radius: 4px;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            display: block;
+        }
+        .tile-plate {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            padding: 5px 8px 6px;
+            background: rgba(0, 0, 0, 0.88);
+            border-top: 2px solid var(--hue);
+        }
+        .tile-title {
+            font-family: var(--font-display);
+            font-size: clamp(0.5rem, 1.25vmin, 0.78rem);
+            color: var(--phos-hot);
+            text-transform: uppercase;
+            line-height: 1.35;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
+        }
+        .tile-desc {
+            font-size: clamp(13px, 1.7vmin, 17px);
+            color: var(--phos-mid);
             text-transform: uppercase;
             letter-spacing: 1px;
-            z-index: 2;
+            line-height: 1.1;
+            white-space: nowrap;
+            overflow: hidden;
         }
+        #tileGrid.dense .tile-desc { display: none; }
 
-        /* Rubber stamp across the tile. Two things get marked, with
-           different words on purpose:
+        /* World hues for chapters shared/retro.css has no entry for yet. */
+        .tile[data-game="alien-outpost"]    { --world-hue: #C9566B; }
+        .tile[data-game="scuba-shooter"]    { --world-hue: #3C78B4; }
+        .tile[data-game="hurl-strike"]      { --world-hue: #C9566B; }
+        .tile[data-game="code-racer"]       { --world-hue: #FF8A00; }
+        .tile[data-game="cliff-run"]        { --world-hue: #8FA89C; }
+        .tile[data-game="text-editor-wars"] { --world-hue: #1F8A4C; }
+        .tile[data-game="gyro-fleet"]       { --world-hue: #9A6AB0; }
 
-             MULTIPLAYER SOON -- works fine, just no shared play yet
-             COMING SOON      -- doesn't actually run (PROJECT_MEMORY)
+        /* The selector: brackets on the corners, the way a level select
+           marks where you are. They blink; nothing lifts or glows. */
+        .tile-corner { position: absolute; width: 14px; height: 14px; z-index: 5; display: none; pointer-events: none; }
+        .tc-a { top: 3px; left: 3px; border-top: 4px solid var(--sig-amber); border-left: 4px solid var(--sig-amber); }
+        .tc-b { bottom: 3px; right: 3px; border-bottom: 4px solid var(--sig-amber); border-right: 4px solid var(--sig-amber); }
+        .tile:hover:not(.is-locked) .tile-corner,
+        .tile.is-cursor:not(.is-locked) .tile-corner { display: block; animation: hubBlink 0.5s steps(2, start) infinite; }
+        .tile:hover:not(.is-locked), .tile.is-cursor:not(.is-locked) { border-color: var(--phos-hot); }
 
-           One word for both would put "COMING SOON" across Fruit
-           Dropper, which is stable and is the only game that behaves on
-           a phone -- that reads as broken when it isn't.
+        /* In a session, a tile you can pick. */
+        .tile.is-open { border-color: var(--sig-cyan); }
 
-           pointer-events:none matters: the stamp sits over the middle of
-           the tile, and the tile is still a link you can click and a
-           game you can vote for. */
+        /* YOUR vote (or, with no server, your pick). */
+        .tile.is-mine { border-color: var(--phos-hot); box-shadow: inset 0 0 0 2px var(--phos-hot); }
+        .tile.is-mine .tile-plate::after { content: "YOUR PICK"; position: absolute; right: 8px; top: -22px; padding: 0 6px; background: var(--phos-hot); color: var(--ground); font-size: 15px; letter-spacing: 1px; }
+
+        /* The game the room is voting in. */
+        .tile.is-leader { border-color: var(--sig-amber); box-shadow: 0 0 0 2px var(--sig-amber); }
+        .tile.is-leader .tile-plate { background: var(--sig-amber); border-top-color: var(--sig-amber); }
+        .tile.is-leader .tile-title, .tile.is-leader .tile-desc { color: var(--ground); }
+        .tile.is-leader.is-mine { box-shadow: 0 0 0 2px var(--sig-amber), inset 0 0 0 2px var(--phos-hot); }
+
+        /* Not available now: the art goes dark and the stamp says why. */
+        .tile.is-locked { border-color: var(--phos-dim); cursor: not-allowed; }
+        .tile.is-locked .tile-art { filter: saturate(0.55) brightness(0.5); }
+        .tile.is-soon .tile-art { filter: grayscale(1) brightness(0.4); }
+        .tile.is-locked .tile-title { color: var(--phos-mid); }
+        .tile.is-locked .tile-plate { border-top-color: var(--phos-dim); }
+        .tile.is-locked .vote-check { display: none; }
+        .tile.is-soon { border-style: dashed; }
+
         .tile-stamp {
             position: absolute;
-            /* Sits over the ICON, not the centre. Centred, the rotated box spans
-               68px and lands exactly on the title and description -- which was
-               survivable in Arial and is not in Press Start 2P, a much wider and
-               heavier face. Moving it up keeps the stamp-across-the-artwork idiom
-               (6.0 says keep the stamps) while leaving the game name readable.
-               The shallower angle is the same fix: most of that 68px was the
-               rotation, not the text. */
-            top: 34%;
+            top: 36%;
             left: 50%;
-            transform: translate(-50%, -50%) rotate(-16deg);
-            max-width: 94%;
-            padding: 4px 10px;
-            border: 3px solid var(--sig-amber);
-            border-radius: 6px;
-            color: var(--sig-amber);
-            background: rgba(0, 0, 0, 0.55);
-            font-size: clamp(0.48rem, 1.5vmin, 0.85rem);
-            font-weight: 800;
+            transform: translate(-50%, -50%) rotate(-8deg);
+            max-width: 96%;
+            padding: 2px 8px 3px;
+            border: 2px solid var(--phos-mid);
+            color: var(--phos-hot);
+            background: rgba(0, 0, 0, 0.8);
+            font-size: clamp(13px, 1.8vmin, 18px);
             letter-spacing: 2px;
             text-transform: uppercase;
-            text-align: center;
             white-space: nowrap;
-            opacity: 0.88;
             pointer-events: none;
             z-index: 4;
         }
+        .tile-note, .tile-played {
+            position: absolute;
+            top: 0;
+            right: 0;
+            z-index: 3;
+            padding: 0 6px 1px;
+            font-size: 15px;
+            letter-spacing: 1px;
+            background: var(--ground);
+            color: var(--phos-mid);
+            border-left: 2px solid var(--phos-mid);
+            border-bottom: 2px solid var(--phos-mid);
+            pointer-events: none;
+        }
+        .tile-played { color: var(--ground); background: var(--sig-cyan); border-color: var(--sig-cyan); }
+        .tile-played + .vote-check + .tile-plate { }
+        .tile-note + .tile-played { top: 22px; }
 
-        /* Genuinely broken reads a shade heavier than "solo for now". */
-        .tile-stamp.blocked { opacity: 1; background: rgba(0, 0, 0, 0.8); }
+        /* Attract mode (§4.8): steps, not fades. Suppressed whenever anyone
+           else is in the room; see hub/hub-attract.js. */
+        .tile.attract-on { border-color: var(--sig-amber); box-shadow: 0 0 0 2px var(--sig-amber); }
+        .tile.attract-on .tile-corner { display: block; animation: hubBlink 0.5s steps(2, start) infinite; }
 
-        /* ===================================================
-           VOTE CHECKMARK
-           Unchanged in behaviour from the previous hub: top-left of each
-           tile, a button (not a div) so it's keyboard-focusable, showing
-           one colored dot per voter rather than trying to blend several
-           people's colors into one checkmark.
-        =================================================== */
+        /* ---- the vote badge: one square per voter ---- */
         .vote-check {
             position: absolute;
-            top: 8px;
-            left: 8px;
-            min-width: 26px;
-            height: 26px;
-            border-radius: 13px;
-            border: 2px solid rgba(0, 229, 255, 0.45);
-            background: rgba(0, 0, 0, 0.6);
+            top: 0;
+            left: 0;
+            min-width: 24px;
+            height: 22px;
+            border: 0;
+            border-right: 2px solid var(--phos-mid);
+            border-bottom: 2px solid var(--phos-mid);
+            background: var(--ground);
             z-index: 3;
             cursor: pointer;
             display: flex;
@@ -448,27 +438,14 @@
             justify-content: center;
             gap: 3px;
             padding: 0 5px;
-            transition: transform 0.15s ease, background 0.15s ease;
         }
-
-        .vote-check:hover { background: rgba(0, 229, 255, 0.18); transform: scale(1.1); }
-        .vote-check.mine { border-color: var(--sig-cyan); border-width: 3px; }
-
-        .vote-check-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-
-        .vote-check-empty-icon {
-            font-size: 0.65rem;
-            color: var(--phos-dim);
-            line-height: 1;
-        }
+        .vote-check:hover { background: var(--phos-dim); }
+        .vote-check.mine { border-color: var(--phos-hot); }
+        .vote-check-dot { width: 9px; height: 9px; flex-shrink: 0; }
+        .vote-check-empty-icon { font-size: 13px; color: var(--phos-mid); line-height: 1; }
 
         /* ===================================================
-           BOTTOM BUFFER -- blank, then the Continue button
+           BOTTOM: blank, then the Continue button
         =================================================== */
         #bottomBar {
             flex: 0 0 auto;
@@ -477,8 +454,8 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 6px;
-            padding: 8px 16px;
+            gap: 5px;
+            padding: 6px 16px;
             border-top: 2px solid var(--sig-cyan);
             background: var(--ground);
             position: relative;
@@ -489,46 +466,25 @@
             display: flex;
             align-items: center;
             gap: 12px;
-            padding: 12px 26px;
-            border: 2px solid var(--sig-cyan);
-            border-radius: 10px;
-            background: transparent;
-            color: var(--sig-cyan);
-            font-family: inherit;
-            font-size: clamp(0.75rem, 2vmin, 1rem);
-            font-weight: bold;
+            padding: 11px 22px;
+            border: 2px solid var(--sig-amber);
+            background: var(--sig-amber);
+            color: var(--ground);
+            font-family: var(--font-display);
+            font-size: clamp(0.6rem, 1.7vmin, 0.85rem);
             text-transform: uppercase;
-            letter-spacing: 1.5px;
+            letter-spacing: 1px;
             cursor: pointer;
-            transition: transform 0.15s ease, background 0.15s ease;
+            box-shadow: 4px 4px 0 var(--phos-dim);
         }
+        #continueBtn:hover:not(:disabled) { background: var(--phos-hot); border-color: var(--phos-hot); }
+        #continueBtn:active:not(:disabled) { transform: translate(4px, 4px); box-shadow: none; }
+        #continueBtn:disabled { background: transparent; color: var(--phos-mid); border-color: var(--phos-mid); box-shadow: none; cursor: not-allowed; }
+        #continueBtn.iam-ready { background: var(--sig-cyan); border-color: var(--sig-cyan); }
+        #continueBtn.is-launching { animation: hubBlink 0.5s steps(2, start) infinite; }
 
-        #continueBtn:hover:not(:disabled) { transform: translateY(-2px); }
-        #continueBtn:disabled { opacity: 0.55; cursor: not-allowed; }
-
-        #continueBtn.iam-ready { background: var(--sig-cyan); border-color: var(--sig-cyan); color: var(--ground); }
-        #continueBtn.is-launching { background: var(--sig-amber); border-color: var(--sig-amber); color: var(--ground); }
-
-        /* Same dot cluster as a tile's vote checkmark -- the Continue
-           button is a second vote, so it reads as one. */
-        #continueDots {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            min-width: 26px;
-            height: 22px;
-            padding: 0 7px;
-            border-radius: 11px;
-            background: rgba(0, 229, 255, 0.14);
-            border: 2px solid rgba(0, 229, 255, 0.45);
-        }
-
-        #continueHint {
-            font-size: 0.65rem;
-            color: var(--phos-dim);
-            letter-spacing: 0.5px;
-            text-align: center;
-        }
+        #continueDots { display: flex; align-items: center; gap: 4px; min-width: 22px; height: 18px; padding: 0 5px; background: var(--ground); }
+        #continueHint { font-size: 18px; color: var(--phos-mid); letter-spacing: 1px; text-align: center; text-transform: uppercase; }
 
         /* ===================================================
            OVERLAYS
@@ -537,86 +493,56 @@
             position: fixed;
             inset: 0;
             z-index: 1000;
-            background: rgba(0, 0, 0, 0.94);
+            background: var(--ground);
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 20px;
         }
-
         .identity-card {
-            width: min(460px, 100%);
+            width: min(560px, 100%);
             max-height: 100%;
             overflow-y: auto;
-            background: var(--ground);
-            border: 2px solid var(--sig-cyan);
-            border-radius: 10px;
-            padding: clamp(18px, 3vmin, 28px);
+            text-align: center;
+            border: 4px solid var(--sig-cyan);
+            box-shadow: 0 0 0 4px var(--ground), 0 0 0 6px var(--phos-dim);
+            padding: clamp(18px, 3vmin, 30px);
         }
-
-        .identity-card h1 { font-size: clamp(1.2rem, 4vmin, 1.9rem); letter-spacing: 1px; }
-
-        .identity-card p {
-            font-size: 0.8rem;
-            line-height: 1.5;
-            color: var(--phos-mid);
-            margin: 10px 0 16px;
-        }
-
-        .identity-form-row {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: flex-end;
-        }
-
-        .identity-field { display: flex; flex-direction: column; gap: 4px; }
-
-        .identity-field label {
-            font-size: 0.62rem;
-            color: var(--phos-dim);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            font-weight: bold;
-        }
-
+        .identity-art { width: 100%; aspect-ratio: 96 / 34; object-fit: cover; image-rendering: pixelated; display: block; border-bottom: 2px solid var(--phos-dim); margin-bottom: 16px; }
+        .identity-card h1 { font-family: var(--font-display); font-size: clamp(1rem, 4vmin, 1.7rem); color: var(--phos-hot); letter-spacing: 2px; text-shadow: 3px 3px 0 #6E1F35; }
+        .identity-card p { font-size: 19px; line-height: 1.25; color: var(--phos-mid); margin: 10px 0 16px; text-transform: uppercase; letter-spacing: 1px; }
+        .identity-form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; justify-content: center; }
+        .identity-field { display: flex; flex-direction: column; gap: 4px; text-align: left; }
+        .identity-field label { font-size: 15px; color: var(--sig-cyan); text-transform: uppercase; letter-spacing: 2px; }
         .identity-field input {
-            padding: 10px 12px;
+            padding: 8px 10px;
             border: 2px solid var(--sig-cyan);
-            border-radius: 6px;
-            font-size: 0.95rem;
+            font-size: 22px;
             background: var(--ground);
             color: var(--phos-hot);
             font-family: inherit;
+            text-transform: uppercase;
             width: 100%;
         }
-
-        #identityNameInput { width: 170px; }
-        #identityRoomInput { width: 130px; text-transform: uppercase; letter-spacing: 2px; }
-
+        #identityNameInput { width: 190px; }
+        #identityRoomInput { width: 140px; letter-spacing: 3px; }
         #identityJoinBtn {
-            padding: 11px 24px;
-            background: var(--sig-cyan);
+            padding: 12px 20px;
+            background: var(--sig-amber);
             color: var(--ground);
-            border: 2px solid var(--sig-cyan);
-            border-radius: 6px;
-            font-family: inherit;
-            font-weight: bold;
-            font-size: 0.85rem;
+            border: 2px solid var(--sig-amber);
+            font-family: var(--font-display);
+            font-size: 0.75rem;
             cursor: pointer;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            box-shadow: 4px 4px 0 var(--phos-dim);
         }
+        #identityJoinBtn:hover { background: var(--phos-hot); border-color: var(--phos-hot); }
+        .identity-hint { font-size: 16px !important; color: var(--phos-mid) !important; margin: 14px 0 0 !important; }
 
-        /* Not a hard requirement -- a blank code still works, it just
-           lands in the shared "public" room. It's a nudge, not a gate:
-           this page's whole purpose is group presence, and a blank
-           default would quietly defeat that for anyone clicking through. */
-        .identity-hint { font-size: 0.66rem; color: var(--sig-amber); margin-top: 12px; line-height: 1.5; }
-
-        /* Stops above the bottom bar (pointer-events:none anyway) so the
-           Continue button stays visible AND clickable during the count --
-           un-readying is how you abort a launch you didn't mean. */
+        /* Stops above the bottom bar (pointer-events:none anyway) so
+           Continue stays clickable during the count: un-readying is how you
+           abort a launch you didn't mean. */
         #countdownOverlay {
             position: fixed;
             left: 0;
@@ -625,32 +551,21 @@
             bottom: var(--bottom-h);
             z-index: 700;
             pointer-events: none;
-            background: rgba(0, 0, 0, 0.82);
+            background: rgba(0, 0, 0, 0.9);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 6px;
+            gap: 18px;
             color: var(--phos-hot);
+            font-family: var(--font-display);
         }
+        #countdownOverlay::before { content: "NOW LOADING"; font-size: clamp(0.6rem, 2vmin, 0.9rem); color: var(--sig-cyan); letter-spacing: 4px; }
+        #countdownNumber { font-size: clamp(4rem, 22vmin, 11rem); line-height: 1; color: var(--sig-amber); text-shadow: 6px 6px 0 #6E1F35; }
+        #countdownGame { font-size: clamp(0.8rem, 2.6vmin, 1.4rem); letter-spacing: 3px; text-transform: uppercase; }
 
-        #countdownNumber { font-size: clamp(4rem, 22vmin, 12rem); font-weight: 800; line-height: 1; }
-        #countdownGame { font-size: clamp(0.8rem, 2.4vmin, 1.3rem); letter-spacing: 3px; text-transform: uppercase; }
-
-        /* ===================================================
-           REMOTE PLAYER CURSORS
-           pointer-events:none is essential -- these must never intercept
-           a click meant for a tile or a vote checkmark underneath them.
-
-           Position comes from an ANCHOR (which tile, or the Continue
-           button, plus where inside it) rather than raw screen position.
-           Raw viewport percentages were fine when everyone saw one long
-           scrolling list; with pages they are not -- a friend hovering a
-           tile on page 2 would otherwise appear to point at whatever
-           happens to sit at those coordinates on YOUR page 1. When the
-           anchor isn't on this screen the cursor falls back to the raw
-           position and dims, which reads as "they're looking elsewhere."
-        =================================================== */
+        /* ---- other players' cursors: anchored to a tile, never raw
+                screen position (see hub-render.js) ---- */
         .remote-cursor {
             position: fixed;
             top: 0;
@@ -658,130 +573,117 @@
             pointer-events: none;
             z-index: 900;
             transform: translate(-50%, -50%);
-            transition: top 0.08s linear, left 0.08s linear, opacity 0.2s ease;
+            transition: top 0.08s linear, left 0.08s linear;
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 2px;
         }
-
         .remote-cursor.offscreen { opacity: 0.3; }
+        .remote-cursor-dot { width: 12px; height: 12px; border: 2px solid var(--ground); }
+        .remote-cursor-label { font-size: 15px; color: var(--phos-hot); background: var(--ground); padding: 0 5px; white-space: nowrap; text-transform: uppercase; }
 
-        .remote-cursor-dot {
-            width: 13px;
-            height: 13px;
-            border-radius: 50% 50% 50% 0;
-            transform: rotate(-45deg);
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        .remote-cursor-label {
-            font-size: 0.62rem;
-            font-weight: bold;
-            color: var(--ground);
-            background: rgba(0, 0, 0, 0.85);
-            padding: 2px 6px;
-            border-radius: 4px;
-            white-space: nowrap;
-        }
-            /* ===== PARTY SESSION (hub/hub-party.js, HUB_1_0_PLAN.md Phase 7) ===== */
-        #partyBar {
-            flex: 0 0 auto;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            padding: 6px 14px;
-            border-bottom: 2px solid var(--sig-amber);
-            background: var(--ground);
-            font-size: 0.78rem;
-            letter-spacing: 1px;
-            overflow-x: auto;
-            white-space: nowrap;
-        }
-        #partyBar[hidden] { display: none; }
-        .party-tag { color: var(--sig-amber); }
-        .party-stand { display: inline-flex; align-items: center; gap: 5px; color: var(--phos-hot); }
-        .party-stand .player-dot { width: 9px; height: 9px; border-radius: 0; display: inline-block; }
-        .party-stand.is-lead { color: var(--sig-amber); }
-        .party-spacer { flex: 1 1 auto; }
-        /* The story path: stacked chips per stage, arrows between. */
-        .story-path { display: inline-flex; align-items: center; gap: 6px; }
-        .story-col { display: inline-flex; flex-direction: column; gap: 3px; align-items: stretch; }
-        .story-col-label { font-size: 0.6rem; color: var(--sig-cyan); text-align: center; }
-        .story-chip {
-            font-size: 0.66rem;
-            padding: 3px 8px;
-            border: 2px solid var(--phos-mid);
-            color: var(--phos-mid);
-            text-align: center;
-        }
-        .story-chip.is-open { border-color: var(--sig-amber); color: var(--sig-amber); }
-        .story-chip.is-played { border-color: var(--sig-cyan); color: var(--ground); background: var(--sig-cyan); }
-        .story-chip.is-off { border-style: dashed; opacity: 0.6; }
-        .story-arrow { color: var(--sig-cyan); font-size: 0.8rem; }
-
-        .tile.is-locked { border-color: #444; cursor: not-allowed; }
-        .tile.is-locked .tile-icon, .tile.is-locked .tile-title, .tile.is-locked .tile-desc { opacity: 0.28; }
-        .tile.is-locked .vote-check, .tile.is-locked .new-badge { display: none; }
-        .tile-stamp.tile-lock { border-color: var(--sig-cyan); color: var(--sig-cyan); letter-spacing: 1px; }
-
+        /* ===================================================
+           SESSION SCREENS (hub/hub-party.js)
+        =================================================== */
         #partyOverlay {
             position: fixed;
             inset: 0;
-            z-index: 800;
-            background: rgba(0, 0, 0, 0.86);
+            z-index: 850;
+            background: rgba(0, 0, 0, 0.9);
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 16px;
         }
-        #partyOverlay[hidden] { display: none; }
+        #partyOverlay.is-mode { background: var(--ground); }
+
+        /* The first screen: story party or free play. */
+        .mode-screen { width: min(1040px, 100%); max-height: 100%; overflow-y: auto; text-align: center; color: var(--phos-hot); }
+        .mode-kicker, .party-kicker { font-size: 18px; letter-spacing: 4px; color: var(--sig-cyan); margin-bottom: 8px; text-transform: uppercase; }
+        .mode-screen h2 { font-family: var(--font-display); font-size: clamp(0.9rem, 3.4vmin, 1.7rem); letter-spacing: 2px; text-shadow: 3px 3px 0 #6E1F35; margin-bottom: clamp(12px, 3vmin, 28px); }
+        .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(12px, 3vw, 36px); }
+        @media (max-width: 620px) { .mode-cards { grid-template-columns: 1fr; } }
+        .mode-card {
+            position: relative;
+            border: 4px solid var(--phos-mid);
+            padding: 0 0 16px;
+            cursor: pointer;
+            text-align: center;
+            background: var(--ground);
+        }
+        .mode-card:hover, .mode-card.is-focus { border-color: var(--sig-amber); box-shadow: 0 0 0 4px var(--ground), 0 0 0 6px var(--sig-amber); }
+        .mode-card.is-picked { border-color: var(--sig-cyan); }
+        .mode-art { width: 100%; aspect-ratio: 96 / 40; object-fit: cover; image-rendering: pixelated; display: block; border-bottom: 2px solid var(--phos-dim); }
+        .mode-card h3 { font-family: var(--font-display); font-size: clamp(0.8rem, 2.6vmin, 1.25rem); color: var(--sig-amber); margin: 16px 8px 10px; letter-spacing: 1px; }
+        .mode-card p { font-size: 19px; line-height: 1.15; color: var(--phos-mid); margin: 0 14px 6px; letter-spacing: 1px; }
+        .mode-len { display: flex; gap: 8px; align-items: center; justify-content: center; margin: 12px 0 2px; font-size: 19px; color: var(--phos-mid); letter-spacing: 2px; }
+        .mode-go {
+            display: inline-block;
+            margin-top: 14px;
+            padding: 10px 22px;
+            font-family: var(--font-display);
+            font-size: 0.75rem;
+            background: var(--phos-dim);
+            color: var(--phos-hot);
+        }
+        .mode-card:hover .mode-go, .mode-card.is-focus .mode-go { background: var(--sig-amber); color: var(--ground); animation: hubBlink 0.6s steps(2, start) infinite; }
+        .mode-foot { margin-top: clamp(12px, 3vmin, 26px); font-size: 18px; letter-spacing: 2px; color: var(--phos-mid); display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; }
+        .mode-blink { color: var(--sig-amber); animation: hubBlink 1s steps(2, start) infinite; }
+
+        /* The readout between games, and the final one. */
         .party-card {
             background: var(--ground);
             border: 4px solid var(--sig-cyan);
-            box-shadow: 0 0 0 4px var(--ground), 0 0 0 8px var(--sig-magenta, #FF2E88);
+            box-shadow: 0 0 0 4px var(--ground), 0 0 0 6px var(--phos-dim);
             padding: 22px 26px;
-            width: min(600px, 94vw);
+            width: min(640px, 94vw);
             max-height: 92vh;
             overflow-y: auto;
             text-align: center;
             color: var(--phos-hot);
         }
-        .party-card h2 { font-size: clamp(0.9rem, 3vmin, 1.3rem); color: var(--sig-amber); margin-bottom: 8px; letter-spacing: 1px; }
-        .party-card .party-sub { font-size: 0.8rem; color: var(--sig-cyan); line-height: 1.9; margin-bottom: 14px; }
-        .party-card table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-bottom: 16px; }
-        .party-card th { font-weight: normal; font-size: 0.72rem; color: var(--sig-cyan); border-bottom: 2px solid var(--sig-cyan); }
-        .party-card th, .party-card td { padding: 7px 6px; text-align: left; white-space: nowrap; }
-        .party-card .n { text-align: right; }
-        .party-card tr.is-you td { background: rgba(0, 229, 255, 0.14); }
-        .party-card .party-gain { color: var(--sig-amber); }
-        .party-card .player-dot { width: 10px; height: 10px; border-radius: 0; display: inline-block; margin-right: 7px; vertical-align: middle; }
-        .party-winner { font-size: clamp(1rem, 4.5vmin, 1.9rem); color: var(--sig-amber); margin: 10px 0 16px; line-height: 1.4;
-                        text-shadow: 3px 3px 0 var(--sig-magenta, #FF2E88); animation: partyWin 0.6s steps(2, start) infinite; }
+        .party-card h2 { font-family: var(--font-display); font-size: clamp(0.85rem, 3vmin, 1.3rem); color: var(--sig-amber); margin-bottom: 8px; letter-spacing: 1px; }
+        .party-card .party-sub { font-size: 19px; color: var(--phos-mid); letter-spacing: 2px; margin-bottom: 12px; }
+        .party-table { width: 100%; border-collapse: collapse; font-size: 22px; margin-bottom: 16px; text-transform: uppercase; }
+        .party-table th { font-weight: normal; font-size: 16px; letter-spacing: 2px; color: var(--sig-cyan); border-bottom: 2px solid var(--sig-cyan); }
+        .party-table th, .party-table td { padding: 4px 6px; text-align: left; white-space: nowrap; }
+        .party-table .n { text-align: right; }
+        .party-table tr.is-you td { background: rgba(0, 229, 255, 0.16); }
+        .party-table .party-gain { color: var(--sig-amber); font-family: var(--font-display); font-size: 0.8rem; }
+        .party-table .player-dot { margin-right: 8px; vertical-align: middle; }
+        /* Rows arrive one at a time, last place first would be crueler;
+           top down is how a cabinet prints a table. */
+        .party-reveal { visibility: hidden; animation: partyReveal 0.01s linear forwards; animation-delay: calc(var(--i) * 0.28s + 0.3s); }
+        @keyframes partyReveal { to { visibility: visible; } }
+        .party-meter { display: inline-block; vertical-align: middle; width: clamp(40px, 12vw, 120px); height: 8px; margin-left: 10px; background: var(--phos-dim); }
+        .party-meter span { display: block; height: 100%; }
+        .party-winner { font-family: var(--font-display); font-size: clamp(1rem, 4.5vmin, 1.9rem); color: var(--sig-amber); margin: 12px 0 18px; line-height: 1.5;
+                        text-shadow: 3px 3px 0 #6E1F35; animation: partyWin 0.6s steps(2, start) infinite; }
         @keyframes partyWin { 50% { color: var(--phos-hot); } }
-        .party-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
-        .party-row .party-label { flex-basis: 100%; font-size: 0.72rem; color: var(--sig-cyan); }
-        .party-opt, .party-go {
-            font-family: inherit;
-            font-size: 0.85rem;
-            letter-spacing: 1px;
-            padding: 10px 14px;
-            border: 2px solid var(--sig-cyan);
-            background: transparent;
-            color: var(--sig-cyan);
-            cursor: pointer;
-        }
+        .party-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+        .party-opt, .party-go { font-family: var(--font-display); font-size: 0.7rem; padding: 10px 14px; border: 2px solid var(--sig-cyan); background: transparent; color: var(--sig-cyan); cursor: pointer; }
         .party-opt[aria-pressed="true"] { background: var(--sig-cyan); color: var(--ground); }
-        .party-go { border-color: var(--sig-amber); background: var(--sig-amber); color: var(--ground); }
-        .party-go.is-quiet { background: transparent; color: var(--sig-amber); }
-        .party-note { font-size: 0.72rem; line-height: 1.9; color: var(--phos-mid); margin-bottom: 14px; }
-        @media (prefers-reduced-motion: reduce) { .party-winner { animation: none; } }
+        .party-go { border-color: var(--sig-amber); background: var(--sig-amber); color: var(--ground); box-shadow: 4px 4px 0 var(--phos-dim); }
+        .party-go:hover { background: var(--phos-hot); border-color: var(--phos-hot); }
+
+        @media (prefers-reduced-motion: reduce) {
+            body::after, #ticker, .party-winner, .path-line.is-open, .mode-blink, .party-tag.is-alert,
+            .tile-corner, .mode-go, #continueBtn.is-launching { animation: none !important; }
+            .party-reveal { visibility: visible; animation: none; }
+        }
     </style>
 </head>
 <body>
 
-    <!-- ===== TOP BUFFER ===== -->
+    <!-- ===== TICKER: one line of the story, always moving ===== -->
+    <div id="tickerBar" aria-hidden="true"><span id="ticker"></span></div>
+
+    <!-- ===== TOP BAR ===== -->
     <header id="topBar">
+        <div class="top-block">
+            <div id="wordmark">GAME HUB<small>AN INVASION IN FIVE ACTS</small></div>
+        </div>
         <div class="top-block">
             <span class="top-label">Room</span>
             <span id="roomCode">----</span>
@@ -789,25 +691,27 @@
         </div>
         <div id="playerStrip"><span id="rosterEmpty">Not connected</span></div>
         <div class="top-block">
-            <button class="top-btn" id="partyBtn" hidden title="Play several games in a row with a running score and one winner">Party</button>
-            <a class="top-btn" id="leaderboardLink" href="leaderboard.html">🏆 Scores</a>
+            <a class="top-btn" id="leaderboardLink" href="leaderboard.html">Hi-scores</a>
         </div>
     </header>
 
-    <!-- ===== PARTY SESSION BAR (hub/hub-party.js; empty outside a session) ===== -->
+    <!-- ===== SESSION STRIP (hub/hub-party.js) ===== -->
     <div id="partyBar" hidden></div>
 
     <!-- ===== BOARD ===== -->
     <main id="board">
-        <button class="page-arrow" id="pagePrev" aria-label="Previous page">&#8249;</button>
+        <button class="page-arrow" id="pagePrev" aria-label="Earlier acts">&#9664;</button>
         <div id="boardInner">
-            <div id="tileGrid"></div>
+            <div id="gridWrap">
+                <svg id="pathLayer" aria-hidden="true"></svg>
+                <div id="tileGrid"></div>
+            </div>
             <div id="pageDots"></div>
         </div>
-        <button class="page-arrow" id="pageNext" aria-label="Next page">&#8250;</button>
+        <button class="page-arrow" id="pageNext" aria-label="Later acts">&#9654;</button>
     </main>
 
-    <!-- ===== BOTTOM BUFFER ===== -->
+    <!-- ===== BOTTOM ===== -->
     <footer id="bottomBar">
         <button id="continueBtn" hidden>
             <span id="continueLabel">CONTINUE</span>
@@ -822,25 +726,27 @@
         <div id="countdownGame"></div>
     </div>
 
-    <!-- Party session: setup, the standings between games, the final readout. -->
+    <!-- The first screen (story party or free play), the readout between
+         games, and the final one. -->
     <div id="partyOverlay" hidden></div>
 
     <div id="identityOverlay">
         <div class="identity-card">
-            <h1>🎮 GAME HUB</h1>
-            <p>Enter a name and a room code to see who else is here, vote on what to play, and stay grouped as you move between games.</p>
+            <canvas class="identity-art" width="96" height="54" data-art="zombie"></canvas>
+            <h1>GAME HUB</h1>
+            <p>Enter a name and a room code. Friends who use the same code land in the same room, pick games together and keep one running score.</p>
             <div class="identity-form-row">
                 <div class="identity-field">
                     <label for="identityNameInput">Your Name</label>
-                    <input id="identityNameInput" type="text" placeholder="e.g. Ry" maxlength="20" autocomplete="off">
+                    <input id="identityNameInput" type="text" placeholder="RY" maxlength="20" autocomplete="off">
                 </div>
                 <div class="identity-field">
                     <label for="identityRoomInput">Room Code</label>
-                    <input id="identityRoomInput" type="text" placeholder="e.g. ASDF" maxlength="8" autocomplete="off">
+                    <input id="identityRoomInput" type="text" placeholder="ASDF" maxlength="8" autocomplete="off">
                 </div>
                 <button id="identityJoinBtn">Join</button>
             </div>
-            <p class="identity-hint">⚠ Leaving the room code blank puts you in the shared public room along with anyone else who left it blank — not private to your group. For a group session, agree on a code with your friends first.</p>
+            <p class="identity-hint">No room code puts you in the public room with anyone else who left it blank.</p>
         </div>
     </div>
 
@@ -869,6 +775,7 @@
      See hub/HUB_PASS_PLAN.md. -->
 <script src="hub/hub-core.js"></script>
 <script src="hub/hub-layout.js"></script>
+<script src="hub/hub-art.js"></script>
 <script src="hub/hub-render.js"></script>
 <script src="hub/hub-party.js"></script>
 <script src="hub/hub-net.js"></script>

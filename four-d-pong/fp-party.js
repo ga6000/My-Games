@@ -109,11 +109,21 @@ function pongPartyTick() {
     }
     menuEl.hidden = (phase !== "menu") || BOOTFLOW.readyOpen() || !pongIntroDone;
 
-    if (typeof PARTY === "undefined" || !PARTY.active()) return;
-    if (phase === "play") PARTY.live(pongSeatScore(pongMySeat()));
+    // The score strip (this game has no cabinet panel yet): points on the
+    // hub scale, which the big goal digits on the field do not show.
+    if (typeof HUBSCORE !== "undefined" && HUBSCORE.hud) {
+        if (phase === "play" || phase === "count" || phase === "over") {
+            HUBSCORE.hud({ game: "four-d-pong", score: pongSeatScore(pongMySeat()),
+                           label: typeof PARTY !== "undefined" ? PARTY.label() : "" });
+        } else HUBSCORE.hudHide();
+    }
+
+    if (typeof PARTY === "undefined") return;
+    if (PARTY.active() && phase === "play") PARTY.live(pongSeatScore(pongMySeat()));
     // A match that ended: this seat's score is the round. PvP, so nobody
-    // "clears" it. A spectator reports zero and takes last place.
-    if (phase === "over") PARTY.finish({ score: pongSeatScore(pongMySeat()), cleared: false });
+    // "clears" it. A spectator reports zero and takes last place. Outside a
+    // session a match opened from the hub ends the same way (party.js).
+    if (phase === "over" && PARTY.wanted()) PARTY.finish({ score: pongSeatScore(pongMySeat()), cleared: false, game: "four-d-pong" });
 }
 
 function pongInSession() {

@@ -486,6 +486,12 @@ cabinet:
   (`HUB_1_0_PLAN.md` Phase 7), so two games being a little apart does not make a session unfair.
 - A game whose scores move onto the scale posts to a fresh leaderboard id (`zombie-v2`,
   `space-tracer-v2`); the old entries stay stored on their old scale.
+- **The score strip** (2026-11-13): a game with no cabinet panel yet (§4.11a) shows
+  `1UP 001200   HI-SCORE 025000` top centre through `HUBSCORE.hud()`. Red labels, white six-digit
+  numbers, the panel's own convention, so moving it into a panel later changes nothing a player
+  learned. A game that has the panel never calls it.
+- **The end-of-round card** (`shared/party.js`) tallies the score up in steps, prints the table a
+  row at a time and draws the standings as bars in each player's colour.
 
 ## 5. What each game must keep
 
@@ -540,6 +546,32 @@ load-bearing and stays.
 Press Start 2P titles and VT323 descriptions; `#roomCode` → `--sig-cyan`, already monospace.
 `COMING SOON` / `MULTIPLAYER SOON` stamps are already an arcade idiom — keep them, restyle to
 `--sig-amber`. Add attract mode (§4.8). **Effort: M.**
+
+**2026-11-13: "change the skin, not the layout" is SUPERSEDED on Ry's instruction.** Ry asked for
+the tiles to become the story's flow chart ("an intentional level-selector that you would expect
+to see within an arcade game") and for the hub's look to be overhauled ("a bit simple ... clunky
+and look amateur"). What the old rule protected is kept: fixed bands, no page scroll, pages you
+flip through, nothing that can cover the board on a phone. What changed:
+
+- **The board is the story.** One column per ACT, tiles stacked in it, a dashed break between
+  acts, right-angled paths drawn between games. Dim `--phos-dim` for a path, `--sig-cyan` for one
+  the session took, marching `--sig-amber` for the way forward.
+- **A tile is a marquee**, not a card: a pixel scene from that chapter filling it
+  (`hub/hub-art.js`, 96 x 54, flat fills, stepped at 5 fps), a black name plate along the bottom
+  ruled in the chapter's world hue. No emoji anywhere on the hub.
+- **Every aircrab on the board breathes on one clock**, in steps. The story's breath rule doubles
+  as the hub's idle motion.
+- **Square corners, 2px rules, hard offset shadows, no easing.** Things blink in steps or snap.
+  The selector is a pair of amber corner brackets, not a lift or a glow.
+- **Signal Three on the hub:** cyan is the chrome and "open to you"; amber is the selection, the
+  leader, the way forward and the primary button; magenta appears only inside the art, on the
+  thing that kills you. The old party card's magenta outer rule is gone (it was decoration).
+- **VT323 at 16 to 22px for anything read, Press Start 2P for names and numbers.** The earlier
+  hub set most labels at 10px.
+- **A ticker** along the top carries one line of story, and the screen wipes on in bands when you
+  arrive, the way a cabinet changes screens.
+- The marquee scenes are placeholders in the right language. A `GAMES` entry with
+  `art: "path.png"` shows that image instead, which is how drawn key art replaces them.
 
 ### 6.1 Gyro Space — `gyro-space/space-tracer.html` · **VECTOR** · anchor: *Asteroids* (1979)
 Already black with neon and hand-drawn trails. The closest game in the repo to the target.

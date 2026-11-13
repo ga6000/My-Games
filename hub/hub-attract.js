@@ -41,6 +41,7 @@ function attractSuppressed() {
     if (isLaunching) return true;
     if (countdownOverlay && !countdownOverlay.hidden) return true;
     if (identityOverlay && !identityOverlay.hidden) return true;
+    if (partyOverlay && !partyOverlay.hidden) return true;   // first screen, readouts
     if (Object.keys(roomMembers).length > 1) return true;
     return false;
 }
@@ -52,7 +53,7 @@ function attractClear() {
 }
 
 function attractAdvance() {
-    const tiles = tileGrid.querySelectorAll(".tile:not(.tile-empty)");
+    const tiles = tileGrid.querySelectorAll(".tile:not(.is-locked)");
     attractClear();
     if (!tiles.length) return;
     attractIndex = attractIndex % tiles.length;

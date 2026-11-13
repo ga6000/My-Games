@@ -173,6 +173,8 @@ Then the usual closing numbered questions.
   (recorded 2026-09-18).
 - **The cabinet panel** is required for every card. Four of the five don't have one yet.
 - **The hub page** has no `data-cabinet`. Is it a cabinet, or the arcade floor around them?
+  (2026-11-13: Ry had it rebuilt as a game's own level-select screen, §6.0's dated note. Still no
+  `data-cabinet` and no scanlines.)
 
 ## Lessons log
 
@@ -184,3 +186,7 @@ above.
   §4.9, then reversed by the user to bands on 10-09. Lesson: raise the clash when the request
   comes in, before building, not afterwards. That cost a build-and-revert.
 - 2026-10-11 — Zombie: the user asked for softer light and it is checklist item 9's 'bands' pillar, so the clash was named in a proposal (`zombie/LIGHTING_PROPOSAL.md`) rather than built either way. Also: Browser-pane thumbnails and emulated viewports cannot judge in-world sprites or soft light; the panel layout was checkable at 1366x768, the world art only by code and headless state.
+- 2026-11-13 — Hub overhaul. The clash (§6.0 "change the skin, not the layout" against Ry's
+  "make the tiles into the flow chart") was named to Ry before building and recorded as a dated
+  supersession. Lesson: emoji icons were the single loudest "web page, not cabinet" tell on the
+  hub; art in the game's own pixel language did more than any chrome change.

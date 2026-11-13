@@ -128,8 +128,85 @@
         return el;
     }
 
+    /*
+     * THE SCORE STRIP (added 2026-11-13). For a game with no cabinet panel
+     * yet: one line at the top centre, the way every cabinet printed it.
+     *
+     *     1UP 001200      HI-SCORE 025000      STORY PARTY · GAME 2 OF 5
+     *
+     * Call it as often as you like (once a frame is fine): it only touches
+     * the DOM when something changed. Zero-padded to six, and the number
+     * steps, it never tweens (AESTHETIC_GUIDE.md §3.4).
+     *   state.game   id, the key the best score is kept under (localStorage)
+     *   state.score  this player's score now
+     *   state.label  optional third field (the session label, a clock)
+     *   state.color  optional: this player's identity colour for "1UP"
+     * A game that has the panel (§4.11a) shows these there and never calls this.
+     */
+    var hudEl = null;
+    var hudShown = "";
+    var hudBest = {};
+
+    function pad6(n) {
+        var s = String(Math.max(0, Math.round(Number(n) || 0)));
+        while (s.length < 6) s = "0" + s;
+        return s;
+    }
+
+    function best(game, score) {
+        if (!(game in hudBest)) {
+            var stored = 0;
+            try { stored = Number(global.localStorage.getItem("hubscore_best_" + game)) || 0; } catch (e) { /* no storage */ }
+            hudBest[game] = stored;
+        }
+        if (score > hudBest[game]) {
+            hudBest[game] = score;
+            try { global.localStorage.setItem("hubscore_best_" + game, String(score)); } catch (e) { /* not kept */ }
+        }
+        return hudBest[game];
+    }
+
+    function hud(state) {
+        if (!global.document || !document.body) return;
+        ensureLayer();
+        if (!hudEl || !hudEl.isConnected) {
+            var css = document.createElement("style");
+            css.setAttribute("data-hubscore-hud", "");
+            css.textContent =
+                "#hubscoreHud{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:890;pointer-events:none;" +
+                "display:flex;gap:22px;align-items:baseline;padding:7px 14px 6px;background:#000;" +
+                "border:2px solid #2E3A34;border-top:0;white-space:nowrap;" +
+                "font-family:'Press Start 2P','VT323',monospace;font-size:11px;line-height:1;color:#E8FFF4}" +
+                "#hubscoreHud i{font-style:normal;color:#FF3344;margin-right:8px}" +
+                "#hubscoreHud .hs-label{color:#FFB000}" +
+                "@media (max-width:640px){#hubscoreHud{font-size:8px;gap:12px}}";
+            document.head.appendChild(css);
+            hudEl = document.createElement("div");
+            hudEl.id = "hubscoreHud";
+            hudEl.setAttribute("aria-hidden", "true");
+            document.body.appendChild(hudEl);
+            hudShown = "";
+        }
+        var score = Math.max(0, Math.round(Number(state.score) || 0));
+        var hi = best(state.game || "game", score);
+        var key = score + "|" + hi + "|" + (state.label || "") + "|" + (state.color || "");
+        if (key === hudShown) return;
+        hudShown = key;
+        hudEl.innerHTML =
+            "<span><i" + (state.color ? " style='color:" + String(state.color).replace(/[^#(),.%a-zA-Z0-9 ]/g, "") + "'" : "") + ">1UP</i>" + pad6(score) + "</span>" +
+            "<span><i>HI-SCORE</i>" + pad6(hi) + "</span>" +
+            (state.label ? "<span class='hs-label'>" + String(state.label).replace(/[<>&]/g, "") + "</span>" : "");
+    }
+
+    function hudHide() {
+        if (hudEl && hudEl.parentNode) hudEl.parentNode.removeChild(hudEl);
+        hudEl = null;
+        hudShown = "";
+    }
+
     function destroy() {
         live = [];
+        hudHide();
         if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
         layer = null;
     }
@@ -138,6 +215,10 @@
         TIER: TIER,
         PAR: PAR,
         format: format,
+        pad6: pad6,
+        best: best,
+        hud: hud,
+        hudHide: hudHide,
         snap: snap,
         toast: toast,
         liveCount: function () { return live.length; },

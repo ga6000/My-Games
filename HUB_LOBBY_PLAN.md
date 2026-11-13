@@ -548,4 +548,22 @@ lose the race, which is why it showed up in the headless test and (as far as any
 on a game night. A running countdown is now stopped only by `launch-cancel`, which the server
 sends for every real cancel.
 
+
+## 11. The board became a level select (2026-11-13)
+
+Ry's call, same day as §10. Details in `HUB_1_0_PLAN.md` Phase 7b; what matters to this plan:
+
+- **The first screen** after name and room is STORY PARTY or FREE PLAY. Until the room has a
+  session the board is behind it. With no server the screen offers PLAY SOLO WITHOUT IT, which is
+  the old offline pick-and-play (§9c) unchanged underneath.
+- **A page is a run of ACT columns**, not six tiles: `actsPerPage` is 5, 3 or 2 by screen
+  shape. "Page 2 means the same thing to everyone" (§1) no longer holds across different screens;
+  remote cursors were already anchored to tiles rather than pages, so they still point at the
+  right thing or dim when their tile is on another page.
+- **Tiles are still votes** (§9). A `soon` tile and a story-locked tile take no vote and say why.
+- **Arrow keys walk a selector over the board and Enter picks** (`cursorMove()` in
+  `hub/hub-layout.js`); they used to flip pages.
+- New server messages: `session-start` takes `total: 0` (open-ended) and `games` (the ids that
+  score); `session-finish` ends an open-ended session with a winner.
+
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

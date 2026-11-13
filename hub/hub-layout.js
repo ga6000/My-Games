@@ -70,34 +70,89 @@ function pendingVoters() {
 // room, which matters when you're telling a friend where to look. A
 // per-device tile count would have put two people on genuinely different
 // pages under the same page number.
-let lastCols = null;
+let lastActs = null;
 let lastDense = null;
 
 function applyGridShape() {
-    const cols = window.innerWidth >= window.innerHeight ? 3 : 2;
+    // How many acts sit side by side. All five on a wide screen; three on a
+    // narrow landscape one; two on a phone held upright.
+    const w = window.innerWidth, h = window.innerHeight;
+    const fit = w >= h ? (w >= 1000 ? 5 : 3) : 2;
 
-    // Only write when something actually changed. This runs from a
-    // ResizeObserver, and an unconditional style write on every
-    // observation is how you get an observer that re-triggers itself.
-    if (cols !== lastCols) {
-        lastCols = cols;
-        tileGrid.style.setProperty("--cols", String(cols));
-        tileGrid.style.setProperty("--rows", String(PAGE_SIZE / cols));
+    // Only act when something actually changed. This runs from a
+    // ResizeObserver, and an unconditional re-render on every observation
+    // is how you get an observer that re-triggers itself.
+    if (fit !== lastActs) {
+        lastActs = fit;
+        actsPerPage = fit;
+        currentPage = Math.min(currentPage, pageCount() - 1);
+        renderTiles();
+        renderPageDots();
+        return;
     }
 
     // Measured, not guessed: whether a description fits depends on the
-    // height each tile actually got, which depends on the window, the
-    // grid shape and the buffers all at once.
+    // height each tile actually got.
     requestAnimationFrame(() => {
         const first = tileGrid.querySelector(".tile");
         if (!first) return;
-        const dense = first.getBoundingClientRect().height < 118;
+        const dense = first.getBoundingClientRect().height < 96;
         if (dense !== lastDense) {
             lastDense = dense;
             tileGrid.classList.toggle("dense", dense);
         }
+        renderPaths();
         repositionRemoteCursors();
     });
 }
 
 
+
+// ===================================================
+//   THE SELECTOR (keyboard)
+// ===================================================
+// Arrow keys walk a cursor over the board the way a level select does:
+// up and down inside an act, left and right between acts (and onto the next
+// page of acts at the edge). Enter picks. The mouse needs none of this; the
+// cursor only appears once an arrow key has been used.
+let cursorGameId = null;
+
+function cursorApply() {
+    tileGrid.querySelectorAll(".tile.is-cursor").forEach(el => el.classList.remove("is-cursor"));
+    if (!cursorGameId) return;
+    const el = tileGrid.querySelector('.tile[data-game-id="' + cursorGameId + '"]');
+    if (el) el.classList.add("is-cursor");
+}
+
+function cursorMove(dx, dy) {
+    const acts = actsOnPage(currentPage);
+    const cur = cursorGameId ? gameById(cursorGameId) : null;
+
+    if (!cur || !acts.some(a => a.n === cur.act)) {
+        // First press: start on your pick, the leader, or the first open tile.
+        const start = myChoice() || effectiveLeader();
+        const open = GAMES.find(g => acts.some(a => a.n === g.act) && !partyLockReason(g));
+        const startGame = start ? gameById(start) : null;
+        cursorGameId = (startGame && acts.some(a => a.n === startGame.act)) ? start
+            : (open ? open.id : gamesInAct(acts[0].n)[0].id);
+        cursorApply();
+        return;
+    }
+
+    const col = gamesInAct(cur.act);
+    const row = col.indexOf(cur);
+
+    if (dy) {
+        cursorGameId = col[(row + dy + col.length) % col.length].id;
+    } else {
+        const actIndex = ACTS.findIndex(a => a.n === cur.act) + dx;
+        if (actIndex < 0 || actIndex >= ACTS.length) return;
+        const next = gamesInAct(ACTS[actIndex].n);
+        // Keep roughly the same height in the new column.
+        const at = Math.round(row * (next.length - 1) / Math.max(1, col.length - 1));
+        cursorGameId = next[Math.min(next.length - 1, at)].id;
+        const page = Math.floor(actIndex / actsPerPage);
+        if (page !== currentPage) { setPage(page); return; }
+    }
+    cursorApply();
+}

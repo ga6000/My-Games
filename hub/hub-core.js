@@ -18,7 +18,6 @@
 // computed -- so the list is data now and the markup is generated.
 // Order is unchanged from the old grid, so anyone used to where a game
 // sat still finds it in the same place, just possibly on page 2.
-const PAGE_SIZE = 6;
 
 // mp:true     -- plays together over the server today (no stamp)
 // broken:true -- PROJECT_MEMORY marks it not-functioning
@@ -57,19 +56,43 @@ const PAGE_SIZE = 6;
 // All 6 fit on one page at PAGE_SIZE = 6 (Scuba Shooter made six on
 // 2026-11-02), so paging is still a no-op; a seventh card starts page 2.
 const GAMES = [
-    // ONE Zombie again, 2026-09-26. `zombie-alt/` existed for a day as a
-    // second card so the evacuation train could be playtested without
-    // touching the game the group already played; it was merged back and the
-    // folder deleted the same evening, on the user's call. The pre-merge
-    // Zombie is `ae0f19d` if it is ever wanted back.
-    { id: "zombie",               icon: "🧟",  title: "Zombie",               desc: "Open-Map Arcade",                href: "zombie/Zombie.html", isNew: true, mp: true, party: true },
-    { id: "space-tracer",         icon: "🚀",  title: "Space Tracer",         desc: "Multiplayer Ship Combat",        href: "gyro-space/space-tracer.html", isNew: true, mp: true, party: true },
-    { id: "glass-city-escape",    icon: "🏙️",  title: "Glass City Escape",    desc: "Building-Hopping Race",          href: "glass-city-escape/glass_city_escape.html", isNew: true, mp: true },
-    { id: "rd-arena",             icon: "🧫",  title: "RD Arena",             desc: "Reaction-Diffusion Arena",       href: "rd-arena/RDArena.html", isNew: true, mp: true },
-    { id: "four-d-pong",          icon: "🏓",  title: "4D Pong",              desc: "Four-Way Tug-Of-War Pong",       href: "four-d-pong/four-d-pong.html", isNew: true, mp: true, party: true },
-    // 2026-11-02: Scuba Shooter joined as the sixth card on Ry's call (solo,
-    // so it carries `solo: true` and the SOLO stamp, not MULTIPLAYER SOON).
-    { id: "scuba-shooter",        icon: "🤿",  title: "Scuba Shooter",        desc: "Oil-Rig Dive Shooter",           href: "scuba-shooter/scuba-shooter.html", isNew: true, solo: true }
+    // 2026-11-13 (Ry): the board is the STORY, drawn as a level select. Every
+    // entry carries the `act` it belongs to, and the order here is the order
+    // inside its act's column, top to bottom. `soon: true` is a chapter that
+    // is planned but has nothing to open yet: it is drawn on the path, dark,
+    // and cannot be voted. `party: true` is a game that reports a score to a
+    // session (shared/party.js).
+    //
+    // ACT I · LANDFALL
+    { id: "alien-outpost",        act: 1, title: "Alien Outpost",        desc: "The Meatball Comes Down",        soon: true },
+    // 2026-11-02: Scuba Shooter joined on Ry's call (solo, so the SOLO stamp).
+    { id: "scuba-shooter",        act: 1, title: "Scuba Shooter",        desc: "Oil-Rig Dive Shooter",           href: "scuba-shooter/scuba-shooter.html", solo: true },
+    // ACT II · SPREAD
+    // ONE Zombie again, 2026-09-26 (`zombie-alt/` was merged back; the
+    // pre-merge Zombie is `ae0f19d` if it is ever wanted).
+    { id: "zombie",               act: 2, title: "Zombie",               desc: "The Inspired At The Gate",       href: "zombie/Zombie.html", mp: true, party: true },
+    { id: "glass-city-escape",    act: 2, title: "Glass City Escape",    desc: "Rooftop Run Above The Swarm",    href: "glass-city-escape/glass_city_escape.html", mp: true },
+    { id: "four-d-pong",          act: 2, title: "4D Pong",              desc: "Bat The Tendrils Back",          href: "four-d-pong/four-d-pong.html", mp: true, party: true },
+    // ACT III · ESCALATION
+    { id: "hurl-strike",          act: 3, title: "Hurl Strike",          desc: "Orbital Rail Shooter",           soon: true },
+    { id: "rd-arena",             act: 3, title: "RD Arena",             desc: "Belly Of The Beast",             href: "rd-arena/RDArena.html", mp: true },
+    // ACT IV · LAUNCH
+    { id: "code-racer",           act: 4, title: "Desert Code Racer",    desc: "Carry The Launch Codes",         soon: true },
+    { id: "cliff-run",            act: 4, title: "Cliff Run",            desc: "Up The Mountain Base",           soon: true },
+    { id: "text-editor-wars",     act: 4, title: "Text Editor Wars",     desc: "The Inspired Hack The Launch",   soon: true },
+    // ACT V · COUNTERATTACK
+    { id: "space-tracer",         act: 5, title: "Space Tracer",         desc: "First Fights In Orbit",          href: "gyro-space/space-tracer.html", mp: true, party: true },
+    { id: "gyro-fleet",           act: 5, title: "Gyro Fleet",           desc: "Out To The Tide",                soon: true }
+];
+
+// The five acts of the story (names accepted by Ry 2026-11-08). One column
+// each on the board, in this order, with a break between them.
+const ACTS = [
+    { n: 1, numeral: "I",   name: "LANDFALL" },
+    { n: 2, numeral: "II",  name: "SPREAD" },
+    { n: 3, numeral: "III", name: "ESCALATION" },
+    { n: 4, numeral: "IV",  name: "LAUNCH" },
+    { n: 5, numeral: "V",   name: "COUNTERATTACK" }
 ];
 
 // Derived once rather than written per game, so "does this play
@@ -86,6 +109,7 @@ const GAMES = [
 // on the shelf is couch-only two-player, and the board should be able to say so
 // rather than promising it multiplayer that is not coming.
 GAMES.forEach(g => {
+    if (g.soon) { g.stamp = "IN DEVELOPMENT"; return; }
     if (g.mp) return;
     if (g.couch) { g.stamp = "COUCH 2-4P"; return; }
     if (g.solo) { g.stamp = "SOLO"; return; }   // single-player by design, no multiplayer promised
@@ -196,7 +220,8 @@ const identityNameInput = document.getElementById("identityNameInput");
 const identityRoomInput = document.getElementById("identityRoomInput");
 const identityJoinBtn = document.getElementById("identityJoinBtn");
 
-const partyBtn = document.getElementById("partyBtn");
+const pathLayer = document.getElementById("pathLayer");
+const tickerEl = document.getElementById("ticker");
 const partyBar = document.getElementById("partyBar");
 const partyOverlay = document.getElementById("partyOverlay");
 
@@ -267,12 +292,27 @@ let offlinePick = null;
 
 let currentPage = 0;
 
+// A page is a run of ACT columns. How many fit side by side depends on the
+// screen (hub-layout.js sets it): all five on a wide one, fewer on a phone,
+// and the arrows walk through the story.
+let actsPerPage = 5;
+
 function pageCount() {
-    return Math.max(1, Math.ceil(GAMES.length / PAGE_SIZE));
+    return Math.max(1, Math.ceil(ACTS.length / actsPerPage));
 }
 
-function gamesOnPage(page) {
-    return GAMES.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+function actsOnPage(page) {
+    return ACTS.slice(page * actsPerPage, page * actsPerPage + actsPerPage);
+}
+
+function gamesInAct(n) {
+    return GAMES.filter(g => g.act === n);
+}
+
+function pageOfGame(id) {
+    const g = gameById(id);
+    if (!g) return 0;
+    return Math.floor(ACTS.findIndex(a => a.n === g.act) / actsPerPage);
 }
 
 

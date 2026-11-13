@@ -76,7 +76,20 @@
     }
 
     function inSession() {
-        return !!session && (!!session.current || finished);
+        return finished || (!!session && !!session.current);
+    }
+
+    // Opened from the hub board (the hub adds hub=1 to every link). Such a
+    // game always ends by going back to the board, session or not.
+    function fromHub() {
+        try { return new URLSearchParams(global.location.search).get("hub") === "1"; }
+        catch (e) { return false; }
+    }
+
+    // Should the game end its round through finish()? True in a session's
+    // round, and for any game the hub opened.
+    function wanted() {
+        return !finished && (active() || fromHub());
     }
 
     // From the URL, so a game can decide before the socket is even open
@@ -115,6 +128,13 @@
         });
     }
 
+    function label() {
+        if (!session || baseline < 0) return "";
+        return session.mode === "story"
+            ? "STORY PARTY · GAME " + (baseline + 1) + " OF " + session.total
+            : "FREE PLAY · GAME " + (baseline + 1);
+    }
+
     function live(score) {
         if (!active()) return false;
         if (typeof MP !== "undefined" && MP.canSend && !MP.canSend("party-live", LIVE_EVERY_MS)) return false;
@@ -123,8 +143,17 @@
 
     function finish(result) {
         if (finished) return true;
-        if (!active()) return false;
         result = result || {};
+        if (!active()) {
+            // No round to report to (offline, a game that does not score,
+            // or no session at all). Opened from the hub it still ends the
+            // same way: the score, then back to the board.
+            if (!fromHub()) return false;
+            finished = true;
+            sentFinal = { score: Math.max(0, Math.round(Number(result.score) || 0)), cleared: !!result.cleared };
+            showLocal(result.game);
+            return true;
+        }
         finished = true;
         sentFinal = { score: Math.max(0, Math.round(Number(result.score) || 0)), cleared: !!result.cleared };
         send(sentFinal.score, sentFinal.cleared, true);
@@ -143,8 +172,15 @@
     // ---- the round clock, for games with no natural end ----
     // Measured from the server's launch, so every client and a late joiner
     // agree on when the round stops. Returns ms left, or null outside a session.
+    var localStartAt = 0;
     function timeLeft(roundMs, graceMs) {
-        if (!session || !session.current || typeof MP === "undefined") return null;
+        if (!session || !session.current || typeof MP === "undefined") {
+            // Opened from the hub with no round on the server: the same
+            // clock, kept locally from the first time the game asks.
+            if (!fromHub() || finished) return null;
+            if (!localStartAt) localStartAt = now();
+            return Math.max(0, roundMs - (now() - localStartAt));
+        }
         var elapsed = session.current.elapsedMs + (now() - (MP.sessionAt || now()));
         return Math.max(0, roundMs + (graceMs || 0) - elapsed);
     }
@@ -158,23 +194,37 @@
             css.setAttribute("data-party", "");
             css.textContent =
                 "#partyCard{position:fixed;inset:0;z-index:5000;display:flex;align-items:center;justify-content:center;" +
-                "background:rgba(0,0,0,.82);font-family:'Press Start 2P','VT323',monospace;color:#E8E8E8;}" +
-                "#partyCard .pc-box{border:4px solid #00E5FF;box-shadow:0 0 0 4px #000,0 0 0 8px #FF2E88;background:#000;" +
-                "padding:22px 26px;min-width:min(520px,92vw);max-width:94vw;text-align:center}" +
-                "#partyCard h2{font-size:16px;margin:0 0 6px;color:#FFB000;letter-spacing:1px}" +
-                "#partyCard .pc-sub{font-size:9px;color:#00E5FF;margin-bottom:16px;line-height:1.6}" +
-                "#partyCard table{width:100%;border-collapse:collapse;font-size:10px;margin:0 0 14px}" +
-                "#partyCard td,#partyCard th{padding:6px 6px;text-align:left;white-space:nowrap}" +
-                "#partyCard th{color:#00E5FF;font-weight:normal;font-size:8px;border-bottom:2px solid #00E5FF}" +
+                "background:rgba(0,0,0,.88);font-family:'VT323','Courier New',monospace;color:#E8FFF4;text-transform:uppercase}" +
+                "#partyCard .pc-box{border:4px solid #00E5FF;box-shadow:0 0 0 4px #000,0 0 0 6px #2E3A34;background:#000;" +
+                "padding:20px 26px;width:min(600px,94vw);max-height:94vh;overflow-y:auto;text-align:center}" +
+                "#partyCard .pc-kick{font-size:18px;letter-spacing:4px;color:#00E5FF;margin-bottom:8px}" +
+                "#partyCard h2{font-family:'Press Start 2P','VT323',monospace;font-size:18px;margin:0 0 10px;color:#FFB000;letter-spacing:1px;font-weight:normal}" +
+                "#partyCard .pc-sub{font-size:19px;letter-spacing:2px;color:#8FA89C;margin-bottom:12px}" +
+                "#partyCard .pc-score{font-family:'Press Start 2P','VT323',monospace;font-size:clamp(22px,6vmin,40px);color:#E8FFF4;" +
+                "text-shadow:4px 4px 0 #6E1F35;margin:6px 0 4px}" +
+                "#partyCard .pc-best{font-size:20px;letter-spacing:2px;color:#8FA89C;margin-bottom:16px}" +
+                "#partyCard .pc-best b{font-weight:normal;color:#FFB000}" +
+                "#partyCard .pc-new{color:#FFB000;animation:partyBlink .5s steps(2,start) infinite}" +
+                "#partyCard table{width:100%;border-collapse:collapse;font-size:22px;margin:0 0 14px}" +
+                "#partyCard td,#partyCard th{padding:3px 6px;text-align:left;white-space:nowrap}" +
+                "#partyCard th{color:#00E5FF;font-weight:normal;font-size:16px;letter-spacing:2px;border-bottom:2px solid #00E5FF}" +
                 "#partyCard td.n,#partyCard th.n{text-align:right}" +
-                "#partyCard tr.me td{background:rgba(0,229,255,.14)}" +
-                "#partyCard .pc-dot{display:inline-block;width:9px;height:9px;margin-right:7px;vertical-align:middle}" +
-                "#partyCard .pc-gain{color:#FFB000}" +
-                "#partyCard button{font:inherit;font-size:11px;color:#000;background:#FFB000;border:0;padding:11px 16px;cursor:pointer}" +
-                "#partyCard button:hover,#partyCard button:focus{background:#fff;outline:0}" +
-                "#partyCard .pc-wait{font-size:10px;line-height:2;color:#E8E8E8}" +
+                "#partyCard tr.me td{background:rgba(0,229,255,.16)}" +
+                "#partyCard tr.pc-rev{visibility:hidden;animation:partyRev .01s linear forwards;animation-delay:calc(var(--i)*.28s + .3s)}" +
+                "@keyframes partyRev{to{visibility:visible}}" +
+                "#partyCard .pc-dot{display:inline-block;width:10px;height:10px;margin-right:8px;vertical-align:middle}" +
+                "#partyCard .pc-meter{display:inline-block;vertical-align:middle;width:clamp(36px,12vw,110px);height:8px;margin-left:10px;background:#2E3A34}" +
+                "#partyCard .pc-meter span{display:block;height:100%}" +
+                "#partyCard .pc-gain{color:#FFB000;font-family:'Press Start 2P','VT323',monospace;font-size:13px}" +
+                "#partyCard .pc-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}" +
+                "#partyCard button{font-family:'Press Start 2P','VT323',monospace;font-size:11px;color:#000;background:#FFB000;border:2px solid #FFB000;" +
+                "padding:11px 16px;cursor:pointer;box-shadow:4px 4px 0 #2E3A34;text-transform:uppercase}" +
+                "#partyCard button.pc-quiet{background:transparent;color:#00E5FF;border-color:#00E5FF;box-shadow:none}" +
+                "#partyCard button:hover,#partyCard button:focus{background:#E8FFF4;border-color:#E8FFF4;color:#000;outline:0}" +
+                "#partyCard .pc-wait{font-size:20px;letter-spacing:2px;line-height:1.5;color:#E8FFF4}" +
                 "#partyCard .pc-blink{animation:partyBlink 1s steps(2,start) infinite}" +
-                "@keyframes partyBlink{to{visibility:hidden}}";
+                "@keyframes partyBlink{to{visibility:hidden}}" +
+                "@media (prefers-reduced-motion:reduce){#partyCard tr.pc-rev{visibility:visible;animation:none}}";
             document.head.appendChild(css);
         }
         card = document.createElement("div");
@@ -199,15 +249,39 @@
 
     function myName() { return (typeof MP !== "undefined" && MP.selfName) || ""; }
 
+    function pad6(n) {
+        return (global.HUBSCORE && HUBSCORE.pad6) ? HUBSCORE.pad6(n) : fmt(n);
+    }
+
+    // The big number counts up in steps, the way a cabinet tallies a bonus.
+    function tally(id, to) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var steps = to > 0 ? 14 : 0, i = 0;
+        el.textContent = pad6(0);
+        if (!steps) return;
+        var t = track(setInterval(function () {
+            i += 1;
+            var node = document.getElementById(id);
+            if (!node) { clearInterval(t); return; }
+            node.textContent = pad6(i >= steps ? to : Math.floor(to * i / steps / 10) * 10);
+            if (global.SFX && global.SFX.blip) { try { global.SFX.blip(520 + i * 40); } catch (e) { /* silent */ } }
+            if (i >= steps) clearInterval(t);
+        }, 70));
+    }
+
     function renderWaiting() {
         if (resultShown) return;
         var el = ensureCard();
         var who = (session && session.current && session.current.reported) || [];
+        var fresh = !document.getElementById("pcWaitScore");
         el.innerHTML =
-            "<div class='pc-box'><h2>ROUND OVER</h2>" +
-            "<div class='pc-sub'>YOUR SCORE " + fmt(sentFinal ? sentFinal.score : 0) + "</div>" +
+            "<div class='pc-box'><div class='pc-kick'>" + esc(label() || "ROUND OVER") + "</div><h2>ROUND OVER</h2>" +
+            "<div class='pc-sub'>YOUR SCORE</div>" +
+            "<div class='pc-score' id='pcWaitScore'>" + pad6(sentFinal ? sentFinal.score : 0) + "</div>" +
             "<div class='pc-wait'><span class='pc-blink'>WAITING FOR THE OTHERS</span><br>" +
-            (who.length ? "IN: " + who.map(esc).join(", ").toUpperCase() : "") + "</div></div>";
+            (who.length ? "IN: " + who.map(esc).join(", ") : "&nbsp;") + "</div></div>";
+        if (fresh && sentFinal) tally("pcWaitScore", sentFinal.score);
     }
 
     function goHub() {
@@ -215,8 +289,8 @@
         global.location.href = hubUrl();
     }
 
-    function hubButton(label) {
-        return "<button type='button' id='partyHubBtn'>" + label + "</button>";
+    function hubButton(text) {
+        return "<button type='button' id='partyHubBtn'>" + text + "</button>";
     }
 
     function wireButton() {
@@ -226,47 +300,86 @@
         try { b.focus(); } catch (e) { /* not focusable yet */ }
     }
 
-    function showGiveUp(why) {
-        if (resultShown) return;
-        resultShown = true;
-        ensureCard().innerHTML =
-            "<div class='pc-box'><h2>ROUND OVER</h2><div class='pc-sub'>" + esc(why) + "</div>" +
-            hubButton("BACK TO THE HUB") + "</div>";
-        wireButton();
-    }
-
-    function showResult() {
-        resultShown = true;
-        var round = session.rounds[baseline];
-        var me = myName();
-        var rows = round.results.map(function (r) {
-            return "<tr class='" + (r.name === me ? "me" : "") + "'><td>" + ordinal(r.place) + "</td>" +
-                "<td><span class='pc-dot' style='background:" + esc(r.color) + "'></span>" + esc(r.name).toUpperCase() + "</td>" +
-                "<td class='n'>" + fmt(r.score) + "</td>" +
-                "<td class='n pc-gain'>+" + (r.points + r.bonus) + "</td></tr>";
-        }).join("");
-        var stand = session.standings.map(function (r) {
-            return "<tr class='" + (r.name === me ? "me" : "") + "'><td>" + ordinal(r.place) + "</td>" +
-                "<td><span class='pc-dot' style='background:" + esc(r.color) + "'></span>" + esc(r.name).toUpperCase() + "</td>" +
-                "<td class='n'>" + r.points + " PTS</td></tr>";
-        }).join("");
-        var n = baseline + 1;
-        var head = session.done ? "FINAL GAME" : "GAME " + n + " OF " + session.total;
-        var left = RETURN_AFTER_S;
-        ensureCard().innerHTML =
-            "<div class='pc-box'><h2>" + head + "</h2>" +
-            "<div class='pc-sub'>" + (round.cleared ? "CLEARED TOGETHER  +" + session.clearBonus + " EACH" : "PLACEMENT POINTS") + "</div>" +
-            "<table><tr><th></th><th>PLAYER</th><th class='n'>SCORE</th><th class='n'>PARTY</th></tr>" + rows + "</table>" +
-            "<table><tr><th></th><th>STANDINGS</th><th class='n'></th></tr>" + stand + "</table>" +
-            hubButton((session.done ? "SEE THE WINNER" : "BACK TO THE HUB") + " <span id='partyCount'>" + left + "</span>") +
-            "</div>";
-        wireButton();
+    function countdownToHub(seconds) {
+        var left = seconds;
         track(setInterval(function () {
             left -= 1;
             var c = document.getElementById("partyCount");
             if (c) c.textContent = Math.max(0, left);
             if (left <= 0) goHub();
         }, 1000));
+    }
+
+    function showGiveUp(why) {
+        if (resultShown) return;
+        resultShown = true;
+        ensureCard().innerHTML =
+            "<div class='pc-box'><h2>ROUND OVER</h2><div class='pc-sub'>" + esc(why) + "</div>" +
+            "<div class='pc-score'>" + pad6(sentFinal ? sentFinal.score : 0) + "</div>" +
+            "<div class='pc-row'>" + hubButton("GAME SELECT") + "</div></div>";
+        wireButton();
+    }
+
+    // No session round behind this game: the score, the best on this
+    // machine, and the way back to the board.
+    function showLocal(game) {
+        resultShown = true;
+        var score = sentFinal ? sentFinal.score : 0;
+        var key = game || gameFromPath();
+        var before = 0, bestNow = score;
+        try { before = Number(global.localStorage.getItem("hubscore_best_" + key)) || 0; } catch (e) { /* no storage */ }
+        if (global.HUBSCORE && HUBSCORE.best) bestNow = HUBSCORE.best(key, score);
+        var isNew = score > 0 && score >= bestNow && score > before;
+        ensureCard().innerHTML =
+            "<div class='pc-box'><div class='pc-kick'>" + (sentFinal && sentFinal.cleared ? "CLEARED" : "GAME OVER") + "</div>" +
+            "<h2>YOUR SCORE</h2>" +
+            "<div class='pc-score' id='pcLocalScore'>" + pad6(score) + "</div>" +
+            "<div class='pc-best'>" + (isNew ? "<span class='pc-new'>NEW BEST</span>" : "BEST <b>" + pad6(Math.max(before, bestNow)) + "</b>") + "</div>" +
+            "<div class='pc-row'>" + hubButton("GAME SELECT <span id='partyCount'>" + RETURN_AFTER_S + "</span>") +
+            "<button type='button' class='pc-quiet' id='partyAgainBtn'>PLAY AGAIN</button></div></div>";
+        wireButton();
+        var again = document.getElementById("partyAgainBtn");
+        if (again) again.addEventListener("click", function () { clearTimers(); global.location.reload(); });
+        tally("pcLocalScore", score);
+        countdownToHub(RETURN_AFTER_S);
+    }
+
+    function gameFromPath() {
+        try {
+            var parts = global.location.pathname.split("/").filter(Boolean);
+            return parts.length > 1 ? parts[parts.length - 2] : "game";
+        } catch (e) { return "game"; }
+    }
+
+    function showResult() {
+        resultShown = true;
+        var round = session.rounds[baseline];
+        var me = myName();
+        var rows = round.results.map(function (r, i) {
+            return "<tr class='pc-rev" + (r.name === me ? " me" : "") + "' style='--i:" + i + "'><td>" + ordinal(r.place) + "</td>" +
+                "<td><span class='pc-dot' style='background:" + esc(r.color) + "'></span>" + esc(r.name) + "</td>" +
+                "<td class='n'>" + fmt(r.score) + "</td>" +
+                "<td class='n pc-gain'>+" + (r.points + r.bonus) + "</td></tr>";
+        }).join("");
+        var top = Math.max(1, session.standings.length ? session.standings[0].points : 1);
+        var stand = session.standings.map(function (r, i) {
+            return "<tr class='pc-rev" + (r.name === me ? " me" : "") + "' style='--i:" + (i + round.results.length + 1) + "'><td>" + ordinal(r.place) + "</td>" +
+                "<td><span class='pc-dot' style='background:" + esc(r.color) + "'></span>" + esc(r.name) +
+                "<span class='pc-meter'><span style='width:" + Math.round(100 * r.points / top) + "%;background:" + esc(r.color) + "'></span></span></td>" +
+                "<td class='n'>" + r.points + " PTS</td></tr>";
+        }).join("");
+        var n = baseline + 1;
+        var head = session.done ? "FINAL GAME" : "GAME " + n + (session.total ? " OF " + session.total : "");
+        ensureCard().innerHTML =
+            "<div class='pc-box'><div class='pc-kick'>" + (session.mode === "story" ? "STORY PARTY" : "FREE PLAY") + "</div>" +
+            "<h2>" + head + "</h2>" +
+            "<div class='pc-sub'>" + (round.cleared ? "CLEARED TOGETHER · +" + session.clearBonus + " EACH" : "PLACEMENT POINTS 10 / 7 / 5 / 3") + "</div>" +
+            "<table><tr><th></th><th>PLAYER</th><th class='n'>SCORE</th><th class='n'>PARTY</th></tr>" + rows + "</table>" +
+            "<table><tr><th></th><th>STANDINGS</th><th class='n'></th></tr>" + stand + "</table>" +
+            "<div class='pc-row'>" + hubButton((session.done ? "SEE THE WINNER" : "GAME SELECT") + " <span id='partyCount'>" + RETURN_AFTER_S + "</span>") + "</div>" +
+            "</div>";
+        wireButton();
+        countdownToHub(RETURN_AFTER_S);
     }
 
     function destroy() {
@@ -278,6 +391,7 @@
         finished = false;
         sentFinal = null;
         resultShown = false;
+        localStartAt = 0;
         listeners = [];
     }
 
@@ -290,10 +404,9 @@
         expected: expected,
         finished: function () { return finished; },
         session: function () { return session; },
-        label: function () {
-            if (!session || baseline < 0) return "";
-            return "PARTY · GAME " + (baseline + 1) + " OF " + session.total;
-        },
+        label: label,
+        fromHub: fromHub,
+        wanted: wanted,
         live: live,
         finish: finish,
         timeLeft: timeLeft,

@@ -729,4 +729,10 @@ the room. Full design: `HUB_1_0_PLAN.md` Phase 7.
 `shared/mp-core.js` passes `session` to `MP.session` and `PARTY.onSession`, and `MP.sendServer()`
 sends the report. A game outside a session never sees any of it.
 
+
+**Party messages, added 2026-11-13 (later the same day):** `session-start {mode, total, games}`
+where `total: 0` is an open-ended free-play session and `games` lists the ids that report a
+score (a launch of any other game is not a round); `session-finish` (hub only) ends an
+open-ended session and names the winner from the standings as they are.
+
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->
