@@ -103,7 +103,11 @@ The hub is complete when all of these are true:
    - completed plans move to an archive folder
    - `PROJECT_MEMORY.md` board table matches the code
    - each game's `CLAUDE.md` stays as the reference
-5. **Tag it** `hub-1.0`. From there the hub is in maintenance mode, and the board changes only by
+5. **A party session can be played start to finish** (added by Ry, 2026-11-13; it was "not in
+   1.0" until then). The group starts a party on the hub, plays X games with a running score, and
+   the hub names one winner. Built 2026-11-13 for Zombie, Space Tracer and 4D Pong
+   (`HUB_1_0_PLAN.md` Phase 7); the item is met when the group has played one.
+6. **Tag it** `hub-1.0`. From there the hub is in maintenance mode, and the board changes only by
    one-in, one-out.
 
 **Deliberately not in 1.0:**

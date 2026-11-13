@@ -861,7 +861,7 @@ function triggerGameOver() {
 const SCORE_KILL_MULT = 10;          // x the type's `score`: walker 10 ... ultra 120
 const SCORE_ASSIST = 3;
 const SCORE_REVIVE_PER_ROUND = 100;  // a revive on round r is worth 100 * r
-const SCORE_ROUND_K = 50;
+const SCORE_ROUND_K = 20;          // 50 until 2026-11-13: the hub scale, see zombie-party.js
 // INTENSIFIED ONLY (2026-09-19): "increased score is earned during time
 // alive in addition to other score earners". 40/s is calibrated against the
 // terms above -- a five-minute intensified stretch is 12,000, which is
@@ -869,9 +869,9 @@ const SCORE_ROUND_K = 50;
 // is a real reason to throw the switch early without ever competing with
 // kills, which grow ~1.16^r. Only counted while you are UP: a downed player
 // is not surviving, they are being rescued.
-const SCORE_ALIVE_PER_SEC = 40;
-const SCORE_SILO = 8000;
-const SCORE_WIN = 50000;
+const SCORE_ALIVE_PER_SEC = 10;    // 40 until 2026-11-13 (hub scale); the note above describes the old numbers
+const SCORE_SILO = 1000;            // 8,000 until 2026-11-13 (hub scale: an OBJECTIVE)
+const SCORE_WIN = 10000;            // 50,000 until 2026-11-13 (hub scale: a CLEAR)
 
 function silosFilled() {
     let n = 0;
@@ -918,6 +918,8 @@ function runScoreFor(id) {
 function submitRunToLeaderboard() {
     if (zLbSubmitted) return;
     zLbSubmitted = true;
+    // In a hub party session this run is the round (zombie-party.js).
+    if (typeof zPartyFinish === "function") zPartyFinish();
     if (typeof LB === "undefined") return;
     LB.submit({
         player: (typeof MP !== "undefined" && MP.selfName) || "Anonymous",

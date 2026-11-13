@@ -14,9 +14,11 @@ rules keep lists finite.
 
 ## The rules
 
-0. **A hub game is a 2–5 minute session** (user, 2026-10-04). It ends in a win or a loss inside
-   that window, and then the player goes back to the board. Content that a short session can't
-   reach is trimmed, not kept "for later". Anything longer is long-game material (rule 7).
+0. **A hub game round is 2–7 minutes** (Ry, 2026-11-13; it was "2–5" from 2026-10-04). The top
+   end is soft. The game pushes for that length itself: one with a fixed end is built to reach it
+   in the window, and one with no fixed end (Zombie) gets too hard to hold past it. It ends in a
+   win or a loss, and then the player goes back to the board. Content that a round can't reach is
+   trimmed, not kept "for later". Anything longer is long-game material (rule 7).
 
 1. **Every project is in one of two modes: building toward a written finish line, or
    maintenance.** The hub's finish line is `HUB_RETROSPECTIVE.md` §5. When it's met, the hub goes
@@ -37,7 +39,9 @@ rules keep lists finite.
    explicitly abandoned with a dated note.
 
 5. **Playtest gate.** A hub game gets no new feature pass until the group has played the previous
-   one. Headless and two-client verification prove it runs, not that it's fun.
+   one. *(One dated exception, Ry 2026-11-13: the party session pass, `HUB_1_0_PLAN.md` Phase 7,
+   touched Zombie, Space Tracer and 4D Pong ahead of their playtests. It added the shared
+   scoring, toasts and boot screens and no game features; the gate stands for everything else.)* Headless and two-client verification prove it runs, not that it's fun.
    `PROJECT_MEMORY.md` still carries "not yet playtested by a human" on several rows.
 
 6. **One page for a proposal.** When the analysis is longer than the feature, that's a symptom.

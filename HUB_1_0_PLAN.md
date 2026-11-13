@@ -371,6 +371,59 @@ Fix the RD Arena MP row, archive finished plans, reconcile and stamp the repo-wi
 
 Name and home, then engine, then a test of the level representation, in that order.
 
+## Phase 7 — Party session · §5 item 5 · **built 2026-11-13, not yet played by the group**
+
+**Which game?** The hub, plus Zombie, Space Tracer and 4D Pong. **Which finish-line item?**
+`HUB_RETROSPECTIVE.md` §5 item 5, added the same day on Ry's call. This pulls the "chain games"
+idea forward: the 2026-10-24 decision was "after the repo split is resolved", which it now is.
+
+A party session is **X games in a row for one room, a standings readout between games, and one
+winner at the end**. Small groups (2 to 4), free-for-all, no teams.
+
+| Question | Decision (Ry, 2026-11-13) |
+|---|---|
+| Who wins | **Placement points.** Each game ranks players by their own score and pays 10 / 7 / 5 / 3, plus 2 each if the group beats the game. Ties share the better place. Session ties break on most firsts, then raw score. |
+| PvE and one victor | Every hub game is co-op against the game. You clear it together and race each other for score inside it. |
+| Length | 3, 5 or 7 games, picked at the start. |
+| Which game next | **Story path** or **free play**, picked at the start. Either way the existing vote and ready check choose from the open tiles. |
+| Round length | 2 to 7 minutes (`SCOPE_RULES.md` rule 0). |
+| Luck-heavy games | Not weighted. Every game counts the same. |
+| Drop-outs and late joiners | Someone who drops keeps their points and whatever score they had. A late joiner starts the session at zero. |
+
+**The story path.** The board becomes a gated flow chart (`hub/hub-party.js`). The group starts
+on one of three stacked starting games and can then only move forward through the hub's
+chronology, or replay the chapter it is on. A game not yet wired for party play is drawn on the
+path and skipped over. Today that leaves one playable line: Zombie → 4D Pong → Space Tracer.
+It branches as more games get `party: true`.
+
+**Where it lives.**
+
+| Piece | File |
+|---|---|
+| Session state, ranking, standings | `gyro-space-server` `server.js`, "PARTY SESSION". Keyed by room code, because the hub room is deleted when everyone leaves for a game. |
+| Hub: setup, the path, the bar, the readouts | `hub/hub-party.js` |
+| A game's side: report the score, the result card | `shared/party.js` (`PARTY`) |
+| The point scale and the floating toast | `shared/hubscore.js` (`HUBSCORE`), `AESTHETIC_GUIDE.md` §4.13 |
+| LOAD / TITLE, the READY border, the ready check | `shared/bootflow.js` (`BOOTFLOW`), `AESTHETIC_GUIDE.md` §4.8 |
+| Per game | `zombie/zombie-party.js`, `gyro-space/st-party.js`, `four-d-pong/fp-party.js` |
+
+**Late joiners, per game.** Zombie: CLICK TO JOIN drops them into the run, as before. Space
+Tracer: drop-in, with whatever is left on the 3:00 round clock. 4D Pong: they take a seat at
+once (a CPU seat, or a third player turns two-way into four-way and restarts the match); seats
+are now sticky, so a join no longer moves anyone already playing.
+
+**Verified** with `scripts/party-session-playtest.js` (two headless browsers, a local server): a
+full three-game story session, each game alone, the path gating, and the final readout. Also the
+server protocol on its own (ties, the clear bonus, a drop-out, a cancelled launch). **Not
+verified:** anything a person would feel. The point scale is calibrated from one Zombie bot run.
+
+**A lobby bug found on the way** and fixed in `hub/hub-net.js`: a `lobby` message saying "not
+launching" could cancel a friend's countdown in its last few milliseconds and strand them on the
+hub. See `HUB_LOBBY_PLAN.md` §10.
+
+**Not in this phase:** a per-player unlock store, same-screen play, cabinet art, music, the
+chapter crawl, and party wiring for Glass City, RD Arena, Scuba Shooter and Cliff Run.
+
 ---
 
 ## ~~Open: the arcade scope cut (raised 2026-10-03)~~ — decided 2026-10-04

@@ -4174,6 +4174,7 @@ function gameLoop(ts) {
     if (typeof inputFrame === "function") inputFrame(now);     // pad + touch (zombie-input.js), read by the step below
     stepSimulation(now, Z_MAX_STEPS);
     if (typeof lobbyFrame === "function") lobbyFrame(now);     // the ready screen, before a run
+    if (typeof zPartyTick === "function") zPartyTick(now);     // toasts, the border, the party report
     // Driven from the LOOP, not from update(): update() returns early while
     // netLost, and a connection that drops during the walk-out must not
     // leave the world frozen half-faded with no card ever arriving.

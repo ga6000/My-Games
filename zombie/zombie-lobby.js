@@ -98,6 +98,8 @@ function lobbyBlocks() {
 //   INPUT, from zombie-render.js
 // ---------------------------------------------------
 function lobbyClick() {
+    // The title card is up, or was a moment ago (zombie-party.js).
+    if (typeof zIntroBlocks === "function" && zIntroBlocks()) return;
     initAudio();                                   // the click is the browser's audio unlock
     if (lobbyBusy) return;
     if (lobbyRunLive) { lobbyBegin(); return; }    // joining a run in progress

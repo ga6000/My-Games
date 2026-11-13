@@ -167,10 +167,17 @@
         // round reached, silos filled; a win adds a bonus and doubles it) --
         // see runScoreFor() in zombie/zombie-game.js. The round reached has
         // its own `round` field since the same day.
-        { id: "zombie", title: "Zombie",
-          subtitle: "Every run. Score: kills, revives, rounds and silos. Escaping doubles it",
+        //
+        // "zombie-v2" since 2026-11-13: the big terms were brought onto the hub
+        // point scale (a tank 1,000, escaping 10,000), so it has a fresh
+        // board. The old "zombie" runs are still stored, on their old scale;
+        // readZombieRun below is what read their three shapes.
+        { id: "zombie-v2", title: "Zombie",
+          subtitle: "Every run, on the hub point scale. Escaping doubles it",
           scoreHead: "Score", roundHead: "Round", fmt: s => s.toLocaleString("en-US"),
-          read: readZombieRun },
+          read: d => isFinite(Number(d.score))
+              ? { score: Number(d.score), round: d.round != null && isFinite(Number(d.round)) ? Number(d.round) : null }
+              : null },
         // "space-tracer-v2" since 2026-11-13: the game scores on the hub point
         // scale now (kills 1,000, asteroids 100), so it has a fresh board. The
         // old "space-tracer" runs are still stored, on their old scale.

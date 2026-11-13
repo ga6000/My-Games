@@ -975,6 +975,9 @@ function sendPing(x, y, color, name) {
 }
 
 function requestReset() {
+    // A party round is one run: no restart, the result card leads back to
+    // the hub (zombie-party.js).
+    if (typeof zPartyInSession === "function" && zPartyInSession()) return;
     // Room-wide: one person clicking restart shouldn't drop them into a
     // fresh level while everyone else stares at a game-over screen.
     // echo:true so the sender resets on the same path as everyone else.

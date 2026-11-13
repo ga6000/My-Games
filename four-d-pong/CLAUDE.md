@@ -48,6 +48,7 @@ file was breaking, not a matter of taste:
 | `fp-input.js` | the `e.code` key map, one `AbortController` |
 | `fp-net.js` | **online play** — seats, snapshots, dead reckoning, host migration (added the same evening) |
 | `fp-boot.js` | menu, match flow, attract mode, `window.GameInstance`, the fixed-timestep loop |
+| `fp-party.js` | **added 2026-11-13** — the hub party session, the goal toast, LOAD / TITLE and the ready check (`../HUB_1_0_PLAN.md` Phase 7). Loads after `fp-net.js`. A goal is 1,000 and a match win 5,000 on the hub scale; the tug itself is untouched. Online and party matches start through the shared ready check, not a lone Space. Seats are sticky now (`assignSeats`) |
 | `fp-dev.js` | **added 2026-09-07** — dev-panel registration, and the `armedWhen` predicate that keeps L+G off a live 3P/4P rally (see below) |
 
 Load order is `identity.js → mp-core.js → retro.js → sfx.js → devtools.js → fp-core → entities →

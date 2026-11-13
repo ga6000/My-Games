@@ -713,4 +713,20 @@ client. See `zombie/CLAUDE.md` "Fourteenth".
 - Host leaves → a new host takes over and the game keeps running
 - Opened via `file://` → still runs (may be solo-only; degrade, don't crash)
 
+## Party session messages (2026-11-13)
+
+The first server-handled message type added since the lobby. Games still use `relay` for
+everything of their own; this is the one thing the server has to understand, because it ranks
+the room. Full design: `HUB_1_0_PLAN.md` Phase 7.
+
+| Message | From | What it does |
+|---|---|---|
+| `session-start { mode, total }` | hub | Starts a session for the room code. `mode` is `story` or `free`; only the hub reads it. |
+| `session-end` | hub | Ends it. |
+| `session-report { score, cleared, final }` | a game | This player's own score for the round. `final: false` is a live score kept in case they drop. |
+| `session { session }` | server | The whole snapshot: rounds, standings, the game in flight. Sent to the hub, and to a game only while it is the game in flight. |
+
+`shared/mp-core.js` passes `session` to `MP.session` and `PARTY.onSession`, and `MP.sendServer()`
+sends the report. A game outside a session never sees any of it.
+
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

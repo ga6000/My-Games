@@ -115,6 +115,27 @@ third file makes the eventual cleanup harder, not easier.
 
 ---
 
+### 3a. Party sessions (added 2026-11-13)
+
+A game joins hub party sessions (`HUB_1_0_PLAN.md` Phase 7) by doing four things. The three
+wired games each keep them in one file (`zombie-party.js`, `st-party.js`, `fp-party.js`); copy
+the nearest one.
+
+1. **Load the shared modules** after `mp-core.js`: `shared/hubscore.js`, `shared/party.js`,
+   `shared/bootflow.js`. One global each (`HUBSCORE`, `PARTY`, `BOOTFLOW`).
+2. **Report the round.** `PARTY.live(score)` now and then while playing, and
+   `PARTY.finish({ score, cleared })` once when this player's round ends. Outside a session both
+   do nothing and `finish()` returns false, so the game's own game-over flow is untouched. After
+   `finish()` returns true, do not restart: the result card takes the group back to the hub.
+3. **Fit the round to 2 to 7 minutes.** A game with no natural end runs on
+   `PARTY.timeLeft(roundMs, graceMs)`, which is measured from the hub's launch so every screen
+   and a late joiner stop together.
+4. **Score on the hub scale and toast it** (`AESTHETIC_GUIDE.md` §4.13), and boot through
+   `BOOTFLOW` (§4.8).
+
+Then add `party: true` to the game's entry in `hub/hub-core.js`, and place it on the story path
+in `hub/hub-party.js`. Test with `node scripts/party-session-playtest.js <game>`.
+
 ## 4. Mobile & performance
 
 No formal performance budget has been measured for any game in this repo — the generic targets

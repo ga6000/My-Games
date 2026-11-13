@@ -3776,4 +3776,22 @@ the modulo, which measures 187–210 of 800 for each of the four.
   `GAME_PROTOTYPE_INSTRUCTIONS.md` §2. The `trackTimeout` / `AbortController` plumbing in
   `zombie-core.js` exists anyway, per the root `CLAUDE.md` hard constraint.
 
+## Party session, score toasts and the boot screens (2026-11-13)
+
+`../HUB_1_0_PLAN.md` Phase 7. Everything is in **`zombie-party.js`**, script #26, after
+`zombie-lobby.js`; read its header first.
+
+- **The run is the round.** `submitRunToLeaderboard()` (once a run, win or lose) calls
+  `zPartyFinish()`, which reports `runScoreFor(me).total` and whether the room won. Inside a
+  session `requestReset()` does nothing: the result card leads back to the hub.
+- **The big score terms moved onto the hub scale** in `zombie-game.js`: a tank 1,000 (was 8,000),
+  escaping 10,000 (was 50,000), the round term 20 × round² (was 50), time alive 10/s (was 40).
+  Kills are unchanged. One "good" bot run of 7:52 scores 55,600; the first map alone is about
+  20,000. Scores post to `zombie-v2`. `scripts/zombie-bot-playtest.js` prints the score now.
+- **Toasts**: the points you earn float off your player each frame they change (a guest's arrive
+  with the host's snapshot), a tank and the escape as big ones.
+- **Boot**: `BOOTFLOW.intro()` in front (skipped in a session and in the headless harness), and
+  the READY border round the attract run and the ready screen, which are still
+  `zombie-lobby.js`'s own. `lobbyClick()` ignores the press that dismissed the title card.
+
 <!-- doc-sync: dc0edf48 | 2026-10-17 -->

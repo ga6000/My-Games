@@ -295,7 +295,13 @@ function runBot(opts) {
         if (me2 && me2.downed && !me2.rescued) { /* solo: the wipe rule ends the run */ }
     }
     log.maps.push({ map: arcLevelNo, seconds: Math.round((simT - mapStart) / 1000), ended: result });
+    // The run score on the hub point scale, for calibrating it against the
+    // hub's par (shared/hubscore.js): added 2026-11-13.
+    var botScore = null;
+    try { botScore = runScoreFor(netIdFor(players[0]) || "solo"); } catch (e) { /* older builds */ }
     return JSON.stringify({
+        score: botScore ? botScore.total : null,
+        scoreParts: botScore ? { combat: botScore.combat, rounds: botScore.roundPts, silos: botScore.siloPts, win: botScore.winPts } : null,
         result: result, map: arcLevelNo, runSeconds: Math.round(arcadeRunSeconds(simT)),
         kills: kills, avgAlive: Math.round(aliveSum / Math.max(1, aliveN)),
         tanks: silosFilled(), maps: log.maps, difficulty: arcDifficulty,

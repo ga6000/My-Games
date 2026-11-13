@@ -520,4 +520,32 @@ for, which is the design. Un-voting re-locked it; re-voting opened it. All three
 and landed in Zombie. Alone in a room, one vote opens it. A second player joining re-locked it on
 the first player's screen. Looked at, 1280×720: the dimmed button reads as *waiting*, not broken.
 
+## 10. Round four: the party session (2026-11-13)
+
+The lobby grew a session on top of the vote. The design and decisions are in
+`HUB_1_0_PLAN.md` Phase 7; this section is only what changed in the lobby itself.
+
+- **New server state, keyed by room CODE** (`sessions` in `server.js`), not on the hub room: the
+  hub room is deleted the moment everyone navigates into a game, and the session has to be there
+  when they come back. Messages: `session-start`, `session-end`, `session-report` in;
+  `session` (the whole snapshot) out, to the hub and to the game in flight.
+- **A launch opens a round** (`sessionBeginRound` in `evaluateLaunch`); a cancelled launch closes
+  it again. A round is scored when everyone who entered the game has sent a final score or has
+  left, or 15 seconds after the first final score.
+- **The PARTY button only shows once the server has sent a `session` message**, so a hub talking
+  to an older server offers nothing it cannot do. Deploy the server first.
+- **Tiles can be locked.** In a session, a tile off the story path (or not wired for party play)
+  takes no vote and carries a stamp saying why. Outside a session nothing is ever locked.
+- **`?server=`** now works on the hub too, and is carried into the game link.
+
+### 10a. The stranded-player race (fixed)
+
+`hub-net.js` used to stop a running countdown whenever a `lobby` message said `launching: false`.
+The server's own launch timer ends at the same instant as the clients', so when the first player
+navigated away their leave produced exactly that message, and anyone whose countdown was a few
+milliseconds behind had it cancelled and was left on the hub. It needed near-zero latency to
+lose the race, which is why it showed up in the headless test and (as far as anyone knows) never
+on a game night. A running countdown is now stopped only by `launch-cancel`, which the server
+sends for every real cancel.
+
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

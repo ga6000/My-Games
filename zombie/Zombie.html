@@ -669,6 +669,12 @@
      double-clicked game is unaffected. -->
 <script src="../shared/retro.js"></script>
 <script src="../shared/leaderboard.js"></script>
+<!-- Hub party session (2026-11-13): the shared point scale and toasts, the
+     session reporter, and the LOAD / TITLE / READY-border screens. One global
+     each. This game's side of all three is zombie-party.js. -->
+<script src="../shared/hubscore.js"></script>
+<script src="../shared/party.js"></script>
+<script src="../shared/bootflow.js"></script>
 <!-- The L+G dev panel. Loaded HERE, with the other shared files and before
      this game's own scripts, for two reasons: its error capture only sees
      throws that happen after it installs, and its keydown listener has to be
@@ -707,6 +713,7 @@
      stand in front of every run. After the dev panel, before the sandbox and
      editor, which switch it off by URL. -->
 <script src="zombie-lobby.js"></script>
+<script src="zombie-party.js"></script>
 <script src="zombie-input.js"></script>
 <!-- The stamp sandbox (2026-09-26): ?sandbox=1#stamp=... drops a
      drawing into the real map. After zombie-dev.js, whose NO ZOMBIES
@@ -720,7 +727,10 @@
     // After the game scripts, so nothing here races their declarations.
     // configure() also starts the SDK load: a run ending should not then be
     // waiting on a ~100 KB download before it can post its score.
-    if (typeof LB !== "undefined") LB.configure({ game: "zombie" });
+    // "zombie-v2" since 2026-11-13: run scores are on the hub point scale
+    // now (zombie-party.js), so they go on a fresh board. The old "zombie"
+    // runs stay stored, on their old scale.
+    if (typeof LB !== "undefined") LB.configure({ game: "zombie-v2" });
 </script>
 </body>
 </html>

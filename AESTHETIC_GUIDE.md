@@ -385,8 +385,19 @@ Every cabinet, left alone, played itself. Nothing in modern web games does this,
 almost nothing here because every game already owns a render loop.
 
 - **Hub**: idle 20s → cycle marquees, demo footage, high scores.
-- **Each game**: idle on the title screen → run the sim with no input, `INSERT COIN` pulsing in
-  `--sig-amber`.
+- **Each game** boots through the same five screens (rewritten 2026-11-13, `shared/bootflow.js`):
+  **LOAD → TITLE → ATTRACT → READY → PLAY.**
+  - **LOAD / TITLE**: `BOOTFLOW.intro()`, a full-screen card with the chapter and the title.
+    Left alone, the title times out into the attract run.
+  - **ATTRACT**: the game playing itself. Only the game can do this part.
+  - **READY**: a thick colour-cycling **border** round the whole screen with a label, in the
+    manner of Robotron and Defender (`BOOTFLOW.border()`). It means one thing: *this is not live
+    yet*. Inside it, the party ready check Zombie introduced: a square per player, tick yours,
+    everyone starts together (`BOOTFLOW.ready()`).
+  - **PLAY**: the border goes.
+  - Inside a party session the LOAD, TITLE and ATTRACT screens are skipped and the game opens on
+    READY, because turnover between games matters more than the title.
+  - Built for Zombie (which keeps its own ready screen, the model), Space Tracer and 4D Pong.
 
 This is behavioural identity rather than visual, which is why it lands harder than any filter.
 
@@ -450,6 +461,31 @@ Hub 1.0 item now (`HUB_1_0_PLAN.md` Phase 4).
 - **No forced 30fps or fake input lag.** These are the "reads as bad" constraints. Break them.
 
 ---
+
+### 4.13 Score toasts and the hub point scale (added 2026-11-13)
+Points float up from where they were earned as a toast ("500", "1,200"), in the earner's identity
+colour, and are gone in under a second. One implementation: `HUBSCORE.toast()` in
+`shared/hubscore.js`.
+
+Every hub game scores on the same '80s arcade scale, so a number means the same thing on every
+cabinet:
+
+| Tier | Points | What earns it |
+|---|---|---|
+| CHIP | 10 | a tick of time or distance; one kill in a horde of hundreds |
+| GRUNT | 100 | the common enemy |
+| TOUGH | 200 | takes more than one hit |
+| ELITE | 500 | a named threat |
+| OBJECTIVE | 1,000 | a goal, a checkpoint, a tank filled |
+| BOSS | 5,000 | the big one, or winning the round |
+| CLEAR | 10,000 | the group beat the game |
+
+- Every value ends in 0, and nothing pays less than 10.
+- **Par is 25,000**: where a solid 3 minute round should land. 100,000 is a great one.
+- The scale is for feel. A party session is decided by placement points
+  (`HUB_1_0_PLAN.md` Phase 7), so two games being a little apart does not make a session unfair.
+- A game whose scores move onto the scale posts to a fresh leaderboard id (`zombie-v2`,
+  `space-tracer-v2`); the old entries stay stored on their old scale.
 
 ## 5. What each game must keep
 
