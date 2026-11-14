@@ -211,8 +211,8 @@ glCanvas.addEventListener("wheel", function (e) {
         if (now - glGearWheelT > 120) { glGearWheelT = now; glShiftGear(dy < 0 ? 1 : -1); }
         return;
     }
+    if (glMode === "q") return;   // Gyro Fleet: the game owns the zoom in Q (gf-view.js)
     if (GLP.v.autoZoom && !glIsLocked("autoZoom")) { GLP.v.autoZoom = false; glSyncPanelFromParams(); }
-    gfViewOnManualZoom();   // pauses the Gyro Fleet fight camera (gf-view.js)
     glCamera.zoom = Math.max(GL_ZOOM_MIN, Math.min(GL_ZOOM_MAX, glCamera.zoom * (dy > 0 ? 0.92 : 1.08)));
 }, { passive: false });
 
