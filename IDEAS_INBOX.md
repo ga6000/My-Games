@@ -84,7 +84,7 @@ Transcribed from Ry's older notebook. Fit, conflicts and proposed standards rewr
 - 2026-11-13 · hub · Distant goal: couch play with several controllers on one screen, designed in from the start (conflicts with the 2026-09-01 removal) — R11
 - 2026-11-13 · gyro-fleet · Siphon power-ups from vaporised drops, asteroids, trash and wrecks; one siphon currency pays for heals and calling in bots — §2.1
 - 2026-11-13 · gyro-fleet · Wrecks don't vanish: drifting hulls and debris stay breakable — §2.1
-- 2026-11-13 · gyro-fleet · Any collision breaks your bot; hold right-click to thrust, spacebar for hyperdrive (try at the controls playtest) — §2.1
+- 2026-11-13 · gyro-fleet · Any collision breaks your bot (controls decided 2026-11-14: Zombie-style WASD move, cursor aim, hold to fire, Space boost, a bit more slide) — §2.1
 - 2026-11-13 · gyro-fleet · The battle timeline: launch, spool, long burn, can't turn at light speed, re-burst, asteroid belt, 30 s fight; a round is three sites, the last the enemy mothership, ending in a raid of every remaining enemy — §2.1
 - 2026-11-13 · rd-arena · Roll back to before the server update; cheapest route is pointing the hub card at `rd-arena.pre-mp/` — §2.2
 - 2026-11-13 · rd-arena · Belly of the Beast chapter: slide into the Manhattan Hurl as the player-select screen; ULTRAKILL-like loop with 2-4 choices per player — §2.2

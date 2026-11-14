@@ -132,7 +132,7 @@ and leaves Space Tracer as it is. Ry's call if that's wrong.
 | Dead enemies don't vanish; drifting wrecks stay breakable | NEW |
 | Siphon heals minor injuries, medic only | NEW |
 | No momentum | ALREADY (Ry leaning against momentum) |
-| Movement only on right-click; spacebar = hyperdrive | NEW control scheme. **Ry, 2026-11-13: holding right-click is thrust** (not click-to-move, which feels RTS). Gyro Fleet controls are waiting on Ry's playtest; try this then |
+| Movement only on right-click; spacebar = hyperdrive | SUPERSEDED. Ry first chose hold-right-click thrust (2026-11-13), then after the **2026-11-14 playtest switched Gyro Fleet to Zombie-style controls: WASD to move, cursor to aim, hold to fire, Space to boost, with a bit more slide.** The slide softens "no momentum" slightly |
 | Classes: Medic (wide heal), Auto (picks for you), Attack (damage), Defense (survives slow bumps / light fire, recharges) | CONFLICT. The crew is now 6 classes (medic, engineer, scout, gunner, butcher, bulwark). Map: Medic = Maren, Attack = Greer, Defense = Booke. "Auto" has no crew match: drop it, or make it a mode any class can use |
 | Battle timeline (launch, 2 s spool, 10 s flight, can't turn at light speed, slow / correct / re-burst, asteroid belt, 30 s battle) | PARTLY. Fits the 1-4 minute round. Conflicts lightly with "auto-brake on arrival" and "no stopping dead"; the timeline has the player slowing by choice, which is compatible |
 | Outcomes: kamikaze, flee, fight and shoot bits, heal allies, take out the enemy mothership | ALREADY (kamikaze impact frame is decided) |
@@ -214,7 +214,7 @@ Recorded in project memory (hub chronology) as well as here.
    play are the ones that change existing rules.)
 2. Couch play: foundation now, or someday idea?
 3. Gyro Space notes go to Gyro Fleet, not Space Tracer: right? (Siphon currency, three-site
-   structure and hold-right-click thrust were answered 2026-11-13; see §2.1.)
+   structure answered 2026-11-13; controls settled 2026-11-14 as Zombie-style WASD + aim + Space boost; see §2.1.)
 4. Gyro classes: drop "Auto", or keep it as a mode?
 5. RD Arena: move it near the end, or keep it in Act III and add a late level?
 6. RD Arena rollback: repoint the hub card at `rd-arena.pre-mp/`?
