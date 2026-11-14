@@ -734,6 +734,10 @@
             body::after, #ticker, .party-winner, .path-line.is-open, .mode-blink, .party-tag.is-alert,
             .tile-corner, .mode-go, #continueBtn.is-launching { animation: none !important; }
             .party-reveal { visibility: visible; animation: none; }
+            /* The wipe is a black sheet that only its animation removes:
+               with the animation off it must not be there at all, or the
+               whole hub is black (Windows "animation effects" off, 2026-11-14). */
+            body::after { display: none; }
         }
     </style>
 </head>
