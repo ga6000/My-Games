@@ -40,10 +40,10 @@ window.addEventListener("keydown", function (e) {
     // Gyro Fleet (2026-11-13): in Q, hold SPACE = jump drive (gf-flight.js).
     if (e.code === "Space") {
         e.preventDefault();
-        if (!e.repeat) { if (glMode === "q") gfJumpPress(); else glShiftGear(0); }
+        if (!e.repeat) { if (glMode === "q") gfSpaceSet(true); else glShiftGear(0); }
     }
-    // Hold SHIFT = strafe (Q): the ship holds its line, the gun follows the cursor.
-    if ((e.code === "ShiftLeft" || e.code === "ShiftRight") && glMode === "q" && !e.repeat) gfStrafeSet(true);
+    // W A S D move the flown ship (Q). Q/E/F/O/C/H/P keep their engine jobs.
+    if (glMode === "q" && gfMoveKey(e.code, true)) e.preventDefault();
     // U: ultradrive (gl-ultra.js) — Q mode, the flown ship, solo. Tap to
     // charge; tap again to abort the charge or to drop out of the drive.
     // (U ultradrive is off in Gyro Fleet pass 1: it crosses light-years, and
@@ -92,16 +92,17 @@ window.addEventListener("keydown", function (e) {
 });
 
 window.addEventListener("keyup", function (e) {
-    if (e.code === "Space") gfJumpRelease();
-    if (e.code === "ShiftLeft" || e.code === "ShiftRight") gfStrafeSet(false);
+    if (e.code === "Space") gfSpaceSet(false);
+    gfMoveKey(e.code, false);
     if (e.code === "ArrowLeft" || e.code === "ArrowRight") glPan.x = 0;
     if (e.code === "ArrowUp" || e.code === "ArrowDown") glPan.y = 0;
 });
 
 // A lost focus (alt-tab) must not leave thrust, strafe or a spool held down.
 window.addEventListener("blur", function () {
-    gfThrustSet(false); gfStrafeSet(false);
-    if (gfFlight.jump === "spool") gfJumpRelease();
+    gfFlight.keys.up = gfFlight.keys.down = gfFlight.keys.left = gfFlight.keys.right = false;
+    gfFireSet(false);
+    if (gfFlight.jump !== "burst") gfSpaceSet(false);
 });
 
 // Right-click is a game command in E mode, never the browser's menu.
@@ -132,9 +133,8 @@ glCanvas.addEventListener("mousedown", function (e) {
             }
             glSyncPanelFromParams();
         } else {
-            // Q (Gyro Fleet, 2026-11-13): hold right mouse = thrust. Replaces
-            // the lab's trajectory lock. Released on the window's mouseup.
-            gfThrustSet(true);
+            // Q (Gyro Fleet): right mouse does nothing for now (the lab's
+            // trajectory lock is gone; wing orders may take it later).
         }
         return;
     }
@@ -144,9 +144,8 @@ glCanvas.addEventListener("mousedown", function (e) {
         glDrag = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, add: e.shiftKey };
         return;
     }
-    // Q mode: a click fires toward the cursor (gf-flight.js). Gyro Fleet
-    // dropped the lab's shift-click probe: Shift is strafe now.
-    gfFire();
+    // Q mode: hold the button to fire toward the cursor (gf-flight.js).
+    gfFireSet(true);
 });
 
 window.addEventListener("mousemove", function (e) {
@@ -156,7 +155,7 @@ window.addEventListener("mousemove", function (e) {
 // Box select finishes on the WINDOW, not the canvas, so releasing over the
 // panel still completes the drag instead of leaving a box stuck on screen.
 window.addEventListener("mouseup", function (e) {
-    if (e.button === 2) gfThrustSet(false);
+    if (e.button === 0) gfFireSet(false);
     if (!glDrag || e.button !== 0) return;
     const d = glDrag;
     glDrag = null;
@@ -213,6 +212,7 @@ glCanvas.addEventListener("wheel", function (e) {
         return;
     }
     if (GLP.v.autoZoom && !glIsLocked("autoZoom")) { GLP.v.autoZoom = false; glSyncPanelFromParams(); }
+    gfViewOnManualZoom();   // pauses the Gyro Fleet fight camera (gf-view.js)
     glCamera.zoom = Math.max(GL_ZOOM_MIN, Math.min(GL_ZOOM_MAX, glCamera.zoom * (dy > 0 ? 0.92 : 1.08)));
 }, { passive: false });
 
@@ -234,6 +234,7 @@ function glAnimate(now) {
     }
     glFrameBootView();    // once, as soon as the canvas has a size
     glUpdateCamera(dt);   // every frame, paused or not — pan and framing still work
+    gfViewFrame(running ? dt : 0);   // Gyro Fleet fight camera + camera velocity (gf-view.js)
     // Ultradrive cues — warp, beam fade, audio. Frozen with the sim when
     // paused, and the audio suspends.
     glUltraFrame(running ? dt : 0, !running);

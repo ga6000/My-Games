@@ -135,6 +135,7 @@ function glUpdateShipOne(s, dt) {
         const d = glDangerFor(s);
         if (d) { desired = glEscapeHeading(s, d); turn = 0.2; s.speedMul = 1; }
     }
+    if (direct) turn = GF_FLIGHT.turn;   // Gyro Fleet: the nose tracks the cursor briskly
     s.angle += glWrapAngle(desired - s.angle) * glTimeLerpRate(turn, s.tau);
 
     // Ultradrive charge: lab time, and it launches itself at full charge.
@@ -178,8 +179,17 @@ function glUpdateShipOne(s, dt) {
     // geared formation leader — grips like a burn.
     const auth = (s.hyperActive || s.boost || s.speedMul > 1.8) ? Math.max(GLP.v.shipControl, GLP.v.hyperAuthority) : GLP.v.shipControl;
     const a = glTimeLerpRate(auth, s.tau);
-    s.vx = glLerp(s.vx, Math.cos(s.angle) * s.speed, a);
-    s.vy = glLerp(s.vy, Math.sin(s.angle) * s.speed, a);
+    // Gyro Fleet (2026-11-14): the flown ship moves on WASD with slide, not
+    // along its nose (gf-flight.js gfFlightVelocity).
+    const fv = (direct && !s.autoOrbit) ? gfFlightVelocity(s) : null;
+    if (fv) {
+        const fa = glTimeLerpRate(fv.a, s.tau);
+        s.vx = glLerp(s.vx, fv.vx, fa);
+        s.vy = glLerp(s.vy, fv.vy, fa);
+    } else {
+        s.vx = glLerp(s.vx, Math.cos(s.angle) * s.speed, a);
+        s.vy = glLerp(s.vy, Math.sin(s.angle) * s.speed, a);
+    }
 
     // Kept so the horizon test can look at the whole frame's travel rather
     // than just where it ended — at hyperdrive speeds that is the difference

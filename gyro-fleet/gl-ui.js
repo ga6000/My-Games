@@ -143,7 +143,7 @@ function glBuildPanel() {
         '<kbd>E</kbd>: <kbd>F</kbd> spawns a ship at the cursor, left-drag box-selects (shift adds), ' +
         'right-click sends the selection there in a delta (on a planet: it orbits on arrival), <kbd>O</kbd> ' +
         'rings it round the nearest body, <kbd>Shift+wheel</kbd> or <kbd>Shift+↑↓</kbd> sets the formation\'s ' +
-        'gear. In Q: hold <kbd>right-click</kbd> thrust, hold <kbd>space</kbd> jump, hold <kbd>shift</kbd> strafe. Arrows pan.</p></div>';
+        'gear. In Q: <kbd>WASD</kbd> move, cursor aims, hold click fires, <kbd>space</kbd> boost / hold to jump. Arrows pan.</p></div>';
 
     // (The Black holes roster — pick, add, remove, generate field — went
     // 2026-09-12 at the user's request: holes come from the galaxy now.)

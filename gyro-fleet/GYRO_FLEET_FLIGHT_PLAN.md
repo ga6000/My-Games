@@ -30,3 +30,31 @@ Tunables are in `GF_FLIGHT` at the top of `gf-flight.js`.
 - A shot fired at thrust leaves at 80 u/s (40 own + 40 ship).
 - `check-global-collisions` and `check-undefined-globals` pass.
 - **Not yet played by a human.** Things to judge: thrust and cruise speeds, the 250-unit brake ring (the hive is still off screen at the default zoom), the spool length.
+
+---
+
+# Flight pass 2 (2026-11-14): twin-stick + readability
+
+## Asked for (Ry, 2026-11-14, after playtesting pass 1)
+
+Pass 1 was hard to control: hard to shoot while evading, hard to read enemy speed, no sense of own speed, and auto-brake dropped him into tendrils with no moment to orient. Ry's call: Zombie-family controls (WASD + cursor aim) **with a bit more slide**, Space boost, **hold to fire**. Plus my five fixes and a parallax backdrop for orientation.
+
+## What was built
+
+| | |
+|---|---|
+| Move | WASD (screen directions), 35 u/s. Velocity eases at `slide` 0.035/frame (about 0.5 s to settle), so the ship slides. Lets go to a stop. |
+| Aim / fire | The nose tracks the cursor. Hold left mouse: 7 shots/s toward the cursor, carrying the ship's velocity. |
+| Boost / jump | Space = boost (70 u/s; with no keys held it pushes along the nose). Out of combat (no creature within 1,000), holding Space past 0.35 s spools the jump (1.6 s, aim line = cursor), then jumps at 1000x. Release to drop out. In combat Space only boosts. |
+| Auto-brake | Now 1,200 units OUTSIDE the hive or a pod (pods hunt from 900), so you arrive unseen and nearly still. |
+| Fight camera | Near a fight the zoom frames the nearest creature (wide right after a drop-out, then eases in as you close). A wheel zoom pauses it for 5 s. |
+| Backdrop (`gf-view.js`) | FAR: nebula tile, Earth at home, the hive's red glow (slow, so they point home / hive). MID: hashed rocks at 1.4 px per unit of travel. NEAR: speed dust that streaks with the camera. |
+| Readability | Creature trails (0.6 s of travel), dashed tendril-reach rings on big armoured creatures (brighten during the tell), edge markers for creatures within 2,600 that are off screen, a velocity tick on your ship. |
+| Removed | Right-click thrust and Shift strafe (twin-stick makes them unneeded). Right mouse is free in Q (candidate for wing orders). |
+
+## Verified (headless Chromium, file://)
+
+- 0 errors, 60 fps. D held: 11 u/s after 0.15 s, 33 after 1.35 s; released: 17 after 0.3 s, ~0 after 1.8 s.
+- Hold fire: 7 shots in 1 s.
+- Space toward the hive: boost 31 -> spool -> jump -> drop out 1,340 from the hive centre, nearest creature 1,389 (outside hunting range), hull 100. Camera framed the hive and both pods (zoom 6.8 -> 0.25).
+- Static checks pass. **Not yet played by a human.** To judge: slide amount, move/boost speeds, the zoom-out on arrival, whether the backdrop helps.

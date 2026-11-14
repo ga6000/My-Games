@@ -10,7 +10,7 @@ launched, and crews lead wings of expendable ships against the creature hives.
 ## Where things are
 
 - **New game code is prefixed `gf`/`GF`** and lives in `gf-*.js`. Pass 1 has one file,
-  `gf-crabs.js`: the hive, pods, aircrabs, airkrill, the Bellwether, the breath rule, tendril grabs,
+  `gf-crabs.js` (creatures), `gf-flight.js` (controls), `gf-view.js` (backdrop, camera, readability). `gf-crabs.js` holds the hive, pods, aircrabs, airkrill, the Bellwether, the breath rule, tendril grabs,
   hull, the nav targets and the HUD line.
 - **The engine is Gyro Lab's, unchanged where possible, and keeps its `gl`/`GL` names**: ship
   flight, gears, fleet/boids (E), autopilot, the vector lens, audio and the mini-map. Its full history
@@ -37,7 +37,7 @@ away, because `glHole` needs one.
 ## Design calls so far (Ry, 2026-11-07 / 11-08)
 
 - PvE only. Auto-brake at the edge of a battle (built in the flight pass). Opt-in ram with an impact frame (not built yet).
-- No drift and no stopping dead: strafing is a committed pass, tuned by playtest.
+- Controls (Ry, 2026-11-14): Zombie-family twin-stick WASD + cursor aim, WITH slide, Space boost (hold out of combat = jump), hold to fire. Supersedes the 11-08 "no drift" lean; tune slide by playtest.
 - Six crew classes, a hex spawn room, and each crew member commands a wing of bots of their class.
 - The human mothership is 5 km, solid hull plus lattice mesh. The Tide (alien mothership) is about
   Florida-sized.
@@ -54,4 +54,5 @@ Launch from the hex bay, jump between 3 sites, crack breathing vents, shoot wrec
 | Pass | Plan | State |
 |---|---|---|
 | 1 (2026-11-08) | `GYRO_FLEET_PASS_1_PLAN.md` | Enemies in groups, breath rule, Bellwether wave. Ry played it 2026-11-08: navigation was the problem. |
-| flight (2026-11-13) | `GYRO_FLEET_FLIGHT_PLAN.md` | Right-click thrust, Space jump + auto-brake, Shift strafe, gears gone from Q (`gf-flight.js`). **Not yet human-played.** |
+| flight (2026-11-13) | `GYRO_FLEET_FLIGHT_PLAN.md` | Right-click thrust, Space jump + auto-brake, Shift strafe, gears gone from Q. Ry played it 11-14: hard to control and read. |
+| flight 2 (2026-11-14) | same file, second half | WASD + aim + hold fire, slide, Space boost/jump, brake outside pod reach, fight camera, parallax backdrop, trails, reach rings, edge markers (`gf-flight.js`, `gf-view.js`). **Not yet human-played.** |

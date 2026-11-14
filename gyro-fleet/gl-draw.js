@@ -29,6 +29,7 @@ function glDrawWorld() {
     if (glUltraWarp > 1.02) glDrawWarpStars(c);
     else if (lensOn && (GLP.lensMethod === "stars" || vector)) glDrawLensedStars(c);
     else glDrawStars(c);
+    gfDrawBackdrop(c);   // Gyro Fleet parallax layers: nebula, Earth, hive glow, debris (gf-view.js)
 
     // Method 7: from here to the end of stage 1, every glWorldToScreen() call
     // bends its point through the lens. The finally is load-bearing — a throw

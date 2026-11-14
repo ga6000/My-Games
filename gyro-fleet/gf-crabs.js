@@ -445,6 +445,7 @@ function gfDrawWorld(c) {
         c.globalAlpha = 1;
     }
 
+    gfDrawViewWorld(c, z);   // gf-view.js: speed dust, creature trails, tendril reach
     for (let i = 0; i < gfCreatures.length; i++) gfDrawCreature(c, gfCreatures[i], z);
 }
 
@@ -575,7 +576,8 @@ function gfDrawCreature(c, cr, z) {
 //   Draw: overlay (screen space, never lensed)
 // ---------------------------------------------------
 function gfDrawOverlay(c) {
-    gfFlightOverlay(c);   // gf-flight.js: spool aim line, strafe lines, drive cues
+    gfFlightOverlay(c);   // gf-flight.js: spool aim line, velocity tick, drive cues
+    gfDrawEdgeMarkers(c); // gf-view.js: off-screen creatures
     if (!gfHive) return;
     c.save();
     c.font = "11px monospace";
