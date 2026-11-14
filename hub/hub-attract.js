@@ -38,7 +38,7 @@ let attractIndex = 0;
  * itself the moment the condition clears.
  */
 function attractSuppressed() {
-    if (isLaunching) return true;
+    if (isLaunching || splashUp) return true;
     if (countdownOverlay && !countdownOverlay.hidden) return true;
     if (identityOverlay && !identityOverlay.hidden) return true;
     if (partyOverlay && !partyOverlay.hidden) return true;   // first screen, readouts

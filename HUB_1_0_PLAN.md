@@ -454,6 +454,31 @@ The lit amber lines on the board show the way from where the session is.
 `scripts/party-server-test.js`. **Not verified:** how any of it feels to a person, and phones
 beyond a 390 px wide screenshot.
 
+### Phase 7c: the hub as an overworld (Ry, 2026-11-13, evening)
+
+Ry's notes on 7b, and what each became. Supersedes 7b where they differ.
+
+| Ry asked for | What changed |
+|---|---|
+| "Player tokens as their actual characters on the tiles ... they walk to the next tile" | The six crew are drawn for the first time (`shared/crew.js`, 16 x 20 figures). Each member of the session stands on the party's tile as their character (`hub/hub-crew.js` `renderTokens`), a grey figure until they pick. After the count the party walks the path to the chosen tile, a chapter card names it, and the game opens (`launchDepart`). |
+| "Character select ... after game mode select, also with multiplayer presence. Late joiners get assigned a role that's not already chosen" | A WHO ARE YOU screen follows mode select. The server holds the picks (`session-role`): one holder per character while six go round; a taken card shows its holder; anyone without one at the first launch, and any late joiner, is dealt a free one. The pick rides to the game as `?role=` and in the session; Zombie plays it (`zPickedRole`). |
+| "Short descriptions, we don't need the specifics (generally throughout game hub)" and "dial down the hand-holdiness" | Character cards carry one line each. Hub hint text was cut to a few words everywhere ("Pick a game", "Tied", the stamp instead of a sentence). **Standing rule for hub text: name the thing, do not explain it.** |
+| "'party' should be 'Story'" | The modes are STORY and FREE PLAY. "Party" is no longer a word the player reads. (Code keeps `party*` names and `PARTY`.) |
+| "Free play carries a per game score, but does not chain games" | Free play has no standings, no points, no readout between games and no CALL IT. The game's own card shows that round's scores (one player: score and best), and the leaderboard gets them as always. |
+| "Podium view ... characters in an idle stance" | The final screen is a podium of standing figures (`crewPodiumHtml`). |
+| "Final image can be splash for the hub with low white text" | The hub opens on The Tide in the thunderhead, CLICK TO START (`splashPaint`), once per browser tab. |
+| "Add score to Glass City, RD Arena and Scuba Shooter" | All three report to a session and carry `party: true`. Glass City reports its existing score and is capped at 5:00 in a session. RD Arena had no score: it has one now (damage dealt, rounds, deaths; `rd-arena/rd-party.js`) and, opened from the hub, is a 3:00 run. Scuba Shooter reports its existing run score; each player dives alone. **None of the three is on the hub point scale yet, and none of the numbers is tuned.** |
+| EIEI Aliens in ACT I; Space Tracer becomes TAKEOFF; Gyro Fleet is the final game | `eiei-aliens` is a dark tile in ACT I. The `space-tracer` tile reads TAKEOFF (Earth to low orbit) and opens the Space Tracer build as a stand-in until TAKEOFF exists. |
+| From the flow suggestions Ry approved | Chapter card between board and game; crew pick once per session; no 3-2-1 when alone (server sends `delayMs: 0`); gamepad on the hub (stick or D-pad, A or Start); a hum and step, pick and chapter sounds, with a Sound button. **Not done:** one shared in-game frame for every game. |
+
+A story now starts at Scuba Shooter or Zombie (the first playable chapters after the two dark
+ACT I tiles) and runs Zombie, Glass City, then 4D Pong or RD Arena.
+
+**Verified** headless, same three scripts, extended: character select and its refusal of a held
+character, tokens on the tile played, Zombie playing the picked classes, the podium, free play
+with no standings, and Glass City, RD Arena and Scuba Shooter rounds. **Not verified:** a real
+gamepad, the sounds by ear, any of it by a person.
+
 ---
 
 ## ~~Open: the arcade scope cut (raised 2026-10-03)~~ — decided 2026-10-04

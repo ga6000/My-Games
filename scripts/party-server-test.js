@@ -132,7 +132,26 @@ async function launch(hubs, gameId) {
     a.send({ type: "session-finish" }); await sleep(150);
     ok(a.session && a.session.done && a.session.winners.join() === "Ann", "session-finish names the winner");
     a.send({ type: "session-end" }); await sleep(100);
-    a.close();
+
+    // The crew (2026-11-13): one holder per character, late joiners dealt one.
+    a.send({ type: "session-start", mode: "story", total: 3, games: ["zombie"] }); await sleep(150);
+    let c2 = await client("_hub", R, "Bo");
+    await sleep(150);
+    const roleOf = (cl, n) => (cl.session.standings.find(r => r.name === n) || {}).role;
+    ok(roleOf(a, "Ann") === null && roleOf(a, "Bo") === null, "nobody has a character before picking");
+    a.send({ type: "session-role", role: "medic" }); await sleep(100);
+    c2.send({ type: "session-role", role: "medic" }); await sleep(100);
+    ok(roleOf(a, "Ann") === "medic" && roleOf(a, "Bo") === null, "a character someone holds is refused");
+    c2.send({ type: "session-role", role: "scout" }); await sleep(100);
+    ok(roleOf(a, "Bo") === "scout", "a free character is taken");
+    await launch([a, c2], "zombie");
+    const late = await client("_hub", R, "Cy");
+    await sleep(150);
+    const lr = roleOf(late, "Cy");
+    ok(lr && lr !== "medic" && lr !== "scout", "a late joiner is dealt a character nobody holds (" + lr + ")");
+    ok(late.session.at === "zombie" && late.session.launched, "the session remembers which tile the party set out for");
+    late.send({ type: "session-end" }); await sleep(100);
+    late.close();
     console.log(fails ? fails + " FAILED" : "ALL PASSED");
     process.exit(fails ? 1 : 0);
 })();

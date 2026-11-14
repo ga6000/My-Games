@@ -566,4 +566,12 @@ Ry's call, same day as §10. Details in `HUB_1_0_PLAN.md` Phase 7b; what matters
 - New server messages: `session-start` takes `total: 0` (open-ended) and `games` (the ids that
   score); `session-finish` ends an open-ended session with a winner.
 
+
+## 12. The party is on the board (2026-11-13, evening)
+
+Details in `HUB_1_0_PLAN.md` Phase 7c. For this plan: the order of screens is splash, name and
+room, mode, character, board. Tiles are still votes and Continue is still the ready check; what
+follows the count is new (walk, chapter card, game). Alone there is no count. The bottom bar's
+sentences were cut to a few words.
+
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

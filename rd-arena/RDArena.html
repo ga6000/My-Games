@@ -106,6 +106,10 @@
 <script src="../shared/mp-core.js"></script>
 <script src="../shared/retro.js"></script>
 <script src="../shared/sfx.js"></script>
+<!-- The hub session and the score strip (2026-11-13); this game's side is
+     rd-party.js. party.js must follow mp-core.js. -->
+<script src="../shared/hubscore.js"></script>
+<script src="../shared/party.js"></script>
 <!-- The L+G dev panel. BEFORE the game's own files: its error capture only
      sees throws that happen after it installs, and its keydown listener has
      to be attached before rd-input.js's so a combo press can be stopped from
@@ -120,6 +124,7 @@
 <script src="rd-entities.js"></script>
 <script src="rd-rounds.js"></script>
 <script src="rd-render.js"></script>
+<script src="rd-party.js"></script>
 <script src="rd-boot.js"></script>
 <!-- LAST, after the loop has already started. Registration only. -->
 <script src="rd-dev.js"></script>

@@ -157,6 +157,18 @@ const ART_SCENES = {
         artOval(c, 76, 30, 13, 13, "#FF4A1C");
         artBox(c, 0, 30, ART_W, 14, "#0A0302");
         artCrab(c, 30, 13, 8, { tendrils: 5 });
+        // Two blood silos behind the fence (Ry, 2026-11-13): the tanks the
+        // game is about filling, each with its sight-glass part full.
+        [[54, 0.7], [66, 0.35]].forEach((t, i) => {
+            artBox(c, t[0], 10, 9, 22, "#2A0E08");
+            artBox(c, t[0], 10, 9, 1, "#6A2A16");
+            artBox(c, t[0] - 1, 9, 11, 2, "#3A1208");
+            artBox(c, t[0], 17, 9, 1, "#3A1208");
+            artBox(c, t[0], 25, 9, 1, "#3A1208");
+            const fill = Math.round(18 * t[1]) + (artBreath(i * 3) === 2 ? 1 : 0);
+            artBox(c, t[0] + 6, 12, 2, 18, "#000000");
+            artBox(c, t[0] + 6, 30 - fill, 2, fill, ART_INK.lung);
+        });
         for (let x = 0; x < ART_W; x += 6) artBox(c, x, 26, 1, 10, "#3A1208");
         artBox(c, 0, 28, ART_W, 1, "#3A1208");
         for (let i = 0; i < 15; i++) {
@@ -361,6 +373,101 @@ const ART_SCENES = {
     }
 };
 
+// ---- scenes redrawn or added 2026-11-13 on Ry's notes ----
+
+// ACT I, soon after the landing: the aircrabs are still DEFLATED, flat on
+// the dirt, dragging themselves at a farmer who holds the yard.
+ART_SCENES["eiei-aliens"] = function (c) {
+    artBox(c, 0, 0, ART_W, 30, "#0A0E1A");
+    artStars(c, 16, 61);
+    artOval(c, 80, 8, 4, 4, "#D8D0BC");
+    artBox(c, 0, 30, ART_W, 24, "#141006");
+    for (let i = 0; i < 7; i++) artBox(c, 0, 33 + i * 3, ART_W, 1, "#241C0A");
+    // The barn and its silo.
+    artBox(c, 4, 12, 22, 20, "#5A1A12");
+    for (let k = 0; k < 6; k++) artBox(c, 4 + k * 2, 12 - k, 22 - k * 4, 1, "#3A100C");
+    artBox(c, 12, 22, 6, 10, "#1A0806");
+    artBox(c, 13, 15, 4, 3, ART_INK.amber);
+    artBox(c, 28, 8, 6, 24, "#6E766E");
+    artOval(c, 31, 8, 3, 2, "#8FA89C");
+    for (let x = 36; x < ART_W; x += 8) { artBox(c, x, 27, 1, 6, "#3A2A12"); }
+    artBox(c, 36, 29, ART_W - 36, 1, "#3A2A12");
+    // The farmer, standing his ground.
+    artPerson(c, 40, 42, ART_INK.hot);
+    artBox(c, 39, 36, 4, 1, "#C8A040");
+    artBox(c, 42, 39, 6, 1, ART_INK.mid);
+    if (artFrame % 5 < 2) { artBox(c, 48, 38, 4, 3, ART_INK.amber); artBox(c, 52, 39, 6, 1, ART_INK.hot); }
+    // Deflated: wide, low, wrinkled, hauling along on their tendrils.
+    for (let i = 0; i < 6; i++) {
+        const x = 94 - ((artFrame * (1 + (i % 2)) + i * 17) % 44);
+        const y = 37 + (i * 5) % 15;
+        const puff = artBreath(i) === 2 ? 1 : 0;
+        artOval(c, x, y, 5 + puff, 1 + puff, ART_INK.lungDark);
+        artOval(c, x + 1, y, 3, 1, ART_INK.lung);
+        artBox(c, x - 8 - (artFrame + i) % 2, y, 4, 1, ART_INK.lungDark);
+        artBox(c, x - 9 - (artFrame + i) % 2, y + 1, 2, 1, ART_INK.magenta);
+    }
+};
+
+// ACT IV. A real desert at dusk (Ry: "less vector on black ... it should
+// read as being based irl"). The amber vector lines are an OVERLAY now: the
+// car's targeting display laid over the road, not the world itself.
+ART_SCENES["code-racer"] = function (c) {
+    ["#2A0F2E", "#5A1E3A", "#9A3A2E", "#D8702A", "#F2A040"].forEach((col, i) => artBox(c, 0, i * 5, ART_W, 6, col));
+    artOval(c, 66, 24, 7, 7, "#FFE0A0");
+    // Mesas, solid, two depths.
+    [[0, 22, 26], [20, 16, 18], [44, 20, 14], [78, 14, 18]].forEach(m => { artBox(c, m[0], m[1], m[2], 26 - m[1], "#5A2A2A"); artBox(c, m[0] + 2, m[1] - 2, m[2] - 5, 2, "#5A2A2A"); });
+    [[10, 21, 16], [56, 19, 22]].forEach(m => artBox(c, m[0], m[1], m[2], 26 - m[1], "#3A1820"));
+    artBox(c, 0, 26, ART_W, 28, "#8A5A2E");
+    for (let i = 0; i < 26; i++) artBox(c, artRand(i + 5) * ART_W, 28 + artRand(i + 30) * 25, 2, 1, i % 3 ? "#6E4420" : "#B07A44");
+    // The road, narrowing to the sun.
+    for (let k = 0; k < 28; k++) {
+        const w = 2 + k * 1.3;
+        artBox(c, 62 - w * 0.75, 26 + k, w * 1.5, 1, "#2A2622");
+        if ((k + artFrame * 2) % 8 < 4) artBox(c, 62 - (k > 12 ? 1 : 0), 26 + k, k > 12 ? 2 : 1, 1, "#E8D8A0");
+    }
+    [[18, 30], [84, 34], [30, 44]].forEach(p => { artBox(c, p[0], p[1] - 5, 1, 6, "#2E4A2A"); artBox(c, p[0] - 2, p[1] - 3, 2, 1, "#2E4A2A"); artBox(c, p[0] + 1, p[1] - 4, 2, 1, "#2E4A2A"); });
+    // The car, and the dust it throws.
+    artBox(c, 52, 42, 14, 5, "#C8D0CC");
+    artBox(c, 54, 39, 10, 3, "#22302C");
+    artBox(c, 51, 46, 4, 3, "#101412");
+    artBox(c, 63, 46, 4, 3, "#101412");
+    artBox(c, 53, 44, 2, 1, "#FF2A2A");
+    artBox(c, 63, 44, 2, 1, "#FF2A2A");
+    for (let i = 0; i < 5; i++) artBox(c, 44 - i * 4 + (artFrame % 2), 48 - i, 3, 2, "#B07A44");
+    // The overlay: a targeting frame and range ticks, amber, thin.
+    const hue = ART_INK.amber;
+    [[40, 32], [78, 32]].forEach(p => { artBox(c, p[0], p[1], 1, 5, hue); artBox(c, p[0] - (p[0] > 60 ? 3 : 0), p[1], 4, 1, hue); });
+    [[40, 50], [78, 50]].forEach(p => { artBox(c, p[0], p[1] - 4, 1, 5, hue); artBox(c, p[0] - (p[0] > 60 ? 3 : 0), p[1], 4, 1, hue); });
+    for (let i = 0; i < 4; i++) artBox(c, 86, 30 + i * 5, i === artFrame % 4 ? 6 : 3, 1, hue);
+};
+
+// ACT V, TAKEOFF: off the Earth and into low orbit, fighting on the way up.
+ART_SCENES["space-tracer"] = function (c) {
+    artStars(c, 30, 51, ART_INK.mid);
+    // The Earth fills the bottom of the frame: low orbit, not deep space.
+    artOval(c, 48, 88, 84, 46, "#7DF9FF");
+    artOval(c, 48, 89, 84, 46, "#0E4A78");
+    artOval(c, 48, 91, 84, 46, "#0A2E52");
+    [[18, 48, 12, 3], [50, 46, 16, 3], [74, 50, 10, 2]].forEach(l => artOval(c, l[0], l[1], l[2], l[3], "#1E5A3A"));
+    [[30, 45, 9], [64, 49, 12], [8, 51, 6]].forEach(l => artBox(c, l[0] + (Math.floor(artFrame / 4) % 2), l[1], l[2], 1, "#C8E8F0"));
+    const hue = "#E8FFF4";
+    const ship = (x, y, col) => {
+        for (let k = 0; k < 5; k++) { artBox(c, x - k, y + k, 1, 1, col); artBox(c, x + k, y + k, 1, 1, col); }
+        artBox(c, x - 4, y + 5, 9, 1, col);
+        artBox(c, x, y + 6, 1, 3 + (artFrame % 2) * 2, ART_INK.amber);
+    };
+    // The climb: an exhaust trail back down to the cloud tops.
+    for (let k = 0; k < 9; k++) artBox(c, 22 - k, 28 + k * 2, 2, 2, k < 3 ? ART_INK.amber : (k < 6 ? "#7A3B00" : "#3A4A50"));
+    ship(24, 18 + [0, 1, 0, -1][artFrame % 4], hue);
+    ship(40, 28, ART_INK.mid);
+    ship(10, 32, ART_INK.mid);
+    if (artFrame % 3 === 0) artBox(c, 28, 16, 30, 1, ART_INK.hot);
+    artCrab(c, 74, 18, 10, { tendrils: 6, phase: 2 });
+    artCrab(c, 90, 32, 4, { tendrils: 3, phase: 5 });
+};
+
+
 // ---------------------------------------------------
 //   PAINTING
 // ---------------------------------------------------
@@ -389,6 +496,9 @@ function artPaintCanvas(canvas) {
 
 function artRepaint() {
     document.querySelectorAll("canvas[data-art]").forEach(artPaintCanvas);
+    // The crew figures and the splash share this clock (hub-crew.js).
+    crewRepaint();
+    if (splashUp) splashPaint();
 }
 
 // Started from hub-boot.js. One tracked interval for every canvas on the

@@ -717,3 +717,5 @@ says the same thing.
 `gc-world.js` means two players race different cities.
 
 <!-- doc-sync: bad30df7 | 2026-10-19 -->
+
+- **Hub session (2026-11-13):** `gc-party.js` reports `gcScore` when a run ends (`showMessage(..., true)`), and in a session ends the run at 5:00. The score is not on the hub point scale yet.

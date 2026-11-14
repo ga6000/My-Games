@@ -35,6 +35,7 @@ async function open(browser, server, room) {
     const page = await ctx.newPage();
     page.on("pageerror", e => { console.log("PAGEERROR: " + e.message); fails++; });
     await page.goto(`${WEB}/index.html?server=${encodeURIComponent(server)}`);
+    await page.keyboard.press("Enter");                 // the splash: any key
     await page.fill("#identityNameInput", "Ry");
     await page.fill("#identityRoomInput", room);
     await page.click("#identityJoinBtn");
@@ -68,9 +69,18 @@ async function intoZombieAndDie(page) {
     let page = await open(browser, WS, "SOLO" + (Date.now() % 10000));
     await page.keyboard.press("Enter");                 // the story card has the focus
     await page.waitForFunction(() => partySession && partySession.mode === "story");
-    ok(true, "online: Enter on the first screen starts a story party");
-    await page.keyboard.press("ArrowRight");            // the cursor appears on the open tile
-    ok((await page.$eval(".tile.is-cursor", el => el.dataset.gameId)) === "zombie", "the keyboard cursor starts on the open chapter");
+    ok(true, "online: Enter on the first screen starts a story");
+    await page.waitForSelector(".crew-screen");
+    await page.keyboard.press("ArrowRight");            // Maren -> Elodie
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => crewMyRole() === "engineer");
+    ok(true, "character select by keyboard: the engineer");
+    await page.keyboard.press("ArrowRight");            // the cursor appears on an open tile
+    const first = await page.$eval(".tile.is-cursor", el => el.dataset.gameId);
+    ok(first === "scuba-shooter" || first === "zombie", "the keyboard cursor starts on an open chapter (" + first + ")");
+    // Across to ACT II, then up its column to Zombie.
+    if (first !== "zombie") await page.keyboard.press("ArrowRight");
+    for (let i = 0; i < 4 && (await page.$eval(".tile.is-cursor", el => el.dataset.gameId)) !== "zombie"; i++) await page.keyboard.press("ArrowUp");
     await page.keyboard.press("Enter");
     await page.waitForSelector('.tile[data-game-id="zombie"].is-mine');
     await shot(page, "1-board");
@@ -89,7 +99,7 @@ async function intoZombieAndDie(page) {
     await page.keyboard.press("Enter");                 // PICK THE NEXT GAME
     await sleep(300);
     const open2 = await page.$$eval(".tile:not(.is-locked)", els => els.map(e => e.dataset.gameId));
-    ok(open2.includes("four-d-pong") && open2.includes("zombie"), "the story moved on: open = " + open2.join(","));
+    ok(open2.includes("glass-city-escape") && open2.includes("zombie"), "the story moved on: open = " + open2.join(","));
     ok((await page.$$(".path-line.is-open")).length > 0, "the way forward is lit on the board");
     await shot(page, "4-board-next");
     await page.context().close();
@@ -97,7 +107,10 @@ async function intoZombieAndDie(page) {
     // ---------- OFFLINE ----------
     page = await open(browser, DEAD_WS, "OFF" + (Date.now() % 10000));
     await page.click('[data-party="local"]');
-    ok(!(await page.$(".mode-screen")), "offline: play solo without the server closes the first screen");
+    await page.waitForSelector(".crew-screen");
+    await page.click('[data-crew-pick="gunner"]');
+    ok(!(await page.$(".mode-screen")), "offline: play solo without the server, pick a character, reach the board");
+    ok((await page.$$eval(".crew-token canvas", els => els.map(e => e.dataset.crew).join())) === "gunner", "offline: one token, the gunner");
     await page.click('.tile[data-game-id="zombie"]');
     await page.waitForSelector("#continueBtn:not([hidden])");
     ok(/SOLO/.test(await page.textContent("#continueBtn")), "offline: the button plays the pick solo");

@@ -170,6 +170,28 @@
 
 <!-- L+G dev panel: the shared panel loads first, scuba-dev.js registers last -->
 <script src="../shared/devtools.js"></script>
+<!-- The hub session (2026-11-13). Scuba Shooter is solo, so mp-core is here
+     only to carry the score to the session; it connects only when the game
+     was opened from the hub board (hub=1). -->
+<script src="../shared/identity.js"></script>
+<script src="../shared/mp-core.js"></script>
+<script src="../shared/hubscore.js"></script>
+<script src="../shared/party.js"></script>
+<script>
+    // From the hub: straight into the dive, no attract run, and a socket
+    // for the session. Everything below is untouched when opened directly.
+    const SCUBA_FROM_HUB = typeof PARTY !== "undefined" && PARTY.fromHub();
+    if (SCUBA_FROM_HUB) {
+        try { sessionStorage.setItem("scubaDive", "1"); } catch (e) { /* the attract run shows first */ }
+        if (typeof MP !== "undefined") MP.connect({ game: "scuba-shooter", onReady: function () { } });
+    }
+    let scubaFinal = null;
+    function scubaPartyFinish() {
+        if (!scubaFinal || typeof PARTY === "undefined" || !PARTY.wanted()) return false;
+        document.getElementById("endCard").classList.remove("show");
+        return PARTY.finish({ score: HUBSCORE.snap(scubaFinal.score), cleared: scubaFinal.won, game: "scuba-shooter" });
+    }
+</script>
 <script>
     // dev-panel knobs (scuba-dev.js drives them; shipped values are all 1/false)
     const DEV = window.SCUBA_DEV = { speed: 1, dark: 1, god: false, snake: 1, music: 1 };
@@ -3598,6 +3620,10 @@
         $('endSub').textContent = kind === 'win' ? `ALL ${specimens.length} SPECIMENS POPPED IN ${t}` : `${specimens.filter(s => s.popped).length}/${specimens.length} SPECIMENS POPPED`;
         $('endCard').classList.add('show');
         renderRunScore(kind === 'win', secs);
+        // The hub session: the others should not wait on this player's
+        // click, so the score goes in once the readout has had its time.
+        scubaFinal = { score: runScore(kind === 'win', secs).total, won: kind === 'win' };
+        if (typeof PARTY !== "undefined" && PARTY.active()) { PARTY.live(scubaFinal.score); setTimeout(scubaPartyFinish, 9000); }
     }
     // ---- score: speed, NPCs left alive, specimens popped, accuracy ----
     const shotStats = { shots: 0, hits: 0 };
@@ -3616,7 +3642,7 @@
         } else rows.push([(specimens.length - popped) + ' SPECIMENS LEFT', 0]);
         return { rows, total: rows.reduce((a, r) => a + r[1], 0) };
     }
-    function goHub() { location.href = '../index.html'; }
+    function goHub() { if (scubaPartyFinish() || (typeof PARTY !== "undefined" && PARTY.finished())) return; location.href = '../index.html'; }
     let readoutDone = false;
     document.getElementById('endCard').addEventListener('click', () => { if (gameOver) goHub(); });
     function renderRunScore(won, secs) {

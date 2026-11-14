@@ -83,16 +83,28 @@ function roleForId(netId) {
 // believe; teammates still deal your class from your token.
 let zDevRoleOverride = null;
 
+// THE HUB'S CHARACTER SELECT (2026-11-13). Opened from the hub, a player's
+// class is the character they picked there, not the hash's deal: mine from
+// PARTY.role() (the session, or ?role= before the socket opens and offline),
+// a teammate's from the session by their name. Opened directly, or for
+// anyone the session does not know, the hash deals as before.
+function zPickedRole(name, self) {
+    if (typeof PARTY === "undefined") return "";
+    const r = self ? PARTY.role() : (name ? PARTY.roleOf(name) : "");
+    return ROLES[r] ? r : "";
+}
+
 function myRole() {
     // The tab token, not the socket id (2026-09-19): the socket id is new on
     // every reconnect, so a wifi drop used to re-deal your class mid-run.
-    return zDevRoleOverride || roleForId(netToken);
+    return zDevRoleOverride || zPickedRole("", true) || roleForId(netToken);
 }
 
 function idHasRole(id, key) {
     const tok = (id || "").split(":")[0];
-    if (zDevRoleOverride && tok === netToken) return zDevRoleOverride === key;
-    return roleForId(tok) === key;
+    if (tok === netToken) return myRole() === key;
+    const r = typeof remotePlayers !== "undefined" ? remotePlayers[id] : null;
+    return (zPickedRole(r && r.name, false) || roleForId(tok)) === key;
 }
 
 // ---------------------------------------------------

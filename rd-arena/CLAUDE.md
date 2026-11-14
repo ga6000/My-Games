@@ -256,3 +256,5 @@ camera.
 - `Firebase / Leaderboard Integrated?` remains `No` — round reached would be the obvious score.
 
 <!-- doc-sync: 1b111dfd | 2026-10-17 -->
+
+- **Hub session (2026-11-13):** `rd-party.js` gives the arena a personal score (damage dealt x10, +1,000 a round, -500 a death) and, opened from the hub board (`hub=1`), makes it a 3:00 run that ends in the session card. Opened directly it is endless as before. Untuned.

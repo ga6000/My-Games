@@ -777,6 +777,9 @@ function gameLoop(timestamp) {
     let dt = timestamp - lastTime;
     lastTime = timestamp;
 
+    gcPartyTick();
+    if (!gameRunning) return;      // the session's round clock ran out
+
     // THE ELEVATOR RIDE owns the frame while it runs: the world is frozen and
     // only the ride (and the ghosts, so the room still sees you) advance. See
     // gc-elevator.js.

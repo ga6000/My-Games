@@ -956,5 +956,11 @@ Update this section when any part of the guide actually lands.
   not; free play is an open-ended session; `HUBSCORE.hud()` gives Space Tracer and 4D Pong a
   `1UP / HI-SCORE` strip. `AESTHETIC_GUIDE.md` §6.0's "change the skin, not the layout" is
   superseded, dated, on Ry's instruction.
+- **That evening** (`HUB_1_0_PLAN.md` Phase 7c): the hub is an overworld. Splash (The Tide),
+  STORY or FREE PLAY, character select with the room visible, the crew drawn for the first time
+  (`shared/crew.js`) and standing on the board as tokens that walk to the next game, a chapter
+  card, a podium. Free play no longer chains games. Glass City, RD Arena (new score, 3:00 from
+  the hub) and Scuba Shooter report to a session. EIEI Aliens is a dark tile in ACT I; the Space
+  Tracer tile reads TAKEOFF. Hub text was cut back on Ry's "less hand-holding".
 
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

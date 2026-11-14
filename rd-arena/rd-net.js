@@ -171,7 +171,8 @@ MP.connect({
             const list = msg.l || [];
             for (let i = 0; i < list.length; i++) {
                 const en = enemyByNetId(list[i][0]);
-                if (en) en.hit(list[i][1], list[i][2]);
+                // A guest's hit is the guest's score, not the host's.
+                if (en) { rdRemoteHit = true; en.hit(list[i][1], list[i][2]); rdRemoteHit = false; }
             }
             return;
         }

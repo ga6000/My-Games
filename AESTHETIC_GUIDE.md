@@ -1068,4 +1068,19 @@ this is precisely the kind of cross-cutting root-level plan the 2026-09-02 audit
 - **Whether every game should convert at all.** Desert Robot Blaster and Wasteland Train Sim are
   Unity candidates; spending a session restyling them may be wasted.
 
+
+### The crew, drawn (2026-11-13)
+
+`shared/crew.js` is the first drawn version of the six crew: Maren (medic), Elodie (engineer),
+Soren (scout), Greer (gunner), Bex (butcher), Booke (bulwark), each a 16 x 20 pixel figure in
+flat fills, told apart by silhouette before colour (coat and satchel, hard hat and wrench, hood
+and cape, bandana and long gun, apron and cleaver, helmet and shield). `CREW.draw()` gives an
+idle breath and a two-frame walk. Identity colour is never painted into the figure; the hub
+underlines the token with it. The hub is the only user so far: games still draw players as
+squares, and adopting the figures game by game is open work.
+
+**Hub text says less (Ry, 2026-11-13).** A label names the thing; it does not explain it. No
+instructions in the bottom bar beyond a few words, no rules on the mode cards, no specifics on
+the character cards. People learn by playing.
+
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

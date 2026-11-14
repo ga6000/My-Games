@@ -735,4 +735,14 @@ where `total: 0` is an open-ended free-play session and `games` lists the ids th
 score (a launch of any other game is not a round); `session-finish` (hub only) ends an
 open-ended session and names the winner from the standings as they are.
 
+
+**Party messages, added 2026-11-13 (evening): the crew.** `session-role {role}` (hub only) takes
+one of medic, engineer, scout, gunner, butcher, bulwark for the sender; refused while someone
+else holds it and a free one remains. Each `standings` row carries `role` (null until picked).
+The session carries `launched` (a game has been launched; from then on anyone without a role is
+dealt a free one, late joiners included) and `at` (the game the party last set out for, which is
+the tile it stands on). `launch` carries `delayMs: 0` when the hub room holds one player. A
+round's clock starts `delayMs + 3400` ms after the launch, to allow for the walk and the chapter
+card. `session-finish` is no longer sent by the hub (free play does not chain).
+
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

@@ -493,6 +493,8 @@ function showMessage(title, desc, isGameOver = false) {
         // (A race finish stopped being an ending 2026-09-20; see gc-net.js.)
         gcTelemetryEndRun(title);
         submitRunToLeaderboard();
+        // Opened from the hub: its card takes the screen from here (gc-party.js).
+        gcPartyEnd(false);
     }
 }
 

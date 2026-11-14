@@ -114,17 +114,20 @@ pageDots.addEventListener("click", (e) => {
 // The whole hub can be driven from the keyboard, like a cabinet's select
 // screen: the first screen and the readouts (partyKey), then the board.
 document.addEventListener("keydown", (e) => {
+    if (splashUp) { splashDismiss(); e.preventDefault(); return; }
     if (!identityOverlay.hidden) return;
+    if (crewWalking || (chapterCard && !chapterCard.hidden)) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", " "];
     if (!keys.includes(e.key)) return;
     // A focused button keeps its own Enter and Space.
     const onButton = e.target && e.target.closest && e.target.closest("button, a, input");
-    if (onButton && (e.key === "Enter" || e.key === " ") && !partyModeScreenUp()) return;
+    if (onButton && (e.key === "Enter" || e.key === " ") && !partyModeScreenUp() && !crewScreenUp()) return;
 
     if (partyKey(e)) { e.preventDefault(); return; }
     e.preventDefault();
 
+    if (e.key.indexOf("Arrow") === 0) hubSoundMove();
     if (e.key === "ArrowLeft") cursorMove(-1, 0);
     else if (e.key === "ArrowRight") cursorMove(1, 0);
     else if (e.key === "ArrowUp") cursorMove(0, -1);
@@ -215,6 +218,7 @@ window.addEventListener("pageshow", (e) => {
     startHubAudio();
     startAttract();
     startArt();
+    startCrew();
 
     tickerEl.innerHTML = [
         "A CHARRED MASS FELL OUT OF THE SKY OVER THE PINES",
@@ -234,6 +238,6 @@ window.addEventListener("pageshow", (e) => {
         connectAndJoin(stored.name, stored.room);
     } else {
         identityOverlay.hidden = false;
-        identityNameInput.focus();
+        if (!splashUp) identityNameInput.focus();
     }
 })();

@@ -103,7 +103,7 @@
         var had = session;
         session = s || null;
         if (session && baseline < 0 && session.current) baseline = session.rounds.length;
-        if (!session && finished) { showGiveUp("THE PARTY WAS ENDED"); return; }
+        if (!session && finished) { showGiveUp("THE SESSION WAS ENDED"); return; }
         if (finished && session && baseline >= 0 && session.rounds.length > baseline && !resultShown) {
             showResult();
         } else if (finished && !resultShown) {
@@ -128,11 +128,34 @@
         });
     }
 
+    // This player's crew role for the session ("medic" ...), or "" outside
+    // one. The hub also passes it as ?role= so a game has it before the
+    // socket opens, and offline.
+    function role() {
+        var me = myName();
+        if (session && me) {
+            for (var i = 0; i < session.standings.length; i++) {
+                if (session.standings[i].name === me && session.standings[i].role) return session.standings[i].role;
+            }
+        }
+        try { return new URLSearchParams(global.location.search).get("role") || ""; }
+        catch (e) { return ""; }
+    }
+
+    // Anyone's role by name, from the session; "" when unknown.
+    function roleOf(name) {
+        if (!session) return "";
+        for (var i = 0; i < session.standings.length; i++) {
+            if (session.standings[i].name === name) return session.standings[i].role || "";
+        }
+        return "";
+    }
+
     function label() {
         if (!session || baseline < 0) return "";
         return session.mode === "story"
-            ? "STORY PARTY · GAME " + (baseline + 1) + " OF " + session.total
-            : "FREE PLAY · GAME " + (baseline + 1);
+            ? "STORY · GAME " + (baseline + 1) + " OF " + session.total
+            : "FREE PLAY";
     }
 
     function live(score) {
@@ -351,10 +374,33 @@
         } catch (e) { return "game"; }
     }
 
+    // FREE PLAY (Ry, 2026-11-13): "carries a per game score, but does not
+    // chain games". The round is still ranked by the server so friends see
+    // each other's scores, but there are no points and no standings.
+    function showFreeResult(round) {
+        var me = myName();
+        if (round.results.length < 2) { resultShown = false; showLocal(round.gameId); return; }
+        var rows = round.results.map(function (r, i) {
+            return "<tr class='pc-rev" + (r.name === me ? " me" : "") + "' style='--i:" + i + "'><td>" + ordinal(r.place) + "</td>" +
+                "<td><span class='pc-dot' style='background:" + esc(r.color) + "'></span>" + esc(r.name) + "</td>" +
+                "<td class='n'>" + fmt(r.score) + "</td></tr>";
+        }).join("");
+        ensureCard().innerHTML =
+            "<div class='pc-box'><div class='pc-kick'>FREE PLAY</div>" +
+            "<h2>" + (round.cleared ? "CLEARED" : "ROUND OVER") + "</h2>" +
+            "<table><tr><th></th><th>PLAYER</th><th class='n'>SCORE</th></tr>" + rows + "</table>" +
+            "<div class='pc-row'>" + hubButton("GAME SELECT <span id='partyCount'>" + RETURN_AFTER_S + "</span>") + "</div>" +
+            "</div>";
+        wireButton();
+        if (global.HUBSCORE && HUBSCORE.best && sentFinal) HUBSCORE.best(round.gameId, sentFinal.score);
+        countdownToHub(RETURN_AFTER_S);
+    }
+
     function showResult() {
         resultShown = true;
         var round = session.rounds[baseline];
         var me = myName();
+        if (session.mode !== "story") { showFreeResult(round); return; }
         var rows = round.results.map(function (r, i) {
             return "<tr class='pc-rev" + (r.name === me ? " me" : "") + "' style='--i:" + i + "'><td>" + ordinal(r.place) + "</td>" +
                 "<td><span class='pc-dot' style='background:" + esc(r.color) + "'></span>" + esc(r.name) + "</td>" +
@@ -371,10 +417,10 @@
         var n = baseline + 1;
         var head = session.done ? "FINAL GAME" : "GAME " + n + (session.total ? " OF " + session.total : "");
         ensureCard().innerHTML =
-            "<div class='pc-box'><div class='pc-kick'>" + (session.mode === "story" ? "STORY PARTY" : "FREE PLAY") + "</div>" +
+            "<div class='pc-box'><div class='pc-kick'>STORY</div>" +
             "<h2>" + head + "</h2>" +
-            "<div class='pc-sub'>" + (round.cleared ? "CLEARED TOGETHER · +" + session.clearBonus + " EACH" : "PLACEMENT POINTS 10 / 7 / 5 / 3") + "</div>" +
-            "<table><tr><th></th><th>PLAYER</th><th class='n'>SCORE</th><th class='n'>PARTY</th></tr>" + rows + "</table>" +
+            (round.cleared ? "<div class='pc-sub'>CLEARED TOGETHER · +" + session.clearBonus + " EACH</div>" : "") +
+            "<table><tr><th></th><th>PLAYER</th><th class='n'>SCORE</th><th class='n'>POINTS</th></tr>" + rows + "</table>" +
             "<table><tr><th></th><th>STANDINGS</th><th class='n'></th></tr>" + stand + "</table>" +
             "<div class='pc-row'>" + hubButton((session.done ? "SEE THE WINNER" : "GAME SELECT") + " <span id='partyCount'>" + RETURN_AFTER_S + "</span>") + "</div>" +
             "</div>";
@@ -405,6 +451,8 @@
         finished: function () { return finished; },
         session: function () { return session; },
         label: label,
+        role: role,
+        roleOf: roleOf,
         fromHub: fromHub,
         wanted: wanted,
         live: live,
