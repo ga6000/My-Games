@@ -9,7 +9,7 @@ launched, and crews lead wings of expendable ships against the creature hives.
 
 ## Where things are
 
-- **New game code is prefixed `gf`/`GF`** and lives in `gf-*.js`. Pass 1 has one file,
+- **New game code is prefixed `gf`/`GF`** and lives in `gf-*.js`.:
   `gf-crabs.js` (creatures), `gf-flight.js` (controls), `gf-view.js` (backdrop, camera, readability). `gf-crabs.js` holds the hive, pods, aircrabs, airkrill, the Bellwether, the breath rule, tendril grabs,
   hull, the nav targets and the HUD line.
 - **The engine is Gyro Lab's, unchanged where possible, and keeps its `gl`/`GL` names**: ship
