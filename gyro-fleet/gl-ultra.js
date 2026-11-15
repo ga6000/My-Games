@@ -213,7 +213,10 @@ function glUltraFrame(dt, paused) {
     // climbs), held at W in the drive, eased back to 1 after.
     // (Gyro Fleet: the spool only hints at the warp, a quarter of full; a
     // screen of full-length streaks before you had moved read as noise.)
-    if (state === "charging") glUltraWarp = 1 + ((gj ? W * 0.25 : W) - 1) * f * f;
+    // (Gyro Fleet: no streaks at all while the jump spools. You can still
+    // swing the aim then, and a sky of streaks swinging with it read as the
+    // world tilting. They start at launch, along the locked heading.)
+    if (state === "charging") glUltraWarp = gj ? 1 : 1 + (W - 1) * f * f;
     else if (state === "active") glUltraWarp = W;
     else if (glUltraWarp > 1) {
         glUltraWarp = 1 + (glUltraWarp - 1) * Math.exp(-dt * 2.5);

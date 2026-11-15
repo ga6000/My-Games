@@ -30,7 +30,10 @@ function glResize() {
     glH = glCanvas.height = window.innerHeight;
     glBuffer.width = glW;
     glBuffer.height = glH;
-    glCX = glW / 2;
+    // Gyro Fleet (2026-11-15): the view is centred in what the game sidebar
+    // (220 px, gf-wing.js GF_SIDE_W) leaves, so the ship sits mid-view and
+    // nothing is fought underneath the sidebar.
+    glCX = (glW - 220) / 2;
     glCY = glH / 2;
 }
 

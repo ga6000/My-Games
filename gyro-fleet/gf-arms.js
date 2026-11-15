@@ -141,7 +141,10 @@ function gfDrawArmsWorld(c, z) {
         if (b.gf !== "bolt") continue;
         const p = glWorldToScreenRaw(b.x, b.y);
         if (p.x < -30 || p.y < -30 || p.x > glW + 30 || p.y > glH + 30) continue;
-        const rvx = b.vx - gfViewCamV.x, rvy = b.vy - gfViewCamV.y;
+        // Along the bolt's own motion in the WORLD. It used to be relative to
+        // the camera, so turning the ship swung every bolt's streak, and a slow
+        // ricochet seemed to slide sideways in space (Ry, 2026-11-15).
+        const rvx = b.vx, rvy = b.vy;
         const rl = Math.hypot(rvx, rvy) || 1, L = b.gfBounced ? 26 : 20;
         const tx = p.x - rvx / rl * L, ty = p.y - rvy / rl * L;
         const fade = Math.min(1, b.life / 20);

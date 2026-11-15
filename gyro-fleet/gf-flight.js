@@ -88,7 +88,11 @@ function gfFlightReset() {
 
 function gfFightCentres() {
     const out = [];
-    if (gfHive) out.push({ x: gfHive.x, y: gfHive.y, r: gfHive.r, name: "THE TIDE", key: "TIDE" });
+    // Every site still held stops a jump at its edge; a freed one you fly through.
+    for (let i = 0; i < gfSites.length; i++) {
+        const st = gfSites[i];
+        if (!st.cleared) out.push({ x: st.x, y: st.y, r: st.r, name: st.name, key: st });
+    }
     return out;
 }
 
@@ -286,7 +290,7 @@ function gfFlightOverlay(c) {
         c.font = "18px 'VT323', monospace";
         c.textAlign = "center";
         c.fillStyle = col;
-        c.fillText(label, glW / 2, glH / 2 + 70);
+        c.fillText(label, glCX, glH / 2 + 70);
     }
     c.restore();
 }

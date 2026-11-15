@@ -484,7 +484,7 @@ function glDrawNav(c) {
     for (let i = 0; i < targets.length; i++) {
         const t = targets[i], p = glWorldToScreenRaw(t.x, t.y);
         const dx = p.x - glCX, dy = p.y - glCY, m = 44;
-        const kx = dx !== 0 ? ((dx > 0 ? glCX - GF_SIDE_W : glCX) - m) / Math.abs(dx) : Infinity;   // stop short of the game sidebar
+        const kx = dx !== 0 ? (glCX - m) / Math.abs(dx) : Infinity;
         const ky = dy !== 0 ? (glCY - m) / Math.abs(dy) : Infinity;
         const k = Math.min(kx, ky);
         if (k >= 1) continue;   // it is on screen; its own label says what it is

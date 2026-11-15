@@ -232,6 +232,11 @@ function gfDrawCreature(c, cr, z) {
             c.beginPath(); c.moveTo(vx + Math.cos(a) * r0, Math.sin(a) * r0); c.lineTo(vx + Math.cos(a) * r1, Math.sin(a) * r1); c.stroke();
         }
     }
+    // Winded (its Bellwether died clean): a slack green ring, free to hit.
+    if (cr.winded > 0) {
+        c.strokeStyle = "rgba(125,255,156,0.7)"; c.lineWidth = 1.5; c.setLineDash([3, 4]);
+        c.beginPath(); c.arc(0, 0, R * 1.25, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
+    }
     // Frenzied by a rupture: burning eyes at the mouth.
     if (cr.frenzy > 0) {
         c.fillStyle = "#FFEE66";
@@ -273,6 +278,11 @@ function gfDrawBlasts(c, z) {
     for (let i = 0; i < gfBlasts.length; i++) {
         const b = gfBlasts[i], p = glWorldToScreenRaw(b.x, b.y), k = b.t / 0.6, R = b.r * z;
         if (!gfOnScreen(p, R + 20)) continue;
+        if (b.soft) {   // a Bellwether died clean: the ring of everything it winded
+            c.strokeStyle = "rgba(125,255,156," + (0.8 * (1 - k)).toFixed(3) + ")"; c.lineWidth = 2;
+            c.beginPath(); c.arc(p.x, p.y, R * Math.min(1, k * 2.5), 0, Math.PI * 2); c.stroke();
+            continue;
+        }
         const rr = R * Math.min(1, k * 3.5);
         const g = c.createRadialGradient(p.x, p.y, rr * 0.2, p.x, p.y, Math.max(1, rr));
         g.addColorStop(0, "rgba(255,250,220," + (0.8 * (1 - k)).toFixed(3) + ")");
@@ -299,12 +309,63 @@ function gfBuildTideVeins() {
     return out;
 }
 
-function gfDrawTide(c, z) {
-    const p = glWorldToScreen(gfHive.x, gfHive.y);
+// A captured human satellite, drawn under the flesh that has grown over it:
+// a truss spine, two solar wings and a dish. Dark while it is held; its
+// running lights come back on when it is freed.
+function gfDrawSatellite(c, z, st) {
+    const p = glWorldToScreen(st.x, st.y);
     if (p.h) return;
-    const R = Math.max(10, gfHive.r * z);
+    const R = st.r0 * z;
+    if (!gfOnScreen(p, R * 3.2)) return;
+    const live = st.cleared, line = live ? "#7DF9FF" : "rgba(125,249,255,0.35)";
+    c.save();
+    c.translate(p.x, p.y);
+    c.rotate(st.kind === "relay" ? 0.5 : -0.9);
+    c.strokeStyle = line; c.lineWidth = 1.4; c.fillStyle = live ? "#0E2A33" : "#0A161B";
+    // Truss.
+    c.fillRect(-R * 2.7, -R * 0.09, R * 5.4, R * 0.18); c.strokeRect(-R * 2.7, -R * 0.09, R * 5.4, R * 0.18);
+    c.beginPath();
+    for (let i = -13; i < 13; i++) { c.moveTo(i * R * 0.2, -R * 0.09); c.lineTo((i + 1) * R * 0.2, R * 0.09); }
+    c.stroke();
+    // Solar wings, cells drawn in.
+    for (let s = -1; s <= 1; s += 2) {
+        const x0 = s > 0 ? R * 1.25 : -R * 2.65, w = R * 1.4;
+        c.fillStyle = live ? "rgba(18,58,90,0.55)" : "rgba(10,26,40,0.5)";
+        c.fillRect(x0, -R * 0.38, w, R * 0.76); c.strokeRect(x0, -R * 0.38, w, R * 0.76);
+        c.beginPath();
+        for (let i = 1; i < 6; i++) { c.moveTo(x0 + w * i / 6, -R * 0.38); c.lineTo(x0 + w * i / 6, R * 0.38); }
+        c.moveTo(x0, 0); c.lineTo(x0 + w, 0);
+        c.stroke();
+    }
+    if (st.kind === "relay") {
+        // The dish.
+        c.fillStyle = live ? "#16424F" : "#0B1E26";
+        c.beginPath(); c.arc(0, -R * 1.25, R * 0.6, Math.PI * 0.1, Math.PI * 0.9); c.closePath(); c.fill(); c.stroke();
+        c.beginPath(); c.moveTo(0, -R * 0.7); c.lineTo(0, -R * 1.8); c.stroke();
+    } else {
+        // The drydock's cradle arms.
+        c.beginPath();
+        for (let s = -1; s <= 1; s += 2) { c.moveTo(s * R * 0.5, 0); c.lineTo(s * R * 0.9, -R * 1.5); c.lineTo(s * R * 0.4, -R * 1.7); }
+        c.stroke();
+    }
+    if (live) {
+        for (let i = -5; i <= 5; i++) {
+            c.fillStyle = (Math.floor(gfTime * 4) + i + 50) % 4 === 0 ? "#FFFFFF" : "#7DFF9C";
+            c.fillRect(i * R * 0.5 - 1.5, -R * 0.2, 3, 3);
+        }
+    }
+    c.restore();
+}
+
+function gfDrawSite(c, z, st) {
+    if (st.kind !== "tide") gfDrawSatellite(c, z, st);
+    const p = glWorldToScreen(st.x, st.y);
+    if (p.h) return;
+    const R = Math.max(10, st.r * z);
     if (!gfOnScreen(p, R * 1.2 + 40)) return;
-    const dead = gfHive.dead, t = gfTime;
+    const dead = st.dead, t = gfTime;
+    // A freed satellite sheds most of its growth: what is left hangs thin.
+    if (st.cleared) c.globalAlpha = 0.45;
     c.save();
     c.translate(p.x, p.y);
     // Small on screen (seen from far off): a simple breathing mass.
@@ -362,17 +423,19 @@ function gfDrawTide(c, z) {
         }
     }
     c.restore();
-    for (let i = 0; i < gfOrifices.length; i++) gfDrawOrifice(c, gfOrifices[i], z);
+    c.globalAlpha = 1;
+    for (let i = 0; i < st.orifices.length; i++) gfDrawOrifice(c, st.orifices[i], z);
 }
 
 function gfDrawOrifice(c, o, z) {
     const w = gfOrificePos(o), p = glWorldToScreen(w.x, w.y);
     if (p.h) return;
-    const R = Math.max(4, GF.oriR * z);
+    const R = Math.max(4, o.site.oriR * z);
     if (!gfOnScreen(p, R * 3)) return;
     // 0 shut .. 1 gaping.
     let open = 0, swell = 0;
-    if (o.state === "swell") swell = 1 - o.t / GF.oriSwell;
+    if (o.clamped) { swell = 0; open = 0; }
+    else if (o.state === "swell") swell = 1 - o.t / GF.oriSwell;
     else if (o.state === "open") { swell = 1; open = Math.min(1, (GF.oriOpen - o.t) * 2, o.t * 2); }
     const t = gfTime;
     c.save();
@@ -417,6 +480,18 @@ function gfDrawOrifice(c, o, z) {
         c.lineTo(Math.cos(a) * tip, Math.sin(a) * tip * 1.15);
         c.lineTo(Math.cos(a + 0.13) * hole, Math.sin(a + 0.13) * hole * 1.15);
         c.closePath(); c.fill();
+    }
+    // Clamped (a satellite is still held): bone bars locked across the mouth.
+    if (o.clamped) {
+        c.strokeStyle = "#E8D8C0"; c.lineCap = "round";
+        for (let i = -2; i <= 2; i++) {
+            c.lineWidth = Math.max(2, R * 0.14);
+            c.beginPath(); c.moveTo(R * 0.25, i * R * 0.42 - R * 0.9 * 0); c.moveTo(-R * 0.1 + Math.abs(i) * R * 0.05, i * R * 0.45);
+            c.lineTo(R * 0.35, i * R * 0.45); c.stroke();
+        }
+        c.lineWidth = Math.max(2, R * 0.16);
+        c.beginPath(); c.moveTo(R * 0.3, -R * 1.25); c.lineTo(R * 0.3, R * 1.25); c.stroke();
+        c.beginPath(); c.moveTo(-R * 0.05, -R * 1.15); c.lineTo(-R * 0.05, R * 1.15); c.stroke();
     }
     // Slime ropes while it is birthing.
     if (open > 0) {
