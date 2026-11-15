@@ -24,8 +24,8 @@
 "use strict";
 
 const GF_ARMS = {
-    blaster: { rate: 8, speed: 1.0, life: 95, jitter: 0.035, barrel: 4, col: "#FFB000", core: "#FFF6D8" },
-    seeker:  { charges: 3, recharge: 5, speed0: 0.5, speedMax: 1.2, accel: 0.025, turn: 0.09, life: 260, dmg: 3,
+    blaster: { rate: 8, speed: 3.4, life: 34, jitter: 0.03, barrel: 4, col: "#FFB000", core: "#FFF6D8" },
+    seeker:  { charges: 3, recharge: 5, speed0: 1.2, speedMax: 2.6, accel: 0.06, turn: 0.11, life: 150, dmg: 3,
                lockR: 320, col: "#FF5BD1" }
 };
 
@@ -66,7 +66,7 @@ function gfSeekerTarget() {
 }
 function gfFireSeeker() {
     const s = glShip;
-    if (!s.isAlive || gfFlight.jump === "burst" || gfSeekerCharges < 1) return;
+    if (!s.isAlive || gfFlight.jump === "burst" || gfSeekerCharges < 1 || gfRoundOver()) return;
     const W = GF_ARMS.seeker, a = gfAimAngle();
     gfSeekerCharges--;
     gfMissiles.push({ x: s.x, y: s.y, vx: s.vx + Math.cos(a) * W.speed0, vy: s.vy + Math.sin(a) * W.speed0,
@@ -109,10 +109,13 @@ function gfArmsUpdate(dt) {
         let hit = null;
         for (let j = 0; j < gfCreatures.length; j++) {
             const c = gfCreatures[j];
-            if (Math.hypot(c.x - m.x, c.y - m.y) < c.b.r + 0.6) { hit = c; break; }
+            if (c.hp > 0 && Math.hypot(c.x - m.x, c.y - m.y) < c.b.r + 1.4) { hit = c; break; }
         }
         if (hit) {
-            hit.hp -= W.dmg; hit.flash = 0.25;
+            // Burrows through armour: an inflated body ruptures on the spot.
+            if (hit.b.armour && GF_KINDS[hit.kind].blast) gfPressure(hit, GF_KINDS[hit.kind].press);
+            else hit.hp -= W.dmg;
+            hit.flash = 0.25;
             if (hit.grabbing) { hit.grabbing.gfGrab = null; hit.grabbing = null; hit.tendrilCd = 3; }
             glSpawnBurst(m.x, m.y, 16, W.col);
             gfFx.push({ x: m.x, y: m.y, t: 0.35, col: W.col, r: 26 });
@@ -139,12 +142,12 @@ function gfDrawArmsWorld(c, z) {
         const p = glWorldToScreenRaw(b.x, b.y);
         if (p.x < -30 || p.y < -30 || p.x > glW + 30 || p.y > glH + 30) continue;
         const rvx = b.vx - gfViewCamV.x, rvy = b.vy - gfViewCamV.y;
-        const rl = Math.hypot(rvx, rvy) || 1, L = b.gfBounced ? 5 : 11;
+        const rl = Math.hypot(rvx, rvy) || 1, L = b.gfBounced ? 8 : 20;
         const tx = p.x - rvx / rl * L, ty = p.y - rvy / rl * L;
         const fade = Math.min(1, b.life / 20);
-        c.globalAlpha = 0.35 * fade; c.strokeStyle = b.gfBounced ? "#8FA3A8" : W.col; c.lineWidth = 5;
+        c.globalAlpha = 0.35 * fade; c.strokeStyle = b.gfBounced ? "#FF5A3C" : (b.bot ? "#7DF9FF" : W.col); c.lineWidth = 5;
         c.beginPath(); c.moveTo(tx, ty); c.lineTo(p.x, p.y); c.stroke();
-        c.globalAlpha = fade; c.strokeStyle = b.gfBounced ? "#cfe9e6" : W.core; c.lineWidth = 1.6;
+        c.globalAlpha = fade; c.strokeStyle = b.gfBounced ? "#FFD0B0" : W.core; c.lineWidth = 1.6;
         c.beginPath(); c.moveTo(tx, ty); c.lineTo(p.x, p.y); c.stroke();
     }
     c.globalAlpha = 1;
@@ -175,9 +178,18 @@ function gfDrawArmsWorld(c, z) {
 
 // ---- drawing: the flown ship, turret and seeker HUD (from gfFlightOverlay) ----
 function gfDrawShip(c, s, p) {
-    const L = Math.max(13, s.size * glCamera.zoom * 1.2);   // half-length in px
+    const L = Math.max(15, s.size * glCamera.zoom * 1.7);   // half-length in px
     const k = L / 13;
     const sp = Math.hypot(s.vx, s.vy) / s.baseSpeed;          // in cruise units
+    // Ultradrive cues under the hull while the jump spools or burns (gl-ultra.js
+    // draws them in a ship-local frame in world units; fake a ship that size).
+    const cue = gfUltraCue();
+    if (cue) {
+        const z = glCamera.zoom, fake = { size: L / z, ultraState: cue.state, ultraCharge: cue.f * GLP.v.ultraChargeTime };
+        c.save(); c.translate(p.x, p.y); c.scale(z, z); c.rotate(s.angle);
+        glDrawUltraShip(c, fake);
+        c.restore();
+    }
     c.save();
     c.translate(p.x, p.y);
     c.rotate(s.angle);

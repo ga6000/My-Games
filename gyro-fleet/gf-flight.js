@@ -22,15 +22,15 @@
 "use strict";
 
 const GF_FLIGHT = {
-    moveMul: 3.5,       // WASD speed, x cruise (35 u/s; airkrill 19, aircrab dash 15)
-    boostMul: 7,        // Space held (70 u/s)
-    slide: 0.085,       // velocity ease per frame: lower = more slide (~0.2 s settle; 0.035 felt floaty)
+    moveMul: 6.2,       // WASD speed, x cruise (62 u/s; airkrill dive 24, aircrab dart 21: ~3x)
+    boostMul: 10.5,     // Space held (105 u/s)
+    slide: 0.13,       // velocity ease per frame: lower = more slide (~0.2 s settle; 0.035 felt floaty)
     turn: 0.35,         // hull turn toward the WASD direction per frame
     spoolDelay: 0.35,   // seconds of boost before a jump spool shows (out of combat)
-    spoolTime: 1.6,     // spool after that
+    spoolTime: 2.0,     // spool after that: the ultradrive lock-on (infinity glyph, rising hum, ticks)
     burstMul: 1000,     // jump speed (10,000 u/s: home to hive in ~3 s)
-    brakeR: 1200,       // drop out this far outside a fight; pods hunt from 900
-    combatR: 1000,      // a creature this close = in combat: Space only boosts
+    brakeR: 330,        // drop out this far outside The Tide; its brood hunts from 520 of itself
+    combatR: 600,      // a creature this close = in combat: Space only boosts
     dropFlash: 1.2      // seconds the DROP OUT cue shows
 };
 
@@ -47,7 +47,38 @@ const gfFlight = {
 
 const GF_MOVE_KEYS = { KeyW: "up", KeyS: "down", KeyA: "left", KeyD: "right" };
 
+// ---- ultradrive cues (2026-11-15) ----
+// Ry: "I like the sound of locking on & jumping animation from ultradrive now
+// that it's been lost... I'd like to bring it back even if spool time is 2s".
+// The jump keeps its own rules (hand-aimed, no turning, auto-brake); it borrows
+// gl-ultra.js's look and sound: the infinity glyph and rising hum while it
+// spools, a tick every half second, the launch boom, the blue beam, warp
+// streaks, the rumble, and the whoosh on drop-out.
+function gfUltraCue() {
+    if (gfFlight.jump === "spool") return { state: "charging", f: Math.min(1, gfFlight.spoolT / GF_FLIGHT.spoolTime) };
+    if (gfFlight.jump === "burst") return { state: "active", f: 1 };
+    return null;
+}
+function gfSpoolCancel() {
+    gfFlight.jump = "idle"; gfFlight.spoolT = 0;
+    glUltraSfxChargeStop();
+}
+function gfJumpLaunchFx(s) {
+    glUltraSpawnDust(s.x, s.y, s.size);
+    glUltraFlash.x = s.x; glUltraFlash.y = s.y; glUltraFlash.t = 0;
+    glUltraBeam.pts.length = 0;
+    glUltraBeam.pts.push(s.x, s.y);
+    glUltraBeam.alpha = 1;
+    glUltraShakeKick = 1;
+    glUltraSfxChargeStop();
+    glUltraSfxLaunch();
+    glUltraSfxRumble(true);
+    gfWingJumpOut();   // gf-wing.js: the wing lights its drives too
+}
+
 function gfFlightReset() {
+    glUltraSfxChargeStop();
+    if (gfFlight.jump === "burst") { glUltraSfxRumble(false); gfWingJumpIn(gfFlight.heading); }
     gfFlight.keys.up = gfFlight.keys.down = gfFlight.keys.left = gfFlight.keys.right = false;
     gfFlight.firing = false;
     gfFlight.space = false; gfFlight.spaceT = 0;
@@ -57,11 +88,7 @@ function gfFlightReset() {
 
 function gfFightCentres() {
     const out = [];
-    if (gfHive) out.push({ x: gfHive.x, y: gfHive.y, r: gfHive.r, name: "HIVE", key: "HIVE" });
-    for (let i = 0; i < gfPods.length; i++) {
-        const lead = gfPods[i].bell || gfPods[i].members[0];
-        if (lead) out.push({ x: lead.x, y: lead.y, r: 0, name: "POD", key: gfPods[i] });
-    }
+    if (gfHive) out.push({ x: gfHive.x, y: gfHive.y, r: gfHive.r, name: "THE TIDE", key: "TIDE" });
     return out;
 }
 
@@ -94,7 +121,7 @@ function gfSpaceSet(down) {
     if (down && !gfFlight.space) { gfFlight.space = true; gfFlight.spaceT = 0; }
     else if (!down && gfFlight.space) {
         gfFlight.space = false;
-        if (gfFlight.jump === "spool") { gfFlight.jump = "idle"; gfFlight.spoolT = 0; }
+        if (gfFlight.jump === "spool") gfSpoolCancel();
         else if (gfFlight.jump === "burst") gfDropOut("DROP OUT", null);
     }
     gfFlightMirrorGear();
@@ -103,12 +130,18 @@ function gfFireSet(on) { gfFlight.firing = on; if (on) gfFlight.fireCd = 0; }
 
 function gfFire() {
     const s = glShip;
-    if (!s.isAlive || gfFlight.jump === "burst") return;
+    if (!s.isAlive || gfFlight.jump === "burst" || gfRoundOver()) return;
     gfFireBlaster(s);   // gf-arms.js
 }
 
 function gfDropOut(msg, fight) {
     const s = glShip;
+    if (gfFlight.jump === "burst") {
+        glUltraShakeKick = Math.max(glUltraShakeKick, 0.5);
+        glUltraSfxRumble(false);
+        glUltraSfxExit();
+        gfWingJumpIn(gfFlight.heading);   // gf-wing.js: the wing drops out behind you, one by one
+    }
     gfFlight.jump = "idle";
     gfFlight.spoolT = 0;
     gfFlight.spaceT = 0;
@@ -150,16 +183,21 @@ function gfFlightSpeedMul(s, dt) {
     // Boost held out of combat grows into a jump spool.
     if (gfFlight.space && gfFlight.jump === "idle") {
         gfFlight.spaceT += dt;
-        if (!gfFlight.inCombat && gfFlight.spaceT >= GF_FLIGHT.spoolDelay) { gfFlight.jump = "spool"; gfFlight.spoolT = 0; }
+        if (!gfFlight.inCombat && gfFlight.spaceT >= GF_FLIGHT.spoolDelay) { gfFlight.jump = "spool"; gfFlight.spoolT = 0; glUltraSfxChargeStart(); }
     }
     if (gfFlight.jump === "spool") {
-        if (gfFlight.inCombat) { gfFlight.jump = "idle"; gfFlight.spoolT = 0; gfFlight.spaceT = 0; }
+        if (gfFlight.inCombat) { gfSpoolCancel(); gfFlight.spaceT = 0; }
         else {
+            const prevT = gfFlight.spoolT;
             gfFlight.spoolT += dt;
+            // Lock-on ticks: one each half second, the last one higher.
+            if (Math.floor(prevT * 2) !== Math.floor(gfFlight.spoolT * 2) && gfFlight.spoolT < GF_FLIGHT.spoolTime)
+                glUltraSfxTick(GF_FLIGHT.spoolTime - gfFlight.spoolT <= 0.55);
             if (gfFlight.spoolT >= GF_FLIGHT.spoolTime) {
                 gfFlight.jump = "burst";
                 gfFlight.heading = gfAimAngle();   // along the aim line, wherever the hull had got to
                 s.angle = gfFlight.heading;
+                gfJumpLaunchFx(s);
                 gfFlight.ignore = gfFightCentres().filter(function (f) {
                     return Math.hypot(f.x - s.x, f.y - s.y) < GF_FLIGHT.brakeR + f.r + 300;
                 }).map(function (f) { return f.key; });
@@ -169,6 +207,8 @@ function gfFlightSpeedMul(s, dt) {
     }
     if (gfFlight.jump === "burst") {
         const step = s.baseSpeed * GF_FLIGHT.burstMul * 1.5;
+        glUltraBeam.pts.push(s.x, s.y);
+        if (glUltraBeam.pts.length > GL_ULTRA_BEAM_PTS * 2) glUltraBeam.pts.splice(0, 2);
         const ux = Math.cos(gfFlight.heading), uy = Math.sin(gfFlight.heading);
         const fights = gfFightCentres();
         for (let i = 0; i < fights.length; i++) {

@@ -203,18 +203,22 @@ function glUltraSpawnDust(x, y, size) {
 function glUltraFrame(dt, paused) {
     glUltraClock += dt;
     const s = glShip, W = GLP.v.ultraWarpMax;
-    const f = s.ultraState === "charging" ? glUltraChargeF(s) : 0;
+    // Gyro Fleet (2026-11-15): the jump drive (gf-flight.js) wears the
+    // ultradrive's cues. Its spool is the charge, its burst is the drive.
+    const gj = gfUltraCue();
+    const state = gj ? gj.state : s.ultraState;
+    const f = gj ? gj.f : (s.ultraState === "charging" ? glUltraChargeF(s) : 0);
 
     // Warp: 1x → W over the charge (squared, so it starts subtle and then
     // climbs), held at W in the drive, eased back to 1 after.
-    if (s.ultraState === "charging") glUltraWarp = 1 + (W - 1) * f * f;
-    else if (s.ultraState === "active") glUltraWarp = W;
+    if (state === "charging") glUltraWarp = 1 + (W - 1) * f * f;
+    else if (state === "active") glUltraWarp = W;
     else if (glUltraWarp > 1) {
         glUltraWarp = 1 + (glUltraWarp - 1) * Math.exp(-dt * 2.5);
         if (glUltraWarp < 1.01) glUltraWarp = 1;
     }
 
-    if (s.ultraState === "active") glUltraBeam.alpha = 1;
+    if (state === "active") glUltraBeam.alpha = 1;
     else if (glUltraBeam.alpha > 0) {
         glUltraBeam.alpha -= dt / 2.5;
         if (glUltraBeam.alpha <= 0) { glUltraBeam.alpha = 0; glUltraBeam.pts.length = 0; }
@@ -229,8 +233,8 @@ function glUltraFrame(dt, paused) {
     if (A.ctx) {
         // (Pause/resume of the shared context is gl-audio.js's since 2026-09-12.)
         A.master.gain.setTargetAtTime(GLP.v.ultraVolume, A.ctx.currentTime, 0.05);
-        if (s.ultraState === "charging") glUltraSfxChargeLevel(f);
-        if (s.ultraState === "active") glUltraSfxRumbleLevel(glUltraRamp(s));
+        if (state === "charging") glUltraSfxChargeLevel(f);
+        if (state === "active") glUltraSfxRumbleLevel(gj ? 1 : glUltraRamp(s));
     }
 }
 
@@ -334,7 +338,7 @@ function glDrawUltraBeam(c) {
         for (let i = 0; i < P.length; i += 2) pts.push(glWorldToScreenRaw(P[i], P[i + 1]));
         // The newest point is pulled back to the ship's tail, so the beam leaves
         // FROM the ship instead of swallowing it.
-        if (glShip.ultraState === "active") {
+        if (glShip.ultraState === "active" || gfUltraCue()) {
             const tail = glShip.size * glCamera.zoom * 1.3 + 8, e = pts[pts.length - 1];
             pts[pts.length - 1] = { x: e.x - Math.cos(glShip.angle) * tail, y: e.y - Math.sin(glShip.angle) * tail };
         }

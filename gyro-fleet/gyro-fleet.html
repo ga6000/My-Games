@@ -113,16 +113,14 @@ select{
 
 <canvas id="glGame"></canvas>
 
-<div id="glHud"></div>
+<div id="glHud" style="display:none"></div>
 
-<div id="glKeys">
-    <b style="color:#FF7A9C">GYRO FLEET pass 1</b> &nbsp; Fly to the HIVE (arrow at the screen edge). Aircrabs are armoured when big: shots bounce. Hit the <b style="color:#FFE45C">glowing rear vent</b> while they breathe in, or hit them anywhere while they're small.<br>
-    <kbd>WASD</kbd> move &nbsp; <kbd>mouse</kbd> aim &nbsp; <kbd>hold click</kbd> fire &nbsp; <kbd>right click</kbd> seeker &nbsp; <kbd>space</kbd> boost (hold out of combat to jump) &nbsp;  <kbd>P</kbd> pause &nbsp; <kbd>H</kbd> panel<br>
-    <kbd>E</kbd> fleet: <kbd>F</kbd> spawn ship at cursor, <kbd>drag</kbd> select, <kbd>right-click</kbd> go here &nbsp; <kbd>Q</kbd> fly solo again &nbsp; <kbd>O</kbd> auto-orbit &nbsp; <kbd>C</kbd> free cam
-</div>
+<!-- (Flood pass 2026-11-15: the key list is in the game sidebar, gf-wing.js.) -->
 
 <!-- Panel markup is GENERATED from GL_PARAM_DEFS in gl-params.js -->
-<div id="glPanel"></div>
+<!-- Hidden in the game (Ry, 2026-11-15: "the side bar with parameters can be
+     removed"). Open the page with ?dev to get it and the engine HUD back. -->
+<div id="glPanel" class="hidden"></div>
 
 <!-- Classic scripts, one shared global scope, no modules (file:// constraint).
      Load order matters: params before anything that reads GLP, core before
@@ -142,6 +140,8 @@ select{
 <script src="gl-minimap.js"></script>
 <script src="gl-ui.js"></script>
 <script src="gf-crabs.js"></script>
+<script src="gf-flesh.js"></script>
+<script src="gf-wing.js"></script>
 <script src="gf-flight.js"></script>
 <script src="gf-view.js"></script>
 <script src="gf-arms.js"></script>
