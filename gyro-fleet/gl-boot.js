@@ -133,8 +133,8 @@ glCanvas.addEventListener("mousedown", function (e) {
             }
             glSyncPanelFromParams();
         } else {
-            // Q (Gyro Fleet): right mouse does nothing for now (the lab's
-            // trajectory lock is gone; wing orders may take it later).
+            // Q (Gyro Fleet): right click fires a seeker (gf-arms.js).
+            gfFireSeeker();
         }
         return;
     }
@@ -275,6 +275,9 @@ glSafeSpawn(glShip);
     GL_WORLD.minX = glShip.x - B; GL_WORLD.maxX = glShip.x + B;
     GL_WORLD.minY = glShip.y - B; GL_WORLD.maxY = glShip.y + B;
     GLP.v.hyperGearMax = 4;
+    // High Earth orbit (pass 3): Earth is a backdrop (gf-view.js), not a body
+    // to fall into or hit. Ships and bolts fly straight.
+    GLP.v.gravShip = false; GLP.v.gravBullet = false; GLP.v.bodiesSolid = false;
     // Start on the stick, not on auto-orbit round Earth: this is a game now.
     GLP.v.autoOrbit = false;
     glShip.autoOrbit = false;

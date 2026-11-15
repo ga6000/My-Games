@@ -163,6 +163,7 @@ function gfUpdate(dt) {
     if (!gfHive) return;
     gfTime += dt;
     gfHurtFlash = Math.max(0, gfHurtFlash - dt);
+    gfArmsUpdate(dt);   // gf-arms.js: seekers, recharge, impact rings
 
     // A fresh ship after a respawn gets a fresh hull.
     if (glShip.isAlive && !gfWasAlive) { gfHull = GF.hull; glShip.gfGrab = null; glShip.deathMsg = ""; }
@@ -398,6 +399,7 @@ function gfUpdateBulletHits() {
                 c.hp -= 1;
                 c.flash = 0.15;
                 glSpawnBurst(b.x, b.y, 6, "#FFE45C");
+                gfBoltImpact(b.x, b.y, true);
                 glBullets.splice(i, 1);
             } else {
                 gfBounce(b, c.x, c.y, c.b.r);
@@ -417,6 +419,7 @@ function gfBounce(b, cx, cy, r) {
     b.color = "#8FA3A8";
     b.life = Math.min(b.life, 40);
     glSpawnBurst(b.x, b.y, 3, "#cfe9e6");
+    gfBoltImpact(b.x, b.y, false);
 }
 
 // ---------------------------------------------------
@@ -447,26 +450,55 @@ function gfDrawWorld(c) {
 
     gfDrawViewWorld(c, z);   // gf-view.js: speed dust, creature trails, tendril reach
     for (let i = 0; i < gfCreatures.length; i++) gfDrawCreature(c, gfCreatures[i], z);
+    gfDrawArmsWorld(c, z);   // gf-arms.js: bolts, seekers, impact rings
 }
 
 function gfDrawHome(c, z) {
-    // Placeholder for the human mothership: a lattice ring. NOT to scale
-    // (the real one is 5 km; here it is drawn big enough to find).
+    // The human mothership (pass 3): a solid spine hull inside a lattice ring,
+    // hex launch bay glowing at its heart. NOT to scale (the real one is 5 km);
+    // drawn at least ~70 px so it reads as the place you launch from.
     const p = glWorldToScreen(gfHome.x, gfHome.y);
     if (p.h) return;
-    const R = Math.max(8, 9 * z);
-    if (!gfOnScreen(p, R + 10)) return;
-    c.strokeStyle = "rgba(125,249,255,0.55)";
-    c.lineWidth = 1.2;
-    c.beginPath(); c.arc(p.x, p.y, R, 0, Math.PI * 2); c.stroke();
-    c.beginPath(); c.arc(p.x, p.y, R * 0.6, 0, Math.PI * 2); c.stroke();
+    const R = Math.max(36, 22 * z);
+    if (!gfOnScreen(p, R * 1.6)) return;
+    c.save();
+    c.translate(p.x, p.y);
+    c.rotate(-0.35);
+    // Lattice ring: two rims and a slowly turning truss.
+    c.strokeStyle = "rgba(125,249,255,0.45)"; c.lineWidth = 1;
+    c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.arc(0, 0, R * 0.86, 0, Math.PI * 2); c.stroke();
     c.beginPath();
-    for (let i = 0; i < 6; i++) {
-        const a = i * Math.PI / 3 + gfTime * 0.1;
-        c.moveTo(p.x + Math.cos(a) * R * 0.6, p.y + Math.sin(a) * R * 0.6);
-        c.lineTo(p.x + Math.cos(a) * R, p.y + Math.sin(a) * R);
+    for (let i = 0; i < 36; i++) {
+        const a = i * Math.PI / 18 + gfTime * 0.05, b = a + Math.PI / 36;
+        c.moveTo(Math.cos(a) * R, Math.sin(a) * R); c.lineTo(Math.cos(b) * R * 0.86, Math.sin(b) * R * 0.86);
     }
     c.stroke();
+    // Spine hull: long solid body crossing the ring.
+    c.fillStyle = "#13262C"; c.strokeStyle = "#7DF9FF"; c.lineWidth = 1.4;
+    c.beginPath();
+    c.moveTo(R * 1.45, 0); c.lineTo(R * 1.1, R * 0.16); c.lineTo(-R * 1.1, R * 0.2); c.lineTo(-R * 1.35, R * 0.1);
+    c.lineTo(-R * 1.35, -R * 0.1); c.lineTo(-R * 1.1, -R * 0.2); c.lineTo(R * 1.1, -R * 0.16); c.closePath();
+    c.fill(); c.stroke();
+    // Spokes from hull to ring.
+    c.strokeStyle = "rgba(125,249,255,0.35)";
+    c.beginPath();
+    [0.5, -0.5, 2.6, -2.6].forEach(function (a) { c.moveTo(Math.cos(a) * R * 0.25, Math.sin(a) * R * 0.18); c.lineTo(Math.cos(a) * R * 0.86, Math.sin(a) * R * 0.86); });
+    c.stroke();
+    // Hex launch bay.
+    const hb = R * 0.22, pulse = 0.6 + 0.4 * Math.sin(gfTime * 3);
+    c.fillStyle = "rgba(125,249,255," + (0.25 * pulse).toFixed(3) + ")"; c.strokeStyle = "#C9FFE9";
+    c.beginPath();
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; if (i) c.lineTo(Math.cos(a) * hb, Math.sin(a) * hb); else c.moveTo(hb, 0); }
+    c.closePath(); c.fill(); c.stroke();
+    // Running lights along the spine.
+    for (let i = -4; i <= 4; i++) {
+        c.fillStyle = (Math.floor(gfTime * 4) + i) % 5 === 0 ? "#FFFFFF" : "rgba(255,176,0,0.6)";
+        c.fillRect(i * R * 0.25 - 1, -R * 0.19, 2, 2);
+    }
+    c.restore();
+    c.fillStyle = "rgba(125,249,255,0.7)"; c.font = "11px monospace"; c.textAlign = "center";
+    c.fillText("MOTHERSHIP", p.x, p.y + R * 1.25 + 12);
 }
 
 function gfBlob(c, x, y, R, face, wob, t) {

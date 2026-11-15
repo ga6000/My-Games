@@ -40,7 +40,7 @@ function glDrawWorld() {
         glDrawArena(c);
         glDrawSummaryStars(c);
         if (GLP.v.showChunks) glDrawChunkGrid(c);
-        glDrawBodies(c);
+        // (Gyro Fleet: Sol's real-scale bodies are hidden; Earth is a backdrop, gf-view.js.)
         if (GLP.v.showField) glDrawForceField(c);
         glDrawProbes(c);
         glDrawAsteroids(c);
@@ -196,6 +196,7 @@ function glDrawAsteroids(c) {
 
 function glDrawBullets(c) {
     for (const b of glBullets) {
+        if (b.gf) continue;   // Gyro Fleet draws its own bolts (gf-arms.js)
         const s = glWorldToScreen(b.x, b.y);
         if (s.h) continue;
         c.fillStyle = b.color;
@@ -232,6 +233,7 @@ function glDrawShips(c) {
     for (let i = 0; i < glShips.length; i++) {
         const s = glShips[i];
         if (!s.isAlive) continue;
+        if (s === glShip && glMode === "q") continue;   // Gyro Fleet draws the flown ship (gf-arms.js)
         const p = glWorldToScreenRaw(s.x, s.y);
         // The ultradrive ∞ reaches ~6 hull lengths behind the ship.
         const reach = s.size * z * (s.ultraState ? 14 : 8) + 4;
@@ -475,7 +477,7 @@ function glDrawNav(c) {
         const d = Math.hypot(b.x - s.x, b.y - s.y);
         if (d < bd) { bd = d; bp = b; }
     }
-    if (bp) targets.push({ x: bp.x, y: bp.y, r: bp.rs, name: bp.name, col: "#7DF9FF" });
+    // (Gyro Fleet: no nearest-planet arrow; the planets are hidden.)
     c.save();
     c.font = "11px monospace";
     for (let i = 0; i < targets.length; i++) {
@@ -622,7 +624,7 @@ function glDrawOverlay() {
         c.stroke();
     }
 
-    glDrawBodyLabels(c);
+    // (Gyro Fleet: no planet labels; the planets are hidden, Earth is a backdrop.)
     gfDrawOverlay(c);
     glDrawNav(c);
     glDrawTrajLock(c);
