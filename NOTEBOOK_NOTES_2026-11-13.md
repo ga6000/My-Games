@@ -208,7 +208,27 @@ Recorded in project memory (hub chronology) as well as here.
 
 ---
 
-## 4. Calls for Ry
+## 4. Calls for Ry — answered 2026-11-15
+
+Applied on this branch: R7 (`SCOPE_RULES.md` rule 8) and the couch/controller note
+(`MULTIPLAYER_PLAN.md`, `GAME_PROTOTYPE_INSTRUCTIONS.md` §1). Already landed on main through the
+party-session work (Finn thread, 2026-11-13): R4 boot screens (`AESTHETIC_GUIDE.md` §4.8,
+`shared/bootflow.js`), R5 score toasts and scale (§4.13, `shared/hubscore.js`), R9 party session
+(`HUB_1_0_PLAN.md` Phase 7) and R10, which became "2–7 minutes, soft at the top" (rule 0).
+Still only proposed: R1, R2, R3, R6, R8.
+
+1. **Game count:** 12 to 18 titles stands. R7 applied.
+2. **Round length:** a soft limit, per the party-session rule (2 to 7 minutes). Nothing more to change.
+3. **Couch play:** an aspiration after everything else, not a foundation. Controller support can
+   come earlier, added as games are built.
+4. **Gyro classes:** resolved in the Gyro loop thread: "Auto" is a wing order, not a class.
+5. **RD Arena placement:** stays in Act III, inside the Hurl. The "close to last" note is dropped.
+6. **RD Arena rollback:** Ry wants to play the pre-multiplayer build again before deciding. It
+   runs as-is from `rd-arena.pre-mp/RDArena.html` (headless check 2026-11-15: loads, no console
+   errors). The hub card is unchanged.
+
+### Original questions (2026-11-13)
+
 
 1. Apply any of the standards rewrites R1-R11? (R7 board size, R10 round length and R11 couch
    play are the ones that change existing rules.)

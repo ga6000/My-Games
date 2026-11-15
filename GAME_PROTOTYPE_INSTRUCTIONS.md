@@ -43,6 +43,10 @@ actual codebase; see `PROJECT_MEMORY.md` for current per-game status and open te
   `AbortController`**, so a game's teardown (however it's eventually triggered) can fully clean
   up. No current game is embedded/torn down dynamically yet (see §2), but write new games this
   way regardless — it's cheap to do up front and expensive to retrofit.
+- **Controllers are welcome from the start** (Ry, 2026-11-15). Any game may add gamepad input
+  for its one local player while it's being built; copy Zombie's (`zombie/zombie-input.js`).
+  Same-screen couch play with several controllers is a later aspiration, not a requirement, so
+  don't build a game around it yet.
 
 ---
 

@@ -234,6 +234,10 @@ Ordered easiest → hardest. This ordering is also the recommended build order.
 > `zombie/V3_PLAN.md` and `zombie/ENDGAME_PLAN.md` in that order.**
 >
 > Two specific things in the text below are now false:
+> - **Couch play is an aspiration, not a foundation** (Ry, 2026-11-15). Same-screen play with
+>   several controllers comes after everything else in the hub. Controller support for one
+>   player per screen comes earlier: any game may add it as it is built (Zombie has it,
+>   `zombie/zombie-input.js`).
 > - **Local/couch co-op was removed 2026-09-01** after playtesting. There is no
 >   `assignedControls{mouse,wasd,arrows}` any more — one player per screen, WASD moves and the
 >   mouse aims. `players` stays an array of 0-or-1 so iterating consumers were left alone.

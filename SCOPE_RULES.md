@@ -51,8 +51,10 @@ rules keep lists finite.
    than one sitting, or a new foundation (engine, level format, build step) goes to the long game
    or the inbox. That makes "no" easy to say to the hub.
 
-8. **Promotion is one-in, one-out.** The board stays at five cards (the 2026-09-06 swap is the
-   model). A shelved game comes up only by trading places with one on the board.
+8. **Promotion is one-in, one-out, and the board grows on purpose** (Ry, 2026-11-15; it was
+   "the board stays at five cards"). The long-run target is 12 to 18 titles. The board grows by
+   one only when every card on it has been played by the group in its current form; otherwise a
+   new card trades places with an old one (the 2026-09-06 swap is the model).
 
 9. **For Claude sessions.** Do exactly what was asked. Adjacent improvements, "while I'm here"
    ideas and follow-on features go into `IDEAS_INBOX.md` as one line and get mentioned in the
