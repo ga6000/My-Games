@@ -15,8 +15,8 @@
 //   reach rings  a faint ring at tendril reach round big armoured creatures.
 //   edge markers off-screen creatures within GF_VIEW.markR, pinned to the edge.
 //   camera       near a fight, the zoom frames the nearest creature (pulled
-//                right back on a drop-out) and eases in as you close. Any
-//                wheel zoom pauses this for GF_VIEW.manualHold seconds.
+//                right back on a drop-out) and eases in as you close. The game
+//                owns the zoom in Q; the wheel doesn't zoom there.
 "use strict";
 
 const GF_VIEW = {
@@ -29,10 +29,10 @@ const GF_VIEW = {
     camNear: 5000,      // auto camera works this close to a creature or the hive
     viewMin: 110,       // closest framing (world units, half the short side)
     viewMax: 1700,
-    manualHold: 5       // s the auto camera waits after a wheel zoom
+    viewTravel: 220,    // travel view (no fight near)
+    viewJump: 600       // during a jump
 };
 
-let gfViewManualT = -1e9;
 let gfViewDropBoost = 0;   // > 0 for a moment after a drop-out: frame wider
 let gfViewPrevCam = null, gfViewCamV = { x: 0, y: 0 };
 const gfDust = [];
@@ -45,7 +45,6 @@ function gfHash(i, j) {
 }
 
 function gfViewOnDropOut(fight) { gfViewDropBoost = 2.5; }
-function gfViewOnManualZoom() { gfViewManualT = performance.now(); }
 
 // ---- camera (from glAnimate, after glUpdateCamera) ----
 function gfViewFrame(dt) {
@@ -55,13 +54,13 @@ function gfViewFrame(dt) {
     gfViewDropBoost = Math.max(0, gfViewDropBoost - dt);
 
     const s = glShip;
-    if (glMode !== "q" || !s.isAlive || !gfHive || gfFlight.jump === "burst") return;
-    if (performance.now() - gfViewManualT < GF_VIEW.manualHold * 1000) return;
+    // The game owns the zoom in Q (Ry, 2026-11-14). Travel: a fixed view.
+    // Near a fight: frame the nearest threat, wider just after a drop-out.
+    if (glMode !== "q" || !s.isAlive || !gfHive) return;
     let d = gfNearestCreatureDist(s.x, s.y);
     d = Math.min(d, Math.max(0, Math.hypot(gfHive.x - s.x, gfHive.y - s.y) - gfHive.r));
-    if (d > GF_VIEW.camNear) return;
-    // Frame the nearest threat with margin; just after a drop-out, frame wider.
-    let R = Math.max(GF_VIEW.viewMin, Math.min(GF_VIEW.viewMax, d * 1.25 + 60));
+    let R = d > GF_VIEW.camNear ? GF_VIEW.viewTravel : Math.max(GF_VIEW.viewMin, Math.min(GF_VIEW.viewMax, d * 1.25 + 60));
+    if (gfFlight.jump === "burst") R = GF_VIEW.viewJump;
     if (gfViewDropBoost > 0) R = Math.max(R, Math.min(GF_VIEW.viewMax, d * 1.6 + 200));
     const target = Math.min(glW, glH) / 2 / R;
     const rate = gfViewDropBoost > 0 ? 0.12 : 0.04;
@@ -143,25 +142,20 @@ function gfDrawBackdrop(c) {
 function gfDrawViewWorld(c, z) {
     const s = glShip;
     c.save();
-    // Speed dust: world-anchored, respawned round the ship, streaks with the camera.
-    const halfW = glW / 2 / z, halfH = glH / 2 / z;
-    while (gfDust.length < GF_VIEW.dustN) gfDust.push({ x: s.x + (Math.random() - 0.5) * halfW * 2, y: s.y + (Math.random() - 0.5) * halfH * 2 });
+    // Speed dust: SCREEN-space specks across the whole view (any zoom), each
+    // moved by the camera's on-screen motion and wrapped at the edges. The
+    // streak is that motion, capped.
+    while (gfDust.length < GF_VIEW.dustN) gfDust.push({ x: Math.random() * glW, y: Math.random() * glH });
     const vx = gfViewCamV.x * z, vy = gfViewCamV.y * z;
-    let L = Math.hypot(vx, vy) * 4;
+    const L = Math.hypot(vx, vy) * 4;
     const k = L > 160 ? 160 / L : 1;
     c.strokeStyle = "rgba(201,255,233,0.35)"; c.lineWidth = 1;
     c.beginPath();
     for (let i = 0; i < gfDust.length; i++) {
         const d = gfDust[i];
-        if (Math.abs(d.x - glCamera.x) > halfW * 1.2 || Math.abs(d.y - glCamera.y) > halfH * 1.2) {
-            // Respawn ahead of the motion where possible, so streaks fly past.
-            const sp = Math.hypot(gfViewCamV.x, gfViewCamV.y);
-            const ax = sp > 1e-6 ? gfViewCamV.x / sp : 0, ay = sp > 1e-6 ? gfViewCamV.y / sp : 0;
-            d.x = glCamera.x + ax * halfW * 0.9 + (Math.random() - 0.5) * halfW * 2;
-            d.y = glCamera.y + ay * halfH * 0.9 + (Math.random() - 0.5) * halfH * 2;
-        }
-        const p = glWorldToScreenRaw(d.x, d.y);
-        c.moveTo(p.x, p.y); c.lineTo(p.x - vx * 4 * k + 0.5, p.y - vy * 4 * k + 0.5);
+        d.x = ((d.x - vx) % glW + glW) % glW;
+        d.y = ((d.y - vy) % glH + glH) % glH;
+        c.moveTo(d.x, d.y); c.lineTo(d.x - vx * 4 * k + 0.5, d.y - vy * 4 * k + 0.5);
     }
     c.stroke();
 

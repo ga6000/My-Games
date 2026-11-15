@@ -9,7 +9,7 @@ launched, and crews lead wings of expendable ships against the creature hives.
 
 ## Where things are
 
-- **New game code is prefixed `gf`/`GF`** and lives in `gf-*.js`.:
+- **New game code is prefixed `gf`/`GF`** and lives in `gf-*.js`:
   `gf-crabs.js` (creatures), `gf-flight.js` (controls), `gf-view.js` (backdrop, camera, readability). `gf-crabs.js` holds the hive, pods, aircrabs, airkrill, the Bellwether, the breath rule, tendril grabs,
   hull, the nav targets and the HUD line.
 - **The engine is Gyro Lab's, unchanged where possible, and keeps its `gl`/`GL` names**: ship
@@ -37,7 +37,7 @@ away, because `glHole` needs one.
 ## Design calls so far (Ry, 2026-11-07 / 11-08)
 
 - PvE only. Auto-brake at the edge of a battle (built in the flight pass). Opt-in ram with an impact frame (not built yet).
-- Controls (Ry, 2026-11-14): Zombie-family twin-stick WASD + cursor aim, WITH slide, Space boost (hold out of combat = jump), hold to fire. Supersedes the 11-08 "no drift" lean; tune slide by playtest.
+- Controls (Ry, 2026-11-14): Zombie-family twin-stick WASD + cursor aim, WITH slide, Space boost (hold out of combat = jump), hold to fire. The hull faces WASD; a turret tracks the cursor. The game owns the zoom in Q. Supersedes the 11-08 "no drift" lean; tune slide by playtest.
 - Six crew classes, a hex spawn room, and each crew member commands a wing of bots of their class.
 - The human mothership is 5 km, solid hull plus lattice mesh. The Tide (alien mothership) is about
   Florida-sized.

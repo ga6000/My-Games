@@ -105,7 +105,7 @@ function gfFireSet(on) { gfFlight.firing = on; if (on) gfFlight.fireCd = 0; }
 function gfFire() {
     const s = glShip;
     if (!s.isAlive || gfFlight.jump === "burst") return;
-    const a = Math.atan2(glMouse.y - glCY, glMouse.x - glCX);
+    const a = gfAimAngle();
     const n = glBullets.length;
     glFire(s.x, s.y, a);
     if (glBullets.length > n) {
@@ -131,10 +131,17 @@ function gfDropOut(msg, fight) {
 }
 
 // ---- per-frame, from glUpdateShipOne (gl-sim.js), flown ship only ----
+// The hull faces where you're steering (WASD); the turret tracks the cursor.
+// While spooling a jump the hull swings to the aim line (the cursor).
 function gfFlightHeading(s) {
     if (gfFlight.jump === "burst") return gfFlight.heading;
-    return Math.atan2(glMouse.y - glCY, glMouse.x - glCX);
+    if (gfFlight.jump === "spool") return gfAimAngle();
+    const k = gfFlight.keys;
+    const mx = (k.right ? 1 : 0) - (k.left ? 1 : 0), my = (k.down ? 1 : 0) - (k.up ? 1 : 0);
+    if (mx || my) return Math.atan2(my, mx);
+    return s.angle;   // no keys: keep the last heading
 }
+function gfAimAngle() { return Math.atan2(glMouse.y - glCY, glMouse.x - glCX); }
 
 // State machine: fire, boost -> spool -> burst, auto-brake. Returns the
 // engine speed multiplier (kept so the engine's own speed bookkeeping is sane).
@@ -158,7 +165,8 @@ function gfFlightSpeedMul(s, dt) {
             gfFlight.spoolT += dt;
             if (gfFlight.spoolT >= GF_FLIGHT.spoolTime) {
                 gfFlight.jump = "burst";
-                gfFlight.heading = s.angle;
+                gfFlight.heading = gfAimAngle();   // along the aim line, wherever the hull had got to
+                s.angle = gfFlight.heading;
                 gfFlight.ignore = gfFightCentres().filter(function (f) {
                     return Math.hypot(f.x - s.x, f.y - s.y) < GF_FLIGHT.brakeR + f.r + 300;
                 }).map(function (f) { return f.key; });
@@ -229,6 +237,14 @@ function gfFlightOverlay(c) {
         c.setLineDash([]);
         c.strokeStyle = "#7DF9FF"; c.lineWidth = 3;
         c.beginPath(); c.arc(p.x, p.y, 26, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); c.stroke();
+    }
+    // Turret: a blaster on the hull, locked to the cursor.
+    if (gfFlight.jump !== "burst") {
+        const ta = gfAimAngle(), L = 11;
+        c.strokeStyle = "#FFB000"; c.lineWidth = 3; c.lineCap = "round";
+        c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x + Math.cos(ta) * L, p.y + Math.sin(ta) * L); c.stroke();
+        c.fillStyle = "#FFB000"; c.beginPath(); c.arc(p.x, p.y, 3, 0, Math.PI * 2); c.fill();
+        c.lineCap = "butt";
     }
     // Velocity tick: where the slide is carrying you, about half a second out.
     const vp = Math.hypot(s.vx, s.vy) * 30 * glCamera.zoom;

@@ -58,3 +58,9 @@ Pass 1 was hard to control: hard to shoot while evading, hard to read enemy spee
 - Hold fire: 7 shots in 1 s.
 - Space toward the hive: boost 31 -> spool -> jump -> drop out 1,340 from the hive centre, nearest creature 1,389 (outside hunting range), hull 100. Camera framed the hive and both pods (zoom 6.8 -> 0.25).
 - Static checks pass. **Not yet played by a human.** To judge: slide amount, move/boost speeds, the zoom-out on arrival, whether the backdrop helps.
+
+## Flight pass 2b (2026-11-14, Ry's playtest of pass 2)
+
+- **Dust followed the old zoom.** It was world-anchored and only respawned outside a box sized at the zoom it was made at, so zooming out showed a rectangle of motes. Now it's screen-space across the whole view, moved by the camera's on-screen motion and wrapped, so it works at any zoom.
+- **The game owns the zoom in Q** (Ry's call). The wheel no longer zooms in Q (it still steps the mini-map). Travel view 220 units, jump view 600, fight framing as before.
+- **The hull faces the WASD direction; a blaster turret on top tracks the cursor** (amber). While a jump spools the hull swings to the aim line; the jump goes along the cursor.
