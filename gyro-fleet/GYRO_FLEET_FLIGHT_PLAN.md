@@ -64,3 +64,21 @@ Pass 1 was hard to control: hard to shoot while evading, hard to read enemy spee
 - **Dust followed the old zoom.** It was world-anchored and only respawned outside a box sized at the zoom it was made at, so zooming out showed a rectangle of motes. Now it's screen-space across the whole view, moved by the camera's on-screen motion and wrapped, so it works at any zoom.
 - **The game owns the zoom in Q** (Ry's call). The wheel no longer zooms in Q (it still steps the mini-map). Travel view 220 units, jump view 600, fight framing as before.
 - **The hull faces the WASD direction; a blaster turret on top tracks the cursor** (amber). While a jump spools the hull swings to the aim line; the jump goes along the cursor.
+
+## Pass 3 (2026-11-14): orbit, weapons, ship (`gf-arms.js` new)
+
+Ry's playtest of 2b: dust needs work, zoom too far out (could hardly see the ship), wants a homing weapon, designed shots (Scuba and Zombie are further along), class weapons, snappier flight, high Earth orbit with Earth as a massive backdrop, bursts launching from the human mothership across the globe, a fuller ship design.
+
+| | |
+|---|---|
+| Zoom | Travel 110, jump 350, fight framing 55 to 700 (was 220 / 600 / 110 to 1,700). |
+| Flight | Slide 0.085 (was 0.035), hull turn 0.35: settles in ~0.2 s. |
+| Ship | Drawn at a fixed minimum size: swept wings, fuselage, canopy, twin nacelles with speed-length flames, blinking wing-tip lights, twin-barrel turret with muzzle flash. |
+| Blaster | Data in `GF_ARMS`. 8/s, alternating twin barrels, slight jitter, 60 u/s plus ship speed. Bolts drawn as hot-core streaks; impact rings (yellow wound, grey bounce). |
+| Seeker | Right click. Homes on the creature nearest the cursor (lock brackets), smoke trail, 3 dmg, burrows through armour (the one breath-rule exception). 3 charges, one back every 5 s, pips under the ship. |
+| Dust | Three depths (0.5x / 1x / 1.6x parallax, size and brightness by depth), gentle twinkle, 110 specks. |
+| High Earth orbit | Sol's real-scale bodies, labels and the planet nav arrow are hidden; no ship/bolt gravity, no body collisions. Earth is a pre-rendered backdrop (land, clouds, terminator, atmosphere, red Hurl wounds) on its own parallax layer centred between home and the hive, so a jump sweeps across the globe. |
+| Mothership | Home is now the human mothership: spine hull, lattice ring, spokes, glowing hex launch bay, running lights. |
+| Class weapons | Proposed in the design doc (project files `gyro-loop/GYRO_LOOP_DRAFT.md`); built in the classes pass. |
+
+Verified headless: 0 errors, 60 fps at home; 9 bolts in flight from a 0.9 s burst; jump and drop-out still work; 3 seekers killed 2 airkrill. **Not yet human-played.**

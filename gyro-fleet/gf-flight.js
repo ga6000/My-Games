@@ -24,9 +24,8 @@
 const GF_FLIGHT = {
     moveMul: 3.5,       // WASD speed, x cruise (35 u/s; airkrill 19, aircrab dash 15)
     boostMul: 7,        // Space held (70 u/s)
-    slide: 0.035,       // velocity ease per frame: lower = more slide (~0.5 s settle)
-    turn: 0.25,         // nose turn toward the cursor per frame
-    fireRate: 7,        // shots per second while the button is held
+    slide: 0.085,       // velocity ease per frame: lower = more slide (~0.2 s settle; 0.035 felt floaty)
+    turn: 0.35,         // hull turn toward the WASD direction per frame
     spoolDelay: 0.35,   // seconds of boost before a jump spool shows (out of combat)
     spoolTime: 1.6,     // spool after that
     burstMul: 1000,     // jump speed (10,000 u/s: home to hive in ~3 s)
@@ -105,13 +104,7 @@ function gfFireSet(on) { gfFlight.firing = on; if (on) gfFlight.fireCd = 0; }
 function gfFire() {
     const s = glShip;
     if (!s.isAlive || gfFlight.jump === "burst") return;
-    const a = gfAimAngle();
-    const n = glBullets.length;
-    glFire(s.x, s.y, a);
-    if (glBullets.length > n) {
-        const b = glBullets[glBullets.length - 1];
-        b.vx += s.vx; b.vy += s.vy;
-    }
+    gfFireBlaster(s);   // gf-arms.js
 }
 
 function gfDropOut(msg, fight) {
@@ -152,7 +145,7 @@ function gfFlightSpeedMul(s, dt) {
 
     // Hold to fire.
     gfFlight.fireCd -= dt;
-    if (gfFlight.firing && gfFlight.fireCd <= 0) { gfFire(); gfFlight.fireCd = 1 / GF_FLIGHT.fireRate; }
+    if (gfFlight.firing && gfFlight.fireCd <= 0) { gfFire(); gfFlight.fireCd = 1 / GF_ARMS.blaster.rate; }
 
     // Boost held out of combat grows into a jump spool.
     if (gfFlight.space && gfFlight.jump === "idle") {
@@ -238,14 +231,7 @@ function gfFlightOverlay(c) {
         c.strokeStyle = "#7DF9FF"; c.lineWidth = 3;
         c.beginPath(); c.arc(p.x, p.y, 26, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); c.stroke();
     }
-    // Turret: a blaster on the hull, locked to the cursor.
-    if (gfFlight.jump !== "burst") {
-        const ta = gfAimAngle(), L = 11;
-        c.strokeStyle = "#FFB000"; c.lineWidth = 3; c.lineCap = "round";
-        c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x + Math.cos(ta) * L, p.y + Math.sin(ta) * L); c.stroke();
-        c.fillStyle = "#FFB000"; c.beginPath(); c.arc(p.x, p.y, 3, 0, Math.PI * 2); c.fill();
-        c.lineCap = "butt";
-    }
+    gfDrawShip(c, s, p);   // gf-arms.js: hull, engines, turret, seeker pips + lock
     // Velocity tick: where the slide is carrying you, about half a second out.
     const vp = Math.hypot(s.vx, s.vy) * 30 * glCamera.zoom;
     if (gfFlight.jump !== "burst" && vp > 4) {
@@ -271,5 +257,5 @@ function gfFlightHudLine() {
     const st = gfFlight.jump === "burst" ? "JUMP" : gfFlight.jump === "spool" ? "SPOOL" : gfFlight.space ? "BOOST" :
         (k.up || k.down || k.left || k.right) ? "MOVE" : "IDLE";
     return "<span style='color:" + (st === "IDLE" || st === "MOVE" ? "#cfe9e6" : "#FFB000") + "'>DRIVE " + st +
-        (gfFlight.inCombat ? " · COMBAT" : "") + "</span> &nbsp; WASD · aim · hold click · SPACE";
+        (gfFlight.inCombat ? " · COMBAT" : "") + "</span> &nbsp; WASD · aim · hold click · right click seeker · SPACE";
 }
