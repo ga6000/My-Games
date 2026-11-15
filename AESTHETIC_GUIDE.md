@@ -1081,6 +1081,19 @@ squares, and adopting the figures game by game is open work.
 
 **Hub text says less (Ry, 2026-11-13).** A label names the thing; it does not explain it. No
 instructions in the bottom bar beyond a few words, no rules on the mode cards, no specifics on
-the character cards. People learn by playing.
+the character cards. People learn by playing. The same rule holds inside the games (Ry,
+2026-11-14).
+
+**Words (Ry, 2026-11-14).** The hub is **PLEURA**. The chained mode is **Story**, single games
+are **Free Play**, and "party" only ever means the group of players.
+
+**Drawn art (Ry, 2026-11-14).** Key art, the splash and the crew portraits are generated
+images, detailed in the manner of painted arcade marquees, and they replace the coded scenes
+wherever a file exists (`art/README.md` has the formats). This is the one place the hub is not
+flat pixel fills. No lettering is ever baked into an image: titles are set over the art in the
+hub's own type. The board tokens stay pixel figures from `shared/crew.js`, because they walk.
+
+**The Esc menu.** Every game opened from the hub answers Esc with the same two-button menu from
+`shared/party.js`. It does not pause, because a room cannot.
 
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

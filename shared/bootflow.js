@@ -107,13 +107,33 @@
     // ---------------------------------------------------------------
     //   LOAD -> TITLE
     // ---------------------------------------------------------------
-    // opts: { title, chapter, tagline, loadReady: fn -> bool }
+    // opts: { game, title, chapter, tagline, loadReady: fn -> bool }
     // done(how): how is "press" (the player pressed through) or "idle"
     // (the title timed out, so the game should show its attract run), or
     // "skip" (a party session, or ?nointro=1).
     function introSkipped() {
         return param("party") === "1" || param("nointro") === "1" ||
             /node/i.test((global.navigator && navigator.userAgent) || "");
+    }
+
+    // The game's key art behind the title, when art/key/ has one. The list
+    // of what exists is art/manifest.js, loaded here so a game page does not
+    // have to carry it; with no entry the card stays plain.
+    function keyArt(game, el) {
+        if (!game) return;
+        function show() {
+            var pack = global.ART_PACK;
+            var src = pack && pack.key && pack.key[game];
+            if (!src || !el.isConnected) return;
+            el.style.backgroundImage = "linear-gradient(rgba(0,0,0,0.35),rgba(0,0,0,0.8)),url('../" + src + "')";
+            el.style.backgroundSize = "cover";
+            el.style.backgroundPosition = "center";
+        }
+        if (global.ART_PACK) { show(); return; }
+        var s = document.createElement("script");
+        s.src = "../art/manifest.js";
+        s.onload = show;
+        document.head.appendChild(s);
     }
 
     function intro(opts, done) {
@@ -138,6 +158,7 @@
             "<div class='bf-tag' id='bfTag'>LOADING</div>" +
             "<div class='bf-bar' id='bfBar'><div class='bf-fill'></div></div>";
         document.body.appendChild(introEl);
+        keyArt(opts.game, introEl);
 
         var started = Date.now();
         var poll = every(function () {

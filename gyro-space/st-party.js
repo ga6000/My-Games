@@ -89,6 +89,7 @@ function stBootIntro() {
     if (typeof BOOTFLOW === "undefined") return;       // the old title screen still works alone
     screenTitle.style.display = "none";
     BOOTFLOW.intro({
+        game: "space-tracer",
         title: "SPACE TRACER",
         chapter: "ACT V · COUNTERATTACK",
         tagline: "THE FIRST FIGHTS IN ORBIT. YOUR TRAIL IS YOUR WEAPON."

@@ -173,6 +173,12 @@ http(s) (GitHub Pages in production; a local static server for testing — plain
 - [ ] Linked from `index.html`'s game grid, if it's meant to be hub-visible
 - [ ] `node scripts/check-global-collisions.js` passes (once the game has more than one local script file)
 - [ ] Status recorded in `Game dev tracking.xlsx`
+- [ ] On the hub board: reports a score through `shared/party.js` (`PARTY.live`, `PARTY.finish`), alone or in a room, so a Free Play run reaches the leaderboard (Ry, 2026-11-14)
+- [ ] Loads `shared/party.js`, which gives it the shared Esc menu (RESUME / BACK TO BOARD) when opened from the hub; the game binds nothing else to Esc there
+- [ ] Text names things and stops: no instructions a player would learn in ten seconds of play, no specifics on cards (`AESTHETIC_GUIDE.md`, "Hub text says less")
+- [ ] A player shown as a person is drawn from `shared/crew.js`, so the six read the same in every game
+- [ ] Says "Story" for the chained mode and "Free Play" for single games; "party" only ever means the group of players
+- [ ] Passes once with reduced motion on (Playwright `reducedMotion: "reduce"`): nothing may depend on an animation to become visible
 
 ---
 

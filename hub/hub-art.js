@@ -471,24 +471,50 @@ ART_SCENES["space-tracer"] = function (c) {
 // ---------------------------------------------------
 //   PAINTING
 // ---------------------------------------------------
+const ART_DRAWN_W = 480;
+
+function artKeySrc(id) {
+    const g = gameById(id);
+    if (g && g.art) return g.art;
+    return (typeof ART_PACK !== "undefined" && ART_PACK.key && ART_PACK.key[id]) || "";
+}
+
 function artPaintCanvas(canvas) {
     const id = canvas.dataset.art;
-    const c = canvas.getContext("2d");
+    let c = canvas.getContext("2d");
     if (!c) return;
-    c.fillStyle = "#000000";
-    c.fillRect(0, 0, ART_W, ART_H);
 
-    // A drawn marquee, when the game has one.
-    const g = gameById(id);
-    if (g && g.art) {
+    // A drawn marquee, when the game has one: `art:` on the GAMES entry, or
+    // a file in art/key/ (art/README.md). Drawn art keeps its detail, so the
+    // canvas grows to hold it and is painted once, not on every beat.
+    const src = artKeySrc(id);
+    if (src) {
         let img = artImages[id];
         if (!img) {
             img = artImages[id] = new Image();
             img.onload = artRepaint;
-            img.src = g.art;
+            img.src = src;
         }
-        if (img.complete && img.naturalWidth) { c.imageSmoothingEnabled = false; c.drawImage(img, 0, 0, ART_W, ART_H); return; }
+        if (img.complete && img.naturalWidth) {
+            if (canvas.dataset.painted === src) return;
+            const big = canvas.classList.contains("chap-art");
+            canvas.width = big ? ART_DRAWN_W * 2 : ART_DRAWN_W;
+            canvas.height = canvas.width * ART_H / ART_W;
+            canvas.classList.add("is-painted");
+            canvas.dataset.painted = src;
+            c = canvas.getContext("2d");
+            // The middle 16:9 of whatever shape the image is.
+            const want = ART_W / ART_H, has = img.naturalWidth / img.naturalHeight;
+            const sw = has > want ? img.naturalHeight * want : img.naturalWidth;
+            const sh = has > want ? img.naturalHeight : img.naturalWidth / want;
+            c.imageSmoothingEnabled = true;
+            c.imageSmoothingQuality = "high";
+            c.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, 0, 0, canvas.width, canvas.height);
+            return;
+        }
     }
+    c.fillStyle = "#000000";
+    c.fillRect(0, 0, ART_W, ART_H);
 
     const scene = ART_SCENES[id];
     if (scene) scene(c);

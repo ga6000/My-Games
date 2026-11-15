@@ -962,5 +962,11 @@ Update this section when any part of the guide actually lands.
   card, a podium. Free play no longer chains games. Glass City, RD Arena (new score, 3:00 from
   the hub) and Scuba Shooter report to a session. EIEI Aliens is a dark tile in ACT I; the Space
   Tracer tile reads TAKEOFF. Hub text was cut back on Ry's "less hand-holding".
+- **2026-11-14**: the hub is named **PLEURA** (Ry's pick). Generated art has slots: `art/key/`,
+  `art/crew/`, `art/splash.*`, listed by `node scripts/art-manifest.js` into `art/manifest.js`
+  and read by the hub (tiles, chapter card, splash, character select, podium) and by
+  `BOOTFLOW.intro` (`game:` option). No images are in the repo yet; coded scenes are the
+  fallback. `shared/party.js` gained the shared Esc menu. A reduced-motion bug that left the
+  whole hub black was fixed (the arrival wipe never lifted).
 
 <!-- doc-sync: 60a65dcd | 2026-10-17 -->

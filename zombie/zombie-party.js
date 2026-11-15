@@ -117,6 +117,7 @@ function zBootIntro() {
         return;
     }
     BOOTFLOW.intro({
+        game: "zombie",
         title: "ZOMBIE",
         chapter: "ACT II · SPREAD",
         tagline: "THE INSPIRED ARE AT THE GATE. FILL THE TANKS. GET OUT."

@@ -133,6 +133,7 @@ function pongInSession() {
 function pongBootIntro() {
     if (typeof BOOTFLOW === "undefined") { pongIntroDone = true; return; }
     BOOTFLOW.intro({
+        game: "four-d-pong",
         title: "4D PONG",
         chapter: "ACT II · SPREAD",
         tagline: "FOUR WALLS. ONE BALL. PULL THE ROPE YOUR WAY."

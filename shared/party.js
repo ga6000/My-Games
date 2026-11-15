@@ -428,8 +428,71 @@
         countdownToHub(RETURN_AFTER_S);
     }
 
+    // ---- the menu ----
+    // Esc, the same in every game opened from the hub: RESUME, or back to
+    // the board. The game is not paused (a room cannot pause), so the menu
+    // is small and the screen stays visible behind it.
+    var menu = null;
+    var menuAbort = null;
+
+    function menuClose() {
+        if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
+        menu = null;
+    }
+
+    function menuShow() {
+        if (!document.getElementById("partyMenuCss")) {
+            var css = document.createElement("style");
+            css.id = "partyMenuCss";
+            css.textContent =
+                "#partyMenu{position:fixed;inset:0;z-index:4900;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)}" +
+                "#partyMenu .pm-box{border:4px solid #00E5FF;box-shadow:0 0 0 4px #000,0 0 0 6px #2E3A34;background:#000;padding:18px 22px;" +
+                "display:flex;flex-direction:column;gap:10px;min-width:240px}" +
+                "#partyMenu button{font-family:'Press Start 2P','VT323',monospace;font-size:11px;text-transform:uppercase;cursor:pointer;" +
+                "padding:11px 16px;background:transparent;color:#00E5FF;border:2px solid #00E5FF}" +
+                "#partyMenu button:hover,#partyMenu button:focus{background:#FFB000;border-color:#FFB000;color:#000;outline:0}";
+            document.head.appendChild(css);
+        }
+        menu = document.createElement("div");
+        menu.id = "partyMenu";
+        menu.setAttribute("role", "dialog");
+        menu.innerHTML = "<div class='pm-box'><button type='button' data-pm='resume'>RESUME</button>" +
+            "<button type='button' data-pm='board'>" + (active() ? "LEAVE ROUND" : "BACK TO BOARD") + "</button></div>";
+        menu.addEventListener("click", function (e) {
+            var which = e.target && e.target.getAttribute && e.target.getAttribute("data-pm");
+            if (which === "board") goHub();
+            else if (which === "resume" || e.target === menu) menuClose();
+        });
+        document.body.appendChild(menu);
+        try { menu.querySelector("button").focus(); } catch (e) { /* not focusable */ }
+    }
+
+    function menuKey(e) {
+        if (!fromHub() || resultShown || (card && card.isConnected)) return;
+        var open = !!(menu && menu.isConnected);
+        if (e.key === "Escape") {
+            if (open) menuClose(); else menuShow();
+            e.preventDefault(); e.stopImmediatePropagation();
+            return;
+        }
+        if (!open) return;
+        // While it is up, the keys are the menu's and not the game's.
+        var btns = menu.querySelectorAll("button");
+        var at = document.activeElement === btns[1] ? 1 : 0;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Tab") btns[1 - at].focus();
+        else if (e.key === "Enter" || e.key === " ") btns[at].click();
+        e.preventDefault(); e.stopImmediatePropagation();
+    }
+
+    if (typeof AbortController !== "undefined") {
+        menuAbort = new AbortController();
+        global.addEventListener("keydown", menuKey, { capture: true, signal: menuAbort.signal });
+    }
+
     function destroy() {
         clearTimers();
+        menuClose();
+        if (menuAbort) { menuAbort.abort(); menuAbort = null; }
         if (card && card.parentNode) card.parentNode.removeChild(card);
         card = null;
         session = null;
