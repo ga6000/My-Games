@@ -50,3 +50,22 @@ Ry: "Massive improvement." Too easy; ruptures and ricochets not punishing or not
 | Sidebar | 220 px, no sentences: clock, score, three orifice icons, hull, siphon with R and G key caps, wing pips with the F order toggle, the two maps. Keys show along the bottom for the first 30 seconds. |
 | Airkrill clarity | Larger, a dark keyline and a glow (hot while they can bite), lighter body and tail. |
 | Beam and dust | The beam is closed to the ship's drawn position each frame (it was a frame of jump travel behind). Dust specks are dots at flying speed and only streak under boost or jump; all three layers now move slower than the play plane. Warp streaks follow the jump line, and the spool only hints at them. |
+
+## Flood pass 3 (2026-11-15, after Ry's second playtest)
+
+Ry: ricocheted bolts shifted in space when he changed trajectory, and the spool streaks tilted with the ship. Breathing out of sync made it "hard to know when would be best to shoot", so he was "almost constantly ricocheting while dodging". Time for more sites: "3 sites along the way with slightly different enemy profiles at different satellites to clear", and "there needs to be a reason why these are cleared first before going to the hive".
+
+| Ask | Built |
+|---|---|
+| Ricochets shifting | A bolt's streak was drawn along its velocity relative to the ship, so every bolt swung when the ship turned. It is now drawn along its own path through space. The bolts themselves never moved wrongly. |
+| Spool streaks tilting | No warp streaks during the 2 s spool (glyph, hum and ticks only). Streaks start with the jump and follow the jump line. |
+| Breath out of sync | ONE breath per site (`GF.breath` 6 s). Every creature of a site inhales, holds and exhales together, with a slight ripple outward from the site (`GF.breathWave`). A breath gauge sits at the bottom centre: green = vents open, red = armoured. The site sounds its inhale and exhale. |
+| Bellwether | It no longer owns the sync. A clean kill on one WINDS every creature near it for 4.5 s (soft, vents open): the opening you earn by flanking the alpha. |
+| Sites | `gfSites`: RELAY (a comms satellite, airkrill-heavy, 2 orifices of 30 hp), DRYDOCK (a shipyard satellite, aircrabs and Bellwethers, 2 orifices of 45 hp), THE TIDE (3 orifices of 60 hp). The satellites sit either side of the straight line home to hive, so the route bends. A site sleeps until a ship is within 2500 units. |
+| Why clear them first | The Tide's orifices are CLAMPED (bone bars, cannot be hurt) while either satellite is held. Freeing the relay raises the wing cap from 3 to 5 and sends 2 bots. Freeing the drydock refits the hull and loads 5 seekers. Either order. |
+| Round | Clock 8:00 (was 7:00) for three sites. This is over the hub's 2 to 7 minute rule; it needs Ry's playtest to say whether to trim the sites or note the exception. |
+| Sidebar and maps | Orifice icons grouped per site, the next stop marked on the ORBIT strip, one unlabelled marker toward the next site. The play view is now centred left of the sidebar. |
+
+Canon bends still waiting on Ry for the bestiary: vents open on the exhale, an inflated body can be burst, breath is site-wide (the Bellwether winds its brood when killed rather than conducting it).
+
+Checks: both repo scripts pass. Headless run: hand-aimed jump brakes at the relay, each site breathes in one phase, both boons land, The Tide unclamps, win card, no page errors, 60 fps. No human has played this pass.

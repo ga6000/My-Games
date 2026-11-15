@@ -60,7 +60,7 @@ function gfViewFrame(dt) {
     // Near a fight: frame the nearest threat, wider just after a drop-out.
     if (glMode !== "q" || !s.isAlive || !gfHive) return;
     let d = gfNearestCreatureDist(s.x, s.y);
-    d = Math.min(d, Math.max(0, Math.hypot(gfHive.x - s.x, gfHive.y - s.y) - gfHive.r));
+    for (let i = 0; i < gfSites.length; i++) d = Math.min(d, Math.max(0, Math.hypot(gfSites[i].x - s.x, gfSites[i].y - s.y) - gfSites[i].r));
     let R = d > GF_VIEW.camNear ? GF_VIEW.viewTravel : Math.max(GF_VIEW.viewMin, Math.min(GF_VIEW.viewMax, d * 0.7 + 30));
     if (gfFlight.jump === "burst") R = GF_VIEW.viewJump;
     if (gfViewDropBoost > 0) R = Math.max(R, GF_VIEW.viewMax * 1.5);
@@ -208,7 +208,7 @@ function gfDrawEdgeMarkers(c) {
         const p = glWorldToScreenRaw(cr.x, cr.y);
         if (p.x > 0 && p.y > 0 && p.x < glW - GF_SIDE_W && p.y < glH) continue;
         const dx = p.x - glCX, dy = p.y - glCY;
-        const k = Math.min(dx ? ((dx > 0 ? glCX - GF_SIDE_W : glCX) - m) / Math.abs(dx) : Infinity, dy ? (glCY - m) / Math.abs(dy) : Infinity);
+        const k = Math.min(dx ? (glCX - m) / Math.abs(dx) : Infinity, dy ? (glCY - m) / Math.abs(dy) : Infinity);
         const ax = glCX + dx * k, ay = glCY + dy * k, a = Math.atan2(dy, dx);
         const near = 1 - dist / GF_VIEW.markR, sz = 3 + 5 * near;
         c.globalAlpha = 0.35 + 0.6 * near;

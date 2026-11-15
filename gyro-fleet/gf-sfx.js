@@ -66,6 +66,17 @@ function gfSfx(name, k) {
     let c;
     k = k === undefined ? 1 : Math.max(0, Math.min(1, k));
     switch (name) {
+    case "inhale":   // the site's breath reaching you: armour is coming
+        if (!(c = gfSfxOk(name, 1))) return;
+        gfHiss(c, true, "bandpass", 180, 900, 2, 0.9, 0.5);
+        gfTone(c, "sine", 70, 120, 0.9, 0.16);
+        break;
+    case "exhale":   // letting go: the soft window opens
+        if (!(c = gfSfxOk(name, 1))) return;
+        gfHiss(c, true, "bandpass", 900, 160, 2, 1.1, 0.5);
+        gfTone(c, "sine", 120, 60, 1.0, 0.16);
+        gfTone(c, "triangle", 660, 660, 0.12, 0.1, 0.85);
+        break;
     case "swell":
         if (!(c = gfSfxOk(name, 0.5))) return;
         gfTone(c, "sawtooth", 48, 150, 2.3, 0.3, 0, 420);

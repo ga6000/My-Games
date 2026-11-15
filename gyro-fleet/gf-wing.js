@@ -27,7 +27,7 @@
 "use strict";
 
 const GF_WING = {
-    start: 2, max: 5,
+    start: 2, max: 3,   // max goes to 5 when the RELAY satellite is freed (gfSiteCleared)
     speed: 78,          // units/s: a bit faster than the lead ship's cruise
     fireRate: 1.6,      // shots/s per bot
     range: 48,          // FOLLOW firing range
@@ -88,6 +88,15 @@ function gfWingKey(code) {
         gfCap.charge -= use;
         gfCap.flash = 0.5;
         glSpawnBurst(glShip.x, glShip.y, 14, "#7DFF9C");
+    }
+}
+
+// Free bots from the mothership (a freed relay): they ultradrive in like a called one.
+function gfWingReinforce(n) {
+    for (let i = 0; i < n && gfWingAlive() < GF_WING.max; i++) {
+        const b = gfMakeBot(glShip.x, glShip.y);
+        b.warp = { t: -0.9 - i * 0.35, a: Math.atan2(glShip.y - gfHome.y, glShip.x - gfHome.x), ticks: 0 };
+        gfWing.push(b);
     }
 }
 
@@ -246,9 +255,11 @@ function gfBotUpdate(b, k, dt) {
         if (e < 3 && e > 1e-6) { b.vx += ex / e * (3 - e) * 8; b.vy += ey / e * (3 - e) * 8; }
     }
     b.x += b.vx * dt; b.y += b.vy * dt;
-    // The Tide is solid.
-    const hx = b.x - gfHive.x, hy = b.y - gfHive.y, hd = Math.hypot(hx, hy);
-    if (hd < gfHive.r + 1.5) { b.x = gfHive.x + hx / (hd || 1) * (gfHive.r + 1.5); b.y = gfHive.y + hy / (hd || 1) * (gfHive.r + 1.5); }
+    // Sites are solid.
+    for (let i = 0; i < gfSites.length; i++) {
+        const st = gfSites[i], hx = b.x - st.x, hy = b.y - st.y, hd = Math.hypot(hx, hy);
+        if (hd < st.r + 1.5) { b.x = st.x + hx / (hd || 1) * (st.r + 1.5); b.y = st.y + hy / (hd || 1) * (st.r + 1.5); }
+    }
 
     // Face the target, else the way it is going; fire.
     const want = tgt ? Math.atan2(tgt.y - b.y, tgt.x - b.x) : (Math.hypot(b.vx, b.vy) > 4 ? Math.atan2(b.vy, b.vx) : s.angle);
@@ -269,7 +280,7 @@ function gfBotUpdate(b, k, dt) {
     if (!tgt && b.fireCd <= 0 && b.arriving <= 0) {
         for (let i = 0; i < gfOrifices.length; i++) {
             const o = gfOrifices[i];
-            if (o.sealed || o.state === "closed") continue;
+            if (o.sealed || o.clamped || o.state === "closed" || !o.site.awake) continue;
             const p = gfOrificePos(o), od = Math.hypot(p.x - b.x, p.y - b.y);
             if (od > GF_WING.range * 1.3 || glBullets.length >= GL_MAX_BULLETS) continue;
             const W = GF_ARMS.blaster, a = Math.atan2(p.y - b.y, p.x - b.x);
@@ -357,7 +368,7 @@ const GF_SCORE = { orifice: 1000, crab: 100, krill: 20, bell: 500, burst: 10, sh
 function gfScoreParts() {
     const won = gfRound.phase === "won";
     const p = [
-        ["Sealed", 3 - gfOrificesLeft(), GF_SCORE.orifice],
+        ["Sealed", gfOrifices.length - gfOrificesLeft(), GF_SCORE.orifice],
         ["Aircrab, clean", gfKills.crab, GF_SCORE.crab],
         ["Airkrill, clean", gfKills.krill, GF_SCORE.krill],
         ["Bellwether, clean", gfKills.bell, GF_SCORE.bell],
@@ -411,21 +422,34 @@ function gfDrawSidebar(c) {
     c.fillText(String(gfScore()), x + W, y);
     y += 30;
 
-    // The three orifices: a mouth each, ringed by what it has left.
-    for (let i = 0; i < gfOrifices.length; i++) {
-        const o = gfOrifices[i], hot = !o.sealed && o.state !== "closed", ox = x + W / 6 + i * W / 3, oy = y + 4;
-        if (o.sealed) {
-            c.strokeStyle = "rgba(255,122,156,0.4)"; c.lineWidth = 2;
-            c.beginPath(); c.moveTo(ox - 7, oy - 7); c.lineTo(ox + 7, oy + 7); c.moveTo(ox + 7, oy - 7); c.lineTo(ox - 7, oy + 7); c.stroke();
-            continue;
+    // The route: a group of mouths per site, in the order you meet them.
+    // Each mouth is ringed by what it has left. The Tide's are barred until
+    // both satellites are freed.
+    {
+        const gap = 12, n = gfOrifices.length, step = (W - gap * (gfSites.length - 1)) / n;
+        let ox = x + step / 2;
+        const here = gfSiteHere();
+        for (let si = 0; si < gfSites.length; si++) {
+            const st = gfSites[si];
+            if (st === here) { c.fillStyle = "rgba(255,255,255,0.08)"; c.fillRect(ox - step / 2 - 2, y - 12, step * st.orifices.length + 4, 32); }
+            for (let i = 0; i < st.orifices.length; i++, ox += step) {
+                const o = st.orifices[i], hot = !o.sealed && !o.clamped && o.state !== "closed", oy = y + 4, r = Math.min(8, step * 0.3);
+                if (o.sealed) {
+                    c.strokeStyle = "rgba(125,255,156,0.6)"; c.lineWidth = 2;
+                    c.beginPath(); c.moveTo(ox - 5, oy - 5); c.lineTo(ox + 5, oy + 5); c.moveTo(ox + 5, oy - 5); c.lineTo(ox - 5, oy + 5); c.stroke();
+                    continue;
+                }
+                c.fillStyle = o.clamped ? "rgba(120,120,120,0.3)" : (hot ? "rgba(255,228,92,0.45)" : "rgba(194,51,90,0.4)");
+                c.beginPath(); c.arc(ox, oy, r, 0, Math.PI * 2); c.fill();
+                c.fillStyle = "#1a0008"; c.beginPath(); c.arc(ox, oy, hot ? r * 0.55 : 1.5, 0, Math.PI * 2); c.fill();
+                c.strokeStyle = "rgba(255,255,255,0.12)"; c.lineWidth = 2.5;
+                c.beginPath(); c.arc(ox, oy, r + 4, 0, Math.PI * 2); c.stroke();
+                c.strokeStyle = o.clamped ? "#8A8A8A" : (hot ? "#FFE45C" : "#FF7A9C");
+                c.beginPath(); c.arc(ox, oy, r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, o.hp / st.oriHp)); c.stroke();
+                if (o.clamped) { c.strokeStyle = "#E8D8C0"; c.lineWidth = 2; c.beginPath(); c.moveTo(ox - r - 3, oy); c.lineTo(ox + r + 3, oy); c.stroke(); }
+            }
+            ox += gap;
         }
-        c.fillStyle = hot ? "rgba(255,228,92,0.45)" : "rgba(194,51,90,0.4)";
-        c.beginPath(); c.arc(ox, oy, 9, 0, Math.PI * 2); c.fill();
-        c.fillStyle = "#1a0008"; c.beginPath(); c.arc(ox, oy, hot ? 5 + Math.sin(gfTime * 10) : 1.5, 0, Math.PI * 2); c.fill();
-        c.strokeStyle = "rgba(255,255,255,0.12)"; c.lineWidth = 3;
-        c.beginPath(); c.arc(ox, oy, 14, 0, Math.PI * 2); c.stroke();
-        c.strokeStyle = hot ? "#FFE45C" : "#FF7A9C";
-        c.beginPath(); c.arc(ox, oy, 14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, o.hp / GF.oriHp)); c.stroke();
     }
     y += 40;
 
@@ -497,11 +521,15 @@ function gfDrawSiteMap(c, x, y, S) {
     c.strokeStyle = "rgba(125,249,255,0.12)";
     c.beginPath(); c.arc(cx, cy, 200 * k, 0, Math.PI * 2); c.stroke();
     // The Tide and its orifices.
-    const t = P(gfHive.x, gfHive.y);
-    c.fillStyle = gfHive.dead ? "rgba(70,30,40,0.8)" : "rgba(150,30,60,0.75)"; c.strokeStyle = "#C2335A";
-    c.beginPath(); c.arc(t.x, t.y, gfHive.r * k, 0, Math.PI * 2); c.fill(); c.stroke();
+    for (let i = 0; i < gfSites.length; i++) {
+        const st = gfSites[i], t = P(st.x, st.y);
+        if (Math.abs(t.x - cx) > S || Math.abs(t.y - cy) > S) continue;
+        c.fillStyle = st.cleared ? "rgba(20,70,80,0.8)" : (st.dead ? "rgba(70,30,40,0.8)" : "rgba(150,30,60,0.75)"); c.strokeStyle = st.cleared ? "#7DF9FF" : "#C2335A";
+        c.beginPath(); c.arc(t.x, t.y, st.r * k, 0, Math.PI * 2); c.fill(); c.stroke();
+    }
     for (let i = 0; i < gfOrifices.length; i++) {
         const o = gfOrifices[i], w = gfOrificePos(o), p = P(w.x, w.y);
+        if (!o.site.awake || o.clamped) continue;
         if (o.sealed) { c.fillStyle = "#3a1018"; c.fillRect(p.x - 2, p.y - 2, 4, 4); continue; }
         const hot = o.state !== "closed";
         c.fillStyle = hot ? "#FFE45C" : "#FF7A9C";
@@ -560,7 +588,19 @@ function gfDrawOrbitMap(c, x, y, W, H) {
     c.font = "9px monospace"; c.textAlign = "center";
     c.strokeStyle = "#7DF9FF"; c.strokeRect(x + pad - 4, my - 4, 8, 8);
 
-    c.fillStyle = gfHive.dead ? "#5a2030" : "#C2335A"; c.beginPath(); c.arc(x + W - pad, my, 7, 0, Math.PI * 2); c.fill();
+    // The stops, in order: satellites as squares, The Tide as the mass at the end.
+    const next = gfNextSite();
+    for (let i = 0; i < gfSites.length; i++) {
+        const st = gfSites[i], q = P(st.x, st.y), qy = Math.max(y + 6, Math.min(y + H - 6, q.y));
+        const col = st.cleared ? "#7DF9FF" : (st.dead ? "#5a2030" : "#FF3B5E");
+        if (st === next && !gfRoundOver()) {
+            c.strokeStyle = "rgba(255,228,92," + (0.5 + 0.5 * Math.sin(gfTime * 6)).toFixed(2) + ")"; c.lineWidth = 1.5;
+            c.beginPath(); c.arc(q.x, qy, 10, 0, Math.PI * 2); c.stroke();
+        }
+        c.fillStyle = col;
+        if (st.kind === "tide") { c.beginPath(); c.arc(q.x, qy, 7, 0, Math.PI * 2); c.fill(); }
+        else c.fillRect(q.x - 4, qy - 4, 8, 8);
+    }
 
     if (s.isAlive) {
         const p = P(s.x, s.y);
@@ -584,6 +624,19 @@ function gfDrawHud(c) {
         c.fillText(gfRound.banner, mid, glH * 0.2);
         c.globalAlpha = 1;
     }
+    // The breath gauge: where the site's breath is, as it reaches you. The
+    // long green stretch is the soft window (shoot); the red is the held,
+    // armoured breath (hold fire, flank); the amber joins are vents open.
+    if (gfBreathNow >= 0 && !gfRoundOver()) {
+        const bw = 280, bx = mid - bw / 2, by = glH - 46, bh = 8, P = GF_PH;
+        c.fillStyle = "rgba(0,0,0,0.6)"; c.fillRect(bx - 2, by - 2, bw + 4, bh + 4);
+        const seg = function (a, b, col) { c.fillStyle = col; c.fillRect(bx + bw * a, by, bw * (b - a) - 1, bh); };
+        const soft = gfBreathNow >= P.exhale;
+        seg(0, P.inhale, "rgba(255,176,0,0.55)"); seg(P.inhale, P.hold, "rgba(255,46,80,0.6)");
+        seg(P.hold, P.exhale, "rgba(255,176,0,0.55)"); seg(P.exhale, 1, soft ? "#7DFF9C" : "rgba(125,255,156,0.4)");
+        const nx = bx + bw * gfBreathNow;
+        c.fillStyle = "#FFFFFF"; c.fillRect(nx - 1.5, by - 5, 3, bh + 10);
+    }
     // Your own ricochet came back: a hard red frame for half a second.
     if (gfRicoFlash > 0 && !gfRoundOver()) {
         c.strokeStyle = "rgba(255,40,40," + Math.min(1, gfRicoFlash * 2).toFixed(3) + ")"; c.lineWidth = 14;
@@ -593,7 +646,7 @@ function gfDrawHud(c) {
     if (gfRound.t < 30 && !gfRoundOver()) {
         c.globalAlpha = Math.min(1, (30 - gfRound.t) / 3) * 0.75;
         c.font = "13px monospace"; c.fillStyle = "#cfe9e6";
-        c.fillText("WASD move  ·  mouse aim  ·  hold click fire  ·  right click seeker  ·  SPACE boost, hold to jump  ·  P pause", mid, glH - 18);
+        c.fillText("WASD move  ·  mouse aim  ·  hold click fire  ·  right click seeker  ·  SPACE boost, hold to jump  ·  P pause", mid, glH - 14);
         c.globalAlpha = 1;
     }
     if (!glShip.isAlive && !gfRoundOver()) {
@@ -606,7 +659,7 @@ function gfDrawHud(c) {
         const won = gfRound.phase === "won";
         c.fillStyle = "rgba(0,0,0," + Math.min(0.8, gfRound.endT * 1.2).toFixed(3) + ")";
         c.fillRect(0, 0, glW, glH);
-        const parts = gfScoreParts(), cx = glW / 2;
+        const parts = gfScoreParts(), cx = glCX;
         let y = Math.max(70, glH / 2 - 190);
         c.font = "64px 'VT323', monospace";
         c.fillStyle = won ? "#7DFF9C" : "#FF2E88";

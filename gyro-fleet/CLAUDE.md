@@ -10,7 +10,7 @@ launched, and crews lead wings of expendable ships against the creature hives.
 ## Where things are
 
 - **New game code is prefixed `gf`/`GF`** and lives in `gf-*.js`:
-  `gf-crabs.js` (creatures, The Tide and its orifices, the round, rupture and ricochet rules), `gf-flesh.js` (how creatures and The Tide are drawn), `gf-wing.js` (wing bots and orders, the siphon capacitor, score, the game sidebar and its maps), `gf-flight.js` (controls, the jump and its ultradrive cues), `gf-view.js` (backdrop, Earth, camera, readability), `gf-arms.js` (weapons, the flown ship's look).
+  `gf-crabs.js` (creatures, The Tide and its orifices, the round, rupture and ricochet rules), `gf-flesh.js` (how creatures and The Tide are drawn), `gf-wing.js` (wing bots and orders, the siphon capacitor, score, the game sidebar and its maps), `gf-flight.js` (controls, the jump and its ultradrive cues), `gf-view.js` (backdrop, Earth, camera, readability), `gf-arms.js` (weapons, the flown ship's look), `gf-sfx.js` (sound cues).
 - **The parameter panel and the engine HUD are hidden in the game.** Open `gyro-fleet.html?dev` to get them and the engine's dev keys (E, H, C, O) back.
 - **The engine is Gyro Lab's, unchanged where possible, and keeps its `gl`/`GL` names**: ship
   flight, gears, fleet/boids (E), autopilot, the vector lens, audio and the mini-map. Its full history
@@ -58,4 +58,6 @@ Launch from the hex bay, jump between 3 sites, crack breathing vents, harvest SI
 | flight (2026-11-13) | `GYRO_FLEET_FLIGHT_PLAN.md` | Right-click thrust, Space jump + auto-brake, Shift strafe, gears gone from Q. Ry played it 11-14: hard to control and read. |
 | flight 2 / 2b (2026-11-14) | same file | WASD + aim + hold fire, slide, Space boost/jump, brake outside pod reach, fight camera, parallax backdrop, trails, reach rings, edge markers. Ry played it. |
 | 3 (2026-11-14) | same file, last section | High Earth orbit (Earth backdrop, mothership home), closer zoom, snappier flight, detailed ship, shaped blaster bolts, seeker missiles, depth dust (`gf-arms.js`). Ry played it 11-15: slow, low detail, endless, not compelling. |
-| flood (2026-11-15) | `GYRO_FLEET_FLOOD_PLAN.md` | The Tide with three orifices, a round that ends with a score, faster ship and shots, slow-turning creatures, ruptures and live ricochets, siphon capacitor, wing with FOLLOW / HUNT, fleshy creatures, game sidebar with maps, ultradrive cues on the jump and on bots. **Not yet human-played.** |
+| flood (2026-11-15) | `GYRO_FLEET_FLOOD_PLAN.md` | The Tide with three orifices, a round that ends with a score, faster ship and shots, slow-turning creatures, ruptures and live ricochets, siphon capacitor, wing with FOLLOW / HUNT, fleshy creatures, game sidebar with maps, ultradrive cues on the jump and on bots. Ry played it: "massive improvement", too easy. |
+| flood 2 (2026-11-15) | same file | Harder, fuse + shards + frenzy on ruptures, ricochets return to the shooter, `gf-sfx.js`, no text labels, slim sidebar. Ry played it: "a good foundation". |
+| flood 3 (2026-11-15) | same file | Bolt streak and spool streak fixes, ONE breath per site with a gauge, Bellwether kill winds its brood, three sites (RELAY, DRYDOCK, THE TIDE) with The Tide clamped until both satellites are freed, boons per satellite, 8:00 clock. **Not yet human-played.** |
