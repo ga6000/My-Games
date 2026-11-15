@@ -34,3 +34,19 @@ Sites 1 and 2 and the trip between them, classes and class weapons, the hex bay,
 ## Checks
 
 `node scripts/check-undefined-globals.js` and `check-global-collisions.js` pass. Headless Chromium run: no page errors, a round driven to the win card, jump and bot drop-in exercised.
+
+## Flood pass 2 (2026-11-15, after Ry's first playtest of it)
+
+Ry: "Massive improvement." Too easy; ruptures and ricochets not punishing or noticed (too easy to wipe a flood from afar); wants sound for orifices and ruptures; labels cheesy; sidebar simpler; airkrill hard to see; the ultradrive beam lagged the ship and the dust read as spinning lines; raise the challenge but stay clear of "Zombie in space".
+
+| Ask | Built |
+|---|---|
+| Harder | Airkrill dive 36 u/s (was 24) and bite for 5. Broods 4 aircrabs + 12 airkrill (was 3 + 8), cap 85 alive. Orifices 60 hp (was 36), shut 15 s (was 22). Blaster reach about 90 units (was 115). |
+| Ruptures punish | A body at full pressure now has a 0.55 s FUSE (strobe, whine) and then throws bone SHARDS all round (10 from an aircrab, 20 from a Bellwether, 8 hull each, about 85 units of reach). The scream FRENZIES every creature within 90 units for 5 s: 45% faster, turning harder, hunting from any range. Soft bodies only die in the inner 60% of the blast. |
+| Ricochets noticed | A bolt off armour comes BACK at whoever fired it (7 hull, about 80 units), drawn as a fat red bolt, with a ping on the bounce and a zap plus a red frame when it lands. Keep moving and it passes behind you. |
+| Not Zombie in space | The added pressure comes from the rules that are this game's own (breath, flanking, pressure, the orifice windows, the clock), not from a bigger horde alone: a careless shot now makes the fight worse. |
+| Sound | `gf-sfx.js`: orifice swell and open, births, seal, armour strain that climbs with pressure, fuse, rupture, frenzy screech, ricochet ping and zap, clean-kill pop, siphon pickup, a Bellwether toll on each inhale, tendril alarm, hull hit, order change, deny, mend, win and lose. |
+| Labels | No words on creatures or orifices. An orifice wears a ring (countdown while shut, what it has left while it can be hurt). Target arrows have no text; one that can be hurt pulses yellow. Banners and the end card are terse. |
+| Sidebar | 220 px, no sentences: clock, score, three orifice icons, hull, siphon with R and G key caps, wing pips with the F order toggle, the two maps. Keys show along the bottom for the first 30 seconds. |
+| Airkrill clarity | Larger, a dark keyline and a glow (hot while they can bite), lighter body and tail. |
+| Beam and dust | The beam is closed to the ship's drawn position each frame (it was a frame of jump travel behind). Dust specks are dots at flying speed and only streak under boost or jump; all three layers now move slower than the play plane. Warp streaks follow the jump line, and the spool only hints at them. |

@@ -122,7 +122,7 @@ function gfSpaceSet(down) {
     else if (!down && gfFlight.space) {
         gfFlight.space = false;
         if (gfFlight.jump === "spool") gfSpoolCancel();
-        else if (gfFlight.jump === "burst") gfDropOut("DROP OUT", null);
+        else if (gfFlight.jump === "burst") gfDropOut("", null);
     }
     gfFlightMirrorGear();
 }
@@ -227,7 +227,7 @@ function gfFlightSpeedMul(s, dt) {
                     s.x += ux * k; s.y += uy * k;
                 }
                 s.angle = Math.atan2(f.y - s.y, f.x - s.x);
-                gfDropOut("DROPPING OUT · " + f.name, f);
+                gfDropOut("CONTACT", f);
                 return 1;
             }
         }
@@ -280,9 +280,8 @@ function gfFlightOverlay(c) {
         c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x + Math.cos(a) * L, p.y + Math.sin(a) * L); c.stroke();
     }
     let label = "", col = "#7DF9FF";
-    if (gfFlight.jump === "spool") label = "JUMP " + Math.min(100, Math.round(gfFlight.spoolT / GF_FLIGHT.spoolTime * 100)) + "%";
-    else if (gfFlight.jump === "burst") { label = "JUMP"; col = "#FFFFFF"; }
-    else if (gfFlight.dropT > 0) { label = gfFlight.dropMsg; col = "#FFB000"; }
+    // (No "JUMP 84%" text: the ring round the ship and the glyph say it.)
+    if (gfFlight.dropT > 0) { label = gfFlight.dropMsg; col = "#FFB000"; }
     if (label) {
         c.font = "18px 'VT323', monospace";
         c.textAlign = "center";

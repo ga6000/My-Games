@@ -211,7 +211,9 @@ function glUltraFrame(dt, paused) {
 
     // Warp: 1x → W over the charge (squared, so it starts subtle and then
     // climbs), held at W in the drive, eased back to 1 after.
-    if (state === "charging") glUltraWarp = 1 + (W - 1) * f * f;
+    // (Gyro Fleet: the spool only hints at the warp, a quarter of full; a
+    // screen of full-length streaks before you had moved read as noise.)
+    if (state === "charging") glUltraWarp = 1 + ((gj ? W * 0.25 : W) - 1) * f * f;
     else if (state === "active") glUltraWarp = W;
     else if (glUltraWarp > 1) {
         glUltraWarp = 1 + (glUltraWarp - 1) * Math.exp(-dt * 2.5);
@@ -336,6 +338,11 @@ function glDrawUltraBeam(c) {
         const pulse = 1 + 0.12 * Math.sin(glUltraClock * 23) + 0.06 * Math.sin(glUltraClock * 57);
         const pts = [];
         for (let i = 0; i < P.length; i += 2) pts.push(glWorldToScreenRaw(P[i], P[i + 1]));
+        // Gyro Fleet: the jump pushes its points BEFORE the ship moves that
+        // frame, so at 10,000 u/s the beam ended a whole frame's travel behind
+        // the hull (Ry, 2026-11-15: "the light beam is lagging behind the
+        // player"). Close the gap with the ship's position as drawn.
+        if (gfUltraCue() && gfUltraCue().state === "active") pts.push(glWorldToScreenRaw(glShip.x, glShip.y));
         // The newest point is pulled back to the ship's tail, so the beam leaves
         // FROM the ship instead of swallowing it.
         if (glShip.ultraState === "active" || gfUltraCue()) {
@@ -380,7 +387,10 @@ function glDrawUltraBeam(c) {
 // and thick stars) — 6,000 separate strokes would be the whole frame.
 function glDrawWarpStars(c) {
     const W = glUltraWarp, k = 1.3 * W;
-    const ux = Math.cos(glShip.angle), uy = Math.sin(glShip.angle);
+    // Gyro Fleet: streak along the JUMP line (the aim while spooling, the locked
+    // heading in the beam), not along the hull, which is still swinging round.
+    const wa = gfFlight.jump === "burst" ? gfFlight.heading : (gfFlight.jump === "spool" ? gfAimAngle() : glShip.angle);
+    const ux = Math.cos(wa), uy = Math.sin(wa);
     const hot = Math.min(1, (W - 1) / 30);   // tints toward blue-white as it builds
     c.save();
     c.lineCap = "round";

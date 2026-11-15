@@ -95,18 +95,26 @@ const GF_HUES = {
 
 function gfDrawKrill(c, cr, R) {
     const soft = !cr.b.armour, t = gfTime * 14 + cr.seed;
+    // Seen first, drawn second: a dark keyline so it never melts into the
+    // nebula, and a glow that is hot white-violet while it can bite (soft and
+    // diving) and dim while it is armoured and circling.
+    c.fillStyle = "rgba(0,0,0,0.55)";
+    c.beginPath(); c.arc(0, 0, R * 1.55, 0, Math.PI * 2); c.fill();
+    const hg = c.createRadialGradient(0, 0, R * 0.6, 0, 0, R * 2.6);
+    hg.addColorStop(0, soft ? "rgba(255,120,255,0.55)" : "rgba(201,162,255,0.28)"); hg.addColorStop(1, "rgba(201,162,255,0)");
+    c.fillStyle = hg; c.beginPath(); c.arc(0, 0, R * 2.6, 0, Math.PI * 2); c.fill();
     // Barbed tail.
-    c.strokeStyle = "#8A5CE0"; c.lineWidth = Math.max(1, R * 0.25); c.lineCap = "round";
+    c.strokeStyle = "#D9BEFF"; c.lineWidth = Math.max(1.5, R * 0.28); c.lineCap = "round";
     c.beginPath(); c.moveTo(-R * 0.8, 0);
     c.quadraticCurveTo(-R * 1.8, Math.sin(t) * R * 0.8, -R * 2.6, Math.sin(t + 1) * R * 0.6); c.stroke();
     // Bladder.
     const g = c.createRadialGradient(-R * 0.2, -R * 0.3, R * 0.1, 0, 0, R);
     if (cr.flash > 0) { g.addColorStop(0, "#fff"); g.addColorStop(1, "#fff"); }
-    else if (soft) { g.addColorStop(0, "#9A6CF0"); g.addColorStop(1, "#3A1470"); }
-    else { g.addColorStop(0, "rgba(240,225,255,0.95)"); g.addColorStop(0.6, "rgba(185,140,255,0.85)"); g.addColorStop(1, "rgba(80,40,150,0.9)"); }
+    else if (soft) { g.addColorStop(0, "#FFB8FF"); g.addColorStop(0.6, "#C060F0"); g.addColorStop(1, "#5A1890"); }
+    else { g.addColorStop(0, "#FFFFFF"); g.addColorStop(0.55, "#D9BEFF"); g.addColorStop(1, "#7A50D0"); }
     c.fillStyle = g;
     gfLumps(c, R, soft ? 0.2 : 0.05, t * 0.4, 12, soft ? 0.7 : 0.95); c.fill();
-    c.strokeStyle = soft ? "#2A0A50" : "#E6D4FF"; c.lineWidth = 1; c.stroke();
+    c.strokeStyle = soft ? "#FFE0FF" : "#FFFFFF"; c.lineWidth = 1.5; c.stroke();
     if (R < 4) return;
     // Pincers and a dark eye.
     c.strokeStyle = "#E6D4FF"; c.lineWidth = Math.max(1, R * 0.16);
@@ -140,6 +148,13 @@ function gfDrawCreature(c, cr, z) {
     if (cr.kind === "krill") { gfDrawKrill(c, cr, R); c.restore(); return; }
 
     const hue = GF_HUES[cr.kind], soft = !cr.b.armour, sw = cr.b.swell, bell = cr.kind === "bell";
+    // About to burst: the whole body strobes white inside its blast ring.
+    if (cr.ruptT > 0) {
+        const on = Math.floor(gfTime * 24) % 2;
+        c.fillStyle = on ? "rgba(255,255,255,0.55)" : "rgba(255,120,40,0.35)";
+        c.beginPath(); c.arc(0, 0, k.blast * z, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = "#FFFFFF"; c.lineWidth = 3; c.stroke();
+    }
     // Blast warning: once pressure is past a third, the ring it will burst to.
     if (cr.press > 0.33 && k.blast) {
         c.strokeStyle = "rgba(255,150,80," + (0.25 + 0.6 * cr.press).toFixed(2) + ")"; c.lineWidth = 1 + 2 * cr.press;
@@ -217,6 +232,11 @@ function gfDrawCreature(c, cr, z) {
             c.beginPath(); c.moveTo(vx + Math.cos(a) * r0, Math.sin(a) * r0); c.lineTo(vx + Math.cos(a) * r1, Math.sin(a) * r1); c.stroke();
         }
     }
+    // Frenzied by a rupture: burning eyes at the mouth.
+    if (cr.frenzy > 0) {
+        c.fillStyle = "#FFEE66";
+        for (let s = -1; s <= 1; s += 2) { c.beginPath(); c.arc(R * 0.7, s * R * 0.2, Math.max(1.5, R * 0.07), 0, Math.PI * 2); c.fill(); }
+    }
     c.restore();
 
     // The lash: the tell, the reach, the hold (screen space, to the ship).
@@ -235,9 +255,21 @@ function gfDrawCreature(c, cr, z) {
     }
 }
 
-// ---- rupture rings ----
+// ---- rupture rings and the shards they throw ----
 function gfDrawBlasts(c, z) {
     c.save();
+    c.lineCap = "round";
+    for (let i = 0; i < gfSpines.length; i++) {
+        const sp = gfSpines[i], p = glWorldToScreenRaw(sp.x, sp.y);
+        if (!gfOnScreen(p, 30)) continue;
+        const m = Math.hypot(sp.vx, sp.vy) || 1, L = Math.max(10, 2.2 * z), ux = sp.vx / m, uy = sp.vy / m;
+        const fade = Math.min(1, (GF_SPINE.life - sp.t) * 3);
+        c.globalAlpha = 0.45 * fade; c.strokeStyle = "#FF3B3B"; c.lineWidth = 6;
+        c.beginPath(); c.moveTo(p.x - ux * L, p.y - uy * L); c.lineTo(p.x, p.y); c.stroke();
+        c.globalAlpha = fade; c.strokeStyle = "#FFF3E0"; c.lineWidth = 2.2;
+        c.beginPath(); c.moveTo(p.x - ux * L * 0.8, p.y - uy * L * 0.8); c.lineTo(p.x + ux * 3, p.y + uy * 3); c.stroke();
+    }
+    c.globalAlpha = 1;
     for (let i = 0; i < gfBlasts.length; i++) {
         const b = gfBlasts[i], p = glWorldToScreenRaw(b.x, b.y), k = b.t / 0.6, R = b.r * z;
         if (!gfOnScreen(p, R + 20)) continue;
