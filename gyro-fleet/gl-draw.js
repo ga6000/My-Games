@@ -491,9 +491,10 @@ function glDrawNav(c) {
         const ax = glCX + dx * k, ay = glCY + dy * k, a = Math.atan2(dy, dx);
         c.fillStyle = t.col;
         c.beginPath();
-        c.moveTo(ax + Math.cos(a) * 9, ay + Math.sin(a) * 9);
-        c.lineTo(ax + Math.cos(a + 2.5) * 7, ay + Math.sin(a + 2.5) * 7);
-        c.lineTo(ax + Math.cos(a - 2.5) * 7, ay + Math.sin(a - 2.5) * 7);
+        const nk = t.big ? 1.7 + 0.3 * Math.sin(gfTime * 10) : 1.15;   // Gyro Fleet: a target that can be hurt pulses
+        c.moveTo(ax + Math.cos(a) * 9 * nk, ay + Math.sin(a) * 9 * nk);
+        c.lineTo(ax + Math.cos(a + 2.5) * 7 * nk, ay + Math.sin(a + 2.5) * 7 * nk);
+        c.lineTo(ax + Math.cos(a - 2.5) * 7 * nk, ay + Math.sin(a - 2.5) * 7 * nk);
         c.closePath();
         c.fill();
         const label = t.name;   // (Gyro Fleet: no km readout; the ORBIT map shows how far)

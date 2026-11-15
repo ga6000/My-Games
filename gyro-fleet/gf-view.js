@@ -145,8 +145,10 @@ function gfDrawViewWorld(c, z) {
     // Each speck twinkles a little; streaks only grow with real speed.
     while (gfDust.length < GF_VIEW.dustN) {
         const layer = gfDust.length % 3;
-        gfDust.push({ x: Math.random() * glW, y: Math.random() * glH, f: [0.5, 1, 1.6][layer], w: [0.8, 1.2, 1.8][layer],
-                      al: [0.18, 0.3, 0.5][layer], ph: Math.random() * 6.28 });
+        // All three sit BEHIND the play plane (parallax under 1): dust that
+        // outran the creatures (1.6x) read as a sheet sliding over the fight.
+        gfDust.push({ x: Math.random() * glW, y: Math.random() * glH, f: [0.2, 0.42, 0.7][layer], w: [0.9, 1.3, 1.9][layer],
+                      al: [0.2, 0.32, 0.5][layer], ph: Math.random() * 6.28 });
     }
     const cvx = gfViewCamV.x * z, cvy = gfViewCamV.y * z;
     for (let i = 0; i < gfDust.length; i++) {
@@ -154,10 +156,15 @@ function gfDrawViewWorld(c, z) {
         const vx = cvx * d.f, vy = cvy * d.f;
         d.x = ((d.x - vx) % glW + glW) % glW;
         d.y = ((d.y - vy) % glH + glH) % glH;
-        const L = Math.hypot(vx, vy) * 3, k = L > 140 ? 140 / L : 1;
+        // A speck is a DOT at flying speed and only draws out into a streak
+        // above it (boost a little, the jump a lot). It used to be three
+        // frames of motion at any speed, so a tight turn showed a screenful of
+        // lines all swinging together (Ry, 2026-11-15: "a bunch of spinning lines").
+        const sp = Math.hypot(vx, vy), over = Math.max(0, sp - 8);
+        const L = Math.min(120, over * 1.6), ux = sp > 0 ? vx / sp : 0, uy = sp > 0 ? vy / sp : 0;
         c.globalAlpha = d.al * (0.75 + 0.25 * Math.sin(gfTime * 2 + d.ph));
-        c.strokeStyle = d.f > 1.2 ? "#E6FFF5" : "#9FC9C0"; c.lineWidth = d.w; c.lineCap = "round";
-        c.beginPath(); c.moveTo(d.x, d.y); c.lineTo(d.x - vx * 3 * k + 0.01, d.y - vy * 3 * k + 0.01); c.stroke();
+        c.strokeStyle = d.f > 0.6 ? "#E6FFF5" : "#9FC9C0"; c.lineWidth = d.w; c.lineCap = "round";
+        c.beginPath(); c.moveTo(d.x, d.y); c.lineTo(d.x - ux * L + 0.01, d.y - uy * L + 0.01); c.stroke();
     }
     c.globalAlpha = 1; c.lineCap = "butt";
 

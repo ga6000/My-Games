@@ -24,7 +24,7 @@
 "use strict";
 
 const GF_ARMS = {
-    blaster: { rate: 8, speed: 3.4, life: 34, jitter: 0.03, barrel: 4, col: "#FFB000", core: "#FFF6D8" },
+    blaster: { rate: 8, speed: 3.4, life: 27, jitter: 0.03, barrel: 4, col: "#FFB000", core: "#FFF6D8" },
     seeker:  { charges: 3, recharge: 5, speed0: 1.2, speedMax: 2.6, accel: 0.06, turn: 0.11, life: 150, dmg: 3,
                lockR: 320, col: "#FF5BD1" }
 };
@@ -48,7 +48,7 @@ function gfFireBlaster(s) {
     const px = s.x + Math.cos(a + Math.PI / 2) * off, py = s.y + Math.sin(a + Math.PI / 2) * off;
     if (glBullets.length >= GL_MAX_BULLETS) return;
     glBullets.push({ x: px, y: py, vx: Math.cos(a) * W.speed + s.vx, vy: Math.sin(a) * W.speed + s.vy,
-                     life: W.life, size: 2, color: W.col, gf: "bolt" });
+                     life: W.life, size: 2, color: W.col, gf: "bolt", owner: s });
     glAudioShot();
     gfMuzzle.t = 0.06; gfMuzzle.a = a;
 }
@@ -142,12 +142,12 @@ function gfDrawArmsWorld(c, z) {
         const p = glWorldToScreenRaw(b.x, b.y);
         if (p.x < -30 || p.y < -30 || p.x > glW + 30 || p.y > glH + 30) continue;
         const rvx = b.vx - gfViewCamV.x, rvy = b.vy - gfViewCamV.y;
-        const rl = Math.hypot(rvx, rvy) || 1, L = b.gfBounced ? 8 : 20;
+        const rl = Math.hypot(rvx, rvy) || 1, L = b.gfBounced ? 26 : 20;
         const tx = p.x - rvx / rl * L, ty = p.y - rvy / rl * L;
         const fade = Math.min(1, b.life / 20);
-        c.globalAlpha = 0.35 * fade; c.strokeStyle = b.gfBounced ? "#FF5A3C" : (b.bot ? "#7DF9FF" : W.col); c.lineWidth = 5;
+        c.globalAlpha = (b.gfBounced ? 0.6 : 0.35) * fade; c.strokeStyle = b.gfBounced ? "#FF2A2A" : (b.bot ? "#7DF9FF" : W.col); c.lineWidth = b.gfBounced ? 8 : 5;
         c.beginPath(); c.moveTo(tx, ty); c.lineTo(p.x, p.y); c.stroke();
-        c.globalAlpha = fade; c.strokeStyle = b.gfBounced ? "#FFD0B0" : W.core; c.lineWidth = 1.6;
+        c.globalAlpha = fade; c.strokeStyle = b.gfBounced ? "#FFFFFF" : W.core; c.lineWidth = b.gfBounced ? 2.4 : 1.6;
         c.beginPath(); c.moveTo(tx, ty); c.lineTo(p.x, p.y); c.stroke();
     }
     c.globalAlpha = 1;

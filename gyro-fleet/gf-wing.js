@@ -65,11 +65,11 @@ function gfWingKey(code) {
     if (gfRoundOver()) { if (code === "Enter") location.reload(); return; }
     if (code === "KeyF") {
         gfWingOrder = gfWingOrder === "follow" ? "hunt" : "follow";
-        gfBanner("WING: " + (gfWingOrder === "follow" ? "FOLLOW · hold formation, careful fire" : "HUNT · break off, fire at will"), 2.2);
+        gfBanner(gfWingOrder === "follow" ? "FOLLOW" : "HUNT", 1.4);
+        gfSfx("order", gfWingOrder === "hunt" ? 1 : 0);
     } else if (code === "KeyR") {
         if (!glShip.isAlive) return;
-        if (gfWingAlive() >= GF_WING.max) { gfBanner("WING FULL", 1.2); gfCap.deny = 0.4; }
-        else if (gfCap.charge < GF_WING.callCost) { gfBanner("NOT ENOUGH SIPHON", 1.2); gfCap.deny = 0.4; }
+        if (gfWingAlive() >= GF_WING.max || gfCap.charge < GF_WING.callCost) { gfCap.deny = 0.4; gfSfx("deny"); }
         else {
             gfCap.charge -= GF_WING.callCost;
             // Ultradrives in from the mothership: lock-on ticks, then the beam,
@@ -77,11 +77,12 @@ function gfWingKey(code) {
             const b = gfMakeBot(glShip.x, glShip.y);
             b.warp = { t: -0.7, a: Math.atan2(glShip.y - gfHome.y, glShip.x - gfHome.x), ticks: 0 };
             gfWing.push(b);
-            gfBanner("BOT LOCKING ON", 1.2);
+
         }
     } else if (code === "KeyG") {
         if (!glShip.isAlive) return;
-        if (gfCap.charge < 5 || gfHull >= GF.hull) { gfCap.deny = 0.4; return; }
+        if (gfCap.charge < 5 || gfHull >= GF.hull) { gfCap.deny = 0.4; gfSfx("deny"); return; }
+        gfSfx("mend");
         const want = (GF.hull - gfHull) / GF_WING.mendPer, use = Math.min(gfCap.charge, want);
         gfHull = Math.min(GF.hull, gfHull + use * GF_WING.mendPer);
         gfCap.charge -= use;
@@ -159,6 +160,7 @@ function gfWingUpdate(dt) {
         m.x += m.vx * dt; m.y += m.vy * dt;
         if (s.isAlive && d < 2.2) {
             gfCap.charge = Math.min(GF_WING.cap, gfCap.charge + m.v);
+            gfSfx("mote", gfCap.charge / GF_WING.cap);
             gfCap.sinceGain = 0;
             gfCap.flash = 0.25;
             gfMotes.splice(i, 1);
@@ -259,7 +261,7 @@ function gfBotUpdate(b, k, dt) {
             const tt = td / (W.speed * 60);
             const a = Math.atan2(tgt.y + tgt.vy * tt - b.y, tgt.x + tgt.vx * tt - b.x) + (Math.random() - 0.5) * 0.08;
             glBullets.push({ x: b.x, y: b.y, vx: Math.cos(a) * W.speed, vy: Math.sin(a) * W.speed, life: W.life, size: 2,
-                             color: "#7DF9FF", gf: "bolt", bot: true });
+                             color: "#7DF9FF", gf: "bolt", bot: true, owner: b });
             b.fireCd = 1 / GF_WING.fireRate;
         }
     }
@@ -273,7 +275,7 @@ function gfBotUpdate(b, k, dt) {
             const W = GF_ARMS.blaster, a = Math.atan2(p.y - b.y, p.x - b.x);
             b.angle = a;
             glBullets.push({ x: b.x, y: b.y, vx: Math.cos(a) * W.speed, vy: Math.sin(a) * W.speed, life: W.life, size: 2,
-                             color: "#7DF9FF", gf: "bolt", bot: true });
+                             color: "#7DF9FF", gf: "bolt", bot: true, owner: b });
             b.fireCd = 1 / GF_WING.fireRate;
             break;
         }
@@ -355,16 +357,16 @@ const GF_SCORE = { orifice: 1000, crab: 100, krill: 20, bell: 500, burst: 10, sh
 function gfScoreParts() {
     const won = gfRound.phase === "won";
     const p = [
-        ["Orifices sealed", 3 - gfOrificesLeft(), GF_SCORE.orifice],
-        ["Aircrabs, clean", gfKills.crab, GF_SCORE.crab],
+        ["Sealed", 3 - gfOrificesLeft(), GF_SCORE.orifice],
+        ["Aircrab, clean", gfKills.crab, GF_SCORE.crab],
         ["Airkrill, clean", gfKills.krill, GF_SCORE.krill],
-        ["Bellwethers, clean", gfKills.bell, GF_SCORE.bell],
-        ["Burst in ruptures", gfKills.burst, GF_SCORE.burst]
+        ["Bellwether, clean", gfKills.bell, GF_SCORE.bell],
+        ["Burst", gfKills.burst, GF_SCORE.burst]
     ];
     if (won) {
-        p.push(["Ships left", gfRound.ships, GF_SCORE.ship]);
-        p.push(["Wing bots alive", gfWingAlive(), GF_SCORE.bot]);
-        p.push(["Seconds to spare", Math.floor(Math.max(0, GF.clock - gfRound.t)), GF_SCORE.second]);
+        p.push(["Ships", gfRound.ships, GF_SCORE.ship]);
+        p.push(["Wing", gfWingAlive(), GF_SCORE.bot]);
+        p.push(["Time", Math.floor(Math.max(0, GF.clock - gfRound.t)), GF_SCORE.second]);
     }
     return p;
 }
@@ -375,140 +377,113 @@ function gfScore() {
 }
 
 // ---- drawing: the game sidebar (screen space, from gfDrawOverlay) ----
-// Replaces the engine's parameter panel (Ry, 2026-11-15). Everything the
-// round runs on is here: the clock, the orifices, hull, the siphon capacitor,
-// the wing and its order, the score, and two maps for the sense of direction.
-const GF_SIDE_W = 270;
+// Replaces the engine's parameter panel (Ry, 2026-11-15). Simplified after
+// the first playtest: no sentences, one row per thing. Clock and score, the
+// three orifices, hull, the siphon capacitor with its two spends, the wing
+// with its order, and the two maps.
+const GF_SIDE_W = 220;
 
 function gfBar(c, x, y, w, h, k, col) {
     c.fillStyle = "rgba(0,0,0,0.6)"; c.fillRect(x - 1, y - 1, w + 2, h + 2);
     c.fillStyle = col; c.fillRect(x, y, w * Math.max(0, Math.min(1, k)), h);
     c.strokeStyle = "rgba(201,255,233,0.45)"; c.lineWidth = 1; c.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
 }
-function gfSideHead(c, x, y, w, label) {
-    c.font = "12px monospace"; c.textAlign = "left"; c.fillStyle = "#7DF9FF";
-    c.fillText(label, x, y);
-    c.fillStyle = "rgba(125,249,255,0.2)"; c.fillRect(x, y + 4, w, 1);
+// A key cap: lit when the key would do something right now.
+function gfKeyCap(c, x, y, key, on, col) {
+    c.fillStyle = on ? col : "rgba(255,255,255,0.06)"; c.fillRect(x, y, 18, 18);
+    c.strokeStyle = on ? col : "rgba(255,255,255,0.25)"; c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, 17, 17);
+    c.font = "bold 12px monospace"; c.textAlign = "center"; c.fillStyle = on ? "#001014" : "rgba(255,255,255,0.4)";
+    c.fillText(key, x + 9, y + 13);
 }
 
 function gfDrawSidebar(c) {
     const X0 = glW - GF_SIDE_W, x = X0 + 14, W = GF_SIDE_W - 28;
-    c.fillStyle = "rgba(2,6,10,0.86)"; c.fillRect(X0, 0, GF_SIDE_W, glH);
-    c.fillStyle = "rgba(125,249,255,0.3)"; c.fillRect(X0, 0, 1, glH);
-    let y = 26;
+    c.fillStyle = "rgba(2,6,10,0.82)"; c.fillRect(X0, 0, GF_SIDE_W, glH);
+    c.fillStyle = "rgba(125,249,255,0.25)"; c.fillRect(X0, 0, 1, glH);
+    let y = 30;
 
-    // Clock, objective, score.
+    // Clock and score.
     const left = Math.max(0, GF.clock - gfRound.t), mm = Math.floor(left / 60), ss = Math.floor(left % 60);
-    c.font = "30px 'VT323', monospace"; c.textAlign = "left";
+    c.font = "32px 'VT323', monospace"; c.textAlign = "left";
     c.fillStyle = left < 60 ? "#FF2E88" : "#E8FFF4";
-    c.fillText(mm + ":" + (ss < 10 ? "0" : "") + ss, x, y + 4);
+    c.fillText(mm + ":" + (ss < 10 ? "0" : "") + ss, x, y);
     c.textAlign = "right"; c.fillStyle = "#FFE45C";
-    c.fillText(String(gfScore()), x + W, y + 4);
-    c.font = "11px monospace"; c.fillStyle = "#6d8582";
-    c.fillText("SCORE", x + W, y + 18); c.textAlign = "left"; c.fillText("TIME LEFT", x, y + 18);
-    y += 42;
+    c.fillText(String(gfScore()), x + W, y);
+    y += 30;
 
-    // The Tide's orifices.
-    gfSideHead(c, x, y, W, gfRound.phase === "flood" ? "THE FLOOD · " + gfCreatures.length + " LEFT" : "THE TIDE · SEAL 3 ORIFICES");
-    y += 20;
+    // The three orifices: a mouth each, ringed by what it has left.
     for (let i = 0; i < gfOrifices.length; i++) {
-        const o = gfOrifices[i], hot = !o.sealed && o.state !== "closed";
-        c.lineWidth = 2;
+        const o = gfOrifices[i], hot = !o.sealed && o.state !== "closed", ox = x + W / 6 + i * W / 3, oy = y + 4;
         if (o.sealed) {
-            c.strokeStyle = "rgba(255,122,156,0.45)";
-            c.beginPath(); c.moveTo(x + 2, y - 9); c.lineTo(x + 12, y + 1); c.moveTo(x + 12, y - 9); c.lineTo(x + 2, y + 1); c.stroke();
-        } else {
-            c.strokeStyle = hot ? "#FFE45C" : "#FF7A9C";
-            c.fillStyle = hot ? "rgba(255,228,92,0.5)" : "rgba(194,51,90,0.4)";
-            c.beginPath(); c.arc(x + 7, y - 4, hot ? 7 : 5.5, 0, Math.PI * 2); c.fill(); c.stroke();
-            c.fillStyle = "#1a0008"; c.beginPath(); c.arc(x + 7, y - 4, hot ? 3.5 : 1.2, 0, Math.PI * 2); c.fill();
+            c.strokeStyle = "rgba(255,122,156,0.4)"; c.lineWidth = 2;
+            c.beginPath(); c.moveTo(ox - 7, oy - 7); c.lineTo(ox + 7, oy + 7); c.moveTo(ox + 7, oy - 7); c.lineTo(ox - 7, oy + 7); c.stroke();
+            continue;
         }
-        c.font = "12px monospace"; c.textAlign = "left";
-        c.fillStyle = o.sealed ? "#6d8582" : (hot ? "#FFE45C" : "#cfe9e6");
-        c.fillText(o.sealed ? "sealed" : o.state === "swell" ? "SWELLING" : o.state === "open" ? "OPEN" : "shut " + Math.ceil(o.t) + "s", x + 22, y);
-        if (!o.sealed) gfBar(c, x + 110, y - 8, W - 110, 7, o.hp / GF.oriHp, "#FF3B5E");
-        y += 19;
+        c.fillStyle = hot ? "rgba(255,228,92,0.45)" : "rgba(194,51,90,0.4)";
+        c.beginPath(); c.arc(ox, oy, 9, 0, Math.PI * 2); c.fill();
+        c.fillStyle = "#1a0008"; c.beginPath(); c.arc(ox, oy, hot ? 5 + Math.sin(gfTime * 10) : 1.5, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = "rgba(255,255,255,0.12)"; c.lineWidth = 3;
+        c.beginPath(); c.arc(ox, oy, 14, 0, Math.PI * 2); c.stroke();
+        c.strokeStyle = hot ? "#FFE45C" : "#FF7A9C";
+        c.beginPath(); c.arc(ox, oy, 14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, o.hp / GF.oriHp)); c.stroke();
     }
-    y += 10;
+    y += 40;
 
-    // Hull and ships.
-    gfSideHead(c, x, y, W, "HULL"); y += 12;
+    // Hull, with the ships left as pips.
     const hcol = gfHull > 60 ? "#7DF9FF" : (gfHull > 25 ? "#FFB000" : "#FF2E88");
-    gfBar(c, x, y, W - 70, 11, gfHull / GF.hull, hcol);
-    c.font = "12px monospace"; c.textAlign = "right"; c.fillStyle = "#cfe9e6";
+    c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = "#6d8582"; c.fillText("HULL", x, y);
+    c.textAlign = "right"; c.fillStyle = "#cfe9e6";
     let ships = "";
     for (let i = 0; i < GF.ships; i++) ships += i < gfRound.ships ? "▲" : "△";
-    c.fillText(ships, x + W, y + 10);
-    y += 34;
+    c.fillText(ships, x + W, y);
+    gfBar(c, x, y + 6, W, 10, gfHull / GF.hull, hcol);
+    y += 40;
 
     // Siphon capacitor: leaks, so it drains by itself. A notch per bot call.
     const leaking = gfCap.sinceGain > GF_WING.leakAfter && gfCap.charge > 0;
-    gfSideHead(c, x, y, W, "SIPHON CAPACITOR" + (leaking ? " · LEAKING" : "")); y += 12;
+    c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = leaking ? "#FFB000" : "#6d8582";
+    c.fillText(leaking ? "SIPHON  leaking" : "SIPHON", x, y);
     const ccol = gfCap.deny > 0 ? "#FF2E88" : (gfCap.flash > 0 ? "#FFFFFF" : (leaking ? "#4FAE6A" : "#7DFF9C"));
-    gfBar(c, x, y, W, 13, gfCap.charge / GF_WING.cap, ccol);
+    gfBar(c, x, y + 6, W, 12, gfCap.charge / GF_WING.cap, ccol);
     c.fillStyle = "rgba(0,0,0,0.8)";
-    for (let i = 1; i * GF_WING.callCost < GF_WING.cap; i++) c.fillRect(x + W * i * GF_WING.callCost / GF_WING.cap, y, 1.5, 13);
-    y += 28;
+    for (let i = 1; i * GF_WING.callCost < GF_WING.cap; i++) c.fillRect(x + W * i * GF_WING.callCost / GF_WING.cap, y + 6, 1.5, 12);
+    y += 26;
     const canCall = gfCap.charge >= GF_WING.callCost && gfWingAlive() < GF_WING.max;
     const canMend = gfCap.charge >= 5 && gfHull < GF.hull;
-    c.font = "12px monospace"; c.textAlign = "left";
-    c.fillStyle = canCall ? "#7DFF9C" : "#4a5f5c";
-    c.fillText("[R] call a bot · " + GF_WING.callCost, x, y);
-    c.fillStyle = canMend ? "#7DFF9C" : "#4a5f5c";
-    c.fillText("[G] mend hull · +" + Math.floor(Math.min(gfCap.charge * GF_WING.mendPer, GF.hull - gfHull)), x, y + 15);
-    c.fillStyle = "#6d8582";
-    c.fillText("clean kills fill it; it won't keep", x, y + 30);
-    y += 48;
+    gfKeyCap(c, x, y, "R", canCall, "#7DFF9C");
+    c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = canCall ? "#cfe9e6" : "#4a5f5c"; c.fillText("bot", x + 24, y + 13);
+    gfKeyCap(c, x + W / 2, y, "G", canMend, "#7DFF9C");
+    c.textAlign = "left"; c.font = "11px monospace"; c.fillStyle = canMend ? "#cfe9e6" : "#4a5f5c"; c.fillText("mend", x + W / 2 + 24, y + 13);
+    y += 42;
 
-    // The wing: the order, then one row per slot.
-    const hunt = gfWingOrder === "hunt";
-    gfSideHead(c, x, y, W, "WING · " + gfWingAlive() + "/" + GF_WING.max); y += 14;
-    const bw = (W - 6) / 2;
-    [["FOLLOW", !hunt, "#7DF9FF"], ["HUNT", hunt, "#FFB000"]].forEach(function (o, i) {
-        const bx = x + i * (bw + 6);
-        c.fillStyle = o[1] ? o[2] : "rgba(255,255,255,0.05)"; c.fillRect(bx, y, bw, 20);
-        c.strokeStyle = o[2]; c.lineWidth = 1; c.strokeRect(bx + 0.5, y + 0.5, bw - 1, 19);
-        c.font = "bold 12px monospace"; c.textAlign = "center"; c.fillStyle = o[1] ? "#001014" : o[2];
-        c.fillText(o[0], bx + bw / 2, y + 14);
-    });
-    y += 34;
-    c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = "#9fb8b4";
-    c.fillText(hunt ? "break off, flank, fire at will" : "hold formation, shoot only to wound", x, y);
-    c.fillStyle = "#6d8582"; c.fillText("[F] switches the order", x, y + 14);
-    y += 30;
+    // The wing: a pip per slot (its hull as the fill), and the order.
+    const hunt = gfWingOrder === "hunt", wcol = hunt ? "#FFB000" : "#7DF9FF";
+    c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = "#6d8582"; c.fillText("WING", x, y);
     for (let i = 0; i < GF_WING.max; i++) {
-        const b = gfWing[i];
-        c.font = "12px monospace"; c.textAlign = "left";
-        if (b && b.isAlive) {
-            c.fillStyle = hunt ? "#FFB000" : "#7DF9FF"; c.fillText("◆", x, y);
-            gfBar(c, x + 16, y - 8, 70, 7, b.gfHp / GF.fleetHp, b.gfHp > GF.fleetHp * 0.4 ? "#7DF9FF" : "#FF2E88");
-            const st = b.warp ? "ultradrive" : b.gfGrab ? "GRABBED" : b.arriving > 0 ? "inbound" : b.target ? (hunt ? "hunting" : "firing") : (hunt ? "seeking" : "in formation");
-            c.fillStyle = b.gfGrab ? "#FF2E88" : "#9fb8b4"; c.fillText(st, x + 96, y);
-        } else { c.fillStyle = "#4a5f5c"; c.fillText("◇  empty slot", x, y); }
-        y += 16;
+        const b = gfWing[i], px = x + 44 + i * 26, on = b && b.isAlive;
+        c.strokeStyle = on ? (b.gfGrab ? "#FF2E88" : wcol) : "rgba(255,255,255,0.2)"; c.lineWidth = 1;
+        c.strokeRect(px + 0.5, y - 10.5, 19, 11);
+        if (on) {
+            c.fillStyle = b.warp ? "rgba(125,249,255,0.3)" : (b.gfHp > GF.fleetHp * 0.4 ? wcol : "#FF2E88");
+            c.fillRect(px + 2, y - 9, 16 * Math.max(0, b.gfHp / GF.fleetHp), 8);
+        }
     }
     y += 12;
+    gfKeyCap(c, x, y, "F", true, wcol);
+    const bw = (W - 30) / 2;
+    [["FOLLOW", !hunt, "#7DF9FF"], ["HUNT", hunt, "#FFB000"]].forEach(function (o, i) {
+        const bx = x + 26 + i * (bw + 4);
+        c.fillStyle = o[1] ? o[2] : "rgba(255,255,255,0.04)"; c.fillRect(bx, y, bw, 18);
+        c.strokeStyle = o[1] ? o[2] : "rgba(255,255,255,0.2)"; c.lineWidth = 1; c.strokeRect(bx + 0.5, y + 0.5, bw - 1, 17);
+        c.font = "bold 11px monospace"; c.textAlign = "center"; c.fillStyle = o[1] ? "#001014" : "rgba(255,255,255,0.45)";
+        c.fillText(o[0], bx + bw / 2, y + 13);
+    });
+    y += 36;
 
     // Maps: SITE (round you) and ORBIT (the whole theatre), in what room is left.
-    const keysH = 62, room = glH - y - keysH - 30;
-    const orbitH = 46, siteS = Math.max(0, Math.min(W, room - orbitH - 30));
-    if (siteS >= 90) {
-        gfSideHead(c, x, y, W, "SITE"); y += 10;
-        gfDrawSiteMap(c, x + (W - siteS) / 2, y, siteS);
-        y += siteS + 20;
-    }
-    if (glH - y - keysH > orbitH + 10) {
-        gfSideHead(c, x, y, W, "ORBIT"); y += 10;
-        gfDrawOrbitMap(c, x, y, W, orbitH);
-    }
-
-    // Keys.
-    c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = "#6d8582";
-    const ky = glH - keysH + 6;
-    c.fillText("WASD move · mouse aim · click fire", x, ky);
-    c.fillText("right click seeker · SPACE boost", x, ky + 14);
-    c.fillText("hold SPACE out of combat: jump", x, ky + 28);
-    c.fillText("F order · R bot · G mend · P pause", x, ky + 42);
+    const orbitH = 42, siteS = Math.max(0, Math.min(W, glH - y - orbitH - 26));
+    if (siteS >= 80) { gfDrawSiteMap(c, x + (W - siteS) / 2, y, siteS); y += siteS + 10; }
+    if (glH - y > orbitH + 8) gfDrawOrbitMap(c, x, y, W, orbitH);
 }
 
 // SITE: a radar round the lead ship. North is up, same as the screen.
@@ -584,9 +559,9 @@ function gfDrawOrbitMap(c, x, y, W, H) {
     c.beginPath(); c.moveTo(x + pad, my); c.lineTo(x + W - pad, my); c.stroke(); c.setLineDash([]);
     c.font = "9px monospace"; c.textAlign = "center";
     c.strokeStyle = "#7DF9FF"; c.strokeRect(x + pad - 4, my - 4, 8, 8);
-    c.fillStyle = "#7DF9FF"; c.fillText("HOME", x + pad, my - 9);
+
     c.fillStyle = gfHive.dead ? "#5a2030" : "#C2335A"; c.beginPath(); c.arc(x + W - pad, my, 7, 0, Math.PI * 2); c.fill();
-    c.fillStyle = "#FF7A9C"; c.fillText("THE TIDE", x + W - pad - 4, my - 11);
+
     if (s.isAlive) {
         const p = P(s.x, s.y);
         c.fillStyle = "#FFFFFF";
@@ -609,6 +584,18 @@ function gfDrawHud(c) {
         c.fillText(gfRound.banner, mid, glH * 0.2);
         c.globalAlpha = 1;
     }
+    // Your own ricochet came back: a hard red frame for half a second.
+    if (gfRicoFlash > 0 && !gfRoundOver()) {
+        c.strokeStyle = "rgba(255,40,40," + Math.min(1, gfRicoFlash * 2).toFixed(3) + ")"; c.lineWidth = 14;
+        c.strokeRect(7, 7, glW - GF_SIDE_W - 14, glH - 14);
+    }
+    // Keys, for the first half minute only.
+    if (gfRound.t < 30 && !gfRoundOver()) {
+        c.globalAlpha = Math.min(1, (30 - gfRound.t) / 3) * 0.75;
+        c.font = "13px monospace"; c.fillStyle = "#cfe9e6";
+        c.fillText("WASD move  ·  mouse aim  ·  hold click fire  ·  right click seeker  ·  SPACE boost, hold to jump  ·  P pause", mid, glH - 18);
+        c.globalAlpha = 1;
+    }
     if (!glShip.isAlive && !gfRoundOver()) {
         c.font = "22px 'VT323', monospace"; c.fillStyle = "#FF2E88";
         c.fillText((glShip.deathMsg || "ship lost").toUpperCase(), mid, glH / 2);
@@ -623,11 +610,11 @@ function gfDrawHud(c) {
         let y = Math.max(70, glH / 2 - 190);
         c.font = "64px 'VT323', monospace";
         c.fillStyle = won ? "#7DFF9C" : "#FF2E88";
-        c.fillText(won ? "YOU WIN" : "YOU LOSE", cx, y);
+        c.fillText(won ? "SORTIE COMPLETE" : "SORTIE LOST", cx, y);
         c.font = "22px 'VT323', monospace"; c.fillStyle = "#E8FFF4";
-        c.fillText(gfRound.endMsg, cx, y + 30);
+        c.fillText(gfRound.endMsg.toUpperCase(), cx, y + 30);
         const t = gfRound.t, m2 = Math.floor(t / 60), s2 = Math.floor(t % 60);
-        c.fillStyle = "#9fb8b4"; c.fillText("round time " + m2 + ":" + (s2 < 10 ? "0" : "") + s2, cx, y + 54);
+        c.fillStyle = "#9fb8b4"; c.fillText(m2 + ":" + (s2 < 10 ? "0" : "") + s2, cx, y + 54);
         y += 92;
         c.font = "20px 'VT323', monospace";
         parts.forEach(function (r) {
@@ -642,7 +629,7 @@ function gfDrawHud(c) {
         c.textAlign = "left"; c.fillStyle = "#FFE45C"; c.fillText("SCORE", cx - 200, y);
         c.textAlign = "right"; c.fillText(String(gfScore()), cx + 200, y);
         c.textAlign = "center"; c.font = "24px 'VT323', monospace";
-        c.fillText("ENTER to fly again", cx, y + 50);
+        c.fillText("ENTER", cx, y + 50);
     }
     c.restore();
 }
