@@ -1,59 +1,100 @@
 // ===================================================
-//   Gyro Fleet — aircrabs, airkrill, the Bellwether, the hive
+//   Gyro Fleet — aircrabs, airkrill, the Bellwether, The Tide, the round
 // ===================================================
-// Pass 1 (2026-11-08, GYRO_FLEET_PASS_1_PLAN.md). New code is prefixed gf/GF;
-// the engine underneath is Gyro Lab's and keeps its gl/GL names.
+// Pass 1 (2026-11-08) made the creatures. The FLOOD pass (2026-11-15,
+// GYRO_FLEET_FLOOD_PLAN.md) rebuilt the fight round Ry's playtest notes:
+//
+//   * the round ENDS. The hive is now THE TIDE, with three ORIFICES on its
+//     rim. Each one swells, dilates and births a flood, and can only be hurt
+//     while it is swollen or open. Seal all three and everything left alive
+//     floods toward you; clear that and you win. You lose on your last ship or
+//     when the clock runs out.
+//   * creatures swim where they FACE and turn slowly, so a fast ship can get
+//     round behind them. The flown ship is about 3x their speed.
+//   * shooting an inflated creature is a RISK. Armour still bounces bolts, but
+//     every bounce adds PRESSURE, and a creature at full pressure RUPTURES: a
+//     blast that hurts everything near it (you, your wing, other creatures),
+//     chains through other inflated bodies, and burns its siphon. And the
+//     bounced bolt is LIVE: a ricochet hurts any ship it finds, the shooter
+//     first of all (it reaches about 30 units). So an inflated body is still
+//     the stronger state, as in canon: you cannot wound it, and forcing it
+//     costs you. Pop them inside the flood from range; flank the vent for a
+//     clean kill.
 //
 // THE BREATH RULE (hub canon, 2026-11-08). Every creature breathes on a cycle,
 // phase p in [0, 1):
-//   inhale    swelling; the OPENING at its rear is open. The only weak spot
-//             while it is big. Shots that hit anywhere else bounce off.
-//   inflated  big, armoured, slow. Shots bounce. Tendrils come out up close.
-//   exhale    shrinking, still armoured.
+//   inhale    swelling; the rear VENT is open. Shots into it wound.
+//   inflated  big, armoured, slow. Shots bounce and build pressure. Tendrils.
+//   exhale    shrinking, still armoured; the vent is open again (air out).
 //   deflated  small, fast, darting. Hit anywhere.
 // Airkrill pant (a short cycle: armoured half the time, soft the other half).
 // A Bellwether pulls every creature within GF.syncR into ITS breath, delayed
-// by distance, so each inhale is a visible wave rolling out from it and a
-// whole pod opens up in sequence. Kill it and the pod falls out of step.
+// by distance, so each inhale is a visible wave rolling out from it.
 //
-// Scale is the engine's (1 unit = 1,000 km, the ship ~1 unit) and NOT final:
-// planet and creature sizes get settled in a later pass.
+// Units: 1 unit = the ship's length, more or less. Creature speeds are in
+// units per SECOND; the engine's ship and bolt speeds are per FRAME.
 "use strict";
 
+// ?dev in the address brings back the engine's parameter panel, HUD box and dev keys.
+const GF_DEV = /[?&]dev\b/.test(location.search);
+
 const GF = {
-    hiveDist: 30000,    // home (beside Earth) to the hive
+    hiveDist: 30000,    // home (the mothership) to The Tide
     hiveR: 140,
-    podMax: 4,          // pods alive at once
-    podEvery: 40,       // seconds between pod spawns
-    firstPods: 2,
-    patrolR: 2600,      // pods wander this far round the hive
-    aggroR: 900,        // a pod hunts a ship this close to it
-    syncR: 480,         // Bellwether breath-sync reach
-    waveSpeed: 160,     // units/s the sync wave travels
+    huntR: 520,         // a creature hunts a ship this close
+    syncR: 110,         // Bellwether breath-sync reach
+    waveSpeed: 70,      // units/s the sync wave travels
     hull: 100,          // the flown ship
-    fleetHp: 40,        // every other ship
+    fleetHp: 40,        // every wing bot
     grabTime: 3,        // seconds held by tendrils before the ship is taken
-    grabBreakHits: 3    // hits on the holder that shake it loose
+    grabBreakHits: 3,   // hits on the holder that shake it loose
+    ships: 3,           // lead ships per round
+    clock: 420,         // seconds: the round's hard stop
+    maxAlive: 60,       // creature cap; an orifice over the cap opens empty
+    oriR: 13,           // orifice hit radius
+    oriHp: 36,
+    oriClosed: 22,      // seconds shut between births
+    oriSwell: 2.5,      // the tell
+    oriOpen: 5,         // dilated, birthing
+    brood: { crab: 3, krill: 8 }
 };
 
+// turn = radians per second at full size; deflated bodies turn 1.6x faster.
+// press = armour bounces to rupture; blast = rupture radius (0 = never ruptures).
 const GF_KINDS = {
-    crab:  { period: [4.4, 5.6], rBig: 2.4, rSmall: 0.9, hp: 3, slow: 3, fast: 15, turn: 0.5, col: "#FF7A9C", minPx: 3.5 },
-    krill: { period: [1.0, 1.4], rBig: 0.75, rSmall: 0.4, hp: 1, slow: 10, fast: 19, turn: 3, col: "#B98CFF", minPx: 2 },
-    bell:  { period: [7.5, 7.5], rBig: 5.5, rSmall: 2.6, hp: 8, slow: 2.2, fast: 6, turn: 0.3, col: "#FF3B3B", minPx: 6 }
+    crab:  { period: [3.6, 4.6], rBig: 3.4, rSmall: 1.4, hp: 3, slow: 6,  fast: 21, turn: 0.75, col: "#FF7A9C", minPx: 5, press: 5,  blast: 12, mote: 12 },
+    krill: { period: [1.2, 1.6], rBig: 1.0, rSmall: 0.6, hp: 1, slow: 11, fast: 24, turn: 2.2,  col: "#B98CFF", minPx: 3, press: 0,  blast: 0,  mote: 3 },
+    bell:  { period: [7, 7],     rBig: 7.5, rSmall: 3.6, hp: 9, slow: 3,  fast: 8,  turn: 0.3,  col: "#FF3B3B", minPx: 9, press: 14, blast: 22, mote: 40 }
 };
-const GF_OPEN_ARC = 0.75;   // radians either side of the rear: the opening
+const GF_OPEN_ARC = 0.8;    // radians either side of the rear: the vent
+const GF_BLAST_DMG = 28;
+const GF_RICOCHET_DMG = 5;   // a bounced bolt that finds a ship
+const GF_RICOCHET_LIFE = 20; // frames a ricochet lives: about 30 units of reach
 
 const gfCreatures = [];
-const gfPods = [];
 const gfWaves = [];
+const gfOrifices = [];
+const gfBlasts = [];        // { x, y, r, t } rupture rings, drawn in gf-flesh.js
 let gfHive = null, gfHome = null;
-let gfTime = 0, gfPodTimer = 0, gfPodSeq = 0;
+let gfTime = 0;
 let gfHull = GF.hull, gfWasAlive = true, gfHurtFlash = 0;
-const gfKills = { crab: 0, krill: 0, bell: 0 };
+const gfKills = { crab: 0, krill: 0, bell: 0, burst: 0 };
+// phase: fight (orifices alive) | flood (all sealed, clear what is left) | won | lost
+const gfRound = { phase: "fight", t: 0, ships: GF.ships, endMsg: "", endT: 0, banner: "", bannerT: 0 };
 
 function gfRand(a, b) { return a + Math.random() * (b - a); }
 function gfFrac(x) { return x - Math.floor(x); }
 function gfWrap01(d) { return d - Math.round(d); }   // shortest signed phase difference
+function gfRoundOver() { return gfRound.phase === "won" || gfRound.phase === "lost"; }
+function gfBanner(msg, secs) { gfRound.banner = msg; gfRound.bannerT = secs || 2.5; }
+
+// Everything a creature can hunt: the flown ship and the wing (gf-wing.js).
+function gfTargets() {
+    const out = [];
+    if (glShip.isAlive && gfFlight.jump !== "burst") out.push(glShip);
+    for (let i = 0; i < gfWing.length; i++) if (gfWing[i].isAlive && !gfWing[i].warp) out.push(gfWing[i]);
+    return out;
+}
 
 // ---------------------------------------------------
 //   Breath: radius and vulnerability from the phase
@@ -61,27 +102,31 @@ function gfWrap01(d) { return d - Math.round(d); }   // shortest signed phase di
 function gfEase(t) { return t * t * (3 - 2 * t); }
 function gfBreath(c) {
     const k = GF_KINDS[c.kind], p = c.p;
+    let b;
     if (c.kind === "krill") {
         const big = p < 0.5;
         const r = k.rSmall + (k.rBig - k.rSmall) * (0.5 + 0.5 * Math.cos(p * Math.PI * 2));
-        return { r: r, stage: big ? "inflated" : "deflated", open: false, armour: big };
-    }
-    if (p < 0.18) return { r: k.rSmall + (k.rBig - k.rSmall) * gfEase(p / 0.18), stage: "inhale", open: true, armour: true };
-    if (p < 0.72) return { r: k.rBig, stage: "inflated", open: false, armour: true };
-    if (p < 0.82) return { r: k.rBig + (k.rSmall - k.rBig) * gfEase((p - 0.72) / 0.1), stage: "exhale", open: false, armour: true };
-    return { r: k.rSmall, stage: "deflated", open: false, armour: false };
+        b = { r: r, stage: big ? "inflated" : "deflated", open: false, armour: big, swell: big ? 1 : 0 };
+    } else if (p < 0.18) { const e = gfEase(p / 0.18); b = { r: k.rSmall + (k.rBig - k.rSmall) * e, stage: "inhale", open: true, armour: true, swell: e }; }
+    else if (p < 0.6) b = { r: k.rBig, stage: "inflated", open: false, armour: true, swell: 1 };
+    else if (p < 0.74) { const e = gfEase((p - 0.6) / 0.14); b = { r: k.rBig + (k.rSmall - k.rBig) * e, stage: "exhale", open: true, armour: true, swell: 1 - e }; }
+    else b = { r: k.rSmall, stage: "deflated", open: false, armour: false, swell: 0 };
+    // Pressure over-swells it: the warning you can read.
+    b.r *= 1 + 0.22 * (c.press || 0);
+    return b;
 }
 
 // ---------------------------------------------------
-//   Spawning
+//   Spawning: everything comes out of an orifice
 // ---------------------------------------------------
-function gfMakeCreature(kind, x, y, pod) {
+function gfMakeCreature(kind, x, y, ori) {
     const k = GF_KINDS[kind];
     const c = {
         kind: kind, x: x, y: y, vx: 0, vy: 0, face: Math.random() * Math.PI * 2,
         p: Math.random(), period: gfRand(k.period[0], k.period[1]), hp: k.hp,
-        pod: pod, slot: 0, flash: 0, hitCd: 0, tendril: 0, tendrilCd: 0,
-        grabbing: null, orbitA: Math.random() * Math.PI * 2
+        ori: ori, flash: 0, hitCd: 0, tendril: 0, tendrilCd: 0, tendrilTarget: null,
+        grabbing: null, orbitA: Math.random() * Math.PI * 2, press: 0, ruptT: 0, burst: false,
+        birthT: 0, seed: Math.random() * 1000, synced: false
     };
     c.ownPeriod = c.period;
     c.b = gfBreath(c);
@@ -89,20 +134,20 @@ function gfMakeCreature(kind, x, y, pod) {
     return c;
 }
 
-function gfSpawnPod() {
-    const a = Math.random() * Math.PI * 2;
-    const x = gfHive.x + Math.cos(a) * (GF.hiveR + 60), y = gfHive.y + Math.sin(a) * (GF.hiveR + 60);
-    const pod = { id: ++gfPodSeq, bell: null, members: [], wander: null, hunting: false };
-    pod.bell = gfMakeCreature("bell", x, y, pod);
-    pod.bell.p = 0.3;
-    for (let i = 0; i < 5; i++) {
-        const c = gfMakeCreature("crab", x + gfRand(-20, 20), y + gfRand(-20, 20), pod);
-        c.slot = i;
-        pod.members.push(c);
-    }
-    for (let i = 0; i < 10; i++) pod.members.push(gfMakeCreature("krill", x + gfRand(-15, 15), y + gfRand(-15, 15), pod));
-    gfPods.push(pod);
-    return pod;
+function gfOrificePos(o) {
+    return { x: gfHive.x + Math.cos(o.a) * (gfHive.r - 3), y: gfHive.y + Math.sin(o.a) * (gfHive.r - 3) };
+}
+
+// One creature squeezes out: starts small and slimed at the mouth, pushed outward.
+function gfBirth(o, kind) {
+    const p = gfOrificePos(o), a = o.a + gfRand(-0.5, 0.5);
+    const c = gfMakeCreature(kind, p.x + Math.cos(a) * 2, p.y + Math.sin(a) * 2, o);
+    const push = kind === "bell" ? 14 : gfRand(22, 40);
+    c.vx = Math.cos(a) * push; c.vy = Math.sin(a) * push;
+    c.face = a;
+    c.birthT = 0.9;
+    if (kind !== "krill") c.p = 0.8;   // born deflated
+    return c;
 }
 
 // Called once from boot, after the star systems exist and the ship has spawned.
@@ -112,12 +157,22 @@ function gfInitBattle() {
     // Away from the Sun, so the trip out never crosses it.
     let ux = 1, uy = 0;
     if (e && sun) { const d = Math.hypot(e.x - sun.x, e.y - sun.y) || 1; ux = (e.x - sun.x) / d; uy = (e.y - sun.y) / d; }
-    // Turned 50° off the Sun line so the hive is not hidden behind Earth.
+    // Turned 50 degrees off the Sun line so The Tide is not hidden behind Earth.
     const ca = Math.cos(0.87), sa = Math.sin(0.87);
     const hx = ux * ca - uy * sa, hy = ux * sa + uy * ca;
-    gfHive = { x: gfHome.x + hx * GF.hiveDist, y: gfHome.y + hy * GF.hiveDist, r: GF.hiveR, p: 0, hitCd: 0 };
-    for (let i = 0; i < GF.firstPods; i++) gfSpawnPod();
-    gfPodTimer = GF.podEvery;
+    gfHive = { x: gfHome.x + hx * GF.hiveDist, y: gfHome.y + hy * GF.hiveDist, r: GF.hiveR, p: 0, dead: false, deadT: 0 };
+    // Three orifices on the side that faces home, so you arrive looking at them.
+    const toHome = Math.atan2(-hy, -hx);
+    for (let i = 0; i < 3; i++) {
+        const o = { a: toHome + (i - 1) * 0.95, hp: GF.oriHp, state: "closed", t: 5 + i * 7, births: 0, queue: [], birthCd: 0, flash: 0, sealed: false, id: i };
+        gfOrifices.push(o);
+        // A first brood is already out, loitering at the mouth.
+        const p = gfOrificePos(o);
+        for (let j = 0; j < 2; j++) gfMakeCreature("crab", p.x + Math.cos(o.a) * gfRand(20, 60) + gfRand(-15, 15), p.y + Math.sin(o.a) * gfRand(20, 60) + gfRand(-15, 15), o);
+        for (let j = 0; j < 5; j++) gfMakeCreature("krill", p.x + Math.cos(o.a) * gfRand(15, 50) + gfRand(-15, 15), p.y + Math.sin(o.a) * gfRand(15, 50) + gfRand(-15, 15), o);
+    }
+    gfWingInit();   // gf-wing.js: the starting bots, the capacitor
+    gfBanner("AIM AT THE TIDE (red arrow) AND HOLD SPACE TO JUMP", 8);
 }
 
 // ---------------------------------------------------
@@ -129,31 +184,43 @@ function gfKillShip(s, msg) {
     s.deathTime = Date.now();
     s.selected = false;
     s.deathMsg = msg;
-    glSpawnBurst(s.x, s.y, 24, "#FF7A9C");
+    glSpawnBurst(s.x, s.y, 24, s === glShip ? "#7DF9FF" : "#C9FFE9");
+    if (s === glShip) {
+        gfRound.ships--;
+        if (gfRound.ships <= 0) gfEndRound("lost", "LAST SHIP LOST: " + msg.toUpperCase());
+        else gfBanner("SHIP LOST · " + gfRound.ships + " LEFT · relaunching from the mothership", 4);
+    }
 }
 
 function gfDamage(s, n, msg) {
-    if (!s.isAlive) return;
+    if (!s.isAlive || gfRoundOver()) return;
     if (s === glShip) {
         gfHull -= n;
         gfHurtFlash = 0.25;
         if (gfHull <= 0) { gfHull = 0; gfKillShip(s, msg); }
     } else {
-        if (s.gfHp === undefined) s.gfHp = GF.fleetHp;
         s.gfHp -= n;
+        s.flash = 0.2;
         if (s.gfHp <= 0) gfKillShip(s, msg);
     }
 }
 
 function gfNearestShip(x, y, range) {
+    const ts = gfTargets();
     let best = null, bd = range;
-    for (let i = 0; i < glShips.length; i++) {
-        const s = glShips[i];
-        if (!s.isAlive || s.ultraState === "active") continue;
-        const d = Math.hypot(s.x - x, s.y - y);
-        if (d < bd) { bd = d; best = s; }
+    for (let i = 0; i < ts.length; i++) {
+        const d = Math.hypot(ts[i].x - x, ts[i].y - y);
+        if (d < bd) { bd = d; best = ts[i]; }
     }
     return best;
+}
+
+function gfEndRound(phase, msg) {
+    if (gfRoundOver()) return;
+    gfRound.phase = phase;
+    gfRound.endMsg = msg;
+    gfRound.endT = 0;
+    gfFireSet(false);
 }
 
 // ---------------------------------------------------
@@ -163,173 +230,226 @@ function gfUpdate(dt) {
     if (!gfHive) return;
     gfTime += dt;
     gfHurtFlash = Math.max(0, gfHurtFlash - dt);
+    gfRound.bannerT = Math.max(0, gfRound.bannerT - dt);
+    for (let i = gfBlasts.length - 1; i >= 0; i--) { gfBlasts[i].t += dt; if (gfBlasts[i].t > 0.6) gfBlasts.splice(i, 1); }
+    if (gfRoundOver()) { gfRound.endT += dt; return; }
+    gfRound.t += dt;
+    if (gfRound.t >= GF.clock) { gfEndRound("lost", "OUT OF TIME: THE TIDE BREATHES ON"); return; }
+
     gfArmsUpdate(dt);   // gf-arms.js: seekers, recharge, impact rings
 
     // A fresh ship after a respawn gets a fresh hull.
     if (glShip.isAlive && !gfWasAlive) { gfHull = GF.hull; glShip.gfGrab = null; glShip.deathMsg = ""; }
     gfWasAlive = glShip.isAlive;
 
-    // Hive: breathes, spawns pods, and is solid.
+    // The Tide: breathes, births, and is solid.
     gfHive.p = gfFrac(gfHive.p + dt / 10);
-    gfHive.r = GF.hiveR * (1 + 0.07 * Math.sin(gfHive.p * Math.PI * 2));
-    gfHive.hitCd = Math.max(0, gfHive.hitCd - dt);
-    gfPodTimer -= dt;
-    if (gfPodTimer <= 0) { gfPodTimer = GF.podEvery; if (gfPods.length < GF.podMax) gfSpawnPod(); }
-    for (let i = 0; i < glShips.length; i++) {
-        const s = glShips[i];
-        if (!s.isAlive) continue;
+    gfHive.r = GF.hiveR * (1 + (gfHive.dead ? 0 : 0.035 * Math.sin(gfHive.p * Math.PI * 2)));
+    if (gfHive.dead) gfHive.deadT += dt;
+    for (let i = 0; i < gfOrifices.length; i++) gfUpdateOrifice(gfOrifices[i], dt);
+    const s = glShip;
+    if (s.isAlive) {
         const dx = s.x - gfHive.x, dy = s.y - gfHive.y, d = Math.hypot(dx, dy);
         if (d < gfHive.r + 1) {
             const ux = dx / (d || 1), uy = dy / (d || 1);
             s.x = gfHive.x + ux * (gfHive.r + 1.5); s.y = gfHive.y + uy * (gfHive.r + 1.5);
             s.vx = ux * Math.abs(s.speed) * 1.5; s.vy = uy * Math.abs(s.speed) * 1.5;
-            gfDamage(s, 20, "rammed the hive");
+            gfDamage(s, 12, "flew into The Tide");
         }
     }
 
-    gfUpdatePods(dt);
-    for (let i = 0; i < gfCreatures.length; i++) gfUpdateCreature(gfCreatures[i], dt);
+    // Bellwethers this frame (for the sync).
+    const bells = [];
+    for (let i = 0; i < gfCreatures.length; i++) if (gfCreatures[i].kind === "bell" && gfCreatures[i].hp > 0) bells.push(gfCreatures[i]);
+    const targets = gfTargets();
+    for (let i = 0; i < gfCreatures.length; i++) gfUpdateCreature(gfCreatures[i], dt, bells, targets);
     gfUpdateGrabs(dt);
     gfUpdateBulletHits();
+    gfWingUpdate(dt);   // gf-wing.js: bots, motes, the capacitor
 
     // Remove the dead.
     for (let i = gfCreatures.length - 1; i >= 0; i--) {
         const c = gfCreatures[i];
         if (c.hp > 0) continue;
-        gfKills[c.kind]++;
+        if (c.burst) gfKills.burst++; else gfKills[c.kind]++;
         glSpawnBurst(c.x, c.y, c.kind === "bell" ? 60 : (c.kind === "crab" ? 26 : 8), GF_KINDS[c.kind].col);
         if (c.grabbing) { c.grabbing.gfGrab = null; c.grabbing = null; }
-        const pod = c.pod;
-        if (pod) {
-            if (pod.bell === c) {
-                // Sync breaks: everyone drops back to their own breathing.
-                pod.bell = null;
-                pod.members.forEach(function (m) { m.period = m.ownPeriod; m.p = gfFrac(m.p + Math.random() * 0.5); });
-            }
-            const j = pod.members.indexOf(c);
-            if (j !== -1) pod.members.splice(j, 1);
+        if (!c.burst) gfDropMotes(c.x, c.y, GF_KINDS[c.kind].mote);   // a clean kill gives up its siphon
+        if (c.kind === "bell") {
+            // Sync breaks: everyone it held drops back to their own breathing.
+            gfCreatures.forEach(function (m) { if (m.synced) { m.period = m.ownPeriod; m.p = gfFrac(m.p + Math.random() * 0.5); } });
         }
         gfCreatures.splice(i, 1);
-        if (typeof glAudioShot === "function") { /* no dedicated kill sound yet: pass 2 */ }
     }
-    for (let i = gfPods.length - 1; i >= 0; i--) if (!gfPods[i].bell && !gfPods[i].members.length) gfPods.splice(i, 1);
     for (let i = gfWaves.length - 1; i >= 0; i--) if ((gfTime - gfWaves[i].t0) * GF.waveSpeed > GF.syncR * 1.25) gfWaves.splice(i, 1);
+
+    if (gfRound.phase === "flood" && gfCreatures.length === 0) gfEndRound("won", "THE TIDE IS SEALED");
 }
 
-function gfUpdatePods(dt) {
-    for (let i = 0; i < gfPods.length; i++) {
-        const pod = gfPods[i];
-        const lead = pod.bell || pod.members[0];
-        if (!lead) continue;
-        const prey = gfNearestShip(lead.x, lead.y, GF.aggroR);
-        pod.hunting = !!prey;
-        pod.prey = prey;
-        if (!pod.wander || Math.hypot(pod.wander.x - lead.x, pod.wander.y - lead.y) < 60) {
-            const a = Math.random() * Math.PI * 2, r = GF.hiveR + 300 + Math.random() * (GF.patrolR - 300);
-            pod.wander = { x: gfHive.x + Math.cos(a) * r, y: gfHive.y + Math.sin(a) * r };
+function gfOrificesLeft() { let n = 0; for (let i = 0; i < gfOrifices.length; i++) if (!gfOrifices[i].sealed) n++; return n; }
+
+function gfUpdateOrifice(o, dt) {
+    o.flash = Math.max(0, o.flash - dt);
+    if (o.sealed) return;
+    o.t -= dt;
+    if (o.state === "closed" && o.t <= 0) { o.state = "swell"; o.t = GF.oriSwell; }
+    else if (o.state === "swell" && o.t <= 0) {
+        o.state = "open"; o.t = GF.oriOpen;
+        o.births++;
+        o.queue = [];
+        if (gfCreatures.length < GF.maxAlive) {
+            if (o.births % 2 === 1) o.queue.push("bell");
+            for (let i = 0; i < GF.brood.crab; i++) o.queue.push("crab");
+            for (let i = 0; i < GF.brood.krill; i++) o.queue.push("krill");
         }
+        o.birthCd = 0.3;
+    } else if (o.state === "open") {
+        o.birthCd -= dt;
+        if (o.queue.length && o.birthCd <= 0) { gfBirth(o, o.queue.shift()); o.birthCd = 0.28; }
+        if (o.t <= 0) { o.state = "closed"; o.t = GF.oriClosed; o.queue = []; }
     }
 }
 
-function gfSteer(c, tx, ty, speed, dt, rate) {
-    const dx = tx - c.x, dy = ty - c.y, d = Math.hypot(dx, dy) || 1;
-    const sp = Math.min(speed, d * 2);   // ease in on arrival
-    const k = Math.min(1, dt * (rate || 2));
-    c.vx += (dx / d * sp - c.vx) * k;
-    c.vy += (dy / d * sp - c.vy) * k;
+function gfHurtOrifice(o, n) {
+    if (o.sealed) return;
+    o.hp -= n;
+    o.flash = 0.12;
+    if (o.hp > 0) return;
+    o.sealed = true; o.state = "sealed"; o.queue = [];
+    const p = gfOrificePos(o);
+    glSpawnBurst(p.x, p.y, 70, "#FF3B5E");
+    gfBlasts.push({ x: p.x, y: p.y, r: 26, t: 0 });
+    gfDropMotes(p.x + Math.cos(o.a) * 8, p.y + Math.sin(o.a) * 8, 50);
+    const left = gfOrificesLeft();
+    if (left > 0) gfBanner("ORIFICE SEALED · " + left + " LEFT", 3);
+    else {
+        // The Tide is finished. Everything it birthed comes for you.
+        gfHive.dead = true;
+        gfRound.phase = "flood";
+        gfBanner("THE TIDE IS SEALED · SURVIVE THE FLOOD", 4);
+    }
 }
 
-function gfTurnToward(c, tx, ty, dt) {
+function gfTurnToward(c, tx, ty, dt, mul) {
     const want = Math.atan2(ty - c.y, tx - c.x);
-    const d = glWrapAngle(want - c.face), max = GF_KINDS[c.kind].turn * dt;
+    const d = glWrapAngle(want - c.face), max = GF_KINDS[c.kind].turn * (mul || 1) * dt;
     c.face += Math.max(-max, Math.min(max, d));
+    return Math.abs(d);
 }
 
-function gfUpdateCreature(c, dt) {
-    const k = GF_KINDS[c.kind], pod = c.pod;
+// Swim: turn (slowly) to face the point, and push along the FACING. A body
+// pointed the wrong way slows right down while it comes about, which is the
+// gap a fast ship flies into.
+function gfSwim(c, tx, ty, speed, dt, grip) {
+    const soft = !c.b.armour;
+    const err = gfTurnToward(c, tx, ty, dt, soft ? 1.6 : 1);
+    const d = Math.hypot(tx - c.x, ty - c.y);
+    const sp = Math.min(speed, d * 1.5) * Math.max(0.2, Math.cos(Math.min(err, 1.4)));
+    const k = Math.min(1, dt * (grip || 2));
+    c.vx += (Math.cos(c.face) * sp - c.vx) * k;
+    c.vy += (Math.sin(c.face) * sp - c.vy) * k;
+}
+
+function gfUpdateCreature(c, dt, bells, targets) {
+    const k = GF_KINDS[c.kind];
     c.flash = Math.max(0, c.flash - dt);
     c.hitCd = Math.max(0, c.hitCd - dt);
     c.tendrilCd = Math.max(0, c.tendrilCd - dt);
+    c.birthT = Math.max(0, c.birthT - dt);
 
-    // ---- Breath, and the Bellwether's sync ----
+    // ---- A rupture already lit (chain delay) ----
+    if (c.ruptT > 0) { c.ruptT -= dt; if (c.ruptT <= 0) { gfRupture(c); return; } }
+
+    // ---- Breath, and the nearest Bellwether's sync ----
     const prevP = c.p;
-    const bell = pod && pod.bell && pod.bell !== c ? pod.bell : null;
+    let bell = null, bd = GF.syncR;
+    if (c.kind !== "bell") for (let i = 0; i < bells.length; i++) {
+        const d = Math.hypot(c.x - bells[i].x, c.y - bells[i].y);
+        if (d < bd) { bd = d; bell = bells[i]; }
+    }
     if (bell) {
-        const d = Math.hypot(c.x - bell.x, c.y - bell.y);
-        if (d < GF.syncR) {
-            const lagged = bell.p - (d / GF.waveSpeed) / bell.period;
-            const target = c.kind === "krill" ? gfFrac(lagged * 6) : gfFrac(lagged);
-            c.period = c.kind === "krill" ? bell.period / 6 : bell.period;
-            c.p = gfFrac(c.p + dt / c.period);
-            c.p = gfFrac(c.p + gfWrap01(target - c.p) * Math.min(1, dt * 4));
-            c.synced = true;
-        } else { c.synced = false; c.period = c.ownPeriod; c.p = gfFrac(c.p + dt / c.period); }
+        const lagged = bell.p - (bd / GF.waveSpeed) / bell.period;
+        const target = c.kind === "krill" ? gfFrac(lagged * 5) : gfFrac(lagged);
+        c.period = c.kind === "krill" ? bell.period / 5 : bell.period;
+        c.p = gfFrac(c.p + dt / c.period);
+        c.p = gfFrac(c.p + gfWrap01(target - c.p) * Math.min(1, dt * 4));
+        c.synced = true;
     } else {
+        if (c.synced) c.period = c.ownPeriod;
         c.synced = false;
         c.p = gfFrac(c.p + dt / c.period);
     }
     if (c.kind === "bell" && c.p < prevP) gfWaves.push({ x: c.x, y: c.y, t0: gfTime, bell: c });
     c.b = gfBreath(c);
+    // Pressure bleeds off slowly while armoured and is gone once it deflates.
+    if (c.b.armour) c.press = Math.max(0, c.press - dt * 0.12); else c.press = 0;
     const fastNow = c.b.stage === "deflated";
-    const speed = fastNow ? k.fast : k.slow;
+    const flood = gfRound.phase === "flood";
+    const speed = (fastNow ? k.fast : k.slow) * (flood ? 1.25 : 1);
 
     // ---- Where to go ----
-    const prey = pod && pod.hunting ? pod.prey : gfNearestShip(c.x, c.y, GF.aggroR * 0.6);
-    if (c.kind === "bell") {
-        if (prey) { gfSteer(c, prey.x, prey.y, speed, dt, 1); gfTurnToward(c, prey.x, prey.y, dt); }
-        else if (pod.wander) { gfSteer(c, pod.wander.x, pod.wander.y, k.slow * 2.5, dt, 0.5); gfTurnToward(c, pod.wander.x, pod.wander.y, dt); }
+    let prey = null, pd = flood ? Infinity : GF.huntR;
+    for (let i = 0; i < targets.length; i++) {
+        const d = Math.hypot(targets[i].x - c.x, targets[i].y - c.y);
+        if (d < pd) { pd = d; prey = targets[i]; }
+    }
+    if (c.birthT > 0) {
+        // Still sliding out of the orifice: no steering yet.
+        c.vx *= 1 - Math.min(1, dt * 1.5); c.vy *= 1 - Math.min(1, dt * 1.5);
     } else if (prey) {
-        if (c.kind === "crab") {
+        if (c.kind === "bell") {
+            // Leads from behind its brood: closes to about 30 units and holds.
+            if (pd > 30) gfSwim(c, prey.x, prey.y, speed, dt, 1);
+            else { gfTurnToward(c, prey.x, prey.y, dt); c.vx *= 1 - Math.min(1, dt); c.vy *= 1 - Math.min(1, dt); }
+        } else if (c.kind === "crab") {
             // Big: drift in and reach with tendrils. Small: dart straight in.
-            const d = Math.hypot(prey.x - c.x, prey.y - c.y);
-            if (fastNow || d > 10) gfSteer(c, prey.x, prey.y, speed, dt, fastNow ? 4 : 1.5);
-            else gfSteer(c, c.x, c.y, 0, dt, 2);
-            gfTurnToward(c, prey.x, prey.y, dt);
+            if (fastNow || pd > c.b.r + 6) gfSwim(c, prey.x, prey.y, speed, dt, fastNow ? 4 : 1.5);
+            else { gfTurnToward(c, prey.x, prey.y, dt); c.vx *= 1 - Math.min(1, dt * 2); c.vy *= 1 - Math.min(1, dt * 2); }
         } else {
             // Krill: circle the prey while armoured, dive while soft.
-            if (fastNow) gfSteer(c, prey.x, prey.y, speed, dt, 5);
+            if (fastNow) gfSwim(c, prey.x, prey.y, speed, dt, 5);
             else {
-                c.orbitA += dt * 1.8;
-                gfSteer(c, prey.x + Math.cos(c.orbitA) * 14, prey.y + Math.sin(c.orbitA) * 14, speed, dt, 3);
+                c.orbitA += dt * 1.1;
+                gfSwim(c, prey.x + Math.cos(c.orbitA) * 13, prey.y + Math.sin(c.orbitA) * 13, speed, dt, 3);
             }
-            c.face = Math.atan2(c.vy, c.vx);
         }
     } else {
-        // Keep station round the Bellwether, or loiter if it is gone.
-        const anchor = (pod && pod.bell) || (pod && pod.members[0]) || c;
-        let tx = anchor.x, ty = anchor.y;
-        if (c.kind === "crab" && anchor !== c) {
-            const a = anchor.face + Math.PI + (c.slot - 2) * 0.6;
-            tx += Math.cos(a) * 26; ty += Math.sin(a) * 26;
-        } else if (c.kind === "krill") {
-            c.orbitA += dt * 1.2;
-            tx += Math.cos(c.orbitA) * 16; ty += Math.sin(c.orbitA) * 16;
-        } else if (pod && pod.wander) { tx = pod.wander.x; ty = pod.wander.y; }
-        gfSteer(c, tx, ty, Math.max(speed, 8), dt, 1.5);
-        if (c.kind === "krill") c.face = Math.atan2(c.vy, c.vx); else gfTurnToward(c, tx, ty, dt);
+        // Loiter off the mouth it came from.
+        const o = c.ori, base = o ? gfOrificePos(o) : gfHive, oa = o ? o.a : c.orbitA;
+        c.orbitA += dt * (c.kind === "krill" ? 0.5 : 0.15);
+        const rr = c.kind === "bell" ? 0 : (c.kind === "krill" ? 24 : 34);
+        const tx = base.x + Math.cos(oa) * 55 + Math.cos(c.orbitA) * rr, ty = base.y + Math.sin(oa) * 55 + Math.sin(c.orbitA) * rr;
+        gfSwim(c, tx, ty, Math.max(speed * 0.6, 5), dt, 1.5);
     }
 
-    // Light separation, so a pod doesn't collapse into one blob.
+    // Light separation, so a flood doesn't collapse into one blob.
     for (let i = 0; i < gfCreatures.length; i++) {
         const o = gfCreatures[i];
         if (o === c) continue;
-        const dx = c.x - o.x, dy = c.y - o.y, d = Math.hypot(dx, dy), min = c.b.r + o.b.r + 1;
+        const dx = c.x - o.x, dy = c.y - o.y;
+        const min = c.b.r + o.b.r + 0.6;
+        if (Math.abs(dx) > min || Math.abs(dy) > min) continue;
+        const d = Math.hypot(dx, dy);
         if (d < min && d > 1e-6) { c.vx += dx / d * (min - d) * 2; c.vy += dy / d * (min - d) * 2; }
     }
     c.x += c.vx * dt;
     c.y += c.vy * dt;
+    // The Tide is solid to its own brood too (once they are clear of the mouth).
+    if (c.birthT <= 0) {
+        const dx = c.x - gfHive.x, dy = c.y - gfHive.y, d = Math.hypot(dx, dy), min = gfHive.r + c.b.r;
+        if (d < min) { c.x = gfHive.x + dx / (d || 1) * min; c.y = gfHive.y + dy / (d || 1) * min; }
+    }
 
     // ---- Tendrils (aircrabs and Bellwethers, while big) ----
-    if (c.kind !== "krill" && !c.grabbing && prey && c.b.armour && c.tendrilCd <= 0) {
-        const reach = c.b.r + 11;
-        const d = Math.hypot(prey.x - c.x, prey.y - c.y);
-        if (d < reach + 4) {
+    if (c.kind !== "krill" && !c.grabbing && prey && c.b.armour && c.tendrilCd <= 0 && c.birthT <= 0) {
+        const reach = c.b.r + 8;
+        if (pd < reach + 3) {
             c.tendril += dt;
             c.tendrilTarget = prey;
-            if (c.tendril > 0.6) {   // the tell, then the lash
+            if (c.tendril > 0.7) {   // the tell, then the lash
                 c.tendril = 0;
                 c.tendrilCd = 2.5;
-                if (d < reach + 5 && prey.isAlive && !prey.gfGrab) {
+                if (pd < reach + 4 && prey.isAlive && !prey.gfGrab) {
                     prey.gfGrab = { by: c, t: 0, hits: 0 };
                     c.grabbing = prey;
                 }
@@ -338,12 +458,12 @@ function gfUpdateCreature(c, dt) {
     } else if (!c.grabbing) c.tendril = Math.max(0, c.tendril - dt * 2);
 
     // ---- Contact damage while small and fast ----
-    if (!c.b.armour && c.hitCd <= 0) {
-        for (let i = 0; i < glShips.length; i++) {
-            const s = glShips[i];
+    if (!c.b.armour && c.hitCd <= 0 && c.birthT <= 0) {
+        for (let i = 0; i < targets.length; i++) {
+            const s = targets[i];
             if (!s.isAlive) continue;
             const dx = s.x - c.x, dy = s.y - c.y, d = Math.hypot(dx, dy);
-            if (d < c.b.r + 0.6) {
+            if (d < c.b.r + 0.8) {
                 gfDamage(s, c.kind === "krill" ? 4 : (c.kind === "bell" ? 20 : 12), c.kind === "krill" ? "swarmed by airkrill" : "rammed by an aircrab");
                 c.vx = -dx / (d || 1) * k.fast; c.vy = -dy / (d || 1) * k.fast;
                 c.hitCd = 1;
@@ -353,9 +473,55 @@ function gfUpdateCreature(c, dt) {
     }
 }
 
+// A creature at full pressure bursts. Everything in the blast pays: ships are
+// hurt, soft bodies and krill die, and other armoured bodies take most of a
+// rupture's worth of pressure, a beat later, so a packed flood goes off as a
+// ripple. Nothing a blast kills leaves siphon.
+function gfRupture(c) {
+    if (c.hp <= 0) return;
+    const k = GF_KINDS[c.kind], R = k.blast;
+    c.hp = 0; c.burst = true;
+    gfBlasts.push({ x: c.x, y: c.y, r: R, t: 0 });
+    glSpawnBurst(c.x, c.y, c.kind === "bell" ? 90 : 40, "#FFB36B");
+    if (typeof glAudioShot === "function") glAudioShot();
+    const ts = gfTargets();
+    for (let i = 0; i < ts.length; i++) {
+        const d = Math.hypot(ts[i].x - c.x, ts[i].y - c.y);
+        if (d < R) gfDamage(ts[i], GF_BLAST_DMG * (d < R * 0.5 ? 1 : 2 * (1 - d / R)), "caught in a rupture");
+    }
+    for (let i = 0; i < gfCreatures.length; i++) {
+        const o = gfCreatures[i];
+        if (o === c || o.hp <= 0) continue;
+        const d = Math.hypot(o.x - c.x, o.y - c.y);
+        if (d > R + o.b.r) continue;
+        if (o.kind === "krill" || !o.b.armour) { o.hp = 0; o.burst = true; }
+        else {
+            o.press += 0.8;
+            o.flash = 0.15;
+            if (o.press >= 1 && o.ruptT <= 0) o.ruptT = 0.12 + d * 0.012;
+        }
+    }
+    for (let i = 0; i < gfOrifices.length; i++) {
+        const o = gfOrifices[i];
+        if (o.sealed || o.state === "closed") continue;
+        const p = gfOrificePos(o);
+        if (Math.hypot(p.x - c.x, p.y - c.y) < R + GF.oriR) gfHurtOrifice(o, 6);
+    }
+}
+
+// Add pressure to an armoured body (a bounced bolt = 1 unit of n).
+function gfPressure(c, n) {
+    const k = GF_KINDS[c.kind];
+    if (!k.press || c.ruptT > 0) return;
+    c.press += n / k.press;
+    c.flash = 0.06;
+    if (c.press >= 1) c.ruptT = 0.1;
+}
+
 function gfUpdateGrabs(dt) {
-    for (let i = 0; i < glShips.length; i++) {
-        const s = glShips[i], g = s.gfGrab;
+    const ts = gfTargets();
+    for (let i = 0; i < ts.length; i++) {
+        const s = ts[i], g = s.gfGrab;
         if (!g) continue;
         const c = g.by;
         if (!s.isAlive || c.hp <= 0 || gfCreatures.indexOf(c) === -1) { s.gfGrab = null; if (c) c.grabbing = null; continue; }
@@ -371,59 +537,109 @@ function gfUpdateGrabs(dt) {
             s.gfGrab = null; c.grabbing = null;
         }
     }
+    // A dead ship lets go.
+    for (let i = 0; i < gfCreatures.length; i++) {
+        const c = gfCreatures[i];
+        if (c.grabbing && !c.grabbing.isAlive) { c.grabbing.gfGrab = null; c.grabbing = null; }
+    }
 }
 
-// Bullets against creatures. A hit on armour BOUNCES the bullet; a hit on the
-// open rear vent during an inhale, or anywhere on a deflated body, wounds.
+// Closest point of the bolt's path THIS FRAME to (cx, cy). Bolts move several
+// units a frame now, so a point test would step straight over an airkrill.
+function gfSweep(b, cx, cy) {
+    const ax = b.x - b.vx, ay = b.y - b.vy;
+    const L2 = b.vx * b.vx + b.vy * b.vy;
+    let t = L2 > 0 ? ((cx - ax) * b.vx + (cy - ay) * b.vy) / L2 : 1;
+    t = Math.max(0, Math.min(1, t));
+    const x = ax + b.vx * t, y = ay + b.vy * t;
+    return { x: x, y: y, d: Math.hypot(x - cx, y - cy) };
+}
+
+// Bolts against The Tide and its creatures.
 function gfUpdateBulletHits() {
     for (let i = glBullets.length - 1; i >= 0; i--) {
         const b = glBullets[i];
-        // The hive: always armoured in pass 1.
-        const hd = Math.hypot(b.x - gfHive.x, b.y - gfHive.y);
-        if (hd < gfHive.r) { gfBounce(b, gfHive.x, gfHive.y, gfHive.r); continue; }
+        if (b.gfSkip) { b.gfSkip = false; continue; }   // the frame it bounced
+        // A ricochet is live: it hurts whatever ship it finds, the shooter included.
+        if (b.gfBounced) {
+            const ts = gfTargets();
+            let hitShip = false;
+            for (let j = 0; j < ts.length; j++) {
+                if (gfSweep(b, ts[j].x, ts[j].y).d < 1.3) {
+                    gfDamage(ts[j], GF_RICOCHET_DMG, "cut down by a ricochet");
+                    gfBoltImpact(ts[j].x, ts[j].y, false);
+                    glBullets.splice(i, 1);
+                    hitShip = true;
+                    break;
+                }
+            }
+            if (hitShip) continue;
+        }
+        // Orifices first: a swollen or open one takes the hit.
+        let done = false;
+        for (let j = 0; j < gfOrifices.length && !done; j++) {
+            const o = gfOrifices[j];
+            if (o.sealed || o.state === "closed") continue;
+            const p = gfOrificePos(o), h = gfSweep(b, p.x, p.y);
+            if (h.d < GF.oriR) {
+                gfHurtOrifice(o, 1);
+                glSpawnBurst(h.x, h.y, 5, "#FFE45C");
+                gfBoltImpact(h.x, h.y, true);
+                glBullets.splice(i, 1);
+                done = true;
+            }
+        }
+        if (done) continue;
+        const hh = gfSweep(b, gfHive.x, gfHive.y);
+        if (hh.d < gfHive.r) { gfBounce(b, gfHive.x, gfHive.y, gfHive.r, hh); continue; }
         for (let j = 0; j < gfCreatures.length; j++) {
             const c = gfCreatures[j];
-            const dx = b.x - c.x, dy = b.y - c.y, d = Math.hypot(dx, dy);
-            if (d > c.b.r + 0.25) continue;
-            // Shooting the thing that holds you shakes it loose.
+            if (c.hp <= 0) continue;
+            const h = gfSweep(b, c.x, c.y);
+            if (h.d > c.b.r + 0.3) continue;
+            // Shooting the thing that holds a ship shakes it loose.
             if (c.grabbing) {
                 const g = c.grabbing.gfGrab;
                 if (g && ++g.hits >= GF.grabBreakHits) { c.grabbing.gfGrab = null; c.grabbing = null; c.tendrilCd = 3; c.flash = 0.2; }
             }
             let wound = !c.b.armour;
             if (!wound && c.b.open) {
-                const rel = glWrapAngle(Math.atan2(dy, dx) - (c.face + Math.PI));
+                const rel = glWrapAngle(Math.atan2(h.y - c.y, h.x - c.x) - (c.face + Math.PI));
                 wound = Math.abs(rel) < GF_OPEN_ARC;
             }
             if (wound) {
                 c.hp -= 1;
                 c.flash = 0.15;
-                glSpawnBurst(b.x, b.y, 6, "#FFE45C");
-                gfBoltImpact(b.x, b.y, true);
+                glSpawnBurst(h.x, h.y, 6, "#FFE45C");
+                gfBoltImpact(h.x, h.y, true);
                 glBullets.splice(i, 1);
             } else {
-                gfBounce(b, c.x, c.y, c.b.r);
+                gfPressure(c, 1);
+                gfBounce(b, c.x, c.y, c.b.r, h);
             }
             break;
         }
     }
 }
 
-function gfBounce(b, cx, cy, r) {
+function gfBounce(b, cx, cy, r, h) {
     if (b.gfBounced) { glBullets.splice(glBullets.indexOf(b), 1); return; }
-    const dx = b.x - cx, dy = b.y - cy, d = Math.hypot(dx, dy) || 1, nx = dx / d, ny = dy / d;
+    const hx = h ? h.x : b.x, hy = h ? h.y : b.y;
+    const dx = hx - cx, dy = hy - cy, d = Math.hypot(dx, dy) || 1, nx = dx / d, ny = dy / d;
     const dot = b.vx * nx + b.vy * ny;
     b.vx -= 2 * dot * nx; b.vy -= 2 * dot * ny;
-    b.x = cx + nx * (r + 0.3); b.y = cy + ny * (r + 0.3);
+    b.vx *= 0.45; b.vy *= 0.45;
+    b.color = "#FF8A5C";
+    b.x = cx + nx * (r + 0.4); b.y = cy + ny * (r + 0.4);
     b.gfBounced = true;
-    b.color = "#8FA3A8";
-    b.life = Math.min(b.life, 40);
+    b.gfSkip = true;
+    b.life = Math.min(b.life, GF_RICOCHET_LIFE);
     glSpawnBurst(b.x, b.y, 3, "#cfe9e6");
     gfBoltImpact(b.x, b.y, false);
 }
 
 // ---------------------------------------------------
-//   Draw: world (stage 1, lensable)
+//   Draw: world (stage 1, lensable). Bodies are in gf-flesh.js.
 // ---------------------------------------------------
 function gfOnScreen(p, pad) { return p.x > -pad && p.y > -pad && p.x < glW + pad && p.y < glH + pad; }
 
@@ -431,7 +647,7 @@ function gfDrawWorld(c) {
     if (!gfHive) return;
     const z = glCamera.zoom;
     gfDrawHome(c, z);
-    gfDrawHive(c, z);
+    gfDrawTide(c, z);        // gf-flesh.js
 
     // Sync waves.
     for (let i = 0; i < gfWaves.length; i++) {
@@ -441,15 +657,20 @@ function gfDrawWorld(c) {
         if (p.h) continue;
         const pr = r * z;
         if (pr < 2 || !gfOnScreen(p, pr + 10)) continue;
-        c.globalAlpha = Math.max(0, 0.55 * (1 - r / (GF.syncR * 1.25)));
+        c.globalAlpha = Math.max(0, 0.5 * (1 - r / (GF.syncR * 1.25)));
         c.strokeStyle = "#FFE45C";
         c.lineWidth = 2;
         c.beginPath(); c.arc(p.x, p.y, pr, 0, Math.PI * 2); c.stroke();
         c.globalAlpha = 1;
     }
 
-    gfDrawViewWorld(c, z);   // gf-view.js: speed dust, creature trails, tendril reach
-    for (let i = 0; i < gfCreatures.length; i++) gfDrawCreature(c, gfCreatures[i], z);
+    gfDrawViewWorld(c, z);   // gf-view.js: speed dust, creature trails
+    gfDrawMotes(c, z);       // gf-wing.js: siphon motes
+    // Small ones first, so the big bodies sit on top of the swarm.
+    for (let i = 0; i < gfCreatures.length; i++) if (gfCreatures[i].kind === "krill") gfDrawCreature(c, gfCreatures[i], z);
+    for (let i = 0; i < gfCreatures.length; i++) if (gfCreatures[i].kind !== "krill") gfDrawCreature(c, gfCreatures[i], z);
+    gfDrawBlasts(c, z);      // gf-flesh.js: rupture rings
+    gfDrawWing(c, z);        // gf-wing.js: the bots
     gfDrawArmsWorld(c, z);   // gf-arms.js: bolts, seekers, impact rings
 }
 
@@ -501,109 +722,6 @@ function gfDrawHome(c, z) {
     c.fillText("MOTHERSHIP", p.x, p.y + R * 1.25 + 12);
 }
 
-function gfBlob(c, x, y, R, face, wob, t) {
-    // A lumpy outline: the base of every creature body.
-    c.beginPath();
-    const n = 18;
-    for (let i = 0; i <= n; i++) {
-        const a = face + i / n * Math.PI * 2;
-        const rr = R * (1 + wob * Math.sin(a * 3 + t) * 0.5 + wob * Math.sin(a * 5 - t * 1.3) * 0.5);
-        const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr;
-        i === 0 ? c.moveTo(px, py) : c.lineTo(px, py);
-    }
-    c.closePath();
-}
-
-function gfDrawHive(c, z) {
-    const p = glWorldToScreen(gfHive.x, gfHive.y);
-    if (p.h) return;
-    const R = Math.max(10, gfHive.r * z);
-    if (!gfOnScreen(p, R * 1.3)) return;
-    c.fillStyle = "rgba(120,20,40,0.35)";
-    c.strokeStyle = "#C2335A";
-    c.lineWidth = 2;
-    gfBlob(c, p.x, p.y, R, 0, 0.12, gfTime * 0.4);
-    c.fill(); c.stroke();
-    // Inner lobes, breathing out of step with the shell.
-    c.strokeStyle = "rgba(255,122,156,0.5)";
-    for (let i = 0; i < 5; i++) {
-        const a = i * 1.256 + gfTime * 0.05;
-        const rr = R * (0.32 + 0.05 * Math.sin(gfTime * 0.8 + i));
-        gfBlob(c, p.x + Math.cos(a) * R * 0.45, p.y + Math.sin(a) * R * 0.45, rr, a, 0.15, gfTime + i);
-        c.stroke();
-    }
-}
-
-function gfDrawCreature(c, cr, z) {
-    const k = GF_KINDS[cr.kind];
-    const p = glWorldToScreen(cr.x, cr.y);
-    if (p.h) return;
-    const R = Math.max(k.minPx, cr.b.r * z);
-    if (!gfOnScreen(p, R * 3 + 40)) return;
-    const col = cr.flash > 0 ? "#FFFFFF" : k.col;
-    const soft = !cr.b.armour;
-
-    if (cr.kind === "krill") {
-        c.fillStyle = col;
-        c.strokeStyle = col;
-        c.globalAlpha = soft ? 1 : 0.7;
-        gfBlob(c, p.x, p.y, R, cr.face, soft ? 0.25 : 0.05, gfTime * 6);
-        soft ? c.fill() : c.stroke();
-        c.globalAlpha = 1;
-        return;
-    }
-
-    // Two lung lobes either side of the facing.
-    const px = -Math.sin(cr.face), py = Math.cos(cr.face);
-    c.lineWidth = cr.b.armour ? 2.4 : 1.2;
-    c.strokeStyle = col;
-    c.fillStyle = soft ? "rgba(255,122,156,0.45)" : "rgba(255,122,156,0.16)";
-    for (let s = -1; s <= 1; s += 2) {
-        gfBlob(c, p.x + px * R * 0.42 * s, p.y + py * R * 0.42 * s, R * 0.68, cr.face, soft ? 0.22 : 0.06, gfTime * 2 + s);
-        c.fill(); c.stroke();
-    }
-    if (cr.kind === "bell") {
-        // Crown of spines: the one that leads.
-        c.beginPath();
-        for (let i = 0; i < 9; i++) {
-            const a = cr.face + Math.PI / 2 + (i - 4) * 0.28;
-            c.moveTo(p.x + Math.cos(a) * R * 0.9, p.y + Math.sin(a) * R * 0.9);
-            c.lineTo(p.x + Math.cos(a) * R * 1.35, p.y + Math.sin(a) * R * 1.35);
-        }
-        c.stroke();
-    }
-    // The rear vent: blazing while it inhales, a dark slit otherwise.
-    const vx = p.x - Math.cos(cr.face) * R * 0.95, vy = p.y - Math.sin(cr.face) * R * 0.95;
-    if (cr.b.open) {
-        c.fillStyle = "#FFE45C";
-        c.globalAlpha = 0.35;
-        c.beginPath(); c.arc(vx, vy, R * 0.6, 0, Math.PI * 2); c.fill();
-        c.globalAlpha = 1;
-        c.beginPath(); c.arc(vx, vy, Math.max(2, R * 0.28), 0, Math.PI * 2); c.fill();
-    } else {
-        c.strokeStyle = "rgba(40,0,10,0.9)";
-        c.lineWidth = 2;
-        c.beginPath();
-        c.moveTo(vx + px * R * 0.2, vy + py * R * 0.2);
-        c.lineTo(vx - px * R * 0.2, vy - py * R * 0.2);
-        c.stroke();
-    }
-    // Tendrils: the tell, the reach, the hold.
-    const tgt = cr.grabbing || (cr.tendril > 0 ? cr.tendrilTarget : null);
-    if (tgt) {
-        const tp = glWorldToScreen(tgt.x, tgt.y);
-        const reach = cr.grabbing ? 1 : cr.tendril / 0.6;
-        c.strokeStyle = cr.grabbing ? "#FF2E88" : "rgba(255,122,156,0.8)";
-        c.lineWidth = cr.grabbing ? 2 : 1.3;
-        for (let i = -1; i <= 1; i++) {
-            const fx = p.x + Math.cos(cr.face + i * 0.4) * R * 0.8, fy = p.y + Math.sin(cr.face + i * 0.4) * R * 0.8;
-            const ex = fx + (tp.x - fx) * reach, ey = fy + (tp.y - fy) * reach;
-            const mx = (fx + ex) / 2 + Math.sin(gfTime * 9 + i) * R * 0.5, my = (fy + ey) / 2 + Math.cos(gfTime * 7 + i) * R * 0.5;
-            c.beginPath(); c.moveTo(fx, fy); c.quadraticCurveTo(mx, my, ex, ey); c.stroke();
-        }
-    }
-}
-
 // ---------------------------------------------------
 //   Draw: overlay (screen space, never lensed)
 // ---------------------------------------------------
@@ -614,16 +732,28 @@ function gfDrawOverlay(c) {
     c.save();
     c.font = "11px monospace";
     c.textAlign = "center";
-    for (let i = 0; i < gfPods.length; i++) {
-        const b = gfPods[i].bell;
-        if (!b) continue;
+    for (let i = 0; i < gfCreatures.length; i++) {
+        const b = gfCreatures[i];
+        if (b.kind !== "bell") continue;
         const p = glWorldToScreenRaw(b.x, b.y);
         if (!gfOnScreen(p, 0)) continue;
         c.fillStyle = "#FF3B3B";
         c.fillText("BELLWETHER", p.x, p.y - Math.max(14, b.b.r * glCamera.zoom * 1.5) - 4);
     }
-    const hp = glWorldToScreenRaw(gfHive.x, gfHive.y);
-    if (gfOnScreen(hp, 0)) { c.fillStyle = "#C2335A"; c.fillText("THE HIVE", hp.x, hp.y - Math.max(16, gfHive.r * glCamera.zoom) - 6); }
+    // Orifice state, said in words above each mouth.
+    for (let i = 0; i < gfOrifices.length; i++) {
+        const o = gfOrifices[i];
+        if (o.sealed) continue;
+        const w = gfOrificePos(o), p = glWorldToScreenRaw(w.x + Math.cos(o.a) * 20, w.y + Math.sin(o.a) * 20);
+        if (!gfOnScreen(p, 0)) continue;
+        const hot = o.state !== "closed";
+        c.fillStyle = hot ? "#FFE45C" : "rgba(255,122,156,0.7)";
+        c.fillText(o.state === "swell" ? "SWELLING: SHOOT IT" : o.state === "open" ? "OPEN: SHOOT IT" : "shut · opens in " + Math.ceil(o.t) + "s", p.x, p.y);
+        if (hot || o.hp < GF.oriHp) {
+            c.fillStyle = "rgba(0,0,0,0.6)"; c.fillRect(p.x - 26, p.y + 5, 52, 5);
+            c.fillStyle = "#FF3B5E"; c.fillRect(p.x - 25, p.y + 6, 50 * Math.max(0, o.hp / GF.oriHp), 3);
+        }
+    }
     // Held by tendrils: the one thing that has to be on screen.
     const g = glShip.gfGrab;
     if (g && glShip.isAlive) {
@@ -636,34 +766,28 @@ function gfDrawOverlay(c) {
         c.fillRect(0, 0, glW, 6); c.fillRect(0, glH - 6, glW, 6);
     }
     c.restore();
+    gfDrawHud(c);         // gf-wing.js: hull, ships, capacitor, wing, orifices, clock, end card
 }
 
-// Nav arrows (glDrawNav, gl-draw.js): the hive and the nearest pod.
+// Nav arrows (glDrawNav, gl-draw.js): The Tide, its live orifices, and home.
 function gfNavTargets(s) {
     const out = [];
     if (!gfHive) return out;
-    out.push({ x: gfHive.x, y: gfHive.y, r: gfHive.r, name: "HIVE", col: "#C2335A" });
-    let best = null, bd = Infinity;
-    for (let i = 0; i < gfPods.length; i++) {
-        const lead = gfPods[i].bell || gfPods[i].members[0];
-        if (!lead) continue;
-        const d = Math.hypot(lead.x - s.x, lead.y - s.y);
-        if (d < bd) { bd = d; best = lead; }
+    const far = Math.hypot(gfHive.x - s.x, gfHive.y - s.y) > gfHive.r + 600;
+    if (far) out.push({ x: gfHive.x, y: gfHive.y, r: gfHive.r, name: "THE TIDE", col: "#C2335A" });
+    else for (let i = 0; i < gfOrifices.length; i++) {
+        const o = gfOrifices[i];
+        if (o.sealed) continue;
+        const p = gfOrificePos(o);
+        out.push({ x: p.x, y: p.y, r: 0, name: o.state === "closed" ? "ORIFICE" : "ORIFICE OPEN", col: o.state === "closed" ? "#C2335A" : "#FFE45C" });
     }
-    if (best) out.push({ x: best.x, y: best.y, r: 0, name: "POD", col: "#FF3B3B" });
-    out.push({ x: gfHome.x, y: gfHome.y, r: 0, name: "HOME", col: "#7DF9FF" });
+    if (far || Math.hypot(gfHome.x - s.x, gfHome.y - s.y) < 3000) out.push({ x: gfHome.x, y: gfHome.y, r: 0, name: "HOME", col: "#7DF9FF" });
     return out;
 }
 
+// The dev HUD line (the HTML box, shown only with ?dev).
 function gfHudLine() {
     if (!gfHive) return "";
-    const s = glShip;
-    const hcol = gfHull > 60 ? "#7DF9FF" : (gfHull > 25 ? "#FFB000" : "#FF2E88");
-    let synced = 0, total = 0;
-    gfCreatures.forEach(function (c) { if (c.kind !== "bell") { total++; if (c.synced) synced++; } });
-    return "<b style='color:" + hcol + "'>HULL " + Math.ceil(gfHull) + "</b> &nbsp; kills: " +
-        gfKills.crab + " aircrab · " + gfKills.krill + " airkrill · " + gfKills.bell + " bellwether<br>" +
-        gfPods.length + " pods · " + gfCreatures.length + " creatures (" + synced + "/" + total + " breathing in sync) · next pod " +
-        (gfPods.length >= GF.podMax ? "-" : Math.ceil(gfPodTimer) + "s") + " · hive " +
-        glFmtAstro(Math.max(0, Math.hypot(gfHive.x - s.x, gfHive.y - s.y) - gfHive.r)) + "<br>";
+    return "HULL " + Math.ceil(gfHull) + " · " + gfCreatures.length + " creatures · phase " + gfRound.phase +
+        " · kills " + gfKills.crab + "/" + gfKills.krill + "/" + gfKills.bell + " burst " + gfKills.burst + "<br>";
 }

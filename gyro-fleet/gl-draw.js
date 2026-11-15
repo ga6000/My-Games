@@ -455,7 +455,8 @@ function glRender() {
     glComposite();     // buffer -> screen, via the selected lens method
     glDrawHole();      // -> screen, undistorted
     glDrawOverlay();   // -> screen, constant pixel size, never lensed
-    glDrawMinimap();   // -> screen, 8-bit map (gl-minimap.js), toggle M
+    // (Gyro Fleet flood pass: the engine's galaxy mini-map is off; the game's
+    // SITE and ORBIT maps are in the sidebar, gf-wing.js.)
     glUltraApplyShake(); // ultradrive rumble: a CSS translate of the finished frame (gl-ultra.js)
 }
 
@@ -483,7 +484,7 @@ function glDrawNav(c) {
     for (let i = 0; i < targets.length; i++) {
         const t = targets[i], p = glWorldToScreenRaw(t.x, t.y);
         const dx = p.x - glCX, dy = p.y - glCY, m = 44;
-        const kx = dx !== 0 ? (glCX - m) / Math.abs(dx) : Infinity;
+        const kx = dx !== 0 ? ((dx > 0 ? glCX - GF_SIDE_W : glCX) - m) / Math.abs(dx) : Infinity;   // stop short of the game sidebar
         const ky = dy !== 0 ? (glCY - m) / Math.abs(dy) : Infinity;
         const k = Math.min(kx, ky);
         if (k >= 1) continue;   // it is on screen; its own label says what it is
@@ -495,7 +496,7 @@ function glDrawNav(c) {
         c.lineTo(ax + Math.cos(a - 2.5) * 7, ay + Math.sin(a - 2.5) * 7);
         c.closePath();
         c.fill();
-        const label = t.name + " " + glFmtAstro(Math.max(0, Math.hypot(t.x - s.x, t.y - s.y) - t.r));
+        const label = t.name;   // (Gyro Fleet: no km readout; the ORBIT map shows how far)
         c.textAlign = ax > glCX ? "right" : "left";
         c.fillText(label, ax - Math.cos(a) * 14, ay - Math.sin(a) * 14 + 4);
     }

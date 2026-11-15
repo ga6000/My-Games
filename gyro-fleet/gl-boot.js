@@ -31,8 +31,12 @@ window.addEventListener("keydown", function (e) {
     glAudioUnlock();   // any key is the gesture that lets the page make sound (gl-audio.js)
     if (glTypingInPanel(e)) return;
 
-    if (e.code === "KeyQ") glSetMode("q");
-    if (e.code === "KeyE") glSetMode("e");
+    // Gyro Fleet flood pass (2026-11-15): the engine's E fleet mode (drag-select,
+    // right-click go) is off in the game; the wing takes orders on F (gf-wing.js).
+    // The engine's dev keys (E, H panel, C free cam, O auto-orbit) need ?dev.
+    if (GF_DEV && e.code === "KeyQ") glSetMode("q");
+    if (GF_DEV && e.code === "KeyE") glSetMode("e");
+    if (!e.repeat && (e.code === "KeyF" || e.code === "KeyR" || e.code === "KeyG" || e.code === "Enter")) gfWingKey(e.code);
 
     // SPACE drops the drive to gear 0 — the quick brake when fine-tuning an
     // approach. Q: the flown ship; E: formations holding a selected ship.
@@ -50,29 +54,25 @@ window.addEventListener("keydown", function (e) {
     // the battle space is ±60,000 units. Back when travel gets designed.)
     if (e.code === "KeyP") glPaused = !glPaused;
     if (e.code === "Period") { glStepOnce = true; }        // Single-frame advance
-    if (e.code === "KeyH") glPanelEl.classList.toggle("hidden");
+    if (GF_DEV && e.code === "KeyH") glPanelEl.classList.toggle("hidden");
     // (R reseed-probes and M mini-map toggle removed 2026-09-12: the button
     // went at the user's request, and the mini-map is baked on.)
 
     // O: auto-orbit whoever this mode means — the selection in E (as one
     // formation), the flown ship in Q. Toggles: if every target is already
     // orbiting, it stands them down; otherwise it orders them all to orbit.
-    if (e.code === "KeyO") {
+    if (GF_DEV && e.code === "KeyO") {
         const targets = glMode === "e" ? glSelectedShips() : [glShip];
         // Not during an ultradrive charge or drive: the autopilot would take
         // the launch heading, or the helm on drop-out.
         if (targets.length && !(glMode === "q" && glShip.ultraState)) glOrbitCommand(targets, !targets.every(glIsOrbiting));
     }
     // F: spawn a ship at the cursor (either mode).
-    if (e.code === "KeyF") {
-        const w = glCursorWorld();
-        glSpawnShip(w.x, w.y);
-    }
     if (e.code === "Escape" && glMode === "e") glShips.forEach(function (s) { s.selected = false; });
 
     // (N new-hole-at-cursor and Tab next-hole removed 2026-09-12, with the
     // black-hole panel section: holes come from the galaxy now.)
-    if (e.code === "KeyC" && !glIsLocked("freeCam")) { GLP.v.freeCam = !GLP.v.freeCam; glSyncPanelFromParams(); }
+    if (GF_DEV && e.code === "KeyC" && !glIsLocked("freeCam")) { GLP.v.freeCam = !GLP.v.freeCam; glSyncPanelFromParams(); }
 
     // Shift+↑/↓: drive gear, the keyboard twin of Shift+wheel (2026-09-12).
     // Not a pan — and no auto-repeat, or holding it would race to gear 9.
@@ -286,6 +286,7 @@ glSafeSpawn(glShip);
     glProbes.length = 0;
 })();
 gfInitBattle();
+if (GF_DEV) { glPanelEl.classList.remove("hidden"); glHudEl.style.display = ""; }
 glShip.homeX = glShip.x;
 glShip.homeY = glShip.y;
 glCamera.x = glShip.x;

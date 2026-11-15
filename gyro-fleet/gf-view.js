@@ -25,13 +25,13 @@ const GF_VIEW = {
     midCell: 150,       // px; one rock per cell at most
     midChance: 0.28,
     dustN: 110,
-    markR: 2600,        // edge markers for creatures this close
+    markR: 700,        // edge markers for creatures this close
     camNear: 5000,      // auto camera works this close to a creature or the hive
-    viewMin: 55,        // closest framing (world units, half the short side)
-    viewMax: 700,       // widest framing (pass 3: was 1,700, "too far out")
+    viewMin: 40,        // closest framing (world units, half the short side)
+    viewMax: 105,       // widest framing (flood pass: was 700, "still a bit too zoomed out")
     earthPx: 0.06,      // Earth's parallax: px per world unit
     earthK: 0.42,       // Earth radius as a share of the home-hive distance on its layer
-    viewTravel: 110,    // travel view (no fight near)
+    viewTravel: 80,    // travel view (no fight near)
     viewJump: 350       // during a jump
 };
 
@@ -61,9 +61,9 @@ function gfViewFrame(dt) {
     if (glMode !== "q" || !s.isAlive || !gfHive) return;
     let d = gfNearestCreatureDist(s.x, s.y);
     d = Math.min(d, Math.max(0, Math.hypot(gfHive.x - s.x, gfHive.y - s.y) - gfHive.r));
-    let R = d > GF_VIEW.camNear ? GF_VIEW.viewTravel : Math.max(GF_VIEW.viewMin, Math.min(GF_VIEW.viewMax, d * 1.25 + 60));
+    let R = d > GF_VIEW.camNear ? GF_VIEW.viewTravel : Math.max(GF_VIEW.viewMin, Math.min(GF_VIEW.viewMax, d * 0.7 + 30));
     if (gfFlight.jump === "burst") R = GF_VIEW.viewJump;
-    if (gfViewDropBoost > 0) R = Math.max(R, Math.min(GF_VIEW.viewMax, d * 1.3 + 120));
+    if (gfViewDropBoost > 0) R = Math.max(R, GF_VIEW.viewMax * 1.5);
     const target = Math.min(glW, glH) / 2 / R;
     const rate = gfViewDropBoost > 0 ? 0.12 : 0.04;
     cam.zoom = Math.exp(glLerp(Math.log(cam.zoom), Math.log(target), rate));
@@ -176,7 +176,7 @@ function gfDrawViewWorld(c, z) {
             c.globalAlpha = 1;
         }
         if (cr.kind !== "krill" && cr.b.armour) {
-            const rr = (cr.b.r + 11) * z;
+            const rr = (cr.b.r + 8) * z;
             if (rr > 6) {
                 c.strokeStyle = col; c.globalAlpha = cr.tendril > 0 ? 0.55 : 0.14; c.lineWidth = 1;
                 c.setLineDash([3, 5]);
@@ -199,9 +199,9 @@ function gfDrawEdgeMarkers(c) {
         const dist = Math.hypot(cr.x - s.x, cr.y - s.y);
         if (dist > GF_VIEW.markR) continue;
         const p = glWorldToScreenRaw(cr.x, cr.y);
-        if (p.x > 0 && p.y > 0 && p.x < glW && p.y < glH) continue;
+        if (p.x > 0 && p.y > 0 && p.x < glW - GF_SIDE_W && p.y < glH) continue;
         const dx = p.x - glCX, dy = p.y - glCY;
-        const k = Math.min(dx ? (glCX - m) / Math.abs(dx) : Infinity, dy ? (glCY - m) / Math.abs(dy) : Infinity);
+        const k = Math.min(dx ? ((dx > 0 ? glCX - GF_SIDE_W : glCX) - m) / Math.abs(dx) : Infinity, dy ? (glCY - m) / Math.abs(dy) : Infinity);
         const ax = glCX + dx * k, ay = glCY + dy * k, a = Math.atan2(dy, dx);
         const near = 1 - dist / GF_VIEW.markR, sz = 3 + 5 * near;
         c.globalAlpha = 0.35 + 0.6 * near;
