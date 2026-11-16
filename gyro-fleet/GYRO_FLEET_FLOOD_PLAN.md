@@ -69,3 +69,20 @@ Ry: ricocheted bolts shifted in space when he changed trajectory, and the spool 
 Canon bends still waiting on Ry for the bestiary: vents open on the exhale, an inflated body can be burst, breath is site-wide (the Bellwether winds its brood when killed rather than conducting it).
 
 Checks: both repo scripts pass. Headless run: hand-aimed jump brakes at the relay, each site breathes in one phase, both boons land, The Tide unclamps, win card, no page errors, 60 fps. No human has played this pass.
+
+## Flood pass 4 (2026-11-16, after Ry's third playtest)
+
+Ry: "game balance speed is much improved & getting there."
+
+| Ask | Built |
+|---|---|
+| Stray circles on every enemy | The pale "armour rib" arcs in `gfLobe` were drawn with the wrong sweep and left three circles hanging off each body. Gone. |
+| Lungs that inflate | `gfLobe` / `gfLobePath`: a lobe is a sac on the windpipe (narrow apex, wide base, flat inner face). Slack it is a pleated bag; air glows outward from the hilum, pleats open and fade, the base fills last, the bronchi fan out, alveoli bead up. The windpipe, mouth and vent change size far less than the lobes. Gulps of air run down the windpipe on the inhale and back up on the exhale. |
+| Mouth | `gfDrawMaw`: a lamprey mouth. Lumpy gum collar, a swallowing throat, three rows of uneven needle teeth with gaps, ropes of spit. It gapes when it lashes. |
+| Tendril circles | The dotted reach ring round armoured bodies and the ring that closed on a held ship are both gone. A held ship shows the break pips and a thin time bar. |
+| Longer to die when caught | `GF.grabTime` 6.5 s (was 3); hull drain while held 3/s (was 6). |
+| Keys by the right hand | H = FOLLOW / HUNT, J = call a bot, K = mend (were F, R, G). In `?dev` the panel toggle moved from H to B. |
+| The breath as a wave | `gfDrawBreathFronts`: an amber front with a red wake rolls out from the site as the inhale arrives, and a green front as the soft window arrives (the gauge's colours). The wave is slower (`GF.breathWave` 120 u/s, was 220) so the front takes about a second to cross the screen. |
+| Bot drop-in | White flash, hard shock ring, flare, sparks, heavier shake, a low boom. The arrival throws back everything within 24 units, winds aircrabs for 2 s (Bellwethers 1 s), kills airkrill, and breaks any tendril hold. |
+
+Proposed, not built: the inflation bump as a mechanic, and the crew ships (brief in the thread, with an L+G dev menu).

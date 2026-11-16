@@ -77,6 +77,12 @@ function gfSfx(name, k) {
         gfTone(c, "sine", 120, 60, 1.0, 0.16);
         gfTone(c, "triangle", 660, 660, 0.12, 0.1, 0.85);
         break;
+    case "drop":     // a bot slams out of ultradrive beside you
+        if (!(c = gfSfxOk(name, 0.08))) return;
+        gfTone(c, "sine", 150, 38, 0.5, 0.5);
+        gfTone(c, "square", 880, 220, 0.14, 0.12);
+        gfHiss(c, false, "highpass", 2500, 600, 1, 0.35, 0.35);
+        break;
     case "swell":
         if (!(c = gfSfxOk(name, 0.5))) return;
         gfTone(c, "sawtooth", 48, 150, 2.3, 0.3, 0, 420);

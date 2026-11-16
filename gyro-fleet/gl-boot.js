@@ -36,7 +36,7 @@ window.addEventListener("keydown", function (e) {
     // The engine's dev keys (E, H panel, C free cam, O auto-orbit) need ?dev.
     if (GF_DEV && e.code === "KeyQ") glSetMode("q");
     if (GF_DEV && e.code === "KeyE") glSetMode("e");
-    if (!e.repeat && (e.code === "KeyF" || e.code === "KeyR" || e.code === "KeyG" || e.code === "Enter")) gfWingKey(e.code);
+    if (!e.repeat && (e.code === "KeyH" || e.code === "KeyJ" || e.code === "KeyK" || e.code === "Enter")) gfWingKey(e.code);
 
     // SPACE drops the drive to gear 0 — the quick brake when fine-tuning an
     // approach. Q: the flown ship; E: formations holding a selected ship.
@@ -54,7 +54,7 @@ window.addEventListener("keydown", function (e) {
     // the battle space is ±60,000 units. Back when travel gets designed.)
     if (e.code === "KeyP") glPaused = !glPaused;
     if (e.code === "Period") { glStepOnce = true; }        // Single-frame advance
-    if (GF_DEV && e.code === "KeyH") glPanelEl.classList.toggle("hidden");
+    if (GF_DEV && e.code === "KeyB") glPanelEl.classList.toggle("hidden");
     // (R reseed-probes and M mini-map toggle removed 2026-09-12: the button
     // went at the user's request, and the mini-map is baked on.)
 
