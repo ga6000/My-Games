@@ -10,7 +10,7 @@ launched, and crews lead wings of expendable ships against the creature hives.
 ## Where things are
 
 - **New game code is prefixed `gf`/`GF`** and lives in `gf-*.js`:
-  `gf-crabs.js` (creatures, The Tide and its orifices, the round, rupture and ricochet rules), `gf-flesh.js` (how creatures and The Tide are drawn), `gf-wing.js` (wing bots and orders, the siphon capacitor, score, the game sidebar and its maps), `gf-flight.js` (controls, the jump and its ultradrive cues), `gf-view.js` (backdrop, Earth, camera, readability), `gf-arms.js` (weapons, the flown ship's look), `gf-sfx.js` (sound cues).
+  `gf-crabs.js` (creatures, The Tide and its orifices, the round, rupture and ricochet rules), `gf-flesh.js` (how creatures and The Tide are drawn), `gf-wing.js` (wing bots and orders, the siphon capacitor, score, the game sidebar and its maps), `gf-flight.js` (controls, the jump and its ultradrive cues), `gf-view.js` (backdrop, Earth, camera, readability), `gf-arms.js` (weapons, the flown ship's look), `gf-sfx.js` (sound cues), `gf-crew.js` (the six crew: hulls, primaries, K abilities, bot copies, and the L+G dev menu).
 - **The parameter panel and the engine HUD are hidden in the game.** Open `gyro-fleet.html?dev` to get them and the engine's dev keys (E, H, C, O) back.
 - **The engine is Gyro Lab's, unchanged where possible, and keeps its `gl`/`GL` names**: ship
   flight, gears, fleet/boids (E), autopilot, the vector lens, audio and the mini-map. Its full history
@@ -61,4 +61,5 @@ Launch from the hex bay, jump between 3 sites, crack breathing vents, harvest SI
 | flood (2026-11-15) | `GYRO_FLEET_FLOOD_PLAN.md` | The Tide with three orifices, a round that ends with a score, faster ship and shots, slow-turning creatures, ruptures and live ricochets, siphon capacitor, wing with FOLLOW / HUNT, fleshy creatures, game sidebar with maps, ultradrive cues on the jump and on bots. Ry played it: "massive improvement", too easy. |
 | flood 2 (2026-11-15) | same file | Harder, fuse + shards + frenzy on ruptures, ricochets return to the shooter, `gf-sfx.js`, no text labels, slim sidebar. Ry played it: "a good foundation". |
 | flood 3 (2026-11-15) | same file | Bolt streak and spool streak fixes, ONE breath per site with a gauge, Bellwether kill winds its brood, three sites (RELAY, DRYDOCK, THE TIDE) with The Tide clamped until both satellites are freed, boons per satellite, 8:00 clock. Ry played it: balance "much improved". |
-| flood 4 (2026-11-16) | same file | Stray arcs fixed, lungs that fill like lungs, lamprey mouth, no tendril rings, 6.5 s grab, keys H / J / K, visible breath fronts, bot drop-in shockwave. **Not yet human-played.** |
+| flood 4 (2026-11-16) | same file | Stray arcs fixed, lungs that fill like lungs, lamprey mouth, no tendril rings, 6.5 s grab, keys H / J / K, visible breath fronts, bot drop-in shockwave. Ry played it. |
+| 5 (2026-11-16) | same file | Crush and launch (bunched bodies squash on the inhale, fire apart, tumble), six crew in `gf-crew.js`, K = crew ability, L+G dev menu, 3.5 s aftermath before the score. **Not yet human-played.** |

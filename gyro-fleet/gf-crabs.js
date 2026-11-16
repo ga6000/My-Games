@@ -67,10 +67,12 @@ const GF = {
 // turn = radians per second at full size; deflated bodies turn 1.6x faster.
 // press = armour bounces to rupture; blast = rupture radius (0 = never ruptures).
 const GF_KINDS = {
-    crab:  { period: [3.6, 4.6], rBig: 3.4, rSmall: 1.4, hp: 3, slow: 7,  fast: 23, turn: 0.75, col: "#FF7A9C", minPx: 5, press: 5,  blast: 12, mote: 12, spines: 10 },
+    crab:  { period: [3.6, 4.6], rBig: 3.4, rSmall: 1.4, hp: 3, slow: 7,  fast: 23, turn: 0.75, col: "#FF7A9C", minPx: 5, press: 5,  blast: 12, mote: 12, spines: 10, launch: 62 },
     krill: { period: [1.2, 1.6], rBig: 1.3, rSmall: 0.85, hp: 1, slow: 16, fast: 36, turn: 2.7, col: "#C9A2FF", minPx: 5, press: 0,  blast: 0,  mote: 3,  spines: 0 },
-    bell:  { period: [7, 7],     rBig: 7.5, rSmall: 3.6, hp: 9, slow: 3,  fast: 8,  turn: 0.3,  col: "#FF3B3B", minPx: 9, press: 14, blast: 22, mote: 40, spines: 20 }
+    bell:  { period: [7, 7],     rBig: 7.5, rSmall: 3.6, hp: 9, slow: 3,  fast: 8,  turn: 0.3,  col: "#FF3B3B", minPx: 9, press: 14, blast: 22, mote: 40, spines: 20, launch: 24 }
 };
+const GF_TUMBLE = 1.3;      // seconds a launched body spins helpless, vent to the world
+const GF_AFTER = 3.5;       // seconds of aftermath between the round ending and the score card
 const GF_OPEN_ARC = 0.8;    // radians either side of the rear: the vent
 const GF_BLAST_DMG = 28;
 const GF_RICOCHET_DMG = 7;   // a bounced bolt that finds a ship
@@ -88,7 +90,7 @@ let gfTime = 0;
 let gfHull = GF.hull, gfWasAlive = true, gfHurtFlash = 0;
 const gfKills = { crab: 0, krill: 0, bell: 0, burst: 0 };
 // phase: fight (orifices alive) | flood (all sealed, clear what is left) | won | lost
-const gfRound = { phase: "fight", t: 0, ships: GF.ships, endMsg: "", endT: 0, banner: "", bannerT: 0, unclampT: 0 };
+const gfRound = { phase: "fight", t: 0, ships: GF.ships, endMsg: "", endT: 0, banner: "", bannerT: 0, unclampT: 0, after: null };
 
 function gfRand(a, b) { return a + Math.random() * (b - a); }
 function gfFrac(x) { return x - Math.floor(x); }
@@ -126,6 +128,7 @@ function gfBreath(c) {
     else b = { r: k.rSmall, stage: "deflated", open: false, armour: false, swell: 0 };
     // Pressure over-swells it: the warning you can read.
     b.r *= 1 + 0.22 * (c.press || 0);
+    if (c.tumble > 0) b.open = true;
     return b;
 }
 
@@ -139,7 +142,7 @@ function gfMakeCreature(kind, x, y, ori) {
         p: Math.random(), period: gfRand(k.period[0], k.period[1]), hp: k.hp,
         ori: ori, flash: 0, hitCd: 0, tendril: 0, tendrilCd: 0, tendrilTarget: null,
         grabbing: null, orbitA: Math.random() * Math.PI * 2, press: 0, ruptT: 0, burst: false, frenzy: 0, winded: 0,
-        birthT: 0, seed: Math.random() * 1000, synced: false
+        birthT: 0, seed: Math.random() * 1000, synced: false, tumble: 0, crush: 0, crushA: 0, spin: 0, mark: 0
     };
     c.ownPeriod = c.period;
     c.b = gfBreath(c);
@@ -168,6 +171,7 @@ function gfBirth(o, kind) {
 // Called once from boot, after the star systems exist and the ship has spawned.
 function gfInitBattle() {
     gfHome = { x: glShip.x, y: glShip.y };
+    gfCrewInit();   // gf-crew.js: the chosen crew member's hull
     const e = glSolBody("EARTH"), sun = glSolBody("SUN");
     // Away from the Sun, so the trip out never crosses it.
     let ux = 1, uy = 0;
@@ -229,6 +233,8 @@ function gfKillShip(s, msg) {
 
 function gfDamage(s, n, msg) {
     if (!s.isAlive || gfRoundOver()) return;
+    if (gfRound.after && gfRound.after.phase === "won") return;   // nothing takes a win back
+    if (gfCrewBlocks(s, n, msg)) return;                            // gf-crew.js: dev no-damage, the bulwark's shield, a ram
     if (s === glShip) {
         gfHull -= n;
         gfHurtFlash = n >= 5 ? 0.35 : 0.25;
@@ -251,14 +257,17 @@ function gfNearestShip(x, y, range) {
     return best;
 }
 
+// The round is decided, but the score card waits: a few seconds of aftermath
+// first, with the world still moving (the wreck, the swarm closing over it,
+// the last body going slack). (Ry, 2026-11-16: "all games should show moments
+// after death for a few seconds prior to showing score".)
 function gfEndRound(phase, msg) {
-    if (gfRoundOver()) return;
-    gfRound.phase = phase;
-    gfRound.endMsg = msg;
-    gfRound.endT = 0;
+    if (gfRoundOver() || gfRound.after) return;
+    gfRound.after = { phase: phase, msg: msg, t: GF_AFTER };
     gfFireSet(false);
     gfSfx(phase === "won" ? "win" : "lose");
 }
+function gfEnding() { return !!gfRound.after || gfRoundOver(); }
 
 // ---------------------------------------------------
 //   Per-frame update (called at the end of glSimulate)
@@ -271,10 +280,16 @@ function gfUpdate(dt) {
     if (gfRound.unclampT > 0) { gfRound.unclampT -= dt; if (gfRound.unclampT <= 0) { gfBanner("THE TIDE IS OPEN", 4); gfSfx("open"); } }
     for (let i = gfBlasts.length - 1; i >= 0; i--) { gfBlasts[i].t += dt; if (gfBlasts[i].t > 0.6) gfBlasts.splice(i, 1); }
     if (gfRoundOver()) { gfRound.endT += dt; return; }
-    gfRound.t += dt;
-    if (gfRound.t >= GF.clock) { gfEndRound("lost", "out of time"); return; }
+    if (gfRound.after) {
+        gfRound.after.t -= dt;
+        if (gfRound.after.t <= 0) { gfRound.phase = gfRound.after.phase; gfRound.endMsg = gfRound.after.msg; gfRound.endT = 0; gfRound.after = null; return; }
+    } else {
+        gfRound.t += dt;
+        if (gfRound.t >= GF.clock) gfEndRound("lost", "out of time");
+    }
 
     gfArmsUpdate(dt);   // gf-arms.js: seekers, recharge, impact rings
+    gfCrewUpdate(dt);   // gf-crew.js: abilities, mines, flak, sentries
 
     // A fresh ship after a respawn gets a fresh hull.
     if (glShip.isAlive && !gfWasAlive) { gfHull = GF.hull; glShip.gfGrab = null; glShip.deathMsg = ""; }
@@ -476,6 +491,8 @@ function gfUpdateCreature(c, dt, bells, targets) {
     c.birthT = Math.max(0, c.birthT - dt);
     c.frenzy = Math.max(0, c.frenzy - dt);
     c.winded = Math.max(0, c.winded - dt);
+    c.tumble = Math.max(0, (c.tumble || 0) - dt);
+    c.mark = Math.max(0, (c.mark || 0) - dt);
 
     // ---- A rupture already lit (chain delay) ----
     if (c.ruptT > 0) { c.ruptT -= dt; if (c.ruptT <= 0) { gfRupture(c); return; } }
@@ -491,7 +508,26 @@ function gfUpdateCreature(c, dt, bells, targets) {
     c.p = gfFrac(c.p + gfWrap01(target - c.p) * Math.min(1, dt * 3));
     c.synced = true;
     if (c.kind === "bell" && c.p < prevP) { gfWaves.push({ x: c.x, y: c.y, t0: gfTime, bell: c }); gfSfxAt("toll", c.x, c.y); }
+    const wasInhale = c.b && c.b.stage === "inhale";
     c.b = gfBreath(c);
+    // ---- Crush and launch (pass 5, 2026-11-16) ----
+    // Bodies bunched together when the breath comes in have nowhere to swell
+    // to. They squash against each other through the inhale (c.crush, drawn
+    // in gf-flesh.js), and when the breath is full the pack fires apart, each
+    // body thrown straight out from the pack's middle. A launched body TUMBLES:
+    // it cannot steer or lash, and its vent is open to any angle. Ry saw this
+    // happen by accident and asked for it as a rule: a tell you can bait
+    // (stand where the pack will not throw them) and punish (shoot the tumble).
+    if (wasInhale && c.b.stage === "inflated" && c.kind !== "krill" && (c.crush || 0) > 0.22 && c.birthT <= 0) {
+        const sp = k.launch * (0.65 + 0.35 * Math.min(1, c.crush));
+        c.vx = Math.cos(c.crushA) * sp; c.vy = Math.sin(c.crushA) * sp;
+        c.tumble = GF_TUMBLE;
+        c.spin = (Math.random() < 0.5 ? -1 : 1) * gfRand(4, 7);
+        c.tendril = 0; c.hitCd = 0;
+        if (c.grabbing) { c.grabbing.gfGrab = null; c.grabbing = null; c.tendrilCd = 3; }
+        gfSfxAt("launch", c.x, c.y, c.kind === "bell" ? 1 : 0.6);
+        gfBlasts.push({ x: c.x - Math.cos(c.crushA) * c.b.r, y: c.y - Math.sin(c.crushA) * c.b.r, r: c.b.r * 1.6, t: 0, soft: true, col: "255,220,170" });
+    }
     // Pressure bleeds off slowly while armoured and is gone once it deflates.
     if (c.b.armour) c.press = Math.max(0, c.press - dt * 0.12); else c.press = 0;
     const fastNow = c.b.stage === "deflated";
@@ -504,7 +540,17 @@ function gfUpdateCreature(c, dt, bells, targets) {
         const d = Math.hypot(targets[i].x - c.x, targets[i].y - c.y);
         if (d < pd) { pd = d; prey = targets[i]; }
     }
-    if (c.birthT > 0) {
+    if (c.tumble > 0) {
+        // Thrown: spinning, coasting, helpless.
+        c.face += c.spin * dt * Math.min(1, c.tumble / GF_TUMBLE + 0.25);
+        c.vx *= 1 - Math.min(1, dt * 0.7); c.vy *= 1 - Math.min(1, dt * 0.7);
+        prey = null;
+        // It is a missile while it flies: a ship in the way is rammed.
+        if (c.hitCd <= 0) for (let i = 0; i < targets.length; i++) {
+            const s = targets[i];
+            if (s.isAlive && Math.hypot(s.x - c.x, s.y - c.y) < c.b.r + 0.8) { gfDamage(s, c.kind === "bell" ? 26 : 16, "hit by a thrown aircrab"); c.hitCd = 1; break; }
+        }
+    } else if (c.birthT > 0) {
         // Still sliding out of the orifice: no steering yet.
         c.vx *= 1 - Math.min(1, dt * 1.5); c.vy *= 1 - Math.min(1, dt * 1.5);
     } else if (prey) {
@@ -533,7 +579,11 @@ function gfUpdateCreature(c, dt, bells, targets) {
         gfSwim(c, tx, ty, Math.max(speed * 0.6, 5), dt, 1.5);
     }
 
-    // Light separation, so a flood doesn't collapse into one blob.
+    // Light separation, so a flood doesn't collapse into one blob. Between two
+    // big bodies on the inhale the push is held back and stored as crush
+    // instead: they squash now and are thrown when the breath is full.
+    let cfx = 0, cfy = 0;
+    const big = c.kind !== "krill" && c.b.stage === "inhale" && c.tumble <= 0;
     for (let i = 0; i < gfCreatures.length; i++) {
         const o = gfCreatures[i];
         if (o === c) continue;
@@ -541,8 +591,20 @@ function gfUpdateCreature(c, dt, bells, targets) {
         const min = c.b.r + o.b.r + 0.6;
         if (Math.abs(dx) > min || Math.abs(dy) > min) continue;
         const d = Math.hypot(dx, dy);
-        if (d < min && d > 1e-6) { c.vx += dx / d * (min - d) * 2; c.vy += dy / d * (min - d) * 2; }
+        if (d < min && d > 1e-6) {
+            const store = big && o.kind !== "krill" && o.b.armour;
+            const push = (min - d) * (store ? 0.35 : 2);
+            c.vx += dx / d * push; c.vy += dy / d * push;
+            if (store) { cfx += dx / d * (min - d); cfy += dy / d * (min - d); }
+        }
     }
+    if (big) {
+        const m = Math.hypot(cfx, cfy);
+        const was = c.crush || 0;
+        c.crush = Math.max(was * (1 - dt * 2), Math.min(1, m / (c.b.r * 0.45)));
+        if (m > 0.05) c.crushA = Math.atan2(cfy, cfx);
+        if (was < 0.22 && c.crush >= 0.22) gfSfxAt("crush", c.x, c.y);
+    } else if (c.b.stage !== "inflated") c.crush = 0;
     c.x += c.vx * dt;
     c.y += c.vy * dt;
     // The Tide is solid to its own brood too (once they are clear of the mouth).
@@ -552,7 +614,7 @@ function gfUpdateCreature(c, dt, bells, targets) {
     }
 
     // ---- Tendrils (aircrabs and Bellwethers, while big) ----
-    if (c.kind !== "krill" && !c.grabbing && prey && c.b.armour && c.tendrilCd <= 0 && c.birthT <= 0) {
+    if (c.kind !== "krill" && !c.grabbing && prey && c.b.armour && c.tendrilCd <= 0 && c.birthT <= 0 && !gfCrewSlips(prey)) {
         const reach = c.b.r + 8;
         if (pd < reach + 3) {
             c.tendril += dt;
@@ -570,7 +632,7 @@ function gfUpdateCreature(c, dt, bells, targets) {
     } else if (!c.grabbing) c.tendril = Math.max(0, c.tendril - dt * 2);
 
     // ---- Contact damage while small and fast ----
-    if (!c.b.armour && c.hitCd <= 0 && c.birthT <= 0) {
+    if (!c.b.armour && c.hitCd <= 0 && c.birthT <= 0 && c.tumble <= 0) {
         for (let i = 0; i < targets.length; i++) {
             const s = targets[i];
             if (!s.isAlive) continue;
@@ -656,7 +718,7 @@ function gfUpdateGrabs(dt) {
         const s = ts[i], g = s.gfGrab;
         if (!g) continue;
         const c = g.by;
-        if (!s.isAlive || c.hp <= 0 || gfCreatures.indexOf(c) === -1) { s.gfGrab = null; if (c) c.grabbing = null; continue; }
+        if (!s.isAlive || c.hp <= 0 || gfCreatures.indexOf(c) === -1 || gfCrewSlips(s)) { s.gfGrab = null; if (c) { c.grabbing = null; c.tendrilCd = 3; } continue; }
         g.t += dt;
         // Reeled in: the ship is dragged toward the creature's front.
         const fx = c.x + Math.cos(c.face) * (c.b.r + 3), fy = c.y + Math.sin(c.face) * (c.b.r + 3);
@@ -740,16 +802,24 @@ function gfUpdateBulletHits() {
                 const g = c.grabbing.gfGrab;
                 if (g && ++g.hits >= GF.grabBreakHits) { c.grabbing.gfGrab = null; c.grabbing = null; c.tendrilCd = 3; c.flash = 0.2; }
             }
-            let wound = !c.b.armour;
+            let wound = !c.b.armour || c.tumble > 0;
             if (!wound && c.b.open) {
                 const rel = glWrapAngle(Math.atan2(h.y - c.y, h.x - c.x) - (c.face + Math.PI));
                 wound = Math.abs(rel) < GF_OPEN_ARC;
             }
+            if (b.hitSet && b.hitSet.indexOf(c) !== -1) continue;   // a needle only bites each body once
             if (wound) {
-                c.hp -= 1;
+                c.hp -= (b.dmg || 1) * (c.mark > 0 ? 2 : 1);
                 c.flash = 0.15;
                 glSpawnBurst(h.x, h.y, 6, "#FFE45C");
                 gfBoltImpact(h.x, h.y, true);
+                if (b.pierce) { b.hitSet = b.hitSet || []; b.hitSet.push(c); continue; }   // the scout's needle goes on through
+                glBullets.splice(i, 1);
+            } else if (b.noBounce) {
+                // Needles and overcharged bolts spend themselves on armour: no
+                // ricochet. A needle MARKS what it sticks in.
+                if (b.marks) { c.mark = 6; c.flash = 0.1; } else gfPressure(c, 1);
+                gfBoltImpact(h.x, h.y, false);
                 glBullets.splice(i, 1);
             } else {
                 gfPressure(c, 1);
@@ -878,6 +948,7 @@ function gfDrawWorld(c) {
     gfDrawBlasts(c, z);      // gf-flesh.js: rupture rings, shards
     gfDrawWing(c, z);        // gf-wing.js: the bots
     gfDrawArmsWorld(c, z);   // gf-arms.js: bolts, seekers, impact rings
+    gfCrewDrawWorld(c, z);   // gf-crew.js: beams, mines, flak, sentries, the shield
 }
 
 function gfDrawHome(c, z) {

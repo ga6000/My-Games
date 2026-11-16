@@ -135,7 +135,7 @@ function gfFireSet(on) { gfFlight.firing = on; if (on) gfFlight.fireCd = 0; }
 function gfFire() {
     const s = glShip;
     if (!s.isAlive || gfFlight.jump === "burst" || gfRoundOver()) return;
-    gfFireBlaster(s);   // gf-arms.js
+    return gfCrewFire(s, gfAimAngle(), false, null);   // gf-crew.js: this crew member's primary
 }
 
 function gfDropOut(msg, fight) {
@@ -182,7 +182,7 @@ function gfFlightSpeedMul(s, dt) {
 
     // Hold to fire.
     gfFlight.fireCd -= dt;
-    if (gfFlight.firing && gfFlight.fireCd <= 0) { gfFire(); gfFlight.fireCd = 1 / GF_ARMS.blaster.rate; }
+    if (gfFlight.firing && gfFlight.fireCd <= 0) gfFlight.fireCd = gfFire() || 0.1;
 
     // Boost held out of combat grows into a jump spool.
     if (gfFlight.space && gfFlight.jump === "idle") {
@@ -237,7 +237,7 @@ function gfFlightSpeedMul(s, dt) {
         }
         return GF_FLIGHT.burstMul;
     }
-    return gfFlight.space ? GF_FLIGHT.boostMul : GF_FLIGHT.moveMul;
+    return (gfFlight.space ? GF_FLIGHT.boostMul : GF_FLIGHT.moveMul) * gfCrewSpeedMul();
 }
 
 // Target velocity and ease for the flown ship (replaces the engine's
@@ -247,13 +247,15 @@ function gfFlightVelocity(s) {
         const v = s.baseSpeed * GF_FLIGHT.burstMul;
         return { vx: Math.cos(gfFlight.heading) * v, vy: Math.sin(gfFlight.heading) * v, a: 0.55 };
     }
+    const ram = gfCrewRamVel(s);   // gf-crew.js: the butcher's dash owns the ship while it lasts
+    if (ram) return ram;
     const k = gfFlight.keys;
     let mx = (k.right ? 1 : 0) - (k.left ? 1 : 0), my = (k.down ? 1 : 0) - (k.up ? 1 : 0);
     const m = Math.hypot(mx, my);
     // Boost with no keys held pushes along the nose (toward the cursor).
     if (m === 0 && gfFlight.space) { mx = Math.cos(s.angle); my = Math.sin(s.angle); }
     else if (m > 0) { mx /= m; my /= m; }
-    const v = s.baseSpeed * (gfFlight.space ? GF_FLIGHT.boostMul : GF_FLIGHT.moveMul);
+    const v = s.baseSpeed * (gfFlight.space ? GF_FLIGHT.boostMul : GF_FLIGHT.moveMul) * gfCrewSpeedMul();
     return { vx: mx * v, vy: my * v, a: GF_FLIGHT.slide };
 }
 
