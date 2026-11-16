@@ -44,6 +44,8 @@
     var timers = [];
     var listeners = [];
     var hubHref = null;
+    var holdUntil = 0;              // the aftermath: no card before this
+    var AFTERMATH_MAX_MS = 6000;
 
     function now() { return (typeof performance !== "undefined" ? performance.now() : Date.now()); }
 
@@ -106,7 +108,7 @@
         if (!session && finished) { showGiveUp("THE SESSION WAS ENDED"); return; }
         if (finished && session && baseline >= 0 && session.rounds.length > baseline && !resultShown) {
             showResult();
-        } else if (finished && !resultShown) {
+        } else if (finished && !resultShown && holdUntil - now() <= 0) {
             renderWaiting();
         }
         if (!had && session) notify();
@@ -174,7 +176,8 @@
             if (!fromHub()) return false;
             finished = true;
             sentFinal = { score: Math.max(0, Math.round(Number(result.score) || 0)), cleared: !!result.cleared };
-            showLocal(result.game);
+            hold(result.aftermathMs);
+            afterHold(function () { showLocal(result.game); });
             return true;
         }
         finished = true;
@@ -188,8 +191,30 @@
         track(setTimeout(function () {
             if (!resultShown) showGiveUp("NO ANSWER FROM THE GAME SERVER");
         }, GIVE_UP_MS));
-        renderWaiting();
+        hold(result.aftermathMs);
+        afterHold(renderWaiting);
         return true;
+    }
+
+    // THE AFTERMATH (Ry, 2026-11-15: "all games should show moments after
+    // death for a few seconds prior to showing score"). A game that ends on
+    // a death passes `aftermathMs` to finish() and keeps drawing; the score
+    // is sent at once, but no card covers the screen until the time is up.
+    function hold(ms) {
+        ms = Math.max(0, Math.min(AFTERMATH_MAX_MS, Number(ms) || 0));
+        holdUntil = ms ? now() + ms : 0;
+    }
+    function afterHold(fn) {
+        var wait = holdUntil - now();
+        if (wait > 0) track(setTimeout(fn, wait)); else fn();
+    }
+
+    // CASUAL or HARDCORE, chosen once on the hub and carried on the link
+    // (`diff=`). Hardcore is every game's tuning as built; a game that has
+    // no casual tuning yet ignores this.
+    function difficulty() {
+        try { return new URLSearchParams(global.location.search).get("diff") === "casual" ? "casual" : "hardcore"; }
+        catch (e) { return "hardcore"; }
     }
 
     // ---- the round clock, for games with no natural end ----
@@ -397,6 +422,8 @@
     }
 
     function showResult() {
+        if (resultShown) return;
+        if (holdUntil - now() > 0) { afterHold(showResult); return; }
         resultShown = true;
         var round = session.rounds[baseline];
         var me = myName();
@@ -501,6 +528,7 @@
         sentFinal = null;
         resultShown = false;
         localStartAt = 0;
+        holdUntil = 0;
         listeners = [];
     }
 
@@ -521,6 +549,7 @@
         live: live,
         finish: finish,
         timeLeft: timeLeft,
+        difficulty: difficulty,
         onChange: function (fn) { if (typeof fn === "function") listeners.push(fn); },
         onSession: onSession,       // called by mp-core
         hubUrl: hubUrl,
