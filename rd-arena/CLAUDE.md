@@ -12,7 +12,7 @@ Was one 2,487-line `RDArena.html` — the tracker had it flagged "best split can
 | File | Lines | Holds |
 |---|---|---|
 | `rd-core.js` | ~56 + skin | canvas/ctx, teardown plumbing (`abortCtl`, `timeoutIds`, `intervalIds`), world & camera — **plus `RDSKIN`, `audibleRD()` and the `SFX` bootstrap**, all new 2026-09-05 |
-| `rd-field.js` | 203 | **the Gray-Scott reaction-diffusion field** — `dA`/`dB`/`feed`/`k`, the 400×400 grid, the `>0.3` threshold |
+| `rd-field.js` | ~215 | **the Gray-Scott reaction-diffusion field** — `dA`/`dB`/`feed`/`k`, the **800×800** grid (400×400 until 2026-11-16), the `>0.3` threshold |
 | `rd-netfield.js` | ~130 | **added 2026-09-07** — the 133² 2-bit network field the flesh is DRAWN from. Render-only; see below and `NET_FIELD_NOTES.md` |
 | `rd-net.js` | ~520 | **added 2026-09-08** — all of multiplayer. Installs into `RDHOOKS`; delete its one tag and the game is single-player |
 | `rd-sanctuary.js` | 289 | human sanctuaries, antibacterial defence, organs |
@@ -23,6 +23,26 @@ Was one 2,487-line `RDArena.html` — the tracker had it flagged "best split can
 | `rd-render.js` | 361 | rendering helpers (`drawSanctuaries`, `drawOrgans`, HUD, card offer) |
 | `rd-boot.js` | 361 | the main `loop()` **and the boot sequence** |
 | `rd-dev.js` | ~190 | **added 2026-09-07** — dev-panel registration, and `rdDevGod` |
+
+## The original simulation, restored (2026-11-16)
+
+Ry: the field "is not functional" and "hugely simplified" next to the first build
+(2026-08-08, frozen copy in `rd-arena.original/` on the notebook-notes branch). The maths was
+never changed: same Gray-Scott equation, same `dA 1.0 / dB 0.5 / feed 0.055 / k 0.062`, same
+`>0.3` threshold. Two things had changed around it:
+
+1. **Cell size doubled.** The original ran 400 cells over a 2400 px world (6 px a cell). V2
+   doubled the world to 4800 and kept 400 cells, so every cell went to 12 px and the tissue
+   patterns doubled in size. Now **800×800** over 4800 px, back to 6 px; the starting blobs scale
+   with the grid (800). The flow field's "blocked" test scales with it (same fraction of a flow
+   cell). `updateRD` walks row-major now: column-major cost ~10x at 800² (measured headless:
+   32 ms → 10.6 ms a step, 59 fps).
+2. **The flesh was drawn from the 133² 2-bit network copy**, morphing once a second, not from
+   the field you collide with. `RDNET.enabled` now defaults to **off**; the full field draws
+   directly, each cell overlapping by 1.5 px as the original did. `?netfield=1` or F8 brings the
+   network view back. Multiplayer still sends that reduction for resync; only the drawing changed.
+
+Everything else in the game is untouched. Not yet human-played; not measured on a phone.
 
 ## Multiplayer — `rd-net.js` (2026-09-08)
 

@@ -150,6 +150,10 @@ function loop() {
             }
         }
     } else {
+    // The full 400^2 field, drawn the way the original 2026-08-08 build drew it:
+    // every cell past 0.3, each overlapping its neighbours by 1.5 px so the
+    // flesh reads as continuous tissue rather than a grid. Default since
+    // 2026-11-16; the two-tone colours are the RASTER skin (AESTHETIC_GUIDE 6.4).
     let gridStartX = Math.max(0, Math.floor(cameraX / cellSize));
     let gridStartY = Math.max(0, Math.floor(cameraY / cellSize));
     let gridEndX = Math.min(gridCols, Math.ceil((cameraX + canvas.width) / cellSize));
@@ -159,13 +163,13 @@ function loop() {
     for (let x = gridStartX; x < gridEndX; x++) {
         for (let y = gridStartY; y < gridEndY; y++) {
             const b = gridB[x + y * gridCols];
-            if (b > 0.3 && b <= RDSKIN.HOT_BAND) ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+            if (b > 0.3 && b <= RDSKIN.HOT_BAND) ctx.fillRect(x * cellSize, y * cellSize, cellSize + 1.5, cellSize + 1.5);
         }
     }
     ctx.fillStyle = RDSKIN.fleshHot;
     for (let x = gridStartX; x < gridEndX; x++) {
         for (let y = gridStartY; y < gridEndY; y++) {
-            if (gridB[x + y * gridCols] > RDSKIN.HOT_BAND) ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+            if (gridB[x + y * gridCols] > RDSKIN.HOT_BAND) ctx.fillRect(x * cellSize, y * cellSize, cellSize + 1.5, cellSize + 1.5);
         }
     }
     }
