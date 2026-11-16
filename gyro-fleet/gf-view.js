@@ -182,15 +182,6 @@ function gfDrawViewWorld(c, z) {
             c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x - tx, p.y - ty); c.stroke();
             c.globalAlpha = 1;
         }
-        if (cr.kind !== "krill" && cr.b.armour) {
-            const rr = (cr.b.r + 8) * z;
-            if (rr > 6) {
-                c.strokeStyle = col; c.globalAlpha = cr.tendril > 0 ? 0.55 : 0.14; c.lineWidth = 1;
-                c.setLineDash([3, 5]);
-                c.beginPath(); c.arc(p.x, p.y, rr, 0, Math.PI * 2); c.stroke();
-                c.setLineDash([]); c.globalAlpha = 1;
-            }
-        }
     }
     c.restore();
 }

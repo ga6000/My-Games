@@ -10,10 +10,10 @@
 //                      drop siphon motes; fly near and they come to you. The
 //                      capacitor holds 100 and LEAKS: a few seconds after the
 //                      last mote it drains away. Spend it or lose it.
-//                        R  call one bot from the mothership (34 charge)
-//                        G  dump whatever is left into a hull mend
+//                        J  call one bot from the mothership (34 charge)
+//                        K  dump whatever is left into a hull mend
 //   THE WING           Up to GF_WING.max bots fly with you. One key, two orders:
-//                        F  FOLLOW  tight formation; they only fire at what
+//                        H  FOLLOW  tight formation; they only fire at what
 //                                   they can wound, so they never set off a
 //                                   rupture, and they stay close enough to be
 //                                   caught in yours.
@@ -34,6 +34,7 @@ const GF_WING = {
     huntR: 170,         // HUNT bots pick targets this close to the lead ship
     standoff: 15,       // HUNT bots hold this far off (outside an aircrab blast, inside a Bellwether's)
     callCost: 34,
+    dropR: 24,          // a bot dropping out of ultradrive throws back everything this close
     cap: 100,
     leakAfter: 4,       // seconds after the last mote before the leak starts
     leak: 12,           // charge per second once leaking
@@ -43,7 +44,8 @@ const GF_WING = {
 };
 
 const gfWing = [];
-const gfWarpFx = [];   // ultradrive beams of bots dropping in: { x0, y0, x1, y1, t }
+const gfWarpFx = [];   // (.big = a drop-in: flash, double ring)
+const gfWarpFxNote = 0;   // ultradrive beams of bots dropping in: { x0, y0, x1, y1, t }
 const gfMotes = [];
 const gfCap = { charge: 0, sinceGain: 99, flash: 0, deny: 0 };
 let gfWingOrder = "follow";   // follow | hunt
@@ -63,11 +65,11 @@ function gfWingAlive() { let n = 0; for (let i = 0; i < gfWing.length; i++) if (
 // ---- keys (from gl-boot.js) ----
 function gfWingKey(code) {
     if (gfRoundOver()) { if (code === "Enter") location.reload(); return; }
-    if (code === "KeyF") {
+    if (code === "KeyH") {
         gfWingOrder = gfWingOrder === "follow" ? "hunt" : "follow";
         gfBanner(gfWingOrder === "follow" ? "FOLLOW" : "HUNT", 1.4);
         gfSfx("order", gfWingOrder === "hunt" ? 1 : 0);
-    } else if (code === "KeyR") {
+    } else if (code === "KeyJ") {
         if (!glShip.isAlive) return;
         if (gfWingAlive() >= GF_WING.max || gfCap.charge < GF_WING.callCost) { gfCap.deny = 0.4; gfSfx("deny"); }
         else {
@@ -79,7 +81,7 @@ function gfWingKey(code) {
             gfWing.push(b);
 
         }
-    } else if (code === "KeyG") {
+    } else if (code === "KeyK") {
         if (!glShip.isAlive) return;
         if (gfCap.charge < 5 || gfHull >= GF.hull) { gfCap.deny = 0.4; gfSfx("deny"); return; }
         gfSfx("mend");
@@ -134,7 +136,22 @@ function gfBotWarp(b, k, dt) {
     gfWarpFx.push({ x0: slot.x - Math.cos(w.a) * 1400, y0: slot.y - Math.sin(w.a) * 1400, x1: slot.x, y1: slot.y, t: 0, out: false });
     glUltraSpawnDust(slot.x, slot.y, 1);
     glUltraSfxExit();
-    glUltraShakeKick = Math.max(glUltraShakeKick, 0.18);
+    gfSfx("drop");
+    glUltraShakeKick = Math.max(glUltraShakeKick, 0.4);
+    glSpawnBurst(slot.x, slot.y, 26, "#9FD8FF");
+    gfWarpFx[gfWarpFx.length - 1].big = true;
+    // The arrival is a blow: everything close is thrown back and knocked
+    // breathless for a moment, so a bot called into a crowd buys you room.
+    // (Pass 4. Ry: "intensifying the bot drop in a bit would add reward".)
+    for (let i = 0; i < gfCreatures.length; i++) {
+        const m = gfCreatures[i], dx = m.x - slot.x, dy = m.y - slot.y, d = Math.hypot(dx, dy);
+        if (d > GF_WING.dropR || m.hp <= 0 || m.birthT > 0) continue;
+        const push = (1 - d / GF_WING.dropR) * (m.kind === "bell" ? 25 : 70);
+        m.vx += dx / (d || 1) * push; m.vy += dy / (d || 1) * push;
+        if (m.kind === "krill") { m.hp = 0; continue; }
+        m.winded = Math.max(m.winded, m.kind === "bell" ? 1 : 2);
+        if (m.grabbing) { m.grabbing.gfGrab = null; m.grabbing = null; m.tendrilCd = 3; }
+    }
     b.warp = null;
     b.arriving = 0.4;
 }
@@ -326,6 +343,20 @@ function gfDrawWing(c, z) {
         const e = f.out ? a : b;
         c.strokeStyle = "rgba(150,210,255," + (0.8 * (1 - k)).toFixed(3) + ")"; c.lineWidth = 5 * (1 - k) + 1;
         c.beginPath(); c.arc(e.x, e.y, 8 + k * 110, 0, Math.PI * 2); c.stroke();
+        if (f.big) {
+            // The drop-in: a white flash, a hard shock ring out to its reach, a cross flare.
+            const rr = GF_WING.dropR * z, q = Math.min(1, k * 3);
+            if (k < 0.25) {
+                const fg = c.createRadialGradient(e.x, e.y, 0, e.x, e.y, rr * 1.2);
+                fg.addColorStop(0, "rgba(255,255,255," + (1 - k * 4).toFixed(3) + ")"); fg.addColorStop(0.4, "rgba(150,210,255," + (0.6 * (1 - k * 4)).toFixed(3) + ")"); fg.addColorStop(1, "rgba(60,120,255,0)");
+                c.fillStyle = fg; c.beginPath(); c.arc(e.x, e.y, rr * 1.2, 0, Math.PI * 2); c.fill();
+            }
+            c.strokeStyle = "rgba(235,248,255," + (1 - q).toFixed(3) + ")"; c.lineWidth = 7 * (1 - q) + 1;
+            c.beginPath(); c.arc(e.x, e.y, rr * q, 0, Math.PI * 2); c.stroke();
+            c.strokeStyle = "rgba(200,235,255," + (0.9 * (1 - q)).toFixed(3) + ")"; c.lineWidth = 3 * (1 - q) + 0.5;
+            const fl = rr * (0.5 + 0.9 * q);
+            c.beginPath(); c.moveTo(e.x - fl, e.y); c.lineTo(e.x + fl, e.y); c.moveTo(e.x, e.y - fl * 0.5); c.lineTo(e.x, e.y + fl * 0.5); c.stroke();
+        }
     }
     c.globalCompositeOperation = "source-over"; c.lineCap = "butt";
     for (let i = 0; i < gfWing.length; i++) {
@@ -474,9 +505,9 @@ function gfDrawSidebar(c) {
     y += 26;
     const canCall = gfCap.charge >= GF_WING.callCost && gfWingAlive() < GF_WING.max;
     const canMend = gfCap.charge >= 5 && gfHull < GF.hull;
-    gfKeyCap(c, x, y, "R", canCall, "#7DFF9C");
+    gfKeyCap(c, x, y, "J", canCall, "#7DFF9C");
     c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = canCall ? "#cfe9e6" : "#4a5f5c"; c.fillText("bot", x + 24, y + 13);
-    gfKeyCap(c, x + W / 2, y, "G", canMend, "#7DFF9C");
+    gfKeyCap(c, x + W / 2, y, "K", canMend, "#7DFF9C");
     c.textAlign = "left"; c.font = "11px monospace"; c.fillStyle = canMend ? "#cfe9e6" : "#4a5f5c"; c.fillText("mend", x + W / 2 + 24, y + 13);
     y += 42;
 
@@ -493,7 +524,7 @@ function gfDrawSidebar(c) {
         }
     }
     y += 12;
-    gfKeyCap(c, x, y, "F", true, wcol);
+    gfKeyCap(c, x, y, "H", true, wcol);
     const bw = (W - 30) / 2;
     [["FOLLOW", !hunt, "#7DF9FF"], ["HUNT", hunt, "#FFB000"]].forEach(function (o, i) {
         const bx = x + 26 + i * (bw + 4);
@@ -646,7 +677,7 @@ function gfDrawHud(c) {
     if (gfRound.t < 30 && !gfRoundOver()) {
         c.globalAlpha = Math.min(1, (30 - gfRound.t) / 3) * 0.75;
         c.font = "13px monospace"; c.fillStyle = "#cfe9e6";
-        c.fillText("WASD move  ·  mouse aim  ·  hold click fire  ·  right click seeker  ·  SPACE boost, hold to jump  ·  P pause", mid, glH - 14);
+        c.fillText("WASD move  ·  mouse aim  ·  hold click fire  ·  right click seeker  ·  SPACE boost, hold to jump  ·  H J K wing", mid, glH - 14);
         c.globalAlpha = 1;
     }
     if (!glShip.isAlive && !gfRoundOver()) {

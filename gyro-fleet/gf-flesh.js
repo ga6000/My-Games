@@ -40,49 +40,166 @@ function gfHeat(press) {
     return "rgba(" + r + "," + g + "," + b + "," + (0.6 + 0.4 * press).toFixed(2) + ")";
 }
 
-// One lung lobe at the origin, long axis along x.
-function gfLobe(c, R, cr, side, hue) {
-    const soft = !cr.b.armour, sw = cr.b.swell, t = gfTime * (soft ? 5 : 1.5) + cr.seed + side;
-    const g = c.createRadialGradient(-R * 0.25, -R * 0.3 * side, R * 0.05, 0, 0, R * 1.1);
+// One lung lobe at the origin, long axis along x, `side` = which way is out.
+// L, W are its half length and half width NOW; f is how full it is (0..1).
+// (Pass 4, 2026-11-16. Ry: "so it looks like actual lungs inflating rather
+// than just polygons increasing/decreasing in size". A lobe is a sac hung on
+// the windpipe: narrow apex by the mouth, wide base at the rear, flat where
+// it lies against the windpipe. Empty it is a slack, pleated bag. Air comes
+// in at the hilum and the glow of it spreads outward; the pleats open and
+// flatten, the base fills last, the bronchi spread, the skin goes pale and
+// tight. It was three pale "rib" arcs drawn with the wrong sweep that left
+// stray circles hanging off every body; those are gone.)
+function gfLobePath(c, L, W, f, side, t, quiver) {
+    const n = 30, slack = 1 - f, fb = Math.max(0, f * 1.7 - 0.7);
+    c.beginPath();
+    for (let i = 0; i <= n; i++) {
+        const a = i / n * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
+        const outer = sa * side > 0;
+        let ry = W * (1 - 0.28 * ca) * (outer ? 1 : 0.5);            // apex narrow, base wide, flat inner face
+        let rx = L * (1 + 0.14 * fb * Math.max(0, -ca));              // the base fills last
+        const fold = slack * (0.13 * Math.sin(a * 6 + t * 0.6) + 0.07 * Math.sin(a * 11 - t)) + quiver * 0.035 * Math.sin(a * 7 - gfTime * 20);
+        if (outer) ry *= 1 + fold; else ry *= 1 + fold * 0.3;
+        rx *= 1 + fold * 0.4;
+        const px = ca * rx, py = sa * ry;
+        if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
+    }
+    c.closePath();
+}
+function gfLobe(c, L, W, cr, side, hue, f) {
+    const soft = !cr.b.armour, st = cr.b.stage, t = gfTime * (soft ? 4 : 1.5) + cr.seed + side;
+    const inh = st === "inhale" ? 1 : 0, exh = st === "exhale" ? 1 : 0;
+    const hx = L * 0.15, hy = -side * W * 0.35;        // the hilum: where the bronchus enters
+    const g = c.createRadialGradient(hx, hy, W * 0.05, 0, side * W * 0.2, Math.max(L, W) * 1.15);
     if (cr.flash > 0) { g.addColorStop(0, "#FFFFFF"); g.addColorStop(1, "#FFD0DC"); }
     else if (soft) { g.addColorStop(0, hue.softHi); g.addColorStop(0.6, hue.softMid); g.addColorStop(1, hue.softLo); }
-    else { g.addColorStop(0, hue.hi); g.addColorStop(0.55, hue.mid); g.addColorStop(1, hue.lo); }
+    else { g.addColorStop(0, hue.hi); g.addColorStop(0.3 + 0.3 * f, hue.mid); g.addColorStop(1, hue.lo); }
     c.fillStyle = g;
-    gfLumps(c, R, soft ? 0.16 : 0.05, t, 22, soft ? 0.72 : 0.9);
+    gfLobePath(c, L, W, f, side, t, inh + exh);
     c.fill();
-    c.strokeStyle = soft ? "rgba(60,0,20,0.9)" : hue.rim; c.lineWidth = soft ? 1 : 1.6;
+    c.strokeStyle = soft ? "rgba(60,0,20,0.9)" : hue.rim; c.lineWidth = soft ? 1 : 1.2 + 0.6 * f;
     c.stroke();
-    if (R < 7) return;
-    // Bronchial veins: a trunk from the windpipe side, forking twice.
-    c.strokeStyle = gfHeat(cr.press); c.lineCap = "round";
-    const pulse = 1 + 0.15 * Math.sin(gfTime * 6 + cr.seed);
+    if (L < 6) return;
+    c.save();
+    c.clip();
+    // The air itself: a pale front spreading out from the hilum as it fills,
+    // drawing back to it as it empties.
+    if (f > 0.02 && cr.flash <= 0) {
+        const reach = Math.max(2, (L + W) * (0.25 + 0.95 * f));
+        const ag = c.createRadialGradient(hx, hy, 0, hx, hy, reach);
+        const al = soft ? 0 : 0.16 + 0.34 * (inh + exh) * (0.6 + 0.4 * Math.sin(gfTime * 14));
+        ag.addColorStop(0, "rgba(255,244,236," + al.toFixed(3) + ")");
+        ag.addColorStop(0.75, "rgba(255,226,220," + (al * 0.8).toFixed(3) + ")");
+        ag.addColorStop(0.92, "rgba(255,255,255," + (al * (inh ? 1.5 : 0.6)).toFixed(3) + ")");
+        ag.addColorStop(1, "rgba(255,230,225,0)");
+        c.fillStyle = ag; c.fillRect(-L * 1.3, -W * 1.6, L * 2.6, W * 3.2);
+    }
+    // Pleats: deep, dark and close together when slack; they spread apart and
+    // fade to faint lobule lines as the sac fills.
+    c.lineCap = "round";
+    const nP = 6;
+    for (let i = 0; i < nP; i++) {
+        const u = (i + 0.5) / nP * 2 - 1, x = u * L * (0.55 + 0.4 * f);
+        const major = i === 2 || i === 4;                 // the fissures that stay when taut
+        const al = major ? 0.75 - 0.4 * f : 0.75 * (1 - f * 1.15);
+        if (al <= 0.02) continue;
+        c.strokeStyle = "rgba(40,0,15," + al.toFixed(3) + ")"; c.lineWidth = Math.max(0.8, W * (0.1 - 0.06 * f));
+        c.beginPath(); c.moveTo(x - L * 0.12, -side * W * 0.5);
+        c.quadraticCurveTo(x + L * (0.1 + 0.12 * f), side * W * 0.25, x - L * 0.05, side * W * 1.3); c.stroke();
+    }
+    // The bronchial tree, out from the hilum. Its branches open out with the sac.
+    c.strokeStyle = gfHeat(cr.press);
+    const pulse = 1 + 0.15 * Math.sin(gfTime * 6 + cr.seed), fan = 0.45 + 0.55 * f;
     for (let b = -1; b <= 1; b++) {
-        const a0 = b * 0.7 + 0.15 * Math.sin(cr.seed + b);
-        const x1 = Math.cos(a0) * R * 0.45, y1 = Math.sin(a0) * R * 0.4 + side * R * 0.1;
-        c.lineWidth = Math.max(0.8, R * 0.07 * pulse);
-        c.beginPath(); c.moveTo(-R * 0.1, -side * R * 0.45); c.quadraticCurveTo(x1 * 0.3, y1 * 0.2, x1, y1); c.stroke();
-        c.lineWidth = Math.max(0.6, R * 0.04);
-        for (let f = -1; f <= 1; f += 2) {
-            const a1 = a0 + f * 0.55;
-            c.beginPath(); c.moveTo(x1, y1); c.lineTo(x1 + Math.cos(a1) * R * 0.34, y1 + Math.sin(a1) * R * 0.3); c.stroke();
+        const a0 = side * (Math.PI / 2 + b * 0.95 * fan) + 0.12 * Math.sin(cr.seed + b);
+        const len = (b === 0 ? W * 1.0 : L * 0.62) * (0.55 + 0.45 * f);
+        const x1 = hx + Math.cos(a0) * len, y1 = hy + Math.sin(a0) * len;
+        c.lineWidth = Math.max(0.8, W * 0.11 * pulse);
+        c.beginPath(); c.moveTo(hx, hy); c.quadraticCurveTo((hx + x1) / 2, hy + (y1 - hy) * 0.3, x1, y1); c.stroke();
+        c.lineWidth = Math.max(0.6, W * 0.06);
+        for (let k = -1; k <= 1; k += 2) {
+            const a1 = a0 + k * (0.3 + 0.45 * f), l2 = len * 0.6;
+            const x2 = x1 + Math.cos(a1) * l2, y2 = y1 + Math.sin(a1) * l2;
+            c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+            if (W > 9) {
+                c.lineWidth = Math.max(0.5, W * 0.035);
+                for (let m = -1; m <= 1; m += 2) { c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 + Math.cos(a1 + m * 0.6) * l2 * 0.5, y2 + Math.sin(a1 + m * 0.6) * l2 * 0.5); c.stroke(); }
+                c.lineWidth = Math.max(0.6, W * 0.06);
+            }
         }
     }
-    if (soft) {
-        // Shrivelled: wrinkle folds.
-        c.strokeStyle = "rgba(40,0,15,0.6)"; c.lineWidth = 1;
-        for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(i * R * 0.28, -R * 0.45); c.quadraticCurveTo(i * R * 0.28 + R * 0.1, 0, i * R * 0.28, R * 0.45); c.stroke(); }
-    } else {
-        // Taut: pale armour ribs across the lobe, and a wet highlight.
-        c.strokeStyle = "rgba(255,235,225," + (0.18 + 0.3 * sw).toFixed(2) + ")"; c.lineWidth = Math.max(1, R * 0.06);
-        for (let i = -1; i <= 1; i++) { c.beginPath(); c.arc(i * R * 0.42, side * R * 1.5, R * 1.55, -Math.PI / 2 - 0.42, -Math.PI / 2 + 0.42, side < 0); c.stroke(); }
-        c.fillStyle = "rgba(255,255,255,0.22)";
-        c.beginPath(); c.ellipse(-R * 0.3, -side * R * 0.3, R * 0.3, R * 0.12, -0.5 * side, 0, Math.PI * 2); c.fill();
+    // Alveoli: clusters of small sacs along the outer edge that bead up as it fills.
+    if (!soft && W > 6) {
+        c.fillStyle = "rgba(255,225,215," + (0.12 + 0.3 * f).toFixed(3) + ")";
+        for (let i = 0; i < 9; i++) {
+            const u = (i + 0.5) / 9 * 2 - 1, x = u * L * 0.85, y = side * W * (0.78 + 0.12 * Math.sin(i * 2.3 + cr.seed)) * Math.sqrt(Math.max(0, 1 - u * u * 0.8));
+            c.beginPath(); c.arc(x, y, Math.max(0.8, W * (0.05 + 0.09 * f)), 0, Math.PI * 2); c.fill();
+        }
+        // Wet highlight on the taut skin.
+        c.fillStyle = "rgba(255,255,255," + (0.08 + 0.2 * f).toFixed(3) + ")";
+        c.beginPath(); c.ellipse(L * 0.2, side * W * 0.45, L * 0.38, W * 0.13, 0.25 * side, 0, Math.PI * 2); c.fill();
     }
     // Pustules.
-    c.fillStyle = soft ? "rgba(90,10,40,0.8)" : "rgba(255,210,190,0.55)";
+    c.fillStyle = soft ? "rgba(90,10,40,0.8)" : "rgba(120,20,50,0.5)";
     for (let i = 0; i < 4; i++) {
-        const a = cr.seed * (i + 1) * 1.7, rr = R * (0.35 + 0.4 * ((cr.seed * (i + 3)) % 1));
-        c.beginPath(); c.arc(Math.cos(a) * rr, Math.sin(a) * rr * 0.75, Math.max(0.8, R * 0.07), 0, Math.PI * 2); c.fill();
+        const a = cr.seed * (i + 1) * 1.7, rr = 0.3 + 0.45 * ((cr.seed * (i + 3)) % 1);
+        c.beginPath(); c.arc(Math.cos(a) * rr * L, side * Math.abs(Math.sin(a)) * rr * W, Math.max(0.8, W * 0.08), 0, Math.PI * 2); c.fill();
+    }
+    c.restore();
+}
+
+// The mouth, at the origin, facing +x seen end-on: a lamprey's. A slack wet
+// collar of gum round a throat that never stops swallowing, with rows of thin
+// uneven needle teeth all the way down it, and ropes of spit.
+// (Pass 4. Ry: "make the mouth a bit less cheesey and more menacing/gross".
+// It was eight white triangles on a circle, which read as a cog.)
+function gfDrawMaw(c, mR, cr, hue, soft, wide) {
+    const t = gfTime * (soft ? 5 : 2.2) + cr.seed, gulp = 0.5 + 0.5 * Math.sin(t);
+    const R = mR * (1 + 0.3 * wide);
+    // Collar: lumpy lips, darker toward the throat.
+    const lg = c.createRadialGradient(0, 0, R * 0.5, 0, 0, R * 1.3);
+    lg.addColorStop(0, "#2A0210"); lg.addColorStop(0.55, soft ? "#5A1230" : "#9A2A4C"); lg.addColorStop(1, soft ? "#3A0A1C" : "#D8607F");
+    c.fillStyle = cr.flash > 0 ? "#FFE6EC" : lg;
+    gfLumps(c, R * 1.22, 0.1, t * 0.7, 18, 1); c.fill();
+    c.strokeStyle = "rgba(40,0,15,0.9)"; c.lineWidth = 1; c.stroke();
+    // Throat: black, with one wet red ring of muscle working inward.
+    c.fillStyle = "#050002"; c.beginPath(); c.arc(0, 0, R * 0.9, 0, Math.PI * 2); c.fill();
+    if (R > 5) {
+        const rr = R * (0.75 - 0.5 * gfFrac(t * 0.16));
+        c.strokeStyle = "rgba(170,20,50,0.55)"; c.lineWidth = Math.max(1, R * 0.1);
+        c.beginPath(); c.arc(0, 0, rr, 0, Math.PI * 2); c.stroke();
+        c.strokeStyle = "rgba(110,10,36,0.5)";
+        c.beginPath(); c.arc(0, 0, R * (0.3 + 0.08 * gulp), 0, Math.PI * 2); c.stroke();
+    }
+    // Teeth: three rows of needles, each one its own length and lean.
+    const rows = R > 7 ? 3 : 2;
+    for (let row = 0; row < rows; row++) {
+        const n = 13 - row * 3, r0 = R * (0.95 - row * 0.24), w = 0.11 + row * 0.03;
+        c.fillStyle = row === 0 ? "#EFE3C4" : (row === 1 ? "#CDBB94" : "#8E7A5C");
+        c.strokeStyle = "rgba(40,10,0,0.7)"; c.lineWidth = 0.6;
+        for (let i = 0; i < n; i++) {
+            const h = gfFrac(Math.sin(cr.seed * 7 + i * 12.9898 + row * 78.233) * 43758.5453);
+            if (h < 0.1) continue;                          // a gap where one tore out
+            const a = (i + row * 0.5) / n * Math.PI * 2 + (h - 0.5) * 0.18;
+            const len = R * (0.2 + 0.34 * h) * (1 - 0.35 * wide) * (0.85 + 0.15 * Math.sin(t * 2 + i + row));
+            const lean = (h - 0.5) * 0.5, r1 = r0 - len;
+            c.beginPath();
+            c.moveTo(Math.cos(a - w) * r0, Math.sin(a - w) * r0);
+            c.lineTo(Math.cos(a + lean * 0.3) * r1, Math.sin(a + lean * 0.3) * r1);
+            c.lineTo(Math.cos(a + w) * r0, Math.sin(a + w) * r0);
+            c.closePath(); c.fill(); if (R > 9) c.stroke();
+        }
+    }
+    // Spit: ropes strung across the mouth and one hanging off the lip.
+    if (R > 6) {
+        c.strokeStyle = "rgba(235,225,190,0.45)"; c.lineWidth = Math.max(0.7, R * 0.045); c.lineCap = "round";
+        for (let i = 0; i < 2; i++) {
+            const a = cr.seed * (i + 2) + 1, b2 = a + 2.2 + 0.5 * Math.sin(t * 0.8 + i);
+            c.beginPath(); c.moveTo(Math.cos(a) * R * 0.85, Math.sin(a) * R * 0.85);
+            c.quadraticCurveTo(Math.sin(t + i) * R * 0.2, Math.cos(t * 0.7 + i) * R * 0.2, Math.cos(b2) * R * 0.85, Math.sin(b2) * R * 0.85); c.stroke();
+        }
+        c.beginPath(); c.moveTo(R * 1.1, R * 0.2);
+        c.quadraticCurveTo(R * (1.5 + 0.2 * Math.sin(t)), R * 0.3, R * (1.6 + 0.3 * gulp), R * (0.1 + 0.3 * Math.sin(t * 0.6))); c.stroke();
     }
 }
 
@@ -160,45 +277,48 @@ function gfDrawCreature(c, cr, z) {
         c.strokeStyle = "rgba(255,150,80," + (0.25 + 0.6 * cr.press).toFixed(2) + ")"; c.lineWidth = 1 + 2 * cr.press;
         c.setLineDash([6, 6]); c.beginPath(); c.arc(0, 0, k.blast * z, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
     }
+    // The frame the lungs hang on (windpipe, mouth, vent) changes size far
+    // less than the lobes do: slack, it is a head trailing two empty bags;
+    // full, the lobes swallow it.
+    const q = R / Math.max(0.01, cr.b.r * z);
+    const S = q * z * (k.rSmall * 1.15 + (k.rBig * 0.8 - k.rSmall * 1.15) * sw);
+    const stg = cr.b.stage, wide = cr.grabbing ? 1 : (cr.tendril > 0 ? 0.6 : 0);
     // Tendrils trailing from under the mouth (longer when big). The lash itself
     // is drawn after, in screen space.
     c.strokeStyle = soft ? "rgba(150,40,80,0.8)" : "rgba(255,150,180,0.8)"; c.lineCap = "round";
-    const tl = R * (soft ? 0.9 : 1.6), nT = bell ? 9 : 6;
+    const tl = S * (soft ? 1.1 : 2.0), nT = bell ? 9 : 6;
     for (let i = 0; i < nT; i++) {
-        const off = (i - (nT - 1) / 2) / nT * R * 1.3, ph = gfTime * 3 + cr.seed + i * 1.3;
-        c.lineWidth = Math.max(0.8, R * 0.05);
-        c.beginPath(); c.moveTo(R * 0.5, off);
-        c.bezierCurveTo(R * 0.1, off + Math.sin(ph) * R * 0.3, -tl * 0.5, off * 1.4 + Math.cos(ph) * R * 0.35, -tl - R * 0.4, off * 1.8 + Math.sin(ph * 1.3) * R * 0.4);
+        const off = (i - (nT - 1) / 2) / nT * S * 1.3, ph = gfTime * 3 + cr.seed + i * 1.3;
+        c.lineWidth = Math.max(0.8, S * 0.06);
+        c.beginPath(); c.moveTo(S * 0.5, off);
+        c.bezierCurveTo(S * 0.1, off + Math.sin(ph) * S * 0.3, -tl * 0.5, off * 1.4 + Math.cos(ph) * S * 0.35, -tl - S * 0.4, off * 1.8 + Math.sin(ph * 1.3) * S * 0.4);
         c.stroke();
     }
     // Lobes either side of the windpipe (the Bellwether has a third, behind).
-    const spread = R * (soft ? 0.36 : 0.46), lobeR = R * (soft ? 0.6 : 0.7);
-    if (bell) { c.save(); c.translate(-R * 0.5, 0); gfLobe(c, lobeR * 0.9, cr, 1, hue); c.restore(); }
+    const Ll = S * 0.7 + (R * 0.8 - S * 0.7) * sw, Wl = S * 0.2 + (R * 0.5 - S * 0.2) * sw;
+    if (bell) { c.save(); c.translate(-S * 0.5 - Ll * 0.35, 0); gfLobe(c, Ll * 0.7, Wl * 0.9, cr, 1, hue, sw); c.restore(); }
     for (let s = -1; s <= 1; s += 2) {
-        c.save(); c.translate(-R * 0.05, s * spread); c.rotate(s * 0.25); gfLobe(c, lobeR, cr, s, hue); c.restore();
+        c.save(); c.translate(-S * 0.1, s * (S * 0.1 + Wl * 0.72)); c.rotate(s * (0.05 + 0.14 * sw)); gfLobe(c, Ll, Wl, cr, s, hue, sw); c.restore();
     }
     // Windpipe: ribbed tube down the middle, cartilage rings.
     c.fillStyle = soft ? "#3A0A1C" : "#F2C9B4"; c.strokeStyle = "rgba(60,0,20,0.9)"; c.lineWidth = 1;
-    c.beginPath(); c.moveTo(R * 0.95, -R * 0.13); c.lineTo(-R * 0.55, -R * 0.09); c.lineTo(-R * 0.55, R * 0.09); c.lineTo(R * 0.95, R * 0.13); c.closePath();
+    c.beginPath(); c.moveTo(S * 0.95, -S * 0.15); c.lineTo(-S * 0.6, -S * 0.1); c.lineTo(-S * 0.6, S * 0.1); c.lineTo(S * 0.95, S * 0.15); c.closePath();
     c.fill(); c.stroke();
-    if (R > 8) {
+    if (S > 8) {
         c.strokeStyle = soft ? "rgba(140,40,70,0.9)" : "rgba(150,70,60,0.9)";
-        for (let i = 0; i < 7; i++) { const x = -R * 0.45 + i * R * 0.2; c.beginPath(); c.moveTo(x, -R * 0.11); c.lineTo(x, R * 0.11); c.stroke(); }
+        for (let i = 0; i < 7; i++) { const x = -S * 0.5 + i * S * 0.21; c.beginPath(); c.moveTo(x, -S * 0.12); c.lineTo(x, S * 0.12); c.stroke(); }
+        // The breath going down it (in) or back up it (out): gulps of pale air.
+        if (stg === "inhale" || stg === "exhale") {
+            for (let i = 0; i < 3; i++) {
+                let u = gfFrac(gfTime * 2.6 + i / 3); if (stg === "exhale") u = 1 - u;
+                const x = S * 0.9 - u * S * 1.4;
+                c.fillStyle = "rgba(255,255,255," + (0.75 * Math.sin(Math.min(1, Math.max(0, stg === "exhale" ? 1 - u : u)) * Math.PI)).toFixed(3) + ")";
+                c.beginPath(); c.ellipse(x, 0, S * 0.1, S * 0.13, 0, 0, Math.PI * 2); c.fill();
+            }
+        }
     }
-    // Mouth: a ring of teeth round a dark throat, working open and shut.
-    const gape = 0.5 + 0.5 * Math.sin(gfTime * (soft ? 9 : 2.5) + cr.seed), mR = R * (bell ? 0.3 : 0.26);
-    c.fillStyle = "#1A0008"; c.beginPath(); c.arc(R * 0.95, 0, mR, 0, Math.PI * 2); c.fill();
-    c.strokeStyle = hue.rim; c.lineWidth = Math.max(1, R * 0.05); c.stroke();
-    c.fillStyle = "#FFF3E0";
-    const nTeeth = bell ? 12 : 8;
-    for (let i = 0; i < nTeeth; i++) {
-        const a = i / nTeeth * Math.PI * 2, inner = mR * (0.35 + 0.35 * gape);
-        c.beginPath();
-        c.moveTo(R * 0.95 + Math.cos(a - 0.2) * mR, Math.sin(a - 0.2) * mR);
-        c.lineTo(R * 0.95 + Math.cos(a) * inner, Math.sin(a) * inner);
-        c.lineTo(R * 0.95 + Math.cos(a + 0.2) * mR, Math.sin(a + 0.2) * mR);
-        c.closePath(); c.fill();
-    }
+    // Mouth.
+    c.save(); c.translate(S * 0.98, 0); gfDrawMaw(c, S * (bell ? 0.34 : 0.3), cr, hue, soft, wide); c.restore();
     if (bell) {
         // Crown of horn spines over the back, and a cluster of eyes.
         c.fillStyle = "#3A0508"; c.strokeStyle = "#FF8A80"; c.lineWidth = 1;
@@ -209,13 +329,13 @@ function gfDrawCreature(c, cr, z) {
             c.closePath(); c.fill(); c.stroke();
         }
         for (let i = 0; i < 5; i++) {
-            const ex = R * (0.45 + 0.1 * (i % 2)), ey = (i - 2) * R * 0.13;
+            const ex = S * (0.5 + 0.1 * (i % 2)), ey = (i - 2) * S * 0.15;
             c.fillStyle = "#FFE45C"; c.beginPath(); c.arc(ex, ey, Math.max(1.2, R * 0.05), 0, Math.PI * 2); c.fill();
             c.fillStyle = "#000"; c.beginPath(); c.arc(ex + R * 0.015, ey, Math.max(0.6, R * 0.022), 0, Math.PI * 2); c.fill();
         }
     }
     // The rear vent: a puckered sphincter. Open = gaping and lit.
-    const vx = -R * 0.72, vR = R * 0.26;
+    const vx = -Math.max(S * 0.62, Ll * 0.8), vR = S * 0.26;
     if (cr.b.open) {
         const g = c.createRadialGradient(vx, 0, 0, vx, 0, vR * 2.4);
         g.addColorStop(0, "rgba(255,240,150,0.9)"); g.addColorStop(0.4, "rgba(255,200,60,0.45)"); g.addColorStop(1, "rgba(255,200,60,0)");
@@ -240,7 +360,7 @@ function gfDrawCreature(c, cr, z) {
     // Frenzied by a rupture: burning eyes at the mouth.
     if (cr.frenzy > 0) {
         c.fillStyle = "#FFEE66";
-        for (let s = -1; s <= 1; s += 2) { c.beginPath(); c.arc(R * 0.7, s * R * 0.2, Math.max(1.5, R * 0.07), 0, Math.PI * 2); c.fill(); }
+        for (let s = -1; s <= 1; s += 2) { c.beginPath(); c.arc(S * 0.62, s * S * 0.24, Math.max(1.5, S * 0.08), 0, Math.PI * 2); c.fill(); }
     }
     c.restore();
 

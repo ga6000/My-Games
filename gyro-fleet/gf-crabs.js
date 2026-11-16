@@ -44,10 +44,10 @@ const GF = {
     huntR: 520,         // a creature hunts a ship this close
     syncR: 110,         // Bellwether breath-sync reach
     waveSpeed: 70,      // units/s the Bellwether's visible wave travels
-    breathWave: 220,    // units/s a site's breath rolls outward (a screen is about half a second deep)
+    breathWave: 120,    // units/s a site's breath rolls outward: slow enough to SEE the front cross the screen (about a second)
     hull: 100,          // the flown ship
     fleetHp: 40,        // every wing bot
-    grabTime: 3,        // seconds held by tendrils before the ship is taken
+    grabTime: 6.5,      // seconds held by tendrils before the ship is taken (was 3: Ry, 2026-11-16, wanted longer to fight free)
     grabBreakHits: 3,   // hits on the holder that shake it loose
     ships: 3,           // lead ships per round
     clock: 480,         // seconds: the round's hard stop (three sites)
@@ -361,8 +361,9 @@ function gfBreathSwell(p) {
 }
 // A creature's breath phase: its site's, a beat behind the further out it is
 // (so the breath rolls outward as a wave), capped so a long chase stays in step.
+const GF_WAVE_CAP = 300;
 function gfSitePhaseAt(st, x, y) {
-    const d = Math.min(260, Math.max(0, Math.hypot(x - st.x, y - st.y) - st.r));
+    const d = Math.min(GF_WAVE_CAP, Math.max(0, Math.hypot(x - st.x, y - st.y) - st.r));
     return gfFrac(st.p - (d / GF.breathWave) / st.period);
 }
 // The breath you can HEAR, as it reaches the lead ship: in on the inhale, out
@@ -662,7 +663,7 @@ function gfUpdateGrabs(dt) {
         s.x += (fx - s.x) * Math.min(1, dt * 3);
         s.y += (fy - s.y) * Math.min(1, dt * 3);
         s.vx *= 0.85; s.vy *= 0.85;
-        if (s === glShip) gfDamage(s, 6 * dt, "taken by an aircrab");
+        if (s === glShip) gfDamage(s, 3 * dt, "taken by an aircrab");
         if (g.t >= GF.grabTime) {
             gfKillShip(s, "taken by an aircrab");
             s.gfGrab = null; c.grabbing = null;
@@ -813,11 +814,46 @@ function gfUpdateSpines(dt, targets) {
 // ---------------------------------------------------
 function gfOnScreen(p, pad) { return p.x > -pad && p.y > -pad && p.x < glW + pad && p.y < glH + pad; }
 
+// The site's breath, drawn as what it is: a front rolling out from the site.
+// Amber leading edge with a red wake = the inhale arriving (vents open as it
+// passes, then armour). Green edge = the soft window arriving. The colours
+// are the breath gauge's. (Pass 4. Ry: "the breathing wave is a bit hard to
+// read as a wave".)
+function gfDrawBreathFronts(c, z, st) {
+    if (!st.awake || st.dead || st.cleared) return;
+    const p = glWorldToScreen(st.x, st.y);
+    if (p.h) return;
+    const span = GF.breathWave * st.period;
+    const fronts = [[0, "255,176,0", "255,46,80", 1], [GF_PH.exhale, "125,255,156", "125,255,156", 0.7]];
+    c.save();
+    for (let i = 0; i < fronts.length; i++) {
+        const f = fronts[i], d = span * gfFrac(st.p - f[0]);
+        if (d > GF_WAVE_CAP + 30) continue;
+        const fade = Math.min(1, d / 12) * Math.min(1, (GF_WAVE_CAP + 30 - d) / 60) * f[3];
+        const R = (st.r + d) * z;
+        if (!gfOnScreen(p, R + 20)) continue;
+        // The wake: a wash behind the front, fading inward.
+        for (let j = 1; j <= 8; j++) {
+            const rr = R - j * 2.4 * z;
+            if (rr <= st.r * z) break;
+            c.strokeStyle = "rgba(" + f[2] + "," + (0.2 * fade * (1 - j / 9)).toFixed(3) + ")"; c.lineWidth = 2.6 * z;
+            c.beginPath(); c.arc(p.x, p.y, rr, 0, Math.PI * 2); c.stroke();
+        }
+        c.strokeStyle = "rgba(" + f[1] + "," + (0.3 * fade).toFixed(3) + ")"; c.lineWidth = 14;
+        c.beginPath(); c.arc(p.x, p.y, R, 0, Math.PI * 2); c.stroke();
+        c.strokeStyle = "rgba(" + f[1] + "," + (0.95 * fade).toFixed(3) + ")"; c.lineWidth = 3.5;
+        c.beginPath(); c.arc(p.x, p.y, R, 0, Math.PI * 2); c.stroke();
+    }
+    c.restore();
+}
+
 function gfDrawWorld(c) {
     if (!gfHive) return;
     const z = glCamera.zoom;
     gfDrawHome(c, z);
     for (let i = 0; i < gfSites.length; i++) gfDrawSite(c, z, gfSites[i]);   // gf-flesh.js
+
+    for (let i = 0; i < gfSites.length; i++) gfDrawBreathFronts(c, z, gfSites[i]);
 
     // Sync waves.
     for (let i = 0; i < gfWaves.length; i++) {
@@ -927,13 +963,15 @@ function gfDrawOverlay(c) {
     // Held by tendrils: a ring closing on the ship, and the hits it takes to break.
     const g = glShip.gfGrab;
     if (g && glShip.isAlive) {
-        const k = Math.max(0, 1 - g.t / GF.grabTime), blink = Math.floor(gfTime * 8) % 2;
-        c.strokeStyle = blink ? "#FF2E88" : "#FFFFFF"; c.lineWidth = 3;
-        c.beginPath(); c.arc(glCX, glCY, 26 + 60 * k, 0, Math.PI * 2); c.stroke();
+        // No ring (Ry, 2026-11-16): the tendrils themselves show the hold. Just
+        // the hits it takes to break, and a thin bar of the time left.
+        const k = Math.max(0, 1 - g.t / GF.grabTime);
         for (let i = 0; i < GF.grabBreakHits; i++) {
-            c.fillStyle = i < g.hits ? "#FFFFFF" : "rgba(255,46,136,0.5)";
-            c.fillRect(glCX - 16 + i * 12, glCY - 48, 8, 4);
+            c.fillStyle = i < g.hits ? "#FFFFFF" : "rgba(255,46,136,0.6)";
+            c.fillRect(glCX - 16 + i * 12, glCY - 44, 8, 4);
         }
+        c.fillStyle = "rgba(0,0,0,0.6)"; c.fillRect(glCX - 17, glCY - 37, 34, 4);
+        c.fillStyle = k < 0.3 && Math.floor(gfTime * 8) % 2 ? "#FFFFFF" : "#FF2E88"; c.fillRect(glCX - 16, glCY - 36, 32 * k, 2);
     }
     if (gfHurtFlash > 0) {
         c.fillStyle = "rgba(255,46,136," + (gfHurtFlash * 0.6).toFixed(3) + ")";
