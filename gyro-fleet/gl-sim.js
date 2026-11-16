@@ -63,7 +63,7 @@ function glUpdateShipOne(s, dt) {
     if (!s.isAlive) {
         // A charge dies with the ship — its hum must not outlive it.
         if (s.ultraState) glUltraAbort(s, "ultradrive: ship lost");
-        if (s === glShip && Date.now() - s.deathTime >= 1200) {
+        if (s === glShip && Date.now() - s.deathTime >= 1200 && !gfEnding()) {
             // Safe spawn, not a fixed point: with 900-r_s holes the old fixed
             // (0, 600) was inside a horizon.
             glSafeSpawn(s);

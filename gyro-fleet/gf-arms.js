@@ -145,10 +145,10 @@ function gfDrawArmsWorld(c, z) {
         // the camera, so turning the ship swung every bolt's streak, and a slow
         // ricochet seemed to slide sideways in space (Ry, 2026-11-15).
         const rvx = b.vx, rvy = b.vy;
-        const rl = Math.hypot(rvx, rvy) || 1, L = b.gfBounced ? 26 : 20;
+        const rl = Math.hypot(rvx, rvy) || 1, L = b.gfBounced ? 26 : (b.needle ? 46 : 20);
         const tx = p.x - rvx / rl * L, ty = p.y - rvy / rl * L;
         const fade = Math.min(1, b.life / 20);
-        c.globalAlpha = (b.gfBounced ? 0.6 : 0.35) * fade; c.strokeStyle = b.gfBounced ? "#FF2A2A" : (b.bot ? "#7DF9FF" : W.col); c.lineWidth = b.gfBounced ? 8 : 5;
+        c.globalAlpha = (b.gfBounced ? 0.6 : 0.35) * fade; c.strokeStyle = b.gfBounced ? "#FF2A2A" : (b.ccol || (b.bot ? "#7DF9FF" : W.col)); c.lineWidth = b.gfBounced ? 8 : (b.hot ? 8 : (b.bot ? 3.5 : 5));
         c.beginPath(); c.moveTo(tx, ty); c.lineTo(p.x, p.y); c.stroke();
         c.globalAlpha = fade; c.strokeStyle = b.gfBounced ? "#FFFFFF" : W.core; c.lineWidth = b.gfBounced ? 2.4 : 1.6;
         c.beginPath(); c.moveTo(tx, ty); c.lineTo(p.x, p.y); c.stroke();
@@ -205,20 +205,8 @@ function gfDrawShip(c, s, p) {
         c.fillStyle = g;
         c.beginPath(); c.moveTo(-9, y - 1.8); c.lineTo(-9 - fl, y); c.lineTo(-9, y + 1.8); c.closePath(); c.fill();
     });
-    // Wings (swept), then fuselage, nacelles, canopy, wing-tip lights.
-    c.lineJoin = "round";
-    c.fillStyle = "#0E2A33"; c.strokeStyle = "#7DF9FF"; c.lineWidth = 1.2 / k;
-    c.beginPath();
-    c.moveTo(4, 0); c.lineTo(-6, 11); c.lineTo(-10, 11); c.lineTo(-7, 3); c.lineTo(-7, -3); c.lineTo(-10, -11); c.lineTo(-6, -11);
-    c.closePath(); c.fill(); c.stroke();
-    c.fillStyle = "#16424F";
-    c.beginPath(); c.moveTo(14, 0); c.lineTo(4, 3.5); c.lineTo(-9, 3); c.lineTo(-9, -3); c.lineTo(4, -3.5); c.closePath(); c.fill(); c.stroke();
-    c.fillStyle = "#0B2028";
-    c.fillRect(-10, -5.5, 7, 3); c.strokeRect(-10, -5.5, 7, 3);
-    c.fillRect(-10, 2.5, 7, 3); c.strokeRect(-10, 2.5, 7, 3);
-    c.fillStyle = "#C9FFE9"; c.globalAlpha = 0.9;
-    c.beginPath(); c.ellipse(5, 0, 3.2, 1.6, 0, 0, Math.PI * 2); c.fill();
-    c.globalAlpha = 1;
+    // The hull is the crew member's (gf-crew.js).
+    gfCrewHull(c, gfCrewId, 1.2 / k, false);
     const blink = (gfTime * 2) % 1 < 0.5;
     c.fillStyle = blink ? "#FF2E88" : "#5a1030"; c.fillRect(-8, -11.5, 2, 2);
     c.fillStyle = blink ? "#7DFF9C" : "#103a20"; c.fillRect(-8, 9.5, 2, 2);
@@ -228,13 +216,13 @@ function gfDrawShip(c, s, p) {
     if (gfFlight.jump !== "burst") {
         const ta = gfAimAngle(), TL = 9 * k;
         c.save(); c.translate(p.x, p.y);
-        c.strokeStyle = "#FFB000"; c.lineWidth = 2.6 * Math.min(1.5, k); c.lineCap = "round";
+        c.strokeStyle = gfCrew().col; c.lineWidth = 2.6 * Math.min(1.5, k); c.lineCap = "round";
         const ox = Math.cos(ta + Math.PI / 2) * 1.6 * k, oy = Math.sin(ta + Math.PI / 2) * 1.6 * k;
         c.beginPath();
         c.moveTo(ox, oy); c.lineTo(ox + Math.cos(ta) * TL, oy + Math.sin(ta) * TL);
         c.moveTo(-ox, -oy); c.lineTo(-ox + Math.cos(ta) * TL, -oy + Math.sin(ta) * TL);
         c.stroke();
-        c.fillStyle = "#3a2a00"; c.strokeStyle = "#FFB000"; c.lineWidth = 1.2;
+        c.fillStyle = gfCrew().dark; c.strokeStyle = gfCrew().col; c.lineWidth = 1.2;
         c.beginPath(); c.arc(0, 0, 3.2 * Math.min(1.5, k), 0, Math.PI * 2); c.fill(); c.stroke();
         if (gfMuzzle.t > 0) {
             const mx = Math.cos(gfMuzzle.a) * (TL + 3), my = Math.sin(gfMuzzle.a) * (TL + 3);

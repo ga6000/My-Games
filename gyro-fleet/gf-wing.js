@@ -81,16 +81,7 @@ function gfWingKey(code) {
             gfWing.push(b);
 
         }
-    } else if (code === "KeyK") {
-        if (!glShip.isAlive) return;
-        if (gfCap.charge < 5 || gfHull >= GF.hull) { gfCap.deny = 0.4; gfSfx("deny"); return; }
-        gfSfx("mend");
-        const want = (GF.hull - gfHull) / GF_WING.mendPer, use = Math.min(gfCap.charge, want);
-        gfHull = Math.min(GF.hull, gfHull + use * GF_WING.mendPer);
-        gfCap.charge -= use;
-        gfCap.flash = 0.5;
-        glSpawnBurst(glShip.x, glShip.y, 14, "#7DFF9C");
-    }
+    } else if (code === "KeyK") gfCrewAbility();   // gf-crew.js: each crew member's siphon ability (Maren's is the mend)
 }
 
 // Free bots from the mothership (a freed relay): they ultradrive in like a called one.
@@ -285,12 +276,10 @@ function gfBotUpdate(b, k, dt) {
         const inRange = td < (hunt ? GF_WING.range * 1.2 : GF_WING.range);
         if (inRange && (hunt || gfCanWound(tgt, b.x, b.y)) && glBullets.length < GL_MAX_BULLETS) {
             const W = GF_ARMS.blaster;
-            // Lead the shot a little.
+            // Lead the shot a little. The bot fires a weaker copy of its leader's weapon (gf-crew.js).
             const tt = td / (W.speed * 60);
             const a = Math.atan2(tgt.y + tgt.vy * tt - b.y, tgt.x + tgt.vx * tt - b.x) + (Math.random() - 0.5) * 0.08;
-            glBullets.push({ x: b.x, y: b.y, vx: Math.cos(a) * W.speed, vy: Math.sin(a) * W.speed, life: W.life, size: 2,
-                             color: "#7DF9FF", gf: "bolt", bot: true, owner: b });
-            b.fireCd = 1 / GF_WING.fireRate;
+            b.fireCd = gfCrewFire(b, a, true, tgt);
         }
     }
     // An orifice that is open is always fair game, in either order.
@@ -377,11 +366,9 @@ function gfDrawWing(c, z) {
         const fl = 3 + Math.min(14, sp * 0.12) * (0.8 + Math.random() * 0.4);
         c.fillStyle = "rgba(125,249,255,0.7)";
         c.beginPath(); c.moveTo(-6, -1.5); c.lineTo(-6 - fl, 0); c.lineTo(-6, 1.5); c.closePath(); c.fill();
-        c.fillStyle = b.flash > 0 ? "#FFFFFF" : "#0E2A33";
-        c.strokeStyle = gfWingOrder === "hunt" ? "#FFB000" : "#7DF9FF"; c.lineWidth = 1.2 / k; c.lineJoin = "round";
-        c.beginPath(); c.moveTo(9, 0); c.lineTo(-5, 6); c.lineTo(-7, 2.5); c.lineTo(-7, -2.5); c.lineTo(-5, -6); c.closePath();
-        c.fill(); c.stroke();
-        c.fillStyle = "#C9FFE9"; c.fillRect(1, -1, 3, 2);
+        c.save(); c.scale(0.62, 0.62);
+        gfCrewHull(c, gfCrewId, 1.2 / k / 0.62, b.flash > 0);   // the leader's look, smaller
+        c.restore();
         c.restore();
         // Hull pips when hurt.
         if (b.gfHp < GF.fleetHp) {
@@ -485,8 +472,9 @@ function gfDrawSidebar(c) {
     y += 40;
 
     // Hull, with the ships left as pips.
-    const hcol = gfHull > 60 ? "#7DF9FF" : (gfHull > 25 ? "#FFB000" : "#FF2E88");
-    c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = "#6d8582"; c.fillText("HULL", x, y);
+    const hfrac = gfHull / GF.hull;
+    const hcol = hfrac > 0.6 ? "#7DF9FF" : (hfrac > 0.25 ? "#FFB000" : "#FF2E88");
+    c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = gfCrew().col; c.fillText(gfCrew().name + (gfCrewSt.god ? "  no dmg" : ""), x, y);
     c.textAlign = "right"; c.fillStyle = "#cfe9e6";
     let ships = "";
     for (let i = 0; i < GF.ships; i++) ships += i < gfRound.ships ? "▲" : "△";
@@ -504,11 +492,11 @@ function gfDrawSidebar(c) {
     for (let i = 1; i * GF_WING.callCost < GF_WING.cap; i++) c.fillRect(x + W * i * GF_WING.callCost / GF_WING.cap, y + 6, 1.5, 12);
     y += 26;
     const canCall = gfCap.charge >= GF_WING.callCost && gfWingAlive() < GF_WING.max;
-    const canMend = gfCap.charge >= 5 && gfHull < GF.hull;
+    const canMend = gfCrewAbilityReady();
     gfKeyCap(c, x, y, "J", canCall, "#7DFF9C");
     c.font = "11px monospace"; c.textAlign = "left"; c.fillStyle = canCall ? "#cfe9e6" : "#4a5f5c"; c.fillText("bot", x + 24, y + 13);
-    gfKeyCap(c, x + W / 2, y, "K", canMend, "#7DFF9C");
-    c.textAlign = "left"; c.font = "11px monospace"; c.fillStyle = canMend ? "#cfe9e6" : "#4a5f5c"; c.fillText("mend", x + W / 2 + 24, y + 13);
+    gfKeyCap(c, x + W / 2, y, "K", canMend, gfCrew().col);
+    c.textAlign = "left"; c.font = "11px monospace"; c.fillStyle = canMend ? "#cfe9e6" : "#4a5f5c"; c.fillText(gfCrew().abil.toLowerCase(), x + W / 2 + 24, y + 13);
     y += 42;
 
     // The wing: a pip per slot (its hull as the fill), and the order.
@@ -685,6 +673,13 @@ function gfDrawHud(c) {
         c.fillText((glShip.deathMsg || "ship lost").toUpperCase(), mid, glH / 2);
     }
 
+    gfCrewOverlay(c);   // gf-crew.js: ability ring, the ram's impact frame
+    // Aftermath: the round is decided and the world plays on for a few
+    // seconds under closing bars before the score comes up.
+    if (gfRound.after) {
+        const k = Math.min(1, (GF_AFTER - gfRound.after.t) / 0.6), bh = glH * 0.09 * k;
+        c.fillStyle = "#000"; c.fillRect(0, 0, glW - GF_SIDE_W, bh); c.fillRect(0, glH - bh, glW - GF_SIDE_W, bh);
+    }
     // End card: the score readout.
     if (gfRoundOver()) {
         const won = gfRound.phase === "won";

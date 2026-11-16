@@ -260,6 +260,13 @@ function gfDrawCreature(c, cr, z) {
     }
     c.save();
     c.translate(p.x, p.y);
+    // Crushed against its neighbours on the inhale: squashed along the line
+    // it will be thrown down, shuddering harder as the breath fills.
+    if (cr.crush > 0.05 && cr.tumble <= 0 && cr.kind !== "krill") {
+        const q = Math.min(1, cr.crush), sh = q * 1.5 * Math.sin(gfTime * 40 + cr.seed);
+        c.translate(Math.cos(cr.crushA + 1.57) * sh, Math.sin(cr.crushA + 1.57) * sh);
+        c.rotate(cr.crushA); c.scale(1 - 0.22 * q, 1 + 0.12 * q); c.rotate(-cr.crushA);
+    }
     c.rotate(cr.face);
     c.lineJoin = "round";
     if (cr.kind === "krill") { gfDrawKrill(c, cr, R); c.restore(); return; }
@@ -352,6 +359,16 @@ function gfDrawCreature(c, cr, z) {
             c.beginPath(); c.moveTo(vx + Math.cos(a) * r0, Math.sin(a) * r0); c.lineTo(vx + Math.cos(a) * r1, Math.sin(a) * r1); c.stroke();
         }
     }
+    // Thrown and tumbling: helpless, open to any shot.
+    if (cr.tumble > 0) {
+        c.strokeStyle = "rgba(255,228,92," + (0.5 + 0.4 * Math.sin(gfTime * 30)).toFixed(2) + ")"; c.lineWidth = 2; c.setLineDash([5, 5]);
+        c.beginPath(); c.arc(0, 0, R * 1.15, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
+    }
+    // Marked by a needle: a white bracket, double damage.
+    if (cr.mark > 0) {
+        c.strokeStyle = "#EAF2FF"; c.lineWidth = 1.5;
+        for (let i = 0; i < 4; i++) { c.beginPath(); c.arc(0, 0, R * 1.3, i * Math.PI / 2 + 0.25 + gfTime, i * Math.PI / 2 + 0.75 + gfTime); c.stroke(); }
+    }
     // Winded (its Bellwether died clean): a slack green ring, free to hit.
     if (cr.winded > 0) {
         c.strokeStyle = "rgba(125,255,156,0.7)"; c.lineWidth = 1.5; c.setLineDash([3, 4]);
@@ -399,7 +416,7 @@ function gfDrawBlasts(c, z) {
         const b = gfBlasts[i], p = glWorldToScreenRaw(b.x, b.y), k = b.t / 0.6, R = b.r * z;
         if (!gfOnScreen(p, R + 20)) continue;
         if (b.soft) {   // a Bellwether died clean: the ring of everything it winded
-            c.strokeStyle = "rgba(125,255,156," + (0.8 * (1 - k)).toFixed(3) + ")"; c.lineWidth = 2;
+            c.strokeStyle = "rgba(" + (b.col || "125,255,156") + "," + (0.8 * (1 - k)).toFixed(3) + ")"; c.lineWidth = 2;
             c.beginPath(); c.arc(p.x, p.y, R * Math.min(1, k * 2.5), 0, Math.PI * 2); c.stroke();
             continue;
         }

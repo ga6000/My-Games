@@ -86,3 +86,28 @@ Ry: "game balance speed is much improved & getting there."
 | Bot drop-in | White flash, hard shock ring, flare, sparks, heavier shake, a low boom. The arrival throws back everything within 24 units, winds aircrabs for 2 s (Bellwethers 1 s), kills airkrill, and breaks any tendril hold. |
 
 Proposed, not built: the inflation bump as a mechanic, and the crew ships (brief in the thread, with an L+G dev menu).
+
+## Pass 5 (2026-11-16): crush and launch, six crew, aftermath
+
+Ry's calls: build bump suggestion 1 only; K = each crew member's ability; all six crew at rough quality; bots fire a weaker copy of their leader's weapon. Also, for every hub game: a casual / hardcore switch at the start of a session (Gyro Fleet's current tuning stays as it is for now), and a few seconds of aftermath after death before the score. The hub-wide doc changes are with the hub thread; the aftermath is built here.
+
+**Crush and launch** (`gf-crabs.js`, in `gfUpdateCreature`). Two big bodies overlapping on the inhale no longer slide apart: most of the push is stored as `c.crush`, and they are drawn squashed and shuddering along the line they will be thrown down. When the breath is full, each crushed body is fired straight out from the pack (`GF_KINDS.launch`: aircrab 62 u/s, Bellwether 24) and TUMBLES for 1.3 s: no steering, no tendrils, and any shot wounds it. A thrown body rams a ship in its way (16, Bellwether 26). Sounds: creak, then a thump.
+
+**Six crew** (`gf-crew.js`, new). Hull shape and colour, primary, and K ability:
+
+| Crew | Hull | Speed | Primary | K |
+|---|---|---|---|---|
+| Greer, gunner (gold, twin prongs) | 100 | 1.0 | twin blaster | OVERCHARGE 40: 5 s, 1.8x fire, double damage, no ricochets |
+| Maren, medic (green, round with a cross) | 90 | 1.0 | siphon beam: 30 units, never ricochets, drains what it can wound, feeds the capacitor | MEND: the whole charge into your hull, the rest into the wing |
+| Elodie, engineer (orange, box with a tow arm) | 100 | 0.95 | drifting proximity mines | SENTRY 40: a gun on the spot for 14 s |
+| Soren, scout (white, needle with fins) | 75 | 1.18 | needle rail: slow, long, pierces soft bodies, marks armour for double damage, no ricochet | SLIP 30: 3.5 s, 1.7x speed, tendrils cannot hold |
+| Bex, butcher (lime, ram prow) | 120 | 1.05 | scatter: six pellets, short reach, they do ricochet | RAM 40: a dash; soft bodies die clean, armoured ones are lit and thrown; impact frame |
+| Booke, bulwark (blue, shield crescent) | 150 | 0.88 | flak that bursts at the cursor | SHIELD 35: 5 s bubble, nothing hurts or holds what is inside |
+
+Wing bots are drawn as a small copy of the leader's hull and fire the same weapon, slower and weaker (`gfCrewFire(..., weak)`). The seeker stays shared. Every number is a first guess.
+
+**Dev menu.** Hold L and G together. 1 to 6 pick the crew (remembered in localStorage), 7 to 9 go to a site, 0 fills the siphon, minus toggles no damage, equals refills the hull and adds a bot. Clickable too.
+
+**Aftermath.** `gfEndRound` now starts `gfRound.after` (3.5 s, `GF_AFTER`): the world keeps moving under closing bars, the ship does not relaunch, and only then does the score card come up. A win cannot be lost during it.
+
+Checks: both repo scripts pass. Headless: menu opens on L+G, all six crew fire and use K with no page errors, launches happen, the aftermath holds 3.5 s, and the three-site run still reaches the win card.

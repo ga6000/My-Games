@@ -77,6 +77,16 @@ function gfSfx(name, k) {
         gfTone(c, "sine", 120, 60, 1.0, 0.16);
         gfTone(c, "triangle", 660, 660, 0.12, 0.1, 0.85);
         break;
+    case "crush":    // bodies jammed together, creaking as the breath forces them
+        if (!(c = gfSfxOk(name, 0.5))) return;
+        gfTone(c, "sawtooth", 60, 95, 0.7, 0.14 * k, 0, 500);
+        gfHiss(c, true, "bandpass", 300, 700, 6, 0.6, 0.2 * k);
+        break;
+    case "launch":   // the pack fires apart
+        if (!(c = gfSfxOk(name, 0.12))) return;
+        gfTone(c, "sine", 220, 50, 0.35, 0.4 * k);
+        gfHiss(c, false, "bandpass", 1200, 300, 2, 0.3, 0.3 * k);
+        break;
     case "drop":     // a bot slams out of ultradrive beside you
         if (!(c = gfSfxOk(name, 0.08))) return;
         gfTone(c, "sine", 150, 38, 0.5, 0.5);
