@@ -124,7 +124,16 @@ function crewPick(role) {
 // Every figure on the page is a <canvas data-crew="role">, repainted on the
 // art clock (hub-art.js), so a breath or a step is one stepped frame for
 // all of them at once.
+function crewArtSrc(role) {
+    return (typeof ART_PACK !== "undefined" && ART_PACK.crew && ART_PACK.crew[role]) || "";
+}
+
+// With a class (the select screen, the podium) a drawn figure from
+// art/crew/ is used when there is one. Tokens on the board pass no class
+// and stay pixel figures: they walk, and a drawn figure has one pose.
 function crewFig(role, cls, pose) {
+    const drawn = cls ? crewArtSrc(role) : "";
+    if (drawn) return `<img class="crew-fig crew-img ${cls}" src="${escapeAttr(drawn)}" alt="">`;
     return `<canvas class="crew-fig ${cls || ""}" width="${CREW.W}" height="${CREW.H}" data-crew="${escapeAttr(role || "generic")}"${pose ? ` data-pose="${pose}"` : ""}></canvas>`;
 }
 
@@ -378,7 +387,7 @@ const SPLASH_H = 108;
 function splashPaint() {
     const cv = splashOverlay ? splashOverlay.querySelector("canvas") : null;
     const c = cv ? cv.getContext("2d") : null;
-    if (!c) return;
+    if (!c || splashOverlay.classList.contains("has-art")) return;
     const beat = artFrame % 34;
     const flash = beat === 0 || beat === 1 || beat === 4 || beat === 19;
     const b = artBreath();
@@ -548,6 +557,11 @@ function padPoll() {
 
 function startCrew() {
     if (splashOverlay) {
+        const drawn = (typeof ART_PACK !== "undefined" && ART_PACK.splash) || "";
+        if (drawn) {
+            splashOverlay.style.backgroundImage = `url("${drawn}")`;
+            splashOverlay.classList.add("has-art");
+        }
         splashOverlay.hidden = !splashUp;
         splashOverlay.addEventListener("click", splashDismiss, { signal: hubSignal });
     }

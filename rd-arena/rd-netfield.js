@@ -27,7 +27,11 @@ const RDNET = {
     WARP_FREQ: 0.006,
     WARP_SPEED: 0.10,
 
-    enabled: true,       // F9. false == today's game, reading gridB direct.
+    // 2026-11-16 (Ry): OFF by default. Drawing this coarse 133^2 copy made the
+    // field read as dead blocks that did not match what you walk into. The game
+    // now draws the full 400^2 Gray-Scott field, as the original 2026-08-08
+    // build did. F9 (or ?netfield=1) still shows the network view for testing.
+    enabled: /[?&]netfield=1/.test(location.search),
 
     cell: 0,
     prev: null,

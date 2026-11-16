@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Game Hub</title>
+    <title>Pleura</title>
 
     <!-- The shared token layer (AESTHETIC_GUIDE.md 2 and 3), loaded BEFORE this
          page style block so anything below can override a token.
@@ -730,6 +730,14 @@
         #splashMark { position: absolute; top: 7%; left: 0; right: 0; text-align: center; font-family: var(--font-display); font-size: clamp(1.2rem, 6vmin, 3rem); color: var(--phos-hot); letter-spacing: 6px; text-shadow: 4px 4px 0 #6E1F35; }
         #splashStart { position: absolute; bottom: 5%; left: 0; right: 0; text-align: center; font-size: clamp(18px, 3vmin, 26px); letter-spacing: 6px; color: #FFFFFF; animation: hubBlink 1.2s steps(2, start) infinite; }
 
+        /* Drawn art (art/README.md) in place of a coded scene or figure. */
+        canvas.is-painted { image-rendering: auto !important; }
+        .crew-img { image-rendering: auto; object-fit: contain; }
+        .crew-img.crew-big { width: clamp(96px, 13vw, 176px); aspect-ratio: 2 / 3; }
+        .crew-img.crew-podium { width: 96px; aspect-ratio: 2 / 3; }
+        #splashOverlay.has-art { background-size: cover; background-position: center; }
+        #splashOverlay.has-art canvas { display: none; }
+
         @media (prefers-reduced-motion: reduce) {
             body::after, #ticker, .party-winner, .path-line.is-open, .mode-blink, .party-tag.is-alert,
             .tile-corner, .mode-go, #continueBtn.is-launching { animation: none !important; }
@@ -749,7 +757,7 @@
     <!-- ===== TOP BAR ===== -->
     <header id="topBar">
         <div class="top-block">
-            <div id="wordmark">GAME HUB<small>AN INVASION IN FIVE ACTS</small></div>
+            <div id="wordmark">PLEURA<small>FIVE ACTS</small></div>
         </div>
         <div class="top-block">
             <span class="top-label">Room</span>
@@ -806,7 +814,7 @@
     <div id="identityOverlay">
         <div class="identity-card">
             <canvas class="identity-art" width="96" height="54" data-art="zombie"></canvas>
-            <h1>GAME HUB</h1>
+            <h1>PLEURA</h1>
             <p>Same room code, same room.</p>
             <div class="identity-form-row">
                 <div class="identity-field">
@@ -825,7 +833,7 @@
     <!-- The splash: The Tide in the thunderhead (hub/hub-crew.js). -->
     <div id="splashOverlay" hidden>
         <canvas width="192" height="108"></canvas>
-        <div id="splashMark">GAME HUB</div>
+        <div id="splashMark">PLEURA</div>
         <div id="splashStart">CLICK TO START</div>
     </div>
 
@@ -856,7 +864,8 @@
      See hub/HUB_PASS_PLAN.md. -->
 <script src="hub/hub-core.js"></script>
 <script src="hub/hub-layout.js"></script>
-<script src="hub/hub-art.js"></script>
+<script src="art/manifest.js"></script>
+    <script src="hub/hub-art.js"></script>
 <script src="hub/hub-render.js"></script>
 <script src="hub/hub-party.js"></script>
 <script src="hub/hub-crew.js"></script>

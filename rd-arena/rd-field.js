@@ -15,8 +15,13 @@
 // ============================================================
 // Reaction-diffusion field
 // ============================================================
-const gridCols = 400;
-const gridRows = 400;
+// 2026-11-16 (Ry): 800x800, was 400x400. The original 2026-08-08 build ran this
+// same Gray-Scott field at 400 cells over a 2400 px world (6 px a cell). V2
+// doubled the world to 4800 and kept 400 cells, which doubled every cell to
+// 12 px and made the tissue read as coarse blocks. 800 cells over 4800 px puts
+// the cell, and so the pattern scale, back where the original had it.
+const gridCols = 800;
+const gridRows = 800;
 const cellSize = worldWidth / gridCols;
 const gridSize = gridCols * gridRows;
 
@@ -47,7 +52,9 @@ function seedField(rand) {
     gridB.fill(0);
     nextGridA.fill(1);
     nextGridB.fill(0);
-    for (let i = 0; i < 200; i++) {
+    // 200 blobs per 400^2 originally; four times the cells keeps the same density.
+    const blobs = Math.round(200 * gridSize / (400 * 400));
+    for (let i = 0; i < blobs; i++) {
         let cx = Math.floor(rand() * gridCols);
         let cy = Math.floor(rand() * gridRows);
         for (let x = cx - 3; x <= cx + 3; x++) {
@@ -63,31 +70,32 @@ function seedField(rand) {
 seedField(Math.random);
 
 function updateRD() {
-    for (let x = 1; x < gridCols - 1; x++) {
-        for (let y = 1; y < gridRows - 1; y++) {
-            let i = x + y * gridCols;
+    // Same Gray-Scott equation and constants as the original. Walked row by row
+    // (y outer, x inner) since 2026-11-16: the old column-major walk jumped a
+    // whole row of memory per cell, which was free at 400^2 and cost ~10x at
+    // 800^2. Every cell reads only the previous grids, so order cannot change
+    // the result (the neighbour sums are grouped, a rounding-level difference).
+    const W = gridCols, A = gridA, B = gridB, nA = nextGridA, nB = nextGridB;
+    const kf = k + feed;
+    for (let y = 1; y < gridRows - 1; y++) {
+        let i = y * W;
+        for (let x = 1; x < W - 1; x++) {
+            i++;
+            if (noGrow[i]) { nA[i] = 1; nB[i] = 0; continue; }
 
-            if (noGrow[i]) { nextGridA[i] = 1; nextGridB[i] = 0; continue; }
-
-            let a = gridA[i];
-            let b = gridB[i];
-
-            let laplaceA =
-                gridA[i - gridCols] * 0.2 + gridA[i + gridCols] * 0.2 +
-                gridA[i - 1] * 0.2 + gridA[i + 1] * 0.2 +
-                gridA[i - gridCols - 1] * 0.05 + gridA[i - gridCols + 1] * 0.05 +
-                gridA[i + gridCols - 1] * 0.05 + gridA[i + gridCols + 1] * 0.05 -
-                a;
-
-            let laplaceB =
-                gridB[i - gridCols] * 0.2 + gridB[i + gridCols] * 0.2 +
-                gridB[i - 1] * 0.2 + gridB[i + 1] * 0.2 +
-                gridB[i - gridCols - 1] * 0.05 + gridB[i - gridCols + 1] * 0.05 +
-                gridB[i + gridCols - 1] * 0.05 + gridB[i + gridCols + 1] * 0.05 -
-                b;
-
-            nextGridA[i] = Math.max(0, Math.min(1, a + (dA * laplaceA - a * b * b + feed * (1 - a))));
-            nextGridB[i] = Math.max(0, Math.min(1, b + (dB * laplaceB + a * b * b - (k + feed) * b)));
+            const a = A[i], b = B[i];
+            const up = i - W, dn = i + W;
+            const laplaceA =
+                (A[up] + A[dn] + A[i - 1] + A[i + 1]) * 0.2 +
+                (A[up - 1] + A[up + 1] + A[dn - 1] + A[dn + 1]) * 0.05 - a;
+            const laplaceB =
+                (B[up] + B[dn] + B[i - 1] + B[i + 1]) * 0.2 +
+                (B[up - 1] + B[up + 1] + B[dn - 1] + B[dn + 1]) * 0.05 - b;
+            const abb = a * b * b;
+            let na = a + (dA * laplaceA - abb + feed * (1 - a));
+            let nb = b + (dB * laplaceB + abb - kf * b);
+            nA[i] = na < 0 ? 0 : na > 1 ? 1 : na;
+            nB[i] = nb < 0 ? 0 : nb > 1 ? 1 : nb;
         }
     }
     let tempA = gridA; gridA = nextGridA; nextGridA = tempA;

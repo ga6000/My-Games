@@ -20,7 +20,7 @@
 // scraping along the flesh.
 // ============================================================
 const fCols = 100, fRows = 100;
-const fStep = gridCols / fCols;          // 4 RD cells per flow cell
+const fStep = gridCols / fCols;          // RD cells per flow cell (8 at 800^2)
 const fCell = worldWidth / fCols;        // 48 world px per flow cell
 const fSize = fCols * fRows;
 
@@ -84,7 +84,9 @@ function rebuildFlowField() {
                     if (staticMask[i] === 1 || gridB[i] > 0.3) solid++;
                 }
             }
-            fBlocked[fx + fy * fCols] = solid >= 6 ? 1 : 0;
+            // 6 of 16 cells at the old 400^2 grid; scaled so the same FRACTION
+            // of a flow cell has to be flesh at any grid size (2026-11-16).
+            fBlocked[fx + fy * fCols] = solid >= Math.ceil(6 * fStep * fStep / 16) ? 1 : 0;
         }
     }
     // Sanctuary interiors are hard no-entry for anything that uses this field.
