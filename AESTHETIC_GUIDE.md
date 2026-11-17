@@ -165,7 +165,7 @@ var COLOR_PALETTE = [
 > below and a permanently red suite trains people to ignore it. Re-run the page after the
 > re-solve lands; the check flips to PASS on its own once the worst case clears ΔE 26.
 
-Thirteen entries comfortably exceeds the stated 3–10 player ceiling, and dropping three entries is
+Thirteen entries comfortably exceeds the stated player ceiling (3–10 then; 3–4 in all since 2026-11-16), and dropping three entries is
 *why* separation improves — fewer colours in the same space are further apart.
 
 **The migration cost, stated plainly.** `COLOR_PALETTE.length` goes 16 → 13, so `hash % length`
@@ -572,6 +572,11 @@ flip through, nothing that can cover the board on a phone. What changed:
   arrive, the way a cabinet changes screens.
 - The marquee scenes are placeholders in the right language. A `GAMES` entry with
   `art: "path.png"` shows that image instead, which is how drawn key art replaces them.
+- **The finished tile art is a painting** (Ry, 2026-11-16): one hand-painted-looking illustration
+  per game, in one shared style that may vary a little between games, NOT pixel art, with the
+  game's marquee title over it. No emoji. It is generated (the ChatGPT image model, see
+  `art/README.md`) unless the project ever becomes commercial. Until a game's painting exists its
+  tile may show the title alone.
 
 ### 6.1 Gyro Space — `gyro-space/space-tracer.html` · **VECTOR** · anchor: *Asteroids* (1979)
 Already black with neon and hand-drawn trails. The closest game in the repo to the target.
@@ -955,7 +960,8 @@ done. Its world hue is `--sig-cyan` by deliberate exception (§2.5). **Effort: S
 ## 7. Cross-cutting gameplay changes worth making
 
 Answering the brief's last question directly. These are the ones where the era's *design* — not
-just its look — is genuinely better for a 3–10 player friend group.
+just its look — is genuinely better for a small friend group: usually 3 to 4 people in all
+(Ry, 2026-11-16). Designs assume co-op PvE, not team versus team.
 
 **Worth doing:**
 

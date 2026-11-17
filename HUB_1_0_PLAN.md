@@ -390,6 +390,16 @@ winner at the end**. Small groups (2 to 4), free-for-all, no teams.
 | Luck-heavy games | Not weighted. Every game counts the same. |
 | Drop-outs and late joiners | Someone who drops keeps their points and whatever score they had. A late joiner starts the session at zero. |
 
+**Direction change, Ry 2026-11-16 (NOT built yet; the table above is what runs today):**
+
+- **Random game per act.** In a Story session the hub picks the game for each act at random from
+  that act's tiles, so players try new chapters instead of voting their favourite every time.
+- **Score together, not against each other.** Lean the session toward co-op: a TEAM score and a
+  team high-score table, and at the end a list of what each player contributed, instead of a
+  podium that ranks one winner over the others game after game.
+- **No hard time limits in Free Play** (`SCOPE_RULES.md` rule 0). Round length comes from each
+  game's event count; judge it after a 3 to 5 game playtest.
+
 **The story path.** The board becomes a gated flow chart (`hub/hub-party.js`). The group starts
 on one of three stacked starting games and can then only move forward through the hub's
 chronology, or replay the chapter it is on. A game not yet wired for party play is drawn on the

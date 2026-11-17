@@ -234,6 +234,8 @@ Ordered easiest → hardest. This ordering is also the recommended build order.
 > `zombie/V3_PLAN.md` and `zombie/ENDGAME_PLAN.md` in that order.**
 >
 > Two specific things in the text below are now false:
+> - **Couch play and controllers are out of scope** (Ry, 2026-11-16, trimmed as scope creep). One
+>   player per screen, keyboard and mouse (or touch). Not a foundation, not a near-term aspiration.
 > - **Local/couch co-op was removed 2026-09-01** after playtesting. There is no
 >   `assignedControls{mouse,wasd,arrows}` any more — one player per screen, WASD moves and the
 >   mouse aims. `players` stays an array of 0-or-1 so iterating consumers were left alone.
