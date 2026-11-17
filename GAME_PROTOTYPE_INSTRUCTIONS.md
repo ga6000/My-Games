@@ -43,10 +43,15 @@ actual codebase; see `PROJECT_MEMORY.md` for current per-game status and open te
   `AbortController`**, so a game's teardown (however it's eventually triggered) can fully clean
   up. No current game is embedded/torn down dynamically yet (see §2), but write new games this
   way regardless — it's cheap to do up front and expensive to retrofit.
-- **Controllers are welcome from the start** (Ry, 2026-11-15). Any game may add gamepad input
-  for its one local player while it's being built; copy Zombie's (`zombie/zombie-input.js`).
-  Same-screen couch play with several controllers is a later aspiration, not a requirement, so
-  don't build a game around it yet.
+- **Every hub game has player movement, sound effects, animation, and its own music loop**
+  (Ry, 2026-11-16). The loops share one theme (instrumentation, key, tempo family) so the hub
+  sounds like one album, while each stays catchy on its own.
+- **Every hub game opens with a skippable chapter crawl** (Star Wars style rolling text, or 8-bit
+  slides) that places it in the hub story (Ry, 2026-11-16). The text lives in the story doc, not
+  in the game.
+- **No controller or couch (same-screen) work for now** (Ry, 2026-11-16, trimmed as scope creep).
+  Don't add gamepad input or shared-screen play to a game. Zombie's existing pad support stays
+  as it is but isn't a pattern to copy.
 
 ---
 

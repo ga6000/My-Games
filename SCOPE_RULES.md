@@ -10,15 +10,22 @@ Standing rules, not a plan. They exist because scope here has grown the same way
 The 2026-09-04 pullback worked because it turned an open-ended list into a finite one. These
 rules keep lists finite.
 
+**The goal all of this serves** (Ry, 2026-11-16): the friend group plays it on their own, without
+being asked, and someone says *"hey, by the way, I was playing your game this weekend..."*. A
+feature that doesn't move toward that is scope creep.
+
 ---
 
 ## The rules
 
-0. **A hub game round is 2–7 minutes** (Ry, 2026-11-13; it was "2–5" from 2026-10-04). The top
-   end is soft. The game pushes for that length itself: one with a fixed end is built to reach it
-   in the window, and one with no fixed end (Zombie) gets too hard to hold past it. It ends in a
-   win or a loss, and then the player goes back to the board. Content that a round can't reach is
-   trimmed, not kept "for later". Anything longer is long-game material (rule 7).
+0. **A hub game round is short, and its own loop sets the length, not a clock** (Ry,
+   2026-11-16; it was "2–7 minutes, soft at the top" from 2026-11-13 and "2–5" from 2026-10-04).
+   Each game ends in a win or a loss after a COUNT of events (rounds, sites, levels, waves), then
+   the player goes back to the board. Roughly 2 to 7 minutes is the aim and it may run higher
+   (Zombie does today). **No number is judged until the group has played a full series of 3 to 5
+   games together.** If a game then runs long, trim its count of rounds, sites or levels; don't
+   add a timer. **Free Play has no hard time limit.** Content that a round can't reach is trimmed,
+   not kept "for later". Anything longer is long-game material (rule 7).
 
 1. **Every project is in one of two modes: building toward a written finish line, or
    maintenance.** The hub's finish line is `HUB_RETROSPECTIVE.md` §5. When it's met, the hub goes
@@ -54,7 +61,9 @@ rules keep lists finite.
 8. **Promotion is one-in, one-out, and the board grows on purpose** (Ry, 2026-11-15; it was
    "the board stays at five cards"). The long-run target is 12 to 18 titles. The board grows by
    one only when every card on it has been played by the group in its current form; otherwise a
-   new card trades places with an old one (the 2026-09-06 swap is the model).
+   new card trades places with an old one (the 2026-09-06 swap is the model). Placeholder cards
+   for unbuilt chapters are fine, and an act may grow if the story needs it, as long as the gaps
+   keep getting filled (Ry, 2026-11-16).
 
 9. **For Claude sessions.** Do exactly what was asked. Adjacent improvements, "while I'm here"
    ideas and follow-on features go into `IDEAS_INBOX.md` as one line and get mentioned in the

@@ -208,9 +208,27 @@ Recorded in project memory (hub chronology) as well as here.
 
 ---
 
+## 5. Rewrites, second round — Ry, 2026-11-16
+
+| # | Ry's call | Where it landed |
+|---|-----------|-----------------|
+| R1 | Yes | `GAME_PROTOTYPE_INSTRUCTIONS.md` §1 |
+| R2 | Unsure: worried artwork eats play area | Not applied. It would sit at the bottom of the existing right panel (§4.11a), which never covers the play field; only the panel's own space is shared |
+| R3 | Yes: one painted (not pixel) illustration per tile, shared style that may vary a little, marquee title over it, no emoji, generated art by default, title only until then | `AESTHETIC_GUIDE.md` §6.0 |
+| R4 | Already built (boot screens, Finn thread) | `AESTHETIC_GUIDE.md` §4.8 |
+| R5 | Yes; already built | `AESTHETIC_GUIDE.md` §4.13 |
+| R6 | Yes | `GAME_PROTOTYPE_INSTRUCTIONS.md` §1 |
+| R7 | Yes, plus placeholder cards and acts may grow, as long as gaps keep filling | `SCOPE_RULES.md` rule 8 |
+| R8 | Yes | `AESTHETIC_GUIDE.md` §7 |
+| R9 | Change: random game per act in Story; co-op team score, team high scores and a contribution list instead of a one-winner podium | `HUB_1_0_PLAN.md` Phase 7 (direction, not built) |
+| R10 | Change: the game's loop sets length by event count; judge after a 3 to 5 game playtest; trim rounds/sites/levels if long; no hard limits in Free Play; Zombie runs longer today | `SCOPE_RULES.md` rule 0 |
+| R11 | No: controllers and couch play trimmed as scope creep | `GAME_PROTOTYPE_INSTRUCTIONS.md` §1, `MULTIPLAYER_PLAN.md`, inbox line dropped |
+| Goal | "Friends play it on their own and tell me about it" | Top of `SCOPE_RULES.md` |
+
 ## 4. Calls for Ry — answered 2026-11-15
 
-Applied on this branch: R7 (`SCOPE_RULES.md` rule 8) and the couch/controller note
+(Superseded in part by §5 above: the couch/controller note became "out of scope", and rule 0
+changed again.) Applied on this branch: R7 (`SCOPE_RULES.md` rule 8) and the couch/controller note
 (`MULTIPLAYER_PLAN.md`, `GAME_PROTOTYPE_INSTRUCTIONS.md` §1). Already landed on main through the
 party-session work (Finn thread, 2026-11-13): R4 boot screens (`AESTHETIC_GUIDE.md` §4.8,
 `shared/bootflow.js`), R5 score toasts and scale (§4.13, `shared/hubscore.js`), R9 party session

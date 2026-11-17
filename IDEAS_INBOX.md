@@ -81,7 +81,6 @@ Transcribed from Ry's older notebook. Fit, conflicts and proposed standards rewr
 - 2026-11-13 · hub · Story-progress unlocks per player stored in a cookie (same system as "Cross-game rewards" above)
 - 2026-11-13 · hub · Party session: X games, per-player totals, readout between games and at the end, one winner — R9
 - 2026-11-13 · hub · Target roster of 12 to 18 titles (conflicts with rule 8) — R7
-- 2026-11-13 · hub · Distant goal: couch play with several controllers on one screen, designed in from the start (conflicts with the 2026-09-01 removal) — R11
 - 2026-11-13 · gyro-fleet · Siphon power-ups from vaporised drops, asteroids, trash and wrecks; one siphon currency pays for heals and calling in bots — §2.1
 - 2026-11-13 · gyro-fleet · Wrecks don't vanish: drifting hulls and debris stay breakable — §2.1
 - 2026-11-13 · gyro-fleet · Any collision breaks your bot (controls decided 2026-11-14: Zombie-style WASD move, cursor aim, hold to fire, Space boost, a bit more slide) — §2.1
@@ -95,6 +94,8 @@ Transcribed from Ry's older notebook. Fit, conflicts and proposed standards rewr
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)
+
+- 2026-11-16 · dropped · Couch play and controller support (notebook R11): Ry trimmed it as scope creep; one player per screen, keyboard and mouse.
 
 - 2026-10-11 · promoted · Zombie's lighting rework (option A) and the five-silo second map were proposed and built the same day (`zombie/LIGHTING_PROPOSAL.md`, `zombie/LEVEL_2_PROPOSAL.md`, `zombie/CLAUDE.md` "Seventh").
 
