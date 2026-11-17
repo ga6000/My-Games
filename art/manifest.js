@@ -11,5 +11,5 @@
 var ART_PACK = {
     "key": {},
     "crew": {},
-    "splash": ""
+    "splash": "art/splash.webp"
 };
