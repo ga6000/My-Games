@@ -111,3 +111,22 @@ Wing bots are drawn as a small copy of the leader's hull and fire the same weapo
 **Aftermath.** `gfEndRound` now starts `gfRound.after` (3.5 s, `GF_AFTER`): the world keeps moving under closing bars, the ship does not relaunch, and only then does the score card come up. A win cannot be lost during it.
 
 Checks: both repo scripts pass. Headless: menu opens on L+G, all six crew fire and use K with no page errors, launches happen, the aftermath holds 3.5 s, and the three-site run still reaches the win card.
+
+## Pass 6 (2026-11-16): grapple, battle lines, allies
+
+After Ry's playtest of pass 5.
+
+| Ask | Built |
+|---|---|
+| Grapple | A holder BITES on a beat: every 1.6 s (`GF.grabTick`), 34 hull (`GF.grabDmg`) and a red flash of the whole view. Three bites take Greer's 100 to the last-stand point. No slow drain, no kill timer. |
+| Last stand | Any blow that would kill the lead ship from above 1 hull leaves it on 1 instead, with 3 s (`GF.lastStand`) in which nothing can hurt or hold it (white ring round the ship). At 1 hull the next blow kills. |
+| Ricochet while held | A bolt that hits the body holding a ship is spent on the tendrils: it counts toward the break (3 hits) and never bounces. While a ship is held, none of its bolts bounce off any armour. A broken hold cannot be retaken for 1.5 s (`gfBreakGrab`). |
+| Ruptures punish more | Shards: aircrab 16 (was 10), Bellwether 32 (was 20). |
+| Battle limits | Each site has a BATTLE LINE at its skin + 330 units (`gfZoneR`), drawn as a dashed line in space and on both maps. Inside a held site's line the drive is locked; anywhere outside it the ultradrive spools, whatever is chasing you. A lamp on the radar says DRIVE or DRIVE LOCKED. (It was "no creature within 600 units", which nobody could see.) |
+| Hopping | A jump now drops out on the battle line of ANY site, freed or held, and at home, so you can aim roughly at a place and hop to it. |
+| Elodie | Mines come from a stock of 4 that refills one every 2.4 s (pips over the ship), at most 4 live, 2 damage (was 3) and 1 pressure (was 2). |
+| Bones | A clamped mouth is laced shut with two rows of interlocking ribs and a row of vertebrae down the seam. |
+| Maps | The radar is always true to scale and changes its RANGE instead: it fits the battle line in a fight and reaches out to the nearest site in open space, with a labelled range ring and the jump's aim line. The route strip shows sites at their real positions with battle lines to scale and a 5k scale bar. |
+| Allies | Dev menu (L+G): Shift+1..6 adds an allied crew ship, Backspace clears them. Each flies its own way (`GF_ALLY`): Greer flanks, Maren stays close and mends you, Elodie mines what closes in, Soren ranges wide and marks, Bex goes in close, Booke puts itself between you and the nearest threat. Allies do not use K abilities yet. |
+
+Checks: both repo scripts pass. Headless: a forced hold reads 100, 66, 32, then 1 with the last stand, then death on the next hit; the drive unlocks one step outside the line; allies spawn and fight; the three-site run still wins; no page errors.

@@ -618,17 +618,48 @@ function gfDrawOrifice(c, o, z) {
         c.lineTo(Math.cos(a + 0.13) * hole, Math.sin(a + 0.13) * hole * 1.15);
         c.closePath(); c.fill();
     }
-    // Clamped (a satellite is still held): bone bars locked across the mouth.
+    // Clamped (a satellite is still held): the mouth is laced shut with bone.
+    // Two rows of curved ribs grow out of the collar from either side and
+    // interlock over the hole like the fingers of two hands, each rib thick
+    // at its root with a knuckle, tapering to a hooked tip, shaded so it
+    // reads as round. A ridged spine runs across where they meet. They
+    // strain and settle with the site's breath. (Pass 6. Ry: "bones need
+    // improved at the tide"; it was five straight bars.)
     if (o.clamped) {
-        c.strokeStyle = "#E8D8C0"; c.lineCap = "round";
-        for (let i = -2; i <= 2; i++) {
-            c.lineWidth = Math.max(2, R * 0.14);
-            c.beginPath(); c.moveTo(R * 0.25, i * R * 0.42 - R * 0.9 * 0); c.moveTo(-R * 0.1 + Math.abs(i) * R * 0.05, i * R * 0.45);
-            c.lineTo(R * 0.35, i * R * 0.45); c.stroke();
+        const strain = 0.5 + 0.5 * Math.sin(t * 1.1 + o.id), nR = 6, span = bulge * 0.92;
+        c.lineCap = "round"; c.lineJoin = "round";
+        // Shadow under the cage.
+        c.fillStyle = "rgba(10,0,4,0.55)"; c.beginPath(); c.ellipse(0, 0, R * 0.75, span * 0.95, 0, 0, Math.PI * 2); c.fill();
+        for (let side = -1; side <= 1; side += 2) {
+            for (let i = 0; i < nR; i++) {
+                // Ribs alternate across the gap so the two rows mesh.
+                const v = ((i + (side > 0 ? 0.5 : 0)) / nR * 2 - 1) * span * 0.86;
+                const root = side * R * (0.95 - 0.25 * Math.abs(v / span)), tip = -side * R * (0.28 + 0.06 * strain);
+                const bow = (v / span) * R * 0.35, w0 = Math.max(2.5, R * 0.17), hook = side * R * 0.1;
+                const rib = function (w, col) {
+                    c.strokeStyle = col; c.lineWidth = w;
+                    c.beginPath(); c.moveTo(root, v);
+                    c.quadraticCurveTo((root + tip) * 0.5, v + bow * 0.4, tip, v + bow * 0.15);
+                    c.stroke();
+                };
+                rib(w0 + 2, "rgba(40,10,10,0.9)");            // outline
+                rib(w0, "#CDBB98");                            // bone
+                rib(w0 * 0.4, "#F6EEDC");                      // the lit ridge along it
+                // The hooked tip, and the knuckle where it leaves the flesh.
+                c.strokeStyle = "#E8DCC0"; c.lineWidth = Math.max(1.5, w0 * 0.5);
+                c.beginPath(); c.moveTo(tip, v + bow * 0.15); c.lineTo(tip + hook * -0.6, v + bow * 0.15 + (v >= 0 ? 1 : -1) * R * 0.08); c.stroke();
+                c.fillStyle = "#B7A27C"; c.strokeStyle = "rgba(40,10,10,0.9)"; c.lineWidth = 1;
+                c.beginPath(); c.arc(root, v, w0 * 0.75, 0, Math.PI * 2); c.fill(); c.stroke();
+                c.fillStyle = "#F6EEDC"; c.beginPath(); c.arc(root - w0 * 0.2, v - w0 * 0.2, w0 * 0.25, 0, Math.PI * 2); c.fill();
+            }
         }
-        c.lineWidth = Math.max(2, R * 0.16);
-        c.beginPath(); c.moveTo(R * 0.3, -R * 1.25); c.lineTo(R * 0.3, R * 1.25); c.stroke();
-        c.beginPath(); c.moveTo(-R * 0.05, -R * 1.15); c.lineTo(-R * 0.05, R * 1.15); c.stroke();
+        // The spine across the seam: a row of vertebrae.
+        for (let i = 0; i < 9; i++) {
+            const v = (i / 8 * 2 - 1) * span * 0.9, w = Math.max(3, R * (0.2 - 0.07 * Math.abs(v / span)));
+            c.fillStyle = "#D9CBA8"; c.strokeStyle = "rgba(40,10,10,0.9)"; c.lineWidth = 1;
+            c.beginPath(); c.ellipse(0, v, w, w * 0.62, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+            c.fillStyle = "#7A6848"; c.beginPath(); c.ellipse(0, v, w * 0.3, w * 0.18, 0, 0, Math.PI * 2); c.fill();
+        }
     }
     // Slime ropes while it is birthing.
     if (open > 0) {

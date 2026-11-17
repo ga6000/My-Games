@@ -88,11 +88,14 @@ function gfFlightReset() {
 
 function gfFightCentres() {
     const out = [];
-    // Every site still held stops a jump at its edge; a freed one you fly through.
+    // Every site stops a jump on its battle line, held or freed, and so does
+    // home: aim roughly at a place and the drive drops you at its edge, so
+    // you can hop from one to the next (Ry, 2026-11-16).
     for (let i = 0; i < gfSites.length; i++) {
         const st = gfSites[i];
-        if (!st.cleared) out.push({ x: st.x, y: st.y, r: st.r, name: st.name, key: st });
+        out.push({ x: st.x, y: st.y, r: st.r, ring: gfZoneR(st), name: st.name, key: st, held: !st.cleared });
     }
+    out.push({ x: gfHome.x, y: gfHome.y, r: 0, ring: 220, name: "HOME", key: gfHome, held: false });
     return out;
 }
 
@@ -178,7 +181,7 @@ function gfAimAngle() { return Math.atan2(glMouse.y - glCY, glMouse.x - glCX); }
 function gfFlightSpeedMul(s, dt) {
     if (!s.isAlive) return 1;
     gfFlight.dropT = Math.max(0, gfFlight.dropT - dt);
-    gfFlight.inCombat = gfNearestCreatureDist(s.x, s.y) < GF_FLIGHT.combatR;
+    { const was = gfFlight.inCombat; gfFlight.inCombat = !!gfInZone(s.x, s.y); if (was && !gfFlight.inCombat) gfSfx("order", 0); }   // inside a held site's battle line (gf-crabs.js)
 
     // Hold to fire.
     gfFlight.fireCd -= dt;
@@ -203,7 +206,7 @@ function gfFlightSpeedMul(s, dt) {
                 s.angle = gfFlight.heading;
                 gfJumpLaunchFx(s);
                 gfFlight.ignore = gfFightCentres().filter(function (f) {
-                    return Math.hypot(f.x - s.x, f.y - s.y) < GF_FLIGHT.brakeR + f.r + 300;
+                    return Math.hypot(f.x - s.x, f.y - s.y) < f.ring + 300;
                 }).map(function (f) { return f.key; });
                 gfFlightMirrorGear();
             }
@@ -222,7 +225,7 @@ function gfFlightSpeedMul(s, dt) {
             const along = dx * ux + dy * uy;
             if (along < 0) continue;
             const t = Math.min(along, step);
-            const ring = GF_FLIGHT.brakeR + f.r;
+            const ring = f.ring;
             if (Math.hypot(f.x - (s.x + ux * t), f.y - (s.y + uy * t)) < ring) {
                 const d = Math.hypot(dx, dy);
                 if (d > ring) {
@@ -231,7 +234,7 @@ function gfFlightSpeedMul(s, dt) {
                     s.x += ux * k; s.y += uy * k;
                 }
                 s.angle = Math.atan2(f.y - s.y, f.x - s.x);
-                gfDropOut("CONTACT", f);
+                gfDropOut(f.held ? "CONTACT" : "", f);
                 return 1;
             }
         }

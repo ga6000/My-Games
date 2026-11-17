@@ -33,13 +33,46 @@ const GF_CREW = {
 const GF_CREW_ORDER = ["greer", "maren", "elodie", "soren", "bex", "booke"];
 const GF_CREW_N = {
     overT: 5, slipT: 3.5, slipMul: 1.7, shieldT: 5, shieldR: 10, ramT: 0.7, ramMul: 3.2, ramSafe: 1.0,
-    beamR: 30, beamDps: 5, beamFeed: 3, mineMax: 6, mineR: 10, mineTrig: 5, sentryT: 14, sentryR: 55, flakR: 8, flakMax: 60
+    beamR: 30, beamDps: 5, beamFeed: 3, mineMax: 4, mineStock: 4, mineRefill: 2.4, mineR: 10, mineTrig: 5, sentryT: 14, sentryR: 55, flakR: 8, flakMax: 60
 };
+
+// Allied crew ships for playtesting (dev menu, Shift+1..6): another crew
+// member flying alongside with a wing-strength copy of their weapon, fired
+// about twice as often as a bot's, and their own habits.
+//   hunt    break off and work round behind a target at `standoff`
+//   guard   hold formation, fire only at what can be wounded
+//   screen  hold between you and the nearest threat
+const GF_ALLY = {
+    greer:  { mode: "hunt",   speed: 1.0,  standoff: 14, range: 55 },   // the flanker
+    maren:  { mode: "guard",  speed: 1.0,  standoff: 10, range: 26 },   // stays on your wing, mends you
+    elodie: { mode: "guard",  speed: 0.9,  standoff: 12, range: 40 },   // mines what closes on you
+    soren:  { mode: "hunt",   speed: 1.45, standoff: 42, range: 90 },   // fast, wide, marks from range
+    bex:    { mode: "hunt",   speed: 1.15, standoff: 4,  range: 26 },   // goes in close
+    booke:  { mode: "screen", speed: 0.9,  standoff: 10, range: 50 }    // puts itself in the way
+};
+function gfAllySpawn(id) {
+    const cw = GF_CREW[id], b = gfMakeBot(glShip.x, glShip.y);
+    b.ally = true; b.crew = id; b.maxHp = cw.hull * 0.7; b.gfHp = b.maxHp;
+    b.warp = { t: -0.7, a: Math.atan2(glShip.y - gfHome.y, glShip.x - gfHome.x), ticks: 0 };
+    gfWing.push(b);
+}
+function gfAllyClear() { for (let i = gfWing.length - 1; i >= 0; i--) if (gfWing[i].ally) gfWing.splice(i, 1); }
+function gfAllyUpdate(dt) {
+    // The medic ally mends the lead ship a little while it is close.
+    for (let i = 0; i < gfWing.length; i++) {
+        const b = gfWing[i];
+        if (!b.ally || !b.isAlive || b.warp || b.crew !== "maren" || !glShip.isAlive) continue;
+        if (gfHull < GF.hull && gfHull > 0 && Math.hypot(b.x - glShip.x, b.y - glShip.y) < 24) {
+            gfHull = Math.min(GF.hull, gfHull + 3 * dt);
+            if (Math.random() < dt * 8) gfCrewSt.beams.push({ x0: b.x, y0: b.y, x1: glShip.x, y1: glShip.y, t: 0.12, bite: true, weak: true });
+        }
+    }
+}
 
 let gfCrewId = "greer";
 try { const v = localStorage.getItem("gyrofleet-crew"); if (v && GF_CREW[v]) gfCrewId = v; } catch (e) { /* file:// may refuse storage */ }
 const gfCrewSt = { over: 0, slip: 0, shield: 0, ram: 0, ramA: 0, safe: 0, impact: 0, god: false,
-                   mines: [], sentries: [], shells: [], beams: [], puffs: [] };
+                   mines: [], sentries: [], shells: [], beams: [], puffs: [], mineStock: 4, mineT: 0 };
 
 function gfCrew() { return GF_CREW[gfCrewId]; }
 function gfCrewSet(id) {
@@ -50,6 +83,7 @@ function gfCrewSet(id) {
     gfHull = Math.max(1, GF.hull * k);
     gfCrewSt.over = gfCrewSt.slip = gfCrewSt.shield = gfCrewSt.ram = 0;
     gfCrewSt.mines.length = gfCrewSt.sentries.length = gfCrewSt.shells.length = 0;
+    gfCrewSt.mineStock = GF_CREW_N.mineStock;
     try { localStorage.setItem("gyrofleet-crew", id); } catch (e) { /* ignore */ }
     gfBanner(GF_CREW[id].name + " · " + GF_CREW[id].role, 2);
 }
@@ -94,8 +128,8 @@ function gfCrewBurst(x, y, r, dmg, press, ori, col) {
 }
 
 // ---- primary fire. Returns the cooldown in seconds. `weak` = a wing bot's copy. ----
-function gfCrewFire(owner, a, weak, tgt) {
-    const cw = gfCrew(), W = GF_ARMS.blaster, N = GF_CREW_N;
+function gfCrewFire(owner, a, weak, tgt, id) {
+    const cw = GF_CREW[id || gfCrewId], W = GF_ARMS.blaster, N = GF_CREW_N;
     const x = owner.x, y = owner.y, ivx = weak ? 0 : owner.vx, ivy = weak ? 0 : owner.vy;
     const bolt = function (ang, sp, life, extra) {
         if (glBullets.length >= GL_MAX_BULLETS) return;
@@ -138,10 +172,13 @@ function gfCrewFire(owner, a, weak, tgt) {
     }
     case "mines": {
         if (weak && !tgt) return 1;
+        // A small stock that refills slowly (Ry, 2026-11-16: she "just melts
+        // enemies"). Empty, the trigger does nothing: place them, don't spray them.
+        if (!weak) { if (gfCrewSt.mineStock < 1) return 0.15; gfCrewSt.mineStock--; }
         const sp = weak ? 14 : 26;
         gfCrewSt.mines.push({ x: x, y: y, vx: Math.cos(a) * sp + ivx * 30, vy: Math.sin(a) * sp + ivy * 30, t: 0, weak: weak });
-        while (gfCrewSt.mines.length > N.mineMax + 4) gfCrewMineBlow(gfCrewSt.mines.shift());
-        return weak ? 4 : 0.7;
+        while (gfCrewSt.mines.filter(function (q) { return !q.weak; }).length > N.mineMax) gfCrewMineBlow(gfCrewSt.mines.splice(gfCrewSt.mines.findIndex(function (q) { return !q.weak; }), 1)[0]);
+        return weak ? 6 : 0.55;
     }
     case "needle":
         bolt(a, 6.5, 40, { pierce: true, noBounce: true, marks: true, dmg: weak ? 2 : 3, needle: true });
@@ -171,7 +208,7 @@ function gfCrewFire(owner, a, weak, tgt) {
     }
     }
 }
-function gfCrewMineBlow(m) { gfCrewBurst(m.x, m.y, GF_CREW_N.mineR * (m.weak ? 0.7 : 1), m.weak ? 2 : 3, m.weak ? 1 : 2, m.weak ? 2 : 5, GF_CREW.elodie.col); }
+function gfCrewMineBlow(m) { gfCrewBurst(m.x, m.y, GF_CREW_N.mineR * (m.weak ? 0.7 : 1), m.weak ? 1 : 2, 1, m.weak ? 2 : 4, GF_CREW.elodie.col); }
 
 // ---- K: the crew member's siphon ability ----
 function gfCrewAbilityReady() {
@@ -219,8 +256,10 @@ function gfCrewRamVel(s) {
 // ---- per-frame (from gfUpdate) ----
 function gfCrewUpdate(dt) {
     const st = gfCrewSt, N = GF_CREW_N, s = glShip;
+    gfAllyUpdate(dt);
     st.over = Math.max(0, st.over - dt); st.slip = Math.max(0, st.slip - dt); st.shield = Math.max(0, st.shield - dt);
     st.safe = Math.max(0, st.safe - dt); st.impact = Math.max(0, st.impact - dt); st.shieldHit = Math.max(0, (st.shieldHit || 0) - dt);
+    if (st.mineStock < N.mineStock) { st.mineT += dt; if (st.mineT >= N.mineRefill) { st.mineT = 0; st.mineStock++; } } else st.mineT = 0;
     for (let i = st.beams.length - 1; i >= 0; i--) { st.beams[i].t -= dt; if (st.beams[i].t <= 0) st.beams.splice(i, 1); }
     for (let i = st.puffs.length - 1; i >= 0; i--) { st.puffs[i].t += dt; if (st.puffs[i].t > 0.4) st.puffs.splice(i, 1); }
 
@@ -430,6 +469,16 @@ function gfCrewOverlay(c) {
             c.restore();
         }
     }
+    // Elodie's mine stock: pips over the ship, the next one filling.
+    if (gfCrewId === "elodie" && glShip.isAlive) {
+        for (let i = 0; i < GF_CREW_N.mineStock; i++) {
+            const full = i < st.mineStock, x = glCX - 17 + i * 9, y = glCY - 30;
+            c.strokeStyle = GF_CREW.elodie.col; c.lineWidth = 1; c.globalAlpha = 0.8; c.strokeRect(x, y, 6, 4);
+            c.fillStyle = GF_CREW.elodie.col; c.globalAlpha = full ? 0.95 : 0.4;
+            if (full) c.fillRect(x, y, 6, 4); else if (i === st.mineStock) c.fillRect(x, y, 6 * st.mineT / GF_CREW_N.mineRefill, 4);
+        }
+        c.globalAlpha = 1;
+    }
     // A timed ability running: a thin arc round the ship in the crew colour.
     const run = st.over > 0 ? st.over / GF_CREW_N.overT : (st.slip > 0 ? st.slip / GF_CREW_N.slipT : (st.shield > 0 ? st.shield / GF_CREW_N.shieldT : 0));
     if (run > 0 && glShip.isAlive) {
@@ -457,6 +506,8 @@ function gfDevAct(key) {
     else if (key === "0") { gfCap.charge = GF_WING.cap; gfCap.sinceGain = 0; }
     else if (key === "-") gfCrewSt.god = !gfCrewSt.god;
     else if (key === "=") { gfHull = GF.hull; gfWingReinforce(1); }
+    else if (/^a[1-6]$/.test(key)) gfAllySpawn(GF_CREW_ORDER[parseInt(key[1], 10) - 1]);
+    else if (key === "x") gfAllyClear();
     gfDevRender();
 }
 function gfDevRender() {
@@ -467,7 +518,12 @@ function gfDevRender() {
     };
     let h = "<div style='color:#6d8582;margin-bottom:6px'>DEV · L+G to close</div>";
     GF_CREW_ORDER.forEach(function (id, i) { const cw = GF_CREW[id]; h += row(String(i + 1), cw.name + " · " + cw.role + " · " + cw.weapon + " / " + cw.abil, id === gfCrewId, cw.col); });
-    h += "<div style='height:6px'></div>";
+    h += "<div style='height:6px'></div><div style='color:#6d8582'>allies (Shift+1..6 adds one, Backspace clears)</div><div style='display:flex;flex-wrap:wrap;gap:3px'>";
+    GF_CREW_ORDER.forEach(function (id, i) {
+        const n = gfWing.filter(function (b) { return b.ally && b.crew === id && b.isAlive; }).length;
+        h += "<div data-k='a" + (i + 1) + "' style='cursor:pointer;padding:3px 6px;border:1px solid " + GF_CREW[id].col + ";color:" + GF_CREW[id].col + "'>+" + GF_CREW[id].name + (n ? " " + n : "") + "</div>";
+    });
+    h += "<div data-k='x' style='cursor:pointer;padding:3px 6px;border:1px solid #2a3c3a'>clear</div></div><div style='height:6px'></div>";
     gfSites.forEach(function (st, i) { h += row(String(7 + i), "go to " + st.name, false); });
     h += "<div style='height:6px'></div>" + row("0", "fill siphon", false) + row("-", "no damage", gfCrewSt.god, "#FFB000") + row("=", "full hull + one bot", false);
     gfDevEl.innerHTML = h;
@@ -493,7 +549,9 @@ window.addEventListener("keydown", function (e) {
     if (e.code === "KeyG") gfDevKeys.g = true;
     if (gfDevKeys.l && gfDevKeys.g && gfDevKeys.armed) { gfDevKeys.armed = false; gfDevToggle(); }
     if (gfDevOpen() && !e.repeat) {
-        const m = { Minus: "-", Equal: "=" }, k = /^Digit\d$/.test(e.code) ? e.code.slice(5) : m[e.code];
+        const m = { Minus: "-", Equal: "=", Backspace: "x" };
+        let k = /^Digit\d$/.test(e.code) ? e.code.slice(5) : m[e.code];
+        if (e.shiftKey && /^Digit[1-6]$/.test(e.code)) k = "a" + e.code.slice(5);
         if (k) { gfDevAct(k); e.stopImmediatePropagation(); e.preventDefault(); }
     }
 }, true);

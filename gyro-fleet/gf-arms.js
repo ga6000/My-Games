@@ -116,7 +116,7 @@ function gfArmsUpdate(dt) {
             if (hit.b.armour && GF_KINDS[hit.kind].blast) gfPressure(hit, GF_KINDS[hit.kind].press);
             else hit.hp -= W.dmg;
             hit.flash = 0.25;
-            if (hit.grabbing) { hit.grabbing.gfGrab = null; hit.grabbing = null; hit.tendrilCd = 3; }
+            if (hit.grabbing) gfBreakGrab(hit);
             glSpawnBurst(m.x, m.y, 16, W.col);
             gfFx.push({ x: m.x, y: m.y, t: 0.35, col: W.col, r: 26 });
         }
