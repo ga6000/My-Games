@@ -91,6 +91,15 @@ Transcribed from Ry's older notebook. Fit, conflicts and proposed standards rewr
 - 2026-11-13 · new · EIEI Aliens: farmer shoot-'em-up, aliens rushing the farm — §2.4
 - 2026-11-13 · new · Desert Code Racer: Major Havoc style vector racer, cyber bike carrying launch codes across the desert under mothership beams (sketch in `concepts/`) — §2.5
 
+### Desert Code Racer pass 1 (2026-11-17)
+
+- 2026-11-17 · desert-code-racer · Hand the case to a rider beside you on purpose (a pass key), so the convoy can move it off a rider with krill on them before they crash
+- 2026-11-17 · desert-code-racer · Hills: a road that rises and dips, so a beam ring or a barricade can hide behind a crest (needs filled road occlusion, a vector compromise)
+- 2026-11-17 · desert-code-racer · Touch controls for phones (steer by tilt or halves of the screen, tap to jump, two-finger tap for the ability)
+- 2026-11-17 · hub · A shared `shared/crawl.js` that every game calls, reading each chapter's text from one story file, instead of a crawl per game
+- 2026-11-17 · hub · An aftermath option on `PARTY.finish()` (hold the world N seconds before the card), so every game gets the hub's aftermath rule the same way
+- 2026-11-17 · desert-code-racer · Team leaderboard entry (`desert-code-racer-team`) for the convoy's score, once the hub has team high scores (Phase 7 direction)
+
 ## Promoted / dropped
 
 (Move lines here with a date when they leave the inbox.)
