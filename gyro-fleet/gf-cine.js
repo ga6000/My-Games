@@ -1,5 +1,5 @@
 // ===================================================
-//   Gyro Fleet — set pieces: a satellite freed, the beam, the swarm
+//   Gyro Fleet — set pieces: a satellite freed, the beam
 // ===================================================
 // Pass 7 (2026-11-16). Ry: when a satellite's growth is cleared the view
 // "flips to the satellite", the growth explodes off it, its lights "flick
@@ -19,17 +19,16 @@
 //                  scar. It bursts, and nothing is left of it; the sights go
 //                  out. That is the end of the game: the view holds on the
 //                  empty space through the aftermath, then the score.
-//   (SWARM, switched off 2026-11-16 at Ry's call: the burst used to release
-//   GF_CINE.swarm airkrill as a last fight. gfSwarm* is kept but never started.)
+//   (The last airkrill swarm after the burst was scrapped at Ry's call,
+//   2026-11-17; its code is gone.)
 //
 // While a set piece plays the lead ship cannot be hurt and the clock stops.
 // The view is borrowed (gfCineCam) and handed back at the end.
 "use strict";
 
-const GF_CINE = { satT: 4.2, beamT: 9.7, swarm: 450, swarmAlive: 90, swarmClock: 75 };
+const GF_CINE = { satT: 4.2, beamT: 9.7 };
 let gfCine = null;                 // { type, st, t, ... } while a set piece plays
 const gfCineBits = [];             // flesh thrown by a burst: { x, y, vx, vy, t, life, r, col }
-const gfSwarm = { left: 0, total: 0, on: false };
 
 function gfCineOn() { return !!gfCine; }
 function gfCineEase(a, b, t) { const k = Math.max(0, Math.min(1, (t - a) / (b - a))); return k * k * (3 - 2 * k); }
@@ -102,8 +101,7 @@ function gfCineUpdate(dt) {
 // of it, the satellites' sights go out, and after the aftermath beat the score
 // comes up. (Ry, 2026-11-16, after seeing the swarm ending: "remove the hive
 // after it's killed, and remove the lasers after that point. I'd say we scrap
-// the air krill after. the game should just end at that point". The swarm
-// code below is kept, switched off, in case it comes back.)
+// the air krill after. the game should just end at that point".)
 function gfCineHiveBurst() {
     const st = gfHive;
     gfCine.burst = true;
@@ -118,20 +116,6 @@ function gfCineHiveBurst() {
     glUltraShakeKick = 1;
     gfEndRound("won", "the tide is gone");
 }
-// Feed the swarm out of the husk (from gfUpdate, while it lasts).
-function gfSwarmUpdate(dt) {
-    if (!gfSwarm.on || gfSwarm.left <= 0) return;
-    const st = gfHive, o = st.orifices[0];
-    let room = GF_CINE.swarmAlive - gfCreatures.length, n = Math.min(room, gfSwarm.left, Math.ceil(dt * 90));
-    for (let i = 0; i < n; i++) {
-        const a = Math.random() * Math.PI * 2, sp = 30 + Math.random() * 70;
-        const c = gfMakeCreature("krill", st.x + Math.cos(a) * (st.r0 + 2), st.y + Math.sin(a) * (st.r0 + 2), o);
-        c.vx = Math.cos(a) * sp; c.vy = Math.sin(a) * sp; c.face = a;
-        c.free = true; c.frenzy = 9999; c.birthT = 0.35;
-        gfSwarm.left--;
-    }
-}
-function gfSwarmLeft() { return gfSwarm.left + (gfSwarm.on ? gfCreatures.length : 0); }
 
 // ---- the view, borrowed (from the end of gfViewFrame) ----
 function gfCineCam(cam) {
@@ -211,12 +195,6 @@ function gfCineDrawWorld(c, z) {
 // ---- drawing: overlay (from gfDrawHud) ----
 function gfCineOverlay(c) {
     const W = glW - 220, ci = gfCine;
-    // The swarm that is left, while it lasts.
-    if (gfSwarm.on && !gfRoundOver() && !ci) {
-        const k = gfSwarmLeft() / gfSwarm.total, bw = 320, bx = W / 2 - bw / 2;
-        c.fillStyle = "rgba(0,0,0,0.6)"; c.fillRect(bx - 2, 20, bw + 4, 10);
-        c.fillStyle = "#C9A2FF"; c.fillRect(bx, 22, bw * Math.max(0, Math.min(1, k)), 6);
-    }
     if (!ci) return;
     const end = ci.type === "sat" ? GF_CINE.satT : GF_CINE.beamT;
     const bars = Math.min(gfCineEase(0, 0.4, ci.t), 1 - gfCineEase(end - 0.4, end, ci.t)) * glH * 0.1;

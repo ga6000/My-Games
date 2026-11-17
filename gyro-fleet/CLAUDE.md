@@ -10,7 +10,7 @@ launched, and crews lead wings of expendable ships against the creature hives.
 ## Where things are
 
 - **New game code is prefixed `gf`/`GF`** and lives in `gf-*.js`:
-  `gf-crabs.js` (creatures, The Tide and its orifices, the round, rupture and ricochet rules), `gf-flesh.js` (how creatures and The Tide are drawn), `gf-wing.js` (wing bots and orders, the siphon capacitor, score, the game sidebar and its maps), `gf-flight.js` (controls, the jump and its ultradrive cues), `gf-view.js` (backdrop, Earth, camera, readability), `gf-arms.js` (weapons, the flown ship's look), `gf-sfx.js` (sound cues), `gf-crew.js` (the six crew: hulls, primaries, K abilities, bot copies, and the L+G dev menu), `gf-cine.js` (set pieces: a satellite freed, the mothership's beam, the last swarm).
+  `gf-crabs.js` (creatures, The Tide and its orifices, the round, rupture and ricochet rules), `gf-flesh.js` (how creatures and The Tide are drawn), `gf-wing.js` (wing bots and orders, the siphon capacitor, score, the game sidebar and its maps), `gf-flight.js` (controls, the jump and its ultradrive cues), `gf-view.js` (backdrop, Earth, camera, readability), `gf-arms.js` (weapons, the flown ship's look), `gf-sfx.js` (sound cues), `gf-crew.js` (the six crew: hulls, primaries, K abilities, bot copies, and the L+G dev menu), `gf-cine.js` (set pieces: a satellite freed, the mothership's beam, the hive's burst that ends the game).
 - **The parameter panel and the engine HUD are hidden in the game.** Open `gyro-fleet.html?dev` to get them and the engine's dev keys (E, H, C, O) back.
 - **The engine is Gyro Lab's, unchanged where possible, and keeps its `gl`/`GL` names**: ship
   flight, gears, fleet/boids (E), autopilot, the vector lens, audio and the mini-map. Its full history
@@ -66,3 +66,4 @@ Launch from the hex bay, jump between 3 sites, crack breathing vents, harvest SI
 | 6 (2026-11-16) | same file | Grapple bites in three ticks, last stand (1 hull + 3 s safe), no ricochets while held, drawn battle lines that gate the ultradrive, jumps snap out at every site, Elodie's mine stock, bone cage on clamped mouths, true-scale maps, allied crew ships from the dev menu. Ry played it. |
 | 7 (2026-11-16) | same file | `gf-cine.js`: satellite-freed sequence (growth bursts, green lights, sight on the hive), the beam finale through both satellites, the hive bursts. Ry watched it and cut the swarm. |
 | 7b (2026-11-16) | same file | Set-piece sounds (servo, sight, charge, beam legs, slice, burst); the hive and the sights vanish on the burst and the game ends there (no swarm). **Not yet human-played.** |
+| 7c (2026-11-17) | same file | The dormant swarm code removed for good (`gfSwarm*`, the violet bar, the free-krill breath rule, the dead "flood" phase). No change in play. |
