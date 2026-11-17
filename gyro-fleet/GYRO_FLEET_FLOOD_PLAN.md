@@ -149,6 +149,6 @@ Checks: both repo scripts pass. Headless: both satellite sequences, the beam, th
 Ry, after seeing pass 7: sound for the satellites' lasers and cues for the aiming and for slicing the hive; remove the hive once it is killed and the lasers after that; scrap the airkrill swarm, "the game should just end at that point".
 
 - **Sounds** (`gf-sfx.js`): `servo` (the satellite swinging round, with a clunk when it stops), `sight` (the green sight snapping on, and its hum), `charge` (the mothership gathering the shot), `leg` (each leg of the beam, a step higher each time, with a struck tone as it lands), `slice` (a steady burn that rises as the beam crosses the hive), `hiveburst`.
-- **The ending.** When the hive bursts it is gone: not drawn, not solid, off the maps. The satellites' sights go out. The round is won on the burst; the view holds on the empty space through the 3.5 s aftermath and then the score comes up. The swarm code is still in `gf-cine.js`, never started.
+- **The ending.** When the hive bursts it is gone: not drawn, not solid, off the maps. The satellites' sights go out. The round is won on the burst; the view holds on the empty space through the 3.5 s aftermath and then the score comes up. The swarm code was removed in pass 7c (2026-11-17).
 
 Checks: both repo scripts pass; headless run through both satellites and the beam to the win card, no page errors. The sounds are written but not heard by anyone yet (the test browser has no audio).

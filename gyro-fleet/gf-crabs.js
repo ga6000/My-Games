@@ -92,7 +92,7 @@ let gfTime = 0;
 let gfHull = GF.hull, gfWasAlive = true, gfHurtFlash = 0;
 let gfLastStand = 0, gfBiteFlash = 0;   // seconds of last-stand safety left; the red flash of a bite
 const gfKills = { crab: 0, krill: 0, bell: 0, burst: 0 };
-// phase: fight (orifices alive) | flood (all sealed, clear what is left) | won | lost
+// phase: fight (orifices alive) | beam (the finale plays) | won | lost
 const gfRound = { phase: "fight", t: 0, ships: GF.ships, endMsg: "", endT: 0, banner: "", bannerT: 0, unclampT: 0, after: null };
 
 function gfRand(a, b) { return a + Math.random() * (b - a); }
@@ -303,7 +303,6 @@ function gfUpdate(dt) {
         gfRound.t += dt;
         if (gfRound.t >= GF.clock) gfEndRound("lost", "out of time");
     }
-    gfSwarmUpdate(dt);   // gf-cine.js: the last swarm, fed out of the husk
 
     gfArmsUpdate(dt);   // gf-arms.js: seekers, recharge, impact rings
     gfCrewUpdate(dt);   // gf-crew.js: abilities, mines, flak, sentries
@@ -371,7 +370,6 @@ function gfUpdate(dt) {
     }
     for (let i = gfWaves.length - 1; i >= 0; i--) if ((gfTime - gfWaves[i].t0) * GF.waveSpeed > GF.syncR * 1.25) gfWaves.splice(i, 1);
 
-    if (gfRound.phase === "flood" && gfCreatures.length === 0 && gfSwarm.left <= 0) gfEndRound("won", "the tide is still");
 }
 
 function gfOrificesLeft(site) { const L = site ? site.orifices : gfOrifices; let n = 0; for (let i = 0; i < L.length; i++) if (!L[i].sealed) n++; return n; }
@@ -472,7 +470,7 @@ function gfHurtOrifice(o, n) {
     else if (o.site.kind !== "tide") gfSiteCleared(o.site);
     else {
         // The Tide is weakened: every mouth is shut. The mothership takes the
-        // shot (gf-cine.js): the beam, the burst, and then the swarm.
+        // shot (gf-cine.js): the beam, the burst, and the end.
         gfRound.phase = "beam";
         gfCineBeam();
     }
@@ -521,7 +519,6 @@ function gfUpdateCreature(c, dt, bells, targets) {
     const target = gfSitePhaseAt(c.ori.site, c.x, c.y);
     c.p = gfFrac(c.p + dt / c.ori.site.period);
     c.p = gfFrac(c.p + gfWrap01(target - c.p) * Math.min(1, dt * 3));
-    if (c.free) c.p = 0.8;   // the last swarm has no site to breathe with: always soft
     c.synced = true;
     if (c.kind === "bell" && c.p < prevP) { gfWaves.push({ x: c.x, y: c.y, t0: gfTime, bell: c }); gfSfxAt("toll", c.x, c.y); }
     const wasInhale = c.b && c.b.stage === "inhale";
@@ -547,11 +544,10 @@ function gfUpdateCreature(c, dt, bells, targets) {
     // Pressure bleeds off slowly while armoured and is gone once it deflates.
     if (c.b.armour) c.press = Math.max(0, c.press - dt * 0.12); else c.press = 0;
     const fastNow = c.b.stage === "deflated";
-    const flood = gfRound.phase === "flood";
     const speed = (fastNow ? k.fast : k.slow) * (c.frenzy > 0 ? 1.45 : 1) * (c.winded > 0 ? 0.5 : 1);
 
     // ---- Where to go ----
-    let prey = null, pd = (flood || c.frenzy > 0) ? Infinity : GF.huntR;
+    let prey = null, pd = c.frenzy > 0 ? Infinity : GF.huntR;
     for (let i = 0; i < targets.length; i++) {
         const d = Math.hypot(targets[i].x - c.x, targets[i].y - c.y);
         if (d < pd) { pd = d; prey = targets[i]; }
