@@ -143,3 +143,12 @@ Ry asked for a short animation when a satellite's growth is cleared, and a new e
 "Thousands" is 450 for now: the creature update compares every body with every other, so the count that stays smooth is in the hundreds. The burst throws several hundred extra flesh particles to sell the scale.
 
 Checks: both repo scripts pass. Headless: both satellite sequences, the beam, the burst, the swarm fed to zero and the win card, no page errors, 56 fps with 90 airkrill alive. A canvas `filter` in the first draft stalled the software renderer and was replaced with a plain strobe.
+
+## Pass 7b (2026-11-16): finale sound, and the game ends on the burst
+
+Ry, after seeing pass 7: sound for the satellites' lasers and cues for the aiming and for slicing the hive; remove the hive once it is killed and the lasers after that; scrap the airkrill swarm, "the game should just end at that point".
+
+- **Sounds** (`gf-sfx.js`): `servo` (the satellite swinging round, with a clunk when it stops), `sight` (the green sight snapping on, and its hum), `charge` (the mothership gathering the shot), `leg` (each leg of the beam, a step higher each time, with a struck tone as it lands), `slice` (a steady burn that rises as the beam crosses the hive), `hiveburst`.
+- **The ending.** When the hive bursts it is gone: not drawn, not solid, off the maps. The satellites' sights go out. The round is won on the burst; the view holds on the empty space through the 3.5 s aftermath and then the score comes up. The swarm code is still in `gf-cine.js`, never started.
+
+Checks: both repo scripts pass; headless run through both satellites and the beam to the win card, no page errors. The sounds are written but not heard by anyone yet (the test browser has no audio).

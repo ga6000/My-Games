@@ -77,6 +77,52 @@ function gfSfx(name, k) {
         gfTone(c, "sine", 120, 60, 1.0, 0.16);
         gfTone(c, "triangle", 660, 660, 0.12, 0.1, 0.85);
         break;
+    // ---- set pieces (gf-cine.js) ----
+    case "servo":    // a freed satellite swinging round to the hive: motor whine up, then a clunk
+        if (!(c = gfSfxOk(name, 0.5))) return;
+        gfTone(c, "sawtooth", 140, 420, 0.75, 0.13, 0, 1400);
+        gfTone(c, "square", 70, 210, 0.75, 0.05, 0, 700);
+        gfHiss(c, false, "bandpass", 2600, 3400, 9, 0.75, 0.07);
+        gfTone(c, "sine", 110, 55, 0.14, 0.4, 0.78);
+        gfHiss(c, false, "highpass", 3000, 1500, 1, 0.05, 0.25, 0.78);
+        break;
+    case "sight":    // the green laser sight snapping on, and the hum it leaves
+        if (!(c = gfSfxOk(name, 0.3))) return;
+        gfTone(c, "square", 2200, 1100, 0.07, 0.16);
+        gfTone(c, "sine", 1320, 1320, 0.9, 0.12, 0.03);
+        gfTone(c, "sine", 1980, 1976, 0.9, 0.06, 0.03);
+        gfTone(c, "sawtooth", 165, 165, 1.1, 0.08, 0.03, 900);
+        break;
+    case "charge":   // the mothership gathering the shot
+        if (!(c = gfSfxOk(name, 1))) return;
+        gfTone(c, "sawtooth", 45, 180, 1.1, 0.22, 0, 800);
+        gfTone(c, "sine", 220, 880, 1.1, 0.1);
+        gfHiss(c, true, "bandpass", 200, 2400, 3, 1.1, 0.25);
+        break;
+    case "leg":      // one leg of the beam going out: k picks the pitch, each higher than the last
+        if (!(c = gfSfxOk(name, 0.2))) return;
+        { const f = 330 * Math.pow(1.335, Math.round(k * 2));
+          gfTone(c, "sawtooth", f * 0.5, f, 0.65, 0.2, 0, 2600);
+          gfTone(c, "sine", f, f * 2, 0.65, 0.14);
+          gfHiss(c, false, "bandpass", 900, 5200, 4, 0.65, 0.22);
+          gfTone(c, "triangle", f * 2, f * 2, 0.5, 0.2, 0.66);          // it arrives: a struck tone
+          gfTone(c, "sine", 90, 45, 0.3, 0.4, 0.66); }
+        break;
+    case "slice":    // the beam cutting the hive: retriggered while it burns, k rises as it crosses
+        if (!(c = gfSfxOk(name, 0.16))) return;
+        gfHiss(c, false, "bandpass", 1800 + 2600 * k, 2600 + 3200 * k, 5, 0.3, 0.3);
+        gfTone(c, "sawtooth", 82 + 40 * k, 78 + 40 * k, 0.3, 0.2, 0, 1200);
+        gfTone(c, "square", 660 + 500 * k, 640 + 520 * k, 0.3, 0.05);
+        gfHiss(c, true, "lowpass", 300, 180, 1, 0.3, 0.35);
+        break;
+    case "hiveburst": // the hive going
+        if (!(c = gfSfxOk(name, 1))) return;
+        gfTone(c, "sine", 120, 22, 2.2, 0.9);
+        gfTone(c, "sawtooth", 260, 30, 1.4, 0.35, 0, 900);
+        gfHiss(c, true, "lowpass", 2400, 90, 1, 2.6, 0.9);
+        gfHiss(c, false, "bandpass", 5000, 400, 1, 1.2, 0.4);
+        gfTone(c, "sine", 880, 110, 1.8, 0.12, 0.4);
+        break;
     case "crush":    // bodies jammed together, creaking as the breath forces them
         if (!(c = gfSfxOk(name, 0.5))) return;
         gfTone(c, "sawtooth", 60, 95, 0.7, 0.14 * k, 0, 500);

@@ -328,7 +328,7 @@ function gfUpdate(dt) {
             o.clamped = st.kind === "tide" && clamped;
             if (o.clamped) o.flash = Math.max(0, o.flash - dt); else gfUpdateOrifice(o, dt);
         }
-        if (s.isAlive) {
+        if (s.isAlive && !st.gone) {
             const dx = s.x - st.x, dy = s.y - st.y, d = Math.hypot(dx, dy);
             if (d < st.r + 1) {
                 const ux = dx / (d || 1), uy = dy / (d || 1);
@@ -974,7 +974,7 @@ function gfDrawBounds(c, z) {
     c.save();
     for (let i = 0; i < gfSites.length; i++) {
         const st = gfSites[i], p = glWorldToScreen(st.x, st.y);
-        if (p.h) continue;
+        if (p.h || st.gone) continue;
         const R = gfZoneR(st) * z, d = Math.hypot(p.x - glCX, p.y - glCY);
         if (Math.abs(d - R) > Math.max(glW, glH)) continue;       // the line is nowhere near the view
         const held = !st.cleared;
