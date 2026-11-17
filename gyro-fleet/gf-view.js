@@ -67,6 +67,7 @@ function gfViewFrame(dt) {
     const target = Math.min(glW, glH) / 2 / R;
     const rate = gfViewDropBoost > 0 ? 0.12 : 0.04;
     cam.zoom = Math.exp(glLerp(Math.log(cam.zoom), Math.log(target), rate));
+    gfCineCam(cam);   // gf-cine.js: a set piece borrows the view
 }
 
 // ---- backdrop (from glDrawWorld, right after the stars) ----

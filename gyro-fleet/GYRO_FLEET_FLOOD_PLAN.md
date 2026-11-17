@@ -130,3 +130,16 @@ After Ry's playtest of pass 5.
 | Allies | Dev menu (L+G): Shift+1..6 adds an allied crew ship, Backspace clears them. Each flies its own way (`GF_ALLY`): Greer flanks, Maren stays close and mends you, Elodie mines what closes in, Soren ranges wide and marks, Bex goes in close, Booke puts itself between you and the nearest threat. Allies do not use K abilities yet. |
 
 Checks: both repo scripts pass. Headless: a forced hold reads 100, 66, 32, then 1 with the last stand, then death on the next hit; the drive unlocks one step outside the line; allies spawn and fight; the three-site run still wins; no page errors.
+
+## Pass 7 (2026-11-16): the satellite freed, the beam, the swarm (`gf-cine.js`)
+
+Ry asked for a short animation when a satellite's growth is cleared, and a new ending: the mothership's beam through both satellites bursts the weakened hive, and the airkrill it releases are the last fight.
+
+- **Satellite freed (4.2 s).** The view cuts to the satellite. The growth swells, strobes and bursts off it, and its brood dies with it. The lights stutter on, green. It swings its dish to the hive and a green sight snaps on, and stays on for the rest of the round.
+- **The beam (8.6 s).** Starts when The Tide's last mouth is sealed (phase `beam`). A route board shows the beam leave the mothership and take relay, drydock and hive one eased leg at a time. Cut to the hive: the beam walks across the body leaving a burning scar, and the hive bursts into a husk.
+- **The swarm.** 450 airkrill (`GF_CINE.swarm`), always soft and frenzied, fed out of the husk so there are never more than 90 alive. A violet bar at the top shows what is left. The last one wins the round. The clock gets 75 more seconds when the swarm starts. This replaces "everything left floods you".
+- During a set piece the lead ship and wing cannot be hurt and the clock stops. `gfCineCam` borrows the view and hands it back.
+
+"Thousands" is 450 for now: the creature update compares every body with every other, so the count that stays smooth is in the hundreds. The burst throws several hundred extra flesh particles to sell the scale.
+
+Checks: both repo scripts pass. Headless: both satellite sequences, the beam, the burst, the swarm fed to zero and the win card, no page errors, 56 fps with 90 airkrill alive. A canvas `filter` in the first draft stalled the software renderer and was replaced with a plain strobe.

@@ -454,10 +454,11 @@ function gfDrawSatellite(c, z, st) {
     if (p.h) return;
     const R = st.r0 * z;
     if (!gfOnScreen(p, R * 3.2)) return;
-    const live = st.cleared, line = live ? "#7DF9FF" : "rgba(125,249,255,0.35)";
+    // Lit once its growth is gone (gf-cine.js flickers st.lit on): green.
+    const live = !!st.lit, line = live ? "#7DFF9C" : "rgba(125,249,255,0.35)";
     c.save();
     c.translate(p.x, p.y);
-    c.rotate(st.kind === "relay" ? 0.5 : -0.9);
+    c.rotate(st.rot !== undefined ? st.rot : (st.kind === "relay" ? 0.5 : -0.9));   // freed, it swings its dish to the hive
     c.strokeStyle = line; c.lineWidth = 1.4; c.fillStyle = live ? "#0E2A33" : "#0A161B";
     // Truss.
     c.fillRect(-R * 2.7, -R * 0.09, R * 5.4, R * 0.18); c.strokeRect(-R * 2.7, -R * 0.09, R * 5.4, R * 0.18);
@@ -501,10 +502,17 @@ function gfDrawSite(c, z, st) {
     const R = Math.max(10, st.r * z);
     if (!gfOnScreen(p, R * 1.2 + 40)) return;
     const dead = st.dead, t = gfTime;
-    // A freed satellite sheds most of its growth: what is left hangs thin.
-    if (st.cleared) c.globalAlpha = 0.45;
+    let cineQ = 0;
+    // A freed satellite has shed its growth entirely (gf-cine.js bursts it).
+    if (st.shed) return;
     c.save();
     c.translate(p.x, p.y);
+    // About to burst off the satellite: swelling, shuddering, strobing pale.
+    if (st.cleared && gfCine && gfCine.st === st) {
+        const q = Math.min(1, gfCine.t / 0.95), sc = 1 + 0.22 * q * q + 0.03 * Math.sin(gfTime * 50) * q;
+        c.translate(Math.sin(gfTime * 70) * 3 * q, Math.cos(gfTime * 60) * 3 * q); c.scale(sc, sc);
+        cineQ = q;
+    }
     // Small on screen (seen from far off): a simple breathing mass.
     const g = c.createRadialGradient(0, 0, R * 0.55, 0, 0, R * 1.02);
     if (dead) { g.addColorStop(0, "#12060A"); g.addColorStop(0.8, "#2A1016"); g.addColorStop(1, "#3E1A22"); }
@@ -520,6 +528,7 @@ function gfDrawSite(c, z, st) {
     }
     c.closePath(); c.fill();
     c.strokeStyle = dead ? "#5A2A34" : "#FF9DB4"; c.lineWidth = 2; c.stroke();
+    if (cineQ > 0 && Math.floor(gfTime * 18) % 2) { c.fillStyle = "rgba(255,235,225," + (0.75 * cineQ).toFixed(2) + ")"; c.fill(); }
     if (R > 120) {
         // Veins running in from the rim, pulsing with its breath.
         if (!gfTideVeins) gfTideVeins = gfBuildTideVeins();

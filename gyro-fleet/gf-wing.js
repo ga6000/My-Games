@@ -724,6 +724,7 @@ function gfDrawHud(c) {
     }
 
     gfCrewOverlay(c);   // gf-crew.js: ability ring, the ram's impact frame
+    gfCineOverlay(c);   // gf-cine.js: set-piece bars, the route board, the swarm bar
     // Aftermath: the round is decided and the world plays on for a few
     // seconds under closing bars before the score comes up.
     if (gfRound.after) {

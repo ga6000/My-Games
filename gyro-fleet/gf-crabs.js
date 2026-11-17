@@ -237,6 +237,7 @@ function gfKillShip(s, msg) {
 function gfDamage(s, n, msg) {
     if (!s.isAlive || gfRoundOver()) return;
     if (gfRound.after && gfRound.after.phase === "won") return;   // nothing takes a win back
+    if (gfCineOn()) return;                                         // nothing lands during a set piece
     if (gfCrewBlocks(s, n, msg)) return;                            // gf-crew.js: dev no-damage, the bulwark's shield, a ram
     if (s === glShip) {
         if (gfLastStand > 0) return;
@@ -293,14 +294,16 @@ function gfUpdate(dt) {
     gfRound.bannerT = Math.max(0, gfRound.bannerT - dt);
     if (gfRound.unclampT > 0) { gfRound.unclampT -= dt; if (gfRound.unclampT <= 0) { gfBanner("THE TIDE IS OPEN", 4); gfSfx("open"); } }
     for (let i = gfBlasts.length - 1; i >= 0; i--) { gfBlasts[i].t += dt; if (gfBlasts[i].t > 0.6) gfBlasts.splice(i, 1); }
+    gfCineUpdate(dt);   // gf-cine.js: set pieces run on their own clock
     if (gfRoundOver()) { gfRound.endT += dt; return; }
     if (gfRound.after) {
         gfRound.after.t -= dt;
         if (gfRound.after.t <= 0) { gfRound.phase = gfRound.after.phase; gfRound.endMsg = gfRound.after.msg; gfRound.endT = 0; gfRound.after = null; return; }
-    } else {
+    } else if (!gfCineOn()) {
         gfRound.t += dt;
         if (gfRound.t >= GF.clock) gfEndRound("lost", "out of time");
     }
+    gfSwarmUpdate(dt);   // gf-cine.js: the last swarm, fed out of the husk
 
     gfArmsUpdate(dt);   // gf-arms.js: seekers, recharge, impact rings
     gfCrewUpdate(dt);   // gf-crew.js: abilities, mines, flak, sentries
@@ -368,7 +371,7 @@ function gfUpdate(dt) {
     }
     for (let i = gfWaves.length - 1; i >= 0; i--) if ((gfTime - gfWaves[i].t0) * GF.waveSpeed > GF.syncR * 1.25) gfWaves.splice(i, 1);
 
-    if (gfRound.phase === "flood" && gfCreatures.length === 0) gfEndRound("won", "the tide is still");
+    if (gfRound.phase === "flood" && gfCreatures.length === 0 && gfSwarm.left <= 0) gfEndRound("won", "the tide is still");
 }
 
 function gfOrificesLeft(site) { const L = site ? site.orifices : gfOrifices; let n = 0; for (let i = 0; i < L.length; i++) if (!L[i].sealed) n++; return n; }
@@ -412,6 +415,7 @@ function gfBreathCue(dt) {
 function gfSiteCleared(st) {
     st.cleared = true; st.dead = true;
     gfCreatures.forEach(function (m) { if (m.ori.site === st) m.winded = 6; });
+    gfCineSat(st);   // gf-cine.js: the growth bursts off it, lights on, it sights the hive
     if (st.kind === "relay") {
         // The relay is back: the mothership can run a full wing through it.
         GF_WING.max = 5;
@@ -424,7 +428,7 @@ function gfSiteCleared(st) {
         gfBanner("DRYDOCK FREED · REFIT", 4);
     }
     gfSfx("win");
-    if (!gfTideClamped()) gfRound.unclampT = 4.5;
+    if (!gfTideClamped()) gfRound.unclampT = 5.5;
 }
 
 function gfUpdateOrifice(o, dt) {
@@ -467,13 +471,10 @@ function gfHurtOrifice(o, n) {
     if (left > 0) gfBanner("SEALED · " + left + " REMAIN", 3);
     else if (o.site.kind !== "tide") gfSiteCleared(o.site);
     else {
-        // The Tide is finished. Everything it birthed comes for you.
-        gfHive.dead = true;
-        gfRound.phase = "flood";
-        gfBanner("IT IS DYING · EVERYTHING IS COMING", 4);
-        gfSfx("screech");
-        for (let i = gfCreatures.length - 1; i >= 0; i--) if (gfCreatures[i].ori.site !== gfHive) gfCreatures.splice(i, 1);
-        gfCreatures.forEach(function (m) { m.frenzy = 9999; });
+        // The Tide is weakened: every mouth is shut. The mothership takes the
+        // shot (gf-cine.js): the beam, the burst, and then the swarm.
+        gfRound.phase = "beam";
+        gfCineBeam();
     }
 }
 
@@ -520,6 +521,7 @@ function gfUpdateCreature(c, dt, bells, targets) {
     const target = gfSitePhaseAt(c.ori.site, c.x, c.y);
     c.p = gfFrac(c.p + dt / c.ori.site.period);
     c.p = gfFrac(c.p + gfWrap01(target - c.p) * Math.min(1, dt * 3));
+    if (c.free) c.p = 0.8;   // the last swarm has no site to breathe with: always soft
     c.synced = true;
     if (c.kind === "bell" && c.p < prevP) { gfWaves.push({ x: c.x, y: c.y, t0: gfTime, bell: c }); gfSfxAt("toll", c.x, c.y); }
     const wasInhale = c.b && c.b.stage === "inhale";
@@ -1020,7 +1022,8 @@ function gfDrawWorld(c) {
     gfDrawBlasts(c, z);      // gf-flesh.js: rupture rings, shards
     gfDrawWing(c, z);        // gf-wing.js: the bots
     gfDrawArmsWorld(c, z);   // gf-arms.js: bolts, seekers, impact rings
-    gfCrewDrawWorld(c, z);   // gf-crew.js: beams, mines, flak, sentries, the shield
+    gfCrewDrawWorld(c, z);
+    gfCineDrawWorld(c, z);   // gf-cine.js: sights, the beam, thrown flesh   // gf-crew.js: beams, mines, flak, sentries, the shield
 }
 
 function gfDrawHome(c, z) {
