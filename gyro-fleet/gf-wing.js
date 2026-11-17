@@ -580,6 +580,7 @@ function gfDrawSiteMap(c, x, y, S) {
     // The sites, their battle lines, and their orifices.
     for (let i = 0; i < gfSites.length; i++) {
         const st = gfSites[i], t = P(st.x, st.y), zr = gfZoneR(st) * k;
+        if (st.gone) continue;
         if (Math.abs(t.x - cx) > S + zr || Math.abs(t.y - cy) > S + zr) continue;
         c.strokeStyle = st.cleared ? "rgba(125,249,255,0.25)" : "rgba(125,249,255,0.7)"; c.setLineDash([4, 3]);
         c.beginPath(); c.arc(t.x, t.y, Math.max(3, zr), 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
@@ -588,7 +589,7 @@ function gfDrawSiteMap(c, x, y, S) {
     }
     for (let i = 0; i < gfOrifices.length; i++) {
         const o = gfOrifices[i], w = gfOrificePos(o), p = P(w.x, w.y);
-        if (!o.site.awake || o.clamped || R > 900) continue;
+        if (!o.site.awake || o.clamped || o.site.gone || R > 900) continue;
         if (o.sealed) { c.fillStyle = "#3a1018"; c.fillRect(p.x - 2, p.y - 2, 4, 4); continue; }
         const hot = o.state !== "closed";
         c.fillStyle = hot ? "#FFE45C" : "#FF7A9C";
@@ -655,6 +656,7 @@ function gfDrawOrbitMap(c, x, y, W, H) {
     const next = gfNextSite();
     for (let i = 0; i < gfSites.length; i++) {
         const st = gfSites[i], q = P(st.x, st.y);
+        if (st.gone) continue;
         const col = st.cleared ? "#7DF9FF" : (st.dead ? "#5a2030" : "#FF3B5E");
         if (st === next && !gfRoundOver()) {
             c.strokeStyle = "rgba(255,228,92," + (0.5 + 0.5 * Math.sin(gfTime * 6)).toFixed(2) + ")"; c.lineWidth = 1.5;

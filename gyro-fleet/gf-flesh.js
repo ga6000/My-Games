@@ -496,6 +496,7 @@ function gfDrawSatellite(c, z, st) {
 }
 
 function gfDrawSite(c, z, st) {
+    if (st.gone) return;   // the hive after the beam: nothing left
     if (st.kind !== "tide") gfDrawSatellite(c, z, st);
     const p = glWorldToScreen(st.x, st.y);
     if (p.h) return;

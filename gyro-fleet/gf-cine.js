@@ -13,19 +13,20 @@
 //   SAT   (4.2 s)  cut to the satellite; the growth swells and bursts (its
 //                  brood dies with it); lights stutter on, green; it swings
 //                  round to face the hive; the sight snaps on and stays.
-//   BEAM  (8.6 s)  a route board: the beam leaves the mothership and sweeps
+//   BEAM  (9.7 s)  a route board: the beam leaves the mothership and sweeps
 //                  relay, drydock, hive, one eased leg after another. Cut to
 //                  the hive: the beam walks across it, leaving a burning
-//                  scar. It bursts. The swarm pours out.
-//   SWARM          GF_CINE.swarm airkrill, soft and frenzied, fed out of the
-//                  husk as fast as you kill them (never more than
-//                  GF_CINE.swarmAlive at once). The last one ends the game.
+//                  scar. It bursts, and nothing is left of it; the sights go
+//                  out. That is the end of the game: the view holds on the
+//                  empty space through the aftermath, then the score.
+//   (SWARM, switched off 2026-11-16 at Ry's call: the burst used to release
+//   GF_CINE.swarm airkrill as a last fight. gfSwarm* is kept but never started.)
 //
 // While a set piece plays the lead ship cannot be hurt and the clock stops.
 // The view is borrowed (gfCineCam) and handed back at the end.
 "use strict";
 
-const GF_CINE = { satT: 4.2, beamT: 8.6, swarm: 450, swarmAlive: 90, swarmClock: 75 };
+const GF_CINE = { satT: 4.2, beamT: 9.7, swarm: 450, swarmAlive: 90, swarmClock: 75 };
 let gfCine = null;                 // { type, st, t, ... } while a set piece plays
 const gfCineBits = [];             // flesh thrown by a burst: { x, y, vx, vy, t, life, r, col }
 const gfSwarm = { left: 0, total: 0, on: false };
@@ -78,34 +79,44 @@ function gfCineUpdate(dt) {
         // Lights: on, off, on, off, on.
         [1.55, 1.75, 1.92].forEach(function (x) { if (crossed(x)) { st.lit = true; gfSfx("ping", 0.6); } });
         [1.65, 1.84].forEach(function (x) { if (crossed(x)) st.lit = false; });
+        if (crossed(2.15)) gfSfx("servo");
         st.rot = st.rot0 + (st.rot1 - st.rot0) * gfCineEase(2.15, 2.95, ci.t);
-        if (crossed(3.05)) { st.sight = gfTime; gfSfx("order", 1); gfSfx("zap", 0.5); }
+        if (crossed(3.05)) { st.sight = gfTime; gfSfx("sight"); }
         if (ci.t >= GF_CINE.satT) { st.rot = st.rot1; st.lit = true; if (!st.sight) st.sight = gfTime; gfCine = null; }
     } else {
-        if (crossed(0.5)) gfSfx("swell", 1);
-        [1.3, 2.1, 2.9].forEach(function (x, i) { if (crossed(x)) { ci.legs = i + 1; gfSfx("ping", 1); gfSfx("order", 1); } });
-        if (crossed(3.7)) { gfSfx("fuse", 1); gfSfx("strain", 1); }
-        if (ci.t > 3.7 && ci.t < 6.3) { glUltraShakeKick = Math.max(glUltraShakeKick, 0.12 + 0.3 * (ci.t - 3.7) / 2.6); if (Math.random() < dt * 5) gfSfx("strain", 1); }
+        if (crossed(0.05)) gfSfx("charge");
+        [0.6, 1.4, 2.2].forEach(function (x, i) { if (crossed(x)) gfSfx("leg", i / 2); });   // each leg sounds as it leaves, lands as it arrives
+        [1.3, 2.1, 2.9].forEach(function (x, i) { if (crossed(x)) ci.legs = i + 1; });
+        if (crossed(3.55)) gfSfx("sight");
+        if (ci.t > 3.7 && ci.t < 6.3) {
+            const q = (ci.t - 3.7) / 2.6;
+            glUltraShakeKick = Math.max(glUltraShakeKick, 0.12 + 0.3 * q);
+            gfSfx("slice", q);                                   // gfSfxOk spaces it into a steady burn
+        }
         if (crossed(6.3)) gfCineHiveBurst();
         if (ci.t >= GF_CINE.beamT) gfCine = null;
     }
 }
 
-// The hive goes. What is left is a husk, and the swarm it was carrying.
+// The hive goes, all of it, and that is the end of the game: nothing is left
+// of it, the satellites' sights go out, and after the aftermath beat the score
+// comes up. (Ry, 2026-11-16, after seeing the swarm ending: "remove the hive
+// after it's killed, and remove the lasers after that point. I'd say we scrap
+// the air krill after. the game should just end at that point". The swarm
+// code below is kept, switched off, in case it comes back.)
 function gfCineHiveBurst() {
     const st = gfHive;
     gfCine.burst = true;
-    gfCineFlesh(st, 420, 260);
-    gfBlasts.push({ x: st.x, y: st.y, r: st.r0 * 2.2, t: 0 });
-    glSpawnBurst(st.x, st.y, 200, "#FF7A9C");
+    gfCine.R0 = st.r0;
+    gfCineFlesh(st, 520, 300);
+    gfBlasts.push({ x: st.x, y: st.y, r: st.r0 * 2.4, t: 0 });
+    glSpawnBurst(st.x, st.y, 240, "#FF7A9C");
     for (let i = 0; i < gfCreatures.length; i++) { gfCreatures[i].hp = 0; gfCreatures[i].burst = true; }
-    st.dead = true; st.husk = true; st.r0 *= 0.42; st.r = st.r0;
-    gfSfx("rupture", 1); gfSfx("screech", 1); gfSfx("seal", 1);
+    st.dead = true; st.cleared = true; st.gone = true; st.r0 = 0; st.r = 0;
+    for (let i = 0; i < gfSites.length; i++) gfSites[i].sight = 0;
+    gfSfx("hiveburst");
     glUltraShakeKick = 1;
-    gfRound.phase = "flood";
-    gfSwarm.total = gfSwarm.left = GF_CINE.swarm; gfSwarm.on = true;
-    GF.clock += GF_CINE.swarmClock;
-    gfBanner("THE SWARM", 4);
+    gfEndRound("won", "the tide is gone");
 }
 // Feed the swarm out of the husk (from gfUpdate, while it lasts).
 function gfSwarmUpdate(dt) {
@@ -152,11 +163,11 @@ function gfCineDrawWorld(c, z) {
         const st = gfSites[i];
         if (!st.sight || st.kind === "tide") continue;
         const grow = Math.min(1, (gfTime - st.sight) / 0.35), a = Math.atan2(gfHive.y - st.y, gfHive.x - st.x);
-        const L = Math.hypot(gfHive.x - st.x, gfHive.y - st.y) - (gfHive.husk ? 0 : gfHive.r), ex = st.x + Math.cos(a) * L * grow, ey = st.y + Math.sin(a) * L * grow;
+        const L = Math.hypot(gfHive.x - st.x, gfHive.y - st.y) - gfHive.r, ex = st.x + Math.cos(a) * L * grow, ey = st.y + Math.sin(a) * L * grow;
         const sx = st.x + Math.cos(a) * st.r0 * 1.9, sy = st.y + Math.sin(a) * st.r0 * 1.9;
         gfCineLine(c, sx, sy, ex, ey, 5, "rgba(125,255,156,0.18)");
         gfCineLine(c, sx, sy, ex, ey, 1.4, "rgba(170,255,190," + (0.75 + 0.2 * Math.sin(gfTime * 30)).toFixed(2) + ")");
-        if (grow >= 1 && !gfHive.husk) {
+        if (grow >= 1) {
             const e = glWorldToScreenRaw(ex, ey);
             if (gfOnScreen(e, 20)) { c.fillStyle = "#B8FFCB"; c.beginPath(); c.arc(e.x, e.y, 3 + Math.sin(gfTime * 12), 0, Math.PI * 2); c.fill(); }
         }
@@ -166,7 +177,7 @@ function gfCineDrawWorld(c, z) {
     if (ci && ci.type === "beam" && ci.t > 3.5 && ci.t < 6.9) {
         const st = gfHive, dock = gfSites[1] || gfSites[0];
         const ia = Math.atan2(st.y - dock.y, st.x - dock.x), na = ia + Math.PI / 2;
-        const sweep = gfCineEase(3.9, 6.2, ci.t) * 2 - 1, R0 = ci.burst ? st.r0 / 0.42 : st.r0;
+        const sweep = gfCineEase(3.9, 6.2, ci.t) * 2 - 1, R0 = ci.burst ? ci.R0 : st.r0;
         const hx = st.x + Math.cos(na) * sweep * R0 * 0.8, hy = st.y + Math.sin(na) * sweep * R0 * 0.8;
         const on = gfCineEase(3.5, 3.9, ci.t) * (1 - gfCineEase(6.35, 6.9, ci.t)), fl = 0.85 + 0.15 * Math.sin(gfTime * 60);
         // The scar it has cut so far.
