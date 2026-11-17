@@ -47,7 +47,9 @@ const GF = {
     breathWave: 120,    // units/s a site's breath rolls outward: slow enough to SEE the front cross the screen (about a second)
     hull: 100,          // the flown ship
     fleetHp: 40,        // every wing bot
-    grabTime: 6.5,      // seconds held by tendrils before the ship is taken (was 3: Ry, 2026-11-16, wanted longer to fight free)
+    grabTick: 1.6,      // seconds between a holder's bites (the first comes one tick after the lash)
+    grabDmg: 34,        // hull per bite: three take the gunner's full hull down to the last-stand point
+    lastStand: 3,       // seconds nothing can hurt or hold you after a blow that should have killed
     grabBreakHits: 3,   // hits on the holder that shake it loose
     ships: 3,           // lead ships per round
     clock: 480,         // seconds: the round's hard stop (three sites)
@@ -67,9 +69,9 @@ const GF = {
 // turn = radians per second at full size; deflated bodies turn 1.6x faster.
 // press = armour bounces to rupture; blast = rupture radius (0 = never ruptures).
 const GF_KINDS = {
-    crab:  { period: [3.6, 4.6], rBig: 3.4, rSmall: 1.4, hp: 3, slow: 7,  fast: 23, turn: 0.75, col: "#FF7A9C", minPx: 5, press: 5,  blast: 12, mote: 12, spines: 10, launch: 62 },
+    crab:  { period: [3.6, 4.6], rBig: 3.4, rSmall: 1.4, hp: 3, slow: 7,  fast: 23, turn: 0.75, col: "#FF7A9C", minPx: 5, press: 5,  blast: 12, mote: 12, spines: 16, launch: 62 },
     krill: { period: [1.2, 1.6], rBig: 1.3, rSmall: 0.85, hp: 1, slow: 16, fast: 36, turn: 2.7, col: "#C9A2FF", minPx: 5, press: 0,  blast: 0,  mote: 3,  spines: 0 },
-    bell:  { period: [7, 7],     rBig: 7.5, rSmall: 3.6, hp: 9, slow: 3,  fast: 8,  turn: 0.3,  col: "#FF3B3B", minPx: 9, press: 14, blast: 22, mote: 40, spines: 20, launch: 24 }
+    bell:  { period: [7, 7],     rBig: 7.5, rSmall: 3.6, hp: 9, slow: 3,  fast: 8,  turn: 0.3,  col: "#FF3B3B", minPx: 9, press: 14, blast: 22, mote: 40, spines: 32, launch: 24 }
 };
 const GF_TUMBLE = 1.3;      // seconds a launched body spins helpless, vent to the world
 const GF_AFTER = 3.5;       // seconds of aftermath between the round ending and the score card
@@ -88,6 +90,7 @@ const gfSpines = [];        // { x, y, vx, vy, t } shards thrown by a rupture: t
 let gfHive = null, gfHome = null;
 let gfTime = 0;
 let gfHull = GF.hull, gfWasAlive = true, gfHurtFlash = 0;
+let gfLastStand = 0, gfBiteFlash = 0;   // seconds of last-stand safety left; the red flash of a bite
 const gfKills = { crab: 0, krill: 0, bell: 0, burst: 0 };
 // phase: fight (orifices alive) | flood (all sealed, clear what is left) | won | lost
 const gfRound = { phase: "fight", t: 0, ships: GF.ships, endMsg: "", endT: 0, banner: "", bannerT: 0, unclampT: 0, after: null };
@@ -236,6 +239,16 @@ function gfDamage(s, n, msg) {
     if (gfRound.after && gfRound.after.phase === "won") return;   // nothing takes a win back
     if (gfCrewBlocks(s, n, msg)) return;                            // gf-crew.js: dev no-damage, the bulwark's shield, a ram
     if (s === glShip) {
+        if (gfLastStand > 0) return;
+        // LAST STAND (Ry, 2026-11-16): a blow that would have killed you leaves
+        // you on 1 hull instead, and for three seconds nothing can hurt or
+        // hold you. The next thing that lands after that is the end.
+        if (n >= gfHull && gfHull > 1) {
+            gfHull = 1; gfLastStand = GF.lastStand; gfHurtFlash = 0.6; gfBiteFlash = 0.5;
+            gfSfx("hurt"); gfSfx("deny");
+            glUltraShakeKick = Math.max(glUltraShakeKick, 0.5);
+            return;
+        }
         gfHull -= n;
         gfHurtFlash = n >= 5 ? 0.35 : 0.25;
         if (n >= 3) gfSfx("hurt");
@@ -276,6 +289,7 @@ function gfUpdate(dt) {
     if (!gfHive) return;
     gfTime += dt;
     gfHurtFlash = Math.max(0, gfHurtFlash - dt);
+    gfLastStand = Math.max(0, gfLastStand - dt); gfBiteFlash = Math.max(0, gfBiteFlash - dt);
     gfRound.bannerT = Math.max(0, gfRound.bannerT - dt);
     if (gfRound.unclampT > 0) { gfRound.unclampT -= dt; if (gfRound.unclampT <= 0) { gfBanner("THE TIDE IS OPEN", 4); gfSfx("open"); } }
     for (let i = gfBlasts.length - 1; i >= 0; i--) { gfBlasts[i].t += dt; if (gfBlasts[i].t > 0.6) gfBlasts.splice(i, 1); }
@@ -292,7 +306,7 @@ function gfUpdate(dt) {
     gfCrewUpdate(dt);   // gf-crew.js: abilities, mines, flak, sentries
 
     // A fresh ship after a respawn gets a fresh hull.
-    if (glShip.isAlive && !gfWasAlive) { gfHull = GF.hull; glShip.gfGrab = null; glShip.deathMsg = ""; }
+    if (glShip.isAlive && !gfWasAlive) { gfHull = GF.hull; gfLastStand = 0; glShip.gfGrab = null; glShip.deathMsg = ""; }
     gfWasAlive = glShip.isAlive;
 
     // Sites: each breathes (the master clock of everything it birthed),
@@ -614,7 +628,7 @@ function gfUpdateCreature(c, dt, bells, targets) {
     }
 
     // ---- Tendrils (aircrabs and Bellwethers, while big) ----
-    if (c.kind !== "krill" && !c.grabbing && prey && c.b.armour && c.tendrilCd <= 0 && c.birthT <= 0 && !gfCrewSlips(prey)) {
+    if (c.kind !== "krill" && !c.grabbing && prey && c.b.armour && c.tendrilCd <= 0 && c.birthT <= 0 && !gfCantGrab(prey)) {
         const reach = c.b.r + 8;
         if (pd < reach + 3) {
             c.tendril += dt;
@@ -712,23 +726,38 @@ function gfPressure(c, n) {
     if (c.press >= 1) { c.press = 1; c.ruptT = GF.fuse; gfSfxAt("fuse", c.x, c.y); }
 }
 
+// Can tendrils take (or keep) hold of this ship right now?
+function gfCantGrab(s) {
+    return gfCrewSlips(s) || s.gfNoGrab > 0 || (s === glShip && gfLastStand > 0);
+}
+// Shake a ship loose from the body holding it. It cannot be taken again for a
+// moment, by anything, so a break is a real way out of a crowd.
+function gfBreakGrab(c) {
+    const s = c.grabbing;
+    if (s) { s.gfGrab = null; s.gfNoGrab = 1.5; }
+    c.grabbing = null; c.tendrilCd = 3; c.flash = 0.2;
+}
 function gfUpdateGrabs(dt) {
     const ts = gfTargets();
     for (let i = 0; i < ts.length; i++) {
         const s = ts[i], g = s.gfGrab;
+        s.gfNoGrab = Math.max(0, (s.gfNoGrab || 0) - dt);
         if (!g) continue;
         const c = g.by;
-        if (!s.isAlive || c.hp <= 0 || gfCreatures.indexOf(c) === -1 || gfCrewSlips(s)) { s.gfGrab = null; if (c) { c.grabbing = null; c.tendrilCd = 3; } continue; }
+        if (!s.isAlive || c.hp <= 0 || gfCreatures.indexOf(c) === -1 || gfCantGrab(s)) { s.gfGrab = null; if (c) { c.grabbing = null; c.tendrilCd = 3; } continue; }
         g.t += dt;
         // Reeled in: the ship is dragged toward the creature's front.
         const fx = c.x + Math.cos(c.face) * (c.b.r + 3), fy = c.y + Math.sin(c.face) * (c.b.r + 3);
         s.x += (fx - s.x) * Math.min(1, dt * 3);
         s.y += (fy - s.y) * Math.min(1, dt * 3);
         s.vx *= 0.85; s.vy *= 0.85;
-        if (s === glShip) gfDamage(s, 3 * dt, "taken by an aircrab");
-        if (g.t >= GF.grabTime) {
-            gfKillShip(s, "taken by an aircrab");
-            s.gfGrab = null; c.grabbing = null;
+        // It bites on a beat (Ry, 2026-11-16): a red flash and a third of the
+        // gunner's hull each time, not a slow drain and a sudden death. The
+        // bite that would kill triggers the last stand instead (gfDamage).
+        if (g.t >= GF.grabTick) {
+            g.t = 0;
+            if (s === glShip) { gfBiteFlash = 0.45; glUltraShakeKick = Math.max(glUltraShakeKick, 0.35); gfSfx("lash"); }
+            gfDamage(s, s === glShip ? GF.grabDmg : GF.fleetHp * 0.5, "taken by an aircrab");
         }
     }
     // A dead ship lets go.
@@ -798,9 +827,21 @@ function gfUpdateBulletHits() {
             const h = gfSweep(b, c.x, c.y);
             if (h.d > c.b.r + 0.3) continue;
             // Shooting the thing that holds a ship shakes it loose.
+            // (2026-11-16: the hit is spent on the tendrils. It used to go on and
+            // ricochet off the armour too, so shooting yourself free killed you.)
             if (c.grabbing) {
                 const g = c.grabbing.gfGrab;
-                if (g && ++g.hits >= GF.grabBreakHits) { c.grabbing.gfGrab = null; c.grabbing = null; c.tendrilCd = 3; c.flash = 0.2; }
+                if (g && ++g.hits >= GF.grabBreakHits) gfBreakGrab(c);
+                c.flash = 0.12;
+                gfBoltImpact(h.x, h.y, true);
+                glBullets.splice(i, 1);
+                break;
+            }
+            // A held ship's shots never come back at it: off armour they just die.
+            if (b.owner && b.owner.gfGrab && c.b.armour && !(c.b.open || c.tumble > 0)) {
+                gfBoltImpact(h.x, h.y, false);
+                glBullets.splice(i, 1);
+                break;
             }
             let wound = !c.b.armour || c.tumble > 0;
             if (!wound && c.b.open) {
@@ -917,6 +958,36 @@ function gfDrawBreathFronts(c, z, st) {
     c.restore();
 }
 
+// The edge of each battle: a dashed line in space. Inside a held site's line
+// the ultradrive will not spool; outside it, it will, whatever is chasing
+// you. A jump toward any site drops out on its line. (Pass 6. Ry: "limits of
+// battle should be a bit more defined so we know where we can / can't use
+// ultra drive".)
+function gfZoneR(st) { return st.r0 + GF_FLIGHT.brakeR; }
+function gfInZone(x, y) {
+    for (let i = 0; i < gfSites.length; i++) { const st = gfSites[i]; if (!st.cleared && Math.hypot(st.x - x, st.y - y) < gfZoneR(st)) return st; }
+    return null;
+}
+function gfDrawBounds(c, z) {
+    c.save();
+    for (let i = 0; i < gfSites.length; i++) {
+        const st = gfSites[i], p = glWorldToScreen(st.x, st.y);
+        if (p.h) continue;
+        const R = gfZoneR(st) * z, d = Math.hypot(p.x - glCX, p.y - glCY);
+        if (Math.abs(d - R) > Math.max(glW, glH)) continue;       // the line is nowhere near the view
+        const held = !st.cleared;
+        c.strokeStyle = held ? "rgba(125,249,255,0.55)" : "rgba(125,249,255,0.2)"; c.lineWidth = held ? 2 : 1;
+        c.setLineDash([14, 10]); c.lineDashOffset = -gfTime * 6;
+        c.beginPath(); c.arc(p.x, p.y, R, 0, Math.PI * 2); c.stroke();
+        if (held) {
+            // Ticks on the outside: the side the drive works on.
+            c.setLineDash([2, 22]); c.lineWidth = 6; c.strokeStyle = "rgba(125,249,255,0.35)";
+            c.beginPath(); c.arc(p.x, p.y, R + 5, 0, Math.PI * 2); c.stroke();
+        }
+    }
+    c.restore();
+}
+
 function gfDrawWorld(c) {
     if (!gfHive) return;
     const z = glCamera.zoom;
@@ -924,6 +995,7 @@ function gfDrawWorld(c) {
     for (let i = 0; i < gfSites.length; i++) gfDrawSite(c, z, gfSites[i]);   // gf-flesh.js
 
     for (let i = 0; i < gfSites.length; i++) gfDrawBreathFronts(c, z, gfSites[i]);
+    gfDrawBounds(c, z);
 
     // Sync waves.
     for (let i = 0; i < gfWaves.length; i++) {
@@ -1035,14 +1107,24 @@ function gfDrawOverlay(c) {
     const g = glShip.gfGrab;
     if (g && glShip.isAlive) {
         // No ring (Ry, 2026-11-16): the tendrils themselves show the hold. Just
-        // the hits it takes to break, and a thin bar of the time left.
-        const k = Math.max(0, 1 - g.t / GF.grabTime);
+        // the hits it takes to break, and a thin bar running down to the next bite.
+        const k = Math.max(0, 1 - g.t / GF.grabTick);
         for (let i = 0; i < GF.grabBreakHits; i++) {
             c.fillStyle = i < g.hits ? "#FFFFFF" : "rgba(255,46,136,0.6)";
             c.fillRect(glCX - 16 + i * 12, glCY - 44, 8, 4);
         }
         c.fillStyle = "rgba(0,0,0,0.6)"; c.fillRect(glCX - 17, glCY - 37, 34, 4);
         c.fillStyle = k < 0.3 && Math.floor(gfTime * 8) % 2 ? "#FFFFFF" : "#FF2E88"; c.fillRect(glCX - 16, glCY - 36, 32 * k, 2);
+    }
+    // A bite: the whole view flashes red.
+    if (gfBiteFlash > 0) {
+        c.fillStyle = "rgba(255,20,40," + (0.5 * gfBiteFlash / 0.45).toFixed(3) + ")";
+        c.fillRect(0, 0, glW - 220, glH);
+    }
+    // Last stand: a white ring round the ship running down its three seconds.
+    if (gfLastStand > 0 && glShip.isAlive) {
+        c.strokeStyle = Math.floor(gfTime * 10) % 2 ? "#FFFFFF" : "#FF2E88"; c.lineWidth = 3;
+        c.beginPath(); c.arc(glCX, glCY, 30, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * gfLastStand / GF.lastStand); c.stroke();
     }
     if (gfHurtFlash > 0) {
         c.fillStyle = "rgba(255,46,136," + (gfHurtFlash * 0.6).toFixed(3) + ")";
