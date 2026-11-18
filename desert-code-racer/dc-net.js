@@ -38,9 +38,16 @@ function dcHandle(m, from) {
         case "kx": dcOnKrillGone(m); return;
         case "crash": {
             const r = dc.riders[from];
-            if (r && !r.local) { r.down = DC_TUNE.respawn; dcBurstExplosion(m.z, m.x, r.color, 1); if (!dc.demo) dcSnd.beamImpact(dcVolAt(m.z) * 0.6); }
+            if (r && !r.local) {
+                r.down = r.downMax = DC_TUNE.respawn; r.crashKind = m.w || "barricade"; r.crashSide = m.sd || 1;
+                dcBurstExplosion(m.z, m.x, r.color, 1); if (!dc.demo) dcSnd.beamImpact(dcVolAt(m.z) * 0.6);
+            }
             return;
         }
+        case "ax": dcOnAttack(m); return;
+        case "axx": dcOnAttackGone(m); return;
+        case "fin": dcOnFinale(m); return;
+        case "home": { const r = dc.riders[from]; if (r && !r.local && !r.home) { r.z = Math.max(r.z, dc.track.finish * DC_SEG); } return; }
         case "cr": if (dc.me && m.to === dc.me.id) dcCredit(m.pts || 0, m.f || null, 1, m.l || ""); return;
         case "cs": dcOnCase(m); return;
         case "cp": dcOnCheckpoint(m); return;
@@ -110,7 +117,7 @@ function dcOnPos(m, from) {
     r.role = DC_ABILITY[m.r] ? m.r : r.role;
     r.tz = m.z; r.tx = m.x; r.v = m.v;
     r.air = m.a || 0;
-    r.down = m.d || 0;
+    if (!(r.down > 0 && m.d > 0)) r.down = m.d || 0;      // keep our own crash clock for the animation
     r.boosting = !!m.b;
     r.pts = m.pt || 0;
     r.krill = m.kr || 0;

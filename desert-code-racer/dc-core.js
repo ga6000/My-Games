@@ -21,8 +21,8 @@ const DC_CAM_DEPTH = 1 / Math.tan((96 / 2) * Math.PI / 180);
 const DC_CAM_BACK = DC_CAM_H * DC_CAM_DEPTH;   // camera sits this far behind the bike
 
 const DC_CRUISE = 9000;             // 300 MPH
-const DC_BOOST = 12600;             // 420 MPH
-const DC_BRAKE = 3600;              // 120 MPH
+const DC_BOOST = 12000;             // 400 MPH: hold W as long as you like (Ry, pass 2)
+const DC_CHARGES = 2;               // ability charges (pass 2: answer two waves back to back)
 const DC_OFFROAD = 5400;
 const DC_MPH = 1 / 30;
 
@@ -70,10 +70,10 @@ function dcReadDifficulty() {
 const DC_DIFF = dcReadDifficulty();
 const DC_TUNE = DC_DIFF === "casual" ? {
     pips: 6, respawn: 1.8, track: 2.2, lock: 1.0, beamEvery: [7.5, 6.0, 4.8],
-    krillEvery: [20, 15, 12], steal: 4.5, airT: 0.8
+    krillEvery: [20, 15, 12], steal: 4.5, airT: 0.62, jumpCd: 0.3
 } : {
     pips: 4, respawn: 3.0, track: 1.6, lock: 0.75, beamEvery: [5.2, 4.0, 3.1],
-    krillEvery: [15, 11, 8.5], steal: 3.0, airT: 0.7
+    krillEvery: [15, 11, 8.5], steal: 3.0, airT: 0.56, jumpCd: 0.4
 };
 
 // Tests only: ?timescale=4 runs the simulation four times as fast in fixed
@@ -113,6 +113,8 @@ const dc = {
     me: null,               // the local rider
     riders: {},             // id -> rider (me included)
     beams: [],
+    attacks: [],            // the lash and the strafe (dc-attacks.js)
+    finale: null,           // the codes are in the lab (dc-finale.js)
     krill: [],
     beacons: [],
     shields: {},            // rider id -> until (simT)

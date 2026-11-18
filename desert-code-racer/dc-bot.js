@@ -42,9 +42,19 @@ function dcBotThink(r) {
             if (h.type === "crater") {
                 if (h.st !== "ramp" && Math.abs(cx - h.x) < h.r + 0.13) cost += w;
             } else if (h.type === "barricade") {
-                if (h.st === "gone" || h.st === "ramp" || h.seg < s0) continue;
-                const gw = h.st === "open" ? 1.15 : h.gapW;
-                if (Math.abs(cx - h.gapX) > gw / 2 - 0.1) cost += w * 4;
+                if (h.st === "gone" || h.st === "ramp" || h.seg + h.len < s0) continue;
+                for (let k = 0; k < h.walls.length; k++) {
+                    const wl = h.walls[k];
+                    if (wl.seg < s0 || wl.low) continue;
+                    const dw = Math.max(0, wl.seg - s0);
+                    const ww = 12 / (1 + dw / 18);
+                    if (dcBarrierHits(h, wl.seg, wl.seg, cx, false, 0.1) === wl) cost += ww * 4;
+                }
+                for (let k = 0; k < h.traps.length; k++) {
+                    const tp = h.traps[k];
+                    if (tp.seg < s0 || h.st === "open") continue;
+                    if (Math.abs(cx - tp.x) < tp.r + 0.12) cost += 12 / (1 + Math.max(0, tp.seg - s0) / 18) * 2;
+                }
             } else if (h.type === "dust") {
                 const revealed = h.reveal && dc.simT - h.reveal < 6;
                 let live = 0;
@@ -63,6 +73,11 @@ function dcBotThink(r) {
             if (dz > -2 && dz < look && Math.abs(cx - b.x) < DC_RING + 0.14) cost += 30;
         }
         if (caseAhead) cost -= Math.abs(cx - c.x) < 0.14 ? 14 : (Math.abs(cx - c.x) < 0.3 ? 6 : 0);
+        // A strafe walking down a lane: get out of it.
+        for (let i = 0; i < dc.attacks.length; i++) {
+            const a = dc.attacks[i];
+            if (a.kind === "strafe" && a.st === "live" && Math.abs(cx - a.x) < 0.34) cost += 25;
+        }
         if (cost < bestCost - 0.001) { bestCost = cost; best = cx; }
     }
     // Steer for the line, leaning into the bend so it doesn't drift out.
@@ -85,12 +100,20 @@ function dcBotThink(r) {
                 if (mn.st !== "pop" && mn.seg >= s0 && mn.seg <= s0 + near + 2 && Math.abs(r.x - mn.x) < 0.14) threat = true;
             }
         }
-        if (h.type === "barricade" && h.st !== "gone" && h.st !== "ramp" && h.seg >= s0 && h.seg <= s0 + near * 2) {
-            const gw = h.st === "open" ? 1.15 : h.gapW;
-            if (Math.abs(r.x - h.gapX) > gw / 2 - 0.06) bar = true;
+        if (h.type === "barricade" && h.st !== "gone" && h.st !== "ramp") {
+            for (let k = 0; k < h.walls.length; k++) {
+                const wl = h.walls[k];
+                if (wl.seg < s0 || wl.seg > s0 + near * 2) continue;
+                if (wl.low) { if (h.st !== "open" && wl.seg <= s0 + near + 1) threat = true; continue; }
+                if (dcBarrierHits(h, wl.seg, wl.seg, r.x, false, 0.06) === wl) bar = true;
+            }
+            for (let k = 0; k < h.traps.length; k++) {
+                const tp = h.traps[k];
+                if (h.st !== "open" && tp.seg >= s0 && tp.seg <= s0 + near + 1 && Math.abs(r.x - tp.x) < tp.r + 0.08) threat = true;
+            }
         }
     }
-    if ((threat && r.air <= 0) || (r.krill > 0 && r.air <= 0)) o.jump = r.cap >= 0.25;
+    if ((threat && r.air <= 0) || (r.krill > 0 && r.air <= 0)) o.jump = r.jcd <= 0;
     // A barricade we are not lined up for: brake to buy time to steer.
     if (bar) o.brake = true;
     // A locked ring under us: brake out of it if steering won't do.
@@ -99,15 +122,25 @@ function dcBotThink(r) {
         const dz = (b.z - r.z) / DC_SEG;
         if (dz > 0 && dz < 40 && Math.abs(r.x - b.x) < DC_RING + 0.05 && Math.abs(best - b.x) < DC_RING + 0.1) o.brake = true;
     }
-    if (!o.brake && bestCost < 1 && r.cap > 0.7 && Math.abs(dcSegAt(r.z).curve) < 1.5) o.boost = true;
+    if (!o.brake && bestCost < 1 && Math.abs(dcSegAt(r.z).curve) < 1.5) o.boost = true;
+    // The lash: jump it as it comes down on us.
+    for (let i = 0; i < dc.attacks.length; i++) {
+        const a = dc.attacks[i];
+        if (a.kind !== "lash" || a.st !== "live") continue;
+        const tS = a.t0 + DC_LASH_WARN;
+        const eta = (a.z - r.z) / Math.max(1, r.v);
+        const arrive = dc.simT + eta;
+        if (eta > 0 && eta < 0.25 && arrive > tS - 0.1 && arrive < tS + DC_LASH_DOWN + 0.1 && r.air <= 0) o.jump = r.jcd <= 0;
+    }
 
-    if (r.cd <= 0) o.ability = dcBotWantsAbility(r, s0);
+    if (r.ch > 0) o.ability = dcBotWantsAbility(r, s0);
     return o;
 }
 
 function dcBotWantsAbility(r, s0) {
     const role = r.role;
-    const targeted = dc.beams.some(function (b) { return b.tg === r.id && !b.safe; });
+    const targeted = dc.beams.some(function (b) { return b.tg === r.id && !b.safe; }) ||
+        dc.attacks.some(function (a) { return a.st === "live" && a.tg === r.id && dc.simT - a.t0 > 0.3; });
     const krillOnMe = r.krill > 0 || dc.krill.some(function (k) { return k.tg === r.id && k.phase === "fly" && k.arriveAt - dc.simT < 1.2; });
     function has(a, b, types) {
         for (let i = 0; i < dcBotList.length; i++) {

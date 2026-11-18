@@ -99,6 +99,9 @@ Transcribed from Ry's older notebook. Fit, conflicts and proposed standards rewr
 - 2026-11-17 · hub · A shared `shared/crawl.js` that every game calls, reading each chapter's text from one story file, instead of a crawl per game
 - 2026-11-17 · hub · An aftermath option on `PARTY.finish()` (hold the world N seconds before the card), so every game gets the hub's aftermath rule the same way
 - 2026-11-17 · desert-code-racer · Team leaderboard entry (`desert-code-racer-team`) for the convoy's score, once the hub has team high scores (Phase 7 direction)
+- 2026-11-18 · desert-code-racer · Strafe leads its target (aims where you'll be on a curve, not where you were)
+- 2026-11-18 · desert-code-racer · Lab finale camera: a short cut to a fixed lab view for the toss, then back
+- 2026-11-18 · desert-code-racer · Swap the rider art for the agreed character sheet once one exists (one model sheet per crew member)
 
 ## Promoted / dropped
 

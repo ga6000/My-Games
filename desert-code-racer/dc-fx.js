@@ -66,7 +66,7 @@ function dcBurstDebris(z, x) {
 }
 
 function dcAddScorch(z, x) {
-    dcFx({ kind: "scorch", z: z, x: x, y: 0, life: 7, r1: DC_RING, col: DC_COL.magenta });
+    dcFx({ kind: "scorch", z: z, x: x, y: 0, life: 7, r1: DC_RING, col: DC_COL.magenta, seed: Math.random() * 1000 });
 }
 
 // What an ability looks like on the road, for everyone who can see it.
@@ -75,6 +75,7 @@ function dcFxAbility(m, col) {
     else if (m.a === "gunner") {
         for (let i = 0; i < 7; i++) dcFx({ kind: "tracer", z: m.z + 2 * DC_SEG, x: m.x + (Math.random() - 0.5) * 0.3, y: 500,
             vz: 60000, vx: (Math.random() - 0.5) * 0.8, vy: 0, life: 0.3, delay: i * 0.055, col: col });
+        dcLaunchSeekers(m, col);
     } else if (m.a === "medic") dcFx({ kind: "ring", z: m.z + DC_CAM_BACK * 0, x: m.x, y: 300, life: 0.8, r0: 0.1, r1: 2.4, col: col });
     else if (m.a === "butcher") dcBurstDust(m.z, m.x, 14);
     else if (m.a === "bulwark") dcFx({ kind: "ring", z: m.z, x: m.x, y: 400, life: 0.5, r0: 0.4, r1: 0.9, col: col });
@@ -85,6 +86,7 @@ function dcFxUpdate(dt) {
         const p = dc.fx[i];
         if (p.delay > 0) { p.delay -= dt; continue; }
         p.t += dt;
+        if (p.kind === "seeker") { dcSeekerUpdate(p, dt); continue; }
         if (p.kind === "spark" || p.kind === "krill" || p.kind === "chunk" || p.kind === "tracer") {
             p.x += (p.vx || 0) * dt;
             p.z += (p.vz || 0) * dt;

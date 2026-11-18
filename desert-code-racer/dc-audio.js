@@ -130,7 +130,7 @@ function dcEngineUpdate(r) {
     e.c.frequency.setTargetAtTime(base * (r && r.boosting ? 3.02 : 2.01), t, 0.08);
     e.lp.frequency.setTargetAtTime(300 + sp * 1500, t, 0.1);
     e.g.gain.setTargetAtTime(live ? 0.05 + sp * 0.06 : 0, t, 0.1);
-    const off = live && r && (Math.abs(r.x) > 1 || r.dustT > 0);
+    const off = live && r && dc.track && (!dcOnRoad(r.x, dcSegAt(r.z)) || r.dustT > 0 || r.scrape > 0);
     e.ng.gain.setTargetAtTime(off ? 0.12 : (live ? 0.015 + sp * 0.02 : 0), t, 0.1);
 }
 
@@ -262,5 +262,38 @@ const dcSnd = {
         dcNoise({ f: 1500, to: 50, d: 1.6, g: 0.5, at: 0.1 });
     },
     go: function () { dcTone({ f: 1046, d: 0.25, type: "square", g: 0.14 }); dcTone({ f: 1568, d: 0.4, type: "square", g: 0.1, at: 0.08 }); },
-    tick: function () { dcTone({ f: 660, d: 0.06, type: "square", g: 0.1 }); }
+    tick: function () { dcTone({ f: 660, d: 0.06, type: "square", g: 0.1 }); },
+    // ---- pass 2 ----
+    chip: function () { dcTone({ f: 1975, d: 0.05, type: "square", g: 0.07 }); dcTone({ f: 2637, d: 0.07, type: "square", g: 0.06, at: 0.04 }); },
+    scrape: function () { dcNoise({ f: 5000, to: 2500, d: 0.12, g: 0.12, hp: true }); },
+    gripTick: function (urgent) {        // latched krill: a countdown you can hear
+        dcTone({ f: urgent ? 1480 : 990, d: 0.05, type: "square", g: urgent ? 0.13 : 0.08 });
+    },
+    krillBite: function () {             // the krill drag a rider down
+        for (let i = 0; i < 10; i++) dcTone({ f: 1200 + Math.random() * 2400, d: 0.03, type: "sawtooth", g: 0.09, at: i * 0.03 });
+        dcNoise({ f: 900, to: 120, d: 0.5, g: 0.35, at: 0.1 });
+    },
+    homing: function () {                // Greer's seekers leave the gun
+        for (let i = 0; i < 5; i++) dcTone({ f: 700 + i * 160, to: 2400, d: 0.18, type: "sawtooth", g: 0.07, at: i * 0.04 });
+    },
+    seekerHit: function (vol) { dcTone({ f: 2200, to: 500, d: 0.1, type: "square", g: 0.1, vol: vol }); },
+    lashWarn: function (vol) {           // a tendril rearing over the road: a rising groan
+        dcTone({ f: 55, to: 110, d: 1.0, type: "sawtooth", g: 0.16, vol: vol, a: 0.3 });
+        dcNoise({ f: 300, to: 900, d: 1.0, g: 0.12, vol: vol, a: 0.4 });
+    },
+    lashSweep: function (vol) {
+        dcNoise({ f: 400, to: 3000, d: 0.45, g: 0.4, vol: vol });
+        dcTone({ f: 160, to: 50, d: 0.5, type: "sawtooth", g: 0.25, vol: vol });
+    },
+    strafeWarn: function (vol) {         // the small ship lines up a run
+        for (let i = 0; i < 3; i++) dcTone({ f: 1100, d: 0.08, type: "square", g: 0.1, vol: vol, at: i * 0.16 });
+    },
+    strafeShot: function (vol) { dcNoise({ f: 3000, to: 400, d: 0.12, g: 0.22, vol: vol }); dcTone({ f: 400, to: 120, d: 0.1, type: "square", g: 0.08, vol: vol }); },
+    tunnelIn: function () { dcNoise({ f: 200, to: 1200, d: 0.5, g: 0.18 }); },
+    slide: function () {                 // the sideways skid into the lab
+        dcNoise({ f: 6000, to: 1500, d: 1.4, g: 0.3, hp: true });
+        dcTone({ f: 300, to: 90, d: 1.3, type: "sawtooth", g: 0.12 });
+    },
+    toss: function () { dcTone({ f: 600, to: 1200, d: 0.4, type: "triangle", g: 0.12 }); },
+    catchIt: function () { dcTone({ f: 1046, d: 0.1, type: "square", g: 0.12 }); dcTone({ f: 1568, d: 0.3, type: "square", g: 0.12, at: 0.1 }); }
 };
