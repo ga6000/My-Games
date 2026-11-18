@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Desert Code Racer</title>
+<!--
+  ACT IV · LAUNCH. A VECTOR cabinet (AESTHETIC_GUIDE §1): pure black, stroked
+  geometry, phosphor persistence, NO scanlines (data-cabinet="vector" keeps
+  shared/retro.css's scanline rule off). World hue: desert dusk violet.
+  Classic scripts only, so a double-clicked file:// page plays (solo).
+-->
+<link rel="stylesheet" href="../shared/retro.css">
+<style>
+  body[data-game="desert-code-racer"] { --world-hue: #8A6BFF; }
+  :root { --side-w: clamp(240px, 18vw, 380px); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #E8FFF4; }
+  body { font-family: 'VT323', 'Courier New', monospace; text-transform: uppercase; }
+  #dcCanvas { position: fixed; left: 0; top: 0; display: block; background: #000; cursor: crosshair; }
+
+  /* THE CABINET PANEL (§4.11a) */
+  #dcPanel { position: fixed; right: 0; top: 0; bottom: 0; width: var(--side-w); background: #050505;
+    border-left: 2px solid #2E3A34; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  #dcPanel .row { display: flex; justify-content: space-between; align-items: baseline; }
+  #dcPanel i { font-style: normal; color: #FF3344; letter-spacing: 2px; font-size: 18px; }
+  #dcPanel b { font-weight: normal; font-family: 'Press Start 2P', 'VT323', monospace; font-size: 15px; color: #E8FFF4; font-variant-numeric: tabular-nums; }
+  #dcPanel .row.big b { font-size: 19px; }
+  #dcRoute { width: 100%; flex: 1 1 auto; min-height: 160px; border: 3px solid #8FA89C; background: #000; display: block; }
+  #dcCond { font-family: 'Press Start 2P', monospace; font-size: 13px; }
+  .cond-green { color: #39FF14; } .cond-yellow { color: #FFE600; }
+  .cond-red { color: #FF3344; animation: dcBlink 0.6s steps(2, start) infinite; }
+  @keyframes dcBlink { to { visibility: hidden; } }
+  #dcLives { display: flex; gap: 4px; }
+  .life { width: 12px; height: 12px; background: var(--pc); display: inline-block; }
+  .life.down { background: #FF3344; }
+  #dcPips { display: flex; gap: 4px; }
+  .pip { width: 16px; height: 10px; border: 2px solid #FFB000; display: inline-block; }
+  .pip.on { background: #FFB000; }
+  #dcHolder { font-size: 18px; letter-spacing: 1px; }
+  #dcCrew { display: flex; flex-direction: column; gap: 4px; }
+  .crew-row { display: flex; align-items: center; gap: 8px; font-size: 17px; }
+  .crew-row.down { opacity: 0.45; }
+  .crew-row canvas { width: 24px; height: 30px; image-rendering: pixelated; flex: none; }
+  .crew-txt { display: flex; flex-direction: column; line-height: 1; flex: 1; }
+  .crew-txt b { font-family: 'VT323', monospace !important; font-size: 18px !important; }
+  .crew-txt span { color: #8FA89C; font-size: 15px; }
+  .crew-row i { color: #E8FFF4 !important; font-size: 17px !important; }
+  .keys { color: #2E3A34; font-size: 14px; letter-spacing: 1px; line-height: 1.15; }
+  @media (prefers-reduced-motion: reduce) { .cond-red { animation: none; } }
+
+  /* THE CRAWL */
+  #dcCrawl { position: fixed; inset: 0; z-index: 3800; background: #000; overflow: hidden; perspective: 340px; cursor: pointer; }
+  #dcCrawl .crawl-stage { position: absolute; left: 50%; bottom: 0; width: min(760px, 86vw); height: 100%; transform: translateX(-50%) rotateX(24deg); transform-origin: 50% 100%; }
+  #dcCrawl .crawl-text { position: absolute; top: 100%; width: 100%; font-family: 'Press Start 2P', monospace; color: #FFB000;
+    font-size: clamp(14px, 2.4vw, 24px); line-height: 1.75; text-align: center; animation: dcCrawlUp 24s linear forwards; }
+  #dcCrawl .crawl-head { color: #00E5FF; }
+  #dcCrawl p { margin: 0 0 1.4em; }
+  @keyframes dcCrawlUp { from { transform: translateY(0); } to { transform: translateY(-260%); } }
+  #dcCrawl .crawl-skip { position: absolute; bottom: 16px; right: 20px; font-family: 'Press Start 2P', monospace; font-size: 10px; color: #8FA89C; }
+  #dcCrawl.still { perspective: none; }
+  #dcCrawl.still .crawl-stage { transform: translateX(-50%); height: auto; top: 12vh; bottom: auto; }
+  #dcCrawl.still .crawl-text { position: static; animation: none; }
+
+  /* THE RESULT CARD (the game's own, before PARTY's) */
+  #dcCard { position: fixed; inset: 0; z-index: 4500; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.86); }
+  #dcCard[hidden], #dcCrawl[hidden] { display: none; }
+  #dcCard .card-box { border: 4px solid #00E5FF; box-shadow: 0 0 0 4px #000, 0 0 0 6px #2E3A34; background: #000; padding: 18px 22px;
+    width: min(860px, 96vw); max-height: 94vh; overflow-y: auto; text-align: center; }
+  #dcCard .kick { color: #00E5FF; font-size: 18px; letter-spacing: 3px; }
+  #dcCard h2 { font-family: 'Press Start 2P', monospace; font-weight: normal; font-size: clamp(16px, 3vw, 26px); margin: 10px 0; }
+  #dcCard h2.won { color: #FFB000; } #dcCard h2.lost { color: #FF2E88; }
+  #dcCard .sub { color: #8FA89C; font-size: 19px; letter-spacing: 2px; }
+  #dcCard .score { font-family: 'Press Start 2P', monospace; font-size: clamp(22px, 5vmin, 38px); margin: 6px 0; text-shadow: 4px 4px 0 #6E1F35; }
+  #dcCard .bonus { color: #8FA89C; font-size: 18px; margin-bottom: 12px; }
+  #dcCard table { width: 100%; border-collapse: collapse; font-size: 20px; margin-bottom: 14px; }
+  #dcCard th { color: #00E5FF; font-weight: normal; font-size: 15px; letter-spacing: 1px; border-bottom: 2px solid #00E5FF; padding: 3px 5px; text-align: left; }
+  #dcCard td { padding: 3px 5px; text-align: left; white-space: nowrap; }
+  #dcCard td small { color: #8FA89C; font-size: 15px; }
+  #dcCard .n { text-align: right; }
+  #dcCard td.pts { color: #FFB000; }
+  #dcCard tr.me td { background: rgba(0,229,255,.14); }
+  #dcCard .dot { display: inline-block; width: 10px; height: 10px; margin-right: 8px; }
+  #dcCard button { font-family: 'Press Start 2P', monospace; font-size: 11px; color: #000; background: #FFB000; border: 2px solid #FFB000;
+    padding: 11px 16px; cursor: pointer; box-shadow: 4px 4px 0 #2E3A34; }
+  #dcCard button:hover, #dcCard button:focus { background: #E8FFF4; border-color: #E8FFF4; outline: 0; }
+</style>
+</head>
+<body data-game="desert-code-racer" data-cabinet="vector">
+<canvas id="dcCanvas" aria-label="Desert Code Racer"></canvas>
+<aside id="dcPanel">
+  <div class="row"><i>HI-SCORE</i><b id="dcHi">000000</b></div>
+  <div class="row big"><i>TEAM</i><b id="dcTeam">000000</b></div>
+  <div class="row"><i>1UP</i><b id="dc1up">000000</b></div>
+  <canvas id="dcRoute"></canvas>
+  <div class="row"><i>CONDITION</i><span id="dcCond" class="cond-green">GREEN</span></div>
+  <div class="row"><i>RIDERS</i><span id="dcLives"></span></div>
+  <div class="row"><i>CASE</i><span id="dcPips"></span></div>
+  <div class="row"><i>HELD BY</i><span id="dcHolder">YOU</span></div>
+  <div class="row"><i>NEXT</i><span id="dcNext">CHECKPOINT ALPHA</span></div>
+  <div class="row"><i>ROUTE</i><span id="dcLeg">LEG 1/3</span></div>
+  <div id="dcCrew"></div>
+  <div class="keys">A D STEER · W BOOST · S BRAKE<br>SPACE JUMP · E / CLICK ABILITY · M SOUND</div>
+</aside>
+<div id="dcCrawl" hidden></div>
+<div id="dcCard" hidden></div>
+
+<script src="../shared/zoom-guard.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/mp-core.js"></script>
+<script src="../shared/hubscore.js"></script>
+<script src="../shared/party.js"></script>
+<script src="../shared/bootflow.js"></script>
+<script src="../shared/crew.js"></script>
+<script src="../shared/sfx.js"></script>
+<script src="../shared/retro.js"></script>
+<script src="dc-core.js"></script>
+<script src="dc-font.js"></script>
+<script src="dc-track.js"></script>
+<script src="dc-audio.js"></script>
+<script src="dc-rider.js"></script>
+<script src="dc-crew.js"></script>
+<script src="dc-hazards.js"></script>
+<script src="dc-net.js"></script>
+<script src="dc-fx.js"></script>
+<script src="dc-render.js"></script>
+<script src="dc-panel.js"></script>
+<script src="dc-bot.js"></script>
+<script src="dc-crawl.js"></script>
+<script src="dc-flow.js"></script>
+</body>
+</html>
