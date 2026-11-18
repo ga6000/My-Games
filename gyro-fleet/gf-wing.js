@@ -275,7 +275,7 @@ function gfBotUpdate(b, k, dt) {
     // Sites are solid.
     for (let i = 0; i < gfSites.length; i++) {
         const st = gfSites[i], hx = b.x - st.x, hy = b.y - st.y, hd = Math.hypot(hx, hy);
-        if (hd < st.r + 1.5) { b.x = st.x + hx / (hd || 1) * (st.r + 1.5); b.y = st.y + hy / (hd || 1) * (st.r + 1.5); }
+        if (st.r > 0 && hd < st.r + 1.5) { b.x = st.x + hx / (hd || 1) * (st.r + 1.5); b.y = st.y + hy / (hd || 1) * (st.r + 1.5); }
     }
 
     // Face the target, else the way it is going; fire.
@@ -585,7 +585,7 @@ function gfDrawSiteMap(c, x, y, S) {
         c.strokeStyle = st.cleared ? "rgba(125,249,255,0.25)" : "rgba(125,249,255,0.7)"; c.setLineDash([4, 3]);
         c.beginPath(); c.arc(t.x, t.y, Math.max(3, zr), 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
         c.fillStyle = st.cleared ? "rgba(20,70,80,0.8)" : (st.dead ? "rgba(70,30,40,0.8)" : "rgba(150,30,60,0.75)"); c.strokeStyle = st.cleared ? "#7DF9FF" : "#C2335A";
-        c.beginPath(); c.arc(t.x, t.y, Math.max(1.5, st.r * k), 0, Math.PI * 2); c.fill(); c.stroke();
+        if (st.r > 0) { c.beginPath(); c.arc(t.x, t.y, Math.max(1.5, st.r * k), 0, Math.PI * 2); c.fill(); c.stroke(); }
     }
     for (let i = 0; i < gfOrifices.length; i++) {
         const o = gfOrifices[i], w = gfOrificePos(o), p = P(w.x, w.y);

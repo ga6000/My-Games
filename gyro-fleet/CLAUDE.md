@@ -23,6 +23,12 @@ launched, and crews lead wings of expendable ships against the creature hives.
 - **Panel locks** use their own localStorage keys (`gyrofleet-locks-v1`), so they don't mix with an
   archived Gyro Lab opened from the same folder.
 
+- **A site's solidity lives in `st.r` alone.** Ship collision, shot bounces, bot push-out, the
+  site map and distance checks all read `st.r`. To take a site's body out of the world, make
+  `gfSiteBodyless(st)` (gf-crabs.js) true; the site loop then holds `st.r` at 0 and every check
+  follows. Never hide a body with a draw-only flag (see GAME_PROTOTYPE_INSTRUCTIONS.md §6,
+  "Removed means removed").
+
 ## The archive
 
 The real-scale Milky Way bench is archived, not deleted:
@@ -67,3 +73,4 @@ Launch from the hex bay, jump between 3 sites, crack breathing vents, harvest SI
 | 7 (2026-11-16) | same file | `gf-cine.js`: satellite-freed sequence (growth bursts, green lights, sight on the hive), the beam finale through both satellites, the hive bursts. Ry watched it and cut the swarm. |
 | 7b (2026-11-16) | same file | Set-piece sounds (servo, sight, charge, beam legs, slice, burst); the hive and the sights vanish on the burst and the game ends there (no swarm). **Not yet human-played.** |
 | 7c (2026-11-17) | same file | The dormant swarm code removed for good (`gfSwarm*`, the violet bar, the free-krill breath rule, the dead "flood" phase). No change in play. |
+| 7d (2026-11-18) | same file | Bug (Ry): a freed satellite's growth was invisible but still solid (ship, shots, bots bounced off it; still a dot on the site map). Root cause: pass 7 hid it with a draw-only `shed` flag while collisions read `st.r`. Fix: `gfSiteBodyless` zeroes `st.r` at the source. |

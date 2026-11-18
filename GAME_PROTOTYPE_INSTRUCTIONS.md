@@ -173,6 +173,13 @@ http(s) (GitHub Pages in production; a local static server for testing — plain
 - [ ] Linked from `index.html`'s game grid, if it's meant to be hub-visible
 - [ ] `node scripts/check-global-collisions.js` passes (once the game has more than one local script file)
 - [ ] Status recorded in `Game dev tracking.xlsx`
+- [ ] **Removed means removed.** When something leaves the world (killed, shed, burst, scrapped), find
+  every system that reads it (`grep` its fields: radius, position, `hp`, list membership), not only
+  the draw call. Remove it at the source (take it out of its list, or zero the one field every check
+  reads) rather than adding a "skip drawing" flag at each draw site. Then test the removal by
+  *touching* it: fly/walk/shoot into where it was, headless, and assert nothing collides, bounces or
+  shows on a map. (Gyro Fleet 2026-11-18: a freed satellite's growth stopped drawing but stayed solid,
+  because only the draw path checked the new `shed` flag.)
 
 ---
 

@@ -98,6 +98,7 @@ const gfRound = { phase: "fight", t: 0, ships: GF.ships, endMsg: "", endT: 0, ba
 function gfRand(a, b) { return a + Math.random() * (b - a); }
 function gfFrac(x) { return x - Math.floor(x); }
 function gfWrap01(d) { return d - Math.round(d); }   // shortest signed phase difference
+function gfSiteBodyless(st) { return !!(st.shed || st.gone); }   // nothing left to draw or touch
 function gfRoundOver() { return gfRound.phase === "won" || gfRound.phase === "lost"; }
 function gfBanner(msg, secs) { gfRound.banner = msg; gfRound.bannerT = secs || 2.5; }
 
@@ -317,7 +318,12 @@ function gfUpdate(dt) {
     for (let i = 0; i < gfSites.length; i++) {
         const st = gfSites[i];
         st.awake = Math.hypot(st.x - s.x, st.y - s.y) < 2500;
-        if (st.dead) { st.deadT += dt; st.r = st.r0; }
+        // The body's size is the ONE place a site's solidity lives: every
+        // collision, bounce, push-out and map dot reads st.r. Growth shed off a
+        // freed satellite (gf-cine.js) or a hive burst by the beam has no body,
+        // so it is 0 here and nothing anywhere can touch it.
+        if (gfSiteBodyless(st)) { st.r = 0; if (st.dead) st.deadT += dt; }
+        else if (st.dead) { st.deadT += dt; st.r = st.r0; }
         else if (st.awake) {
             st.p = gfFrac(st.p + dt / st.period);
             st.r = st.r0 * (1 + 0.03 * gfBreathSwell(st.p));
@@ -327,7 +333,7 @@ function gfUpdate(dt) {
             o.clamped = st.kind === "tide" && clamped;
             if (o.clamped) o.flash = Math.max(0, o.flash - dt); else gfUpdateOrifice(o, dt);
         }
-        if (s.isAlive && !st.gone) {
+        if (s.isAlive && st.r > 0) {
             const dx = s.x - st.x, dy = s.y - st.y, d = Math.hypot(dx, dy);
             if (d < st.r + 1) {
                 const ux = dx / (d || 1), uy = dy / (d || 1);
@@ -816,7 +822,7 @@ function gfUpdateBulletHits() {
             const st = gfSites[j];
             if (!st.awake) continue;
             const hh = gfSweep(b, st.x, st.y);
-            if (hh.d < st.r) { gfBounce(b, st.x, st.y, st.r, hh, true); done = true; }
+            if (st.r > 0 && hh.d < st.r) { gfBounce(b, st.x, st.y, st.r, hh, true); done = true; }
         }
         if (done) continue;
         for (let j = 0; j < gfCreatures.length; j++) {
