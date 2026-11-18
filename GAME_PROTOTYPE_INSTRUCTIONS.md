@@ -182,6 +182,12 @@ http(s) (GitHub Pages in production; a local static server for testing — plain
 - [ ] Linked from `index.html`'s game grid, if it's meant to be hub-visible
 - [ ] `node scripts/check-global-collisions.js` passes (once the game has more than one local script file)
 - [ ] Status recorded in `Game dev tracking.xlsx`
+- [ ] **Removed means removed.** When something leaves the world (killed, shed, burst, scrapped), find
+  every system that reads it (`grep` its fields: radius, position, `hp`, list membership), not only
+  the draw call: collisions, bounces, push-outs, maps and radar. A flag that only the draw code reads
+  does not remove anything. Then test the removal by *touching* it: headless, move the player and a
+  shot into where it was and check nothing collides, bounces or shows on a map. (Gyro Fleet
+  2026-11-18: a freed satellite's growth stopped drawing but stayed solid and stayed on the site map.)
 - [ ] On the hub board: reports a score through `shared/party.js` (`PARTY.live`, `PARTY.finish`), alone or in a room, so a Free Play run reaches the leaderboard (Ry, 2026-11-14)
 - [ ] Loads `shared/party.js`, which gives it the shared Esc menu (RESUME / BACK TO BOARD) when opened from the hub; the game binds nothing else to Esc there
 - [ ] Text names things and stops: no instructions a player would learn in ten seconds of play, no specifics on cards (`AESTHETIC_GUIDE.md`, "Hub text says less")
