@@ -275,7 +275,7 @@ function gfBotUpdate(b, k, dt) {
     // Sites are solid.
     for (let i = 0; i < gfSites.length; i++) {
         const st = gfSites[i], hx = b.x - st.x, hy = b.y - st.y, hd = Math.hypot(hx, hy);
-        if (hd < st.r + 1.5) { b.x = st.x + hx / (hd || 1) * (st.r + 1.5); b.y = st.y + hy / (hd || 1) * (st.r + 1.5); }
+        if (gfSiteSolid(st) && hd < st.r + 1.5) { b.x = st.x + hx / (hd || 1) * (st.r + 1.5); b.y = st.y + hy / (hd || 1) * (st.r + 1.5); }
     }
 
     // Face the target, else the way it is going; fire.

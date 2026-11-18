@@ -321,7 +321,7 @@ function gfCrewUpdate(dt) {
             const c = gfCreatures[j];
             if (c.hp > 0 && c.birthT <= 0 && Math.hypot(c.x - f.x, c.y - f.y) < c.b.r + 1.5) go = true;
         }
-        for (let j = 0; j < gfSites.length && !go; j++) if (Math.hypot(gfSites[j].x - f.x, gfSites[j].y - f.y) < gfSites[j].r + 1) go = true;
+        for (let j = 0; j < gfSites.length && !go; j++) if (gfSiteSolid(gfSites[j]) && Math.hypot(gfSites[j].x - f.x, gfSites[j].y - f.y) < gfSites[j].r + 1) go = true;
         if (go) { st.shells.splice(i, 1); gfCrewBurst(f.x, f.y, N.flakR * (f.weak ? 0.75 : 1), f.weak ? 1 : 2, 1, f.weak ? 1 : 3, GF_CREW.booke.col); }
     }
     // Sentries: fire only at what they can wound, like a wing on FOLLOW.

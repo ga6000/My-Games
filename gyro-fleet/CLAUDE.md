@@ -50,6 +50,10 @@ Gyro Fleet is the hub story's FINAL game. Space Tracer is scrapped; a second, sm
 
 Launch from the hex bay, jump between 3 sites, crack breathing vents, harvest SIPHON (the one currency; since 2026-11-15 a small leaking CAPACITOR, not a bank: spend it in seconds on a bot or a hull mend, or lose it). Site 3 is the enemy mothership (The Tide); after it falls every remaining enemy floods toward the main player character, and surviving that wins. "Auto" is not a class: it's a FOLLOW / AUTO wing order. Each class gets a distinct ship look. Pass order: flight -> one site (vents, wrecks, siphon) -> classes + wing orders + ship looks -> The Tide, the flood, round end, hub card.
 
+## Rules for changing the game
+
+- **Removing a thing from view also removes its body, in the same change.** A flag that only the draw code reads (`st.shed`, `st.gone`, a `return` early in a `gfDraw*`) does not make a thing go away. Its radius is still read by the ship push-out, bullet bounces, bot push-out, spines and flak. When something is meant to vanish, explode or be shed, also decide what happens to its collisions, and `grep` for every reader of its radius (`st.r` for sites) before calling it done. For sites, every collision check goes through `gfSiteSolid(st)` in `gf-crabs.js`; add a new check there rather than testing the flags inline. (Why: in pass 7 the freed satellite's growth stopped being drawn but kept its full solid radius, so you bounced off empty space round the satellite. Ry caught it 2026-11-18.)
+
 ## Pass log
 
 | Pass | Plan | State |
@@ -67,3 +71,4 @@ Launch from the hex bay, jump between 3 sites, crack breathing vents, harvest SI
 | 7 (2026-11-16) | same file | `gf-cine.js`: satellite-freed sequence (growth bursts, green lights, sight on the hive), the beam finale through both satellites, the hive bursts. Ry watched it and cut the swarm. |
 | 7b (2026-11-16) | same file | Set-piece sounds (servo, sight, charge, beam legs, slice, burst); the hive and the sights vanish on the burst and the game ends there (no swarm). **Not yet human-played.** |
 | 7c (2026-11-17) | same file | The dormant swarm code removed for good (`gfSwarm*`, the violet bar, the free-krill breath rule, the dead "flood" phase). No change in play. |
+| 7d (2026-11-18) | same file | Fix: a freed satellite's shed growth was still solid (ship, bots, bullets, spines and flak hit an invisible circle). All site collisions now go through `gfSiteSolid`. New rule above. |

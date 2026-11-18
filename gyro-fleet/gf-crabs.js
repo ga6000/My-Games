@@ -327,7 +327,7 @@ function gfUpdate(dt) {
             o.clamped = st.kind === "tide" && clamped;
             if (o.clamped) o.flash = Math.max(0, o.flash - dt); else gfUpdateOrifice(o, dt);
         }
-        if (s.isAlive && !st.gone) {
+        if (s.isAlive && gfSiteSolid(st)) {
             const dx = s.x - st.x, dy = s.y - st.y, d = Math.hypot(dx, dy);
             if (d < st.r + 1) {
                 const ux = dx / (d || 1), uy = dy / (d || 1);
@@ -373,6 +373,12 @@ function gfUpdate(dt) {
 }
 
 function gfOrificesLeft(site) { const L = site ? site.orifices : gfOrifices; let n = 0; for (let i = 0; i < L.length; i++) if (!L[i].sealed) n++; return n; }
+// Is this site still a solid body? Not once its flesh is gone from view: a
+// freed satellite after its growth bursts (st.shed) or The Tide after the
+// beam (st.gone). Every collision with a site goes through here, so what you
+// can't see is never something you can hit (2026-11-18 bug: the shed growth
+// stayed solid at its full radius).
+function gfSiteSolid(st) { return !st.shed && !st.gone; }
 function gfTideClamped() { for (let i = 0; i < gfSites.length; i++) if (gfSites[i].kind !== "tide" && !gfSites[i].cleared) return true; return false; }
 function gfSiteAlive(site) { let n = 0; for (let i = 0; i < gfCreatures.length; i++) if (gfCreatures[i].ori.site === site) n++; return n; }
 // The next place to go: the nearest-to-home satellite still held, else The Tide.
@@ -814,7 +820,7 @@ function gfUpdateBulletHits() {
         if (done) continue;
         for (let j = 0; j < gfSites.length && !done; j++) {
             const st = gfSites[j];
-            if (!st.awake) continue;
+            if (!st.awake || !gfSiteSolid(st)) continue;
             const hh = gfSweep(b, st.x, st.y);
             if (hh.d < st.r) { gfBounce(b, st.x, st.y, st.r, hh, true); done = true; }
         }
@@ -905,7 +911,7 @@ function gfUpdateSpines(dt, targets) {
         sp.t += dt;
         sp.x += sp.vx * dt; sp.y += sp.vy * dt;
         let gone = sp.t > GF_SPINE.life;
-        for (let j = 0; j < gfSites.length && !gone; j++) gone = Math.hypot(sp.x - gfSites[j].x, sp.y - gfSites[j].y) < gfSites[j].r;
+        for (let j = 0; j < gfSites.length && !gone; j++) gone = gfSiteSolid(gfSites[j]) && Math.hypot(sp.x - gfSites[j].x, sp.y - gfSites[j].y) < gfSites[j].r;
         for (let j = 0; j < targets.length && !gone; j++) {
             const s = targets[j];
             if (s.isAlive && Math.hypot(s.x - sp.x, s.y - sp.y) < 1.4) {
