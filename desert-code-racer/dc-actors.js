@@ -14,14 +14,19 @@
 // cactus), the rider gets up, runs back, picks the bike up and swings on.
 "use strict";
 
-// Class palettes (from shared/crew.js PAL; trimmed to what a bike shows).
+// Class palettes, matched to Ry's crew lineup sheet (2026-11-21,
+// /mnt/project-files/characters/crew-lineup-reference.png, CREW_LOOK.md):
+// Maren white coat + teal, Elodie blue overalls + orange hard hat, Soren
+// olive cloak + cyan goggles, Greer olive armour + orange bandana + dark
+// rifle, Bex maroon shirt under a cream apron + steel cleaver, Booke grey
+// power armour + orange visor + grey shield with orange stripes.
 const DC_CREW_LOOK = {
     medic:    { main: "#E8FFF4", trim: "#3FB8A0", gear: "#00E5FF" },
-    engineer: { main: "#4A6A8C", trim: "#FFB000", gear: "#B8C4C0" },
-    scout:    { main: "#3E6A3A", trim: "#00E5FF", gear: "#22302C" },
-    gunner:   { main: "#5E6A3A", trim: "#E86A1C", gear: "#D8C060" },
-    butcher:  { main: "#D8D0BC", trim: "#C8D0CC", gear: "#7A2A3A" },
-    bulwark:  { main: "#4A5A6A", trim: "#FFB000", gear: "#8FA89C" }
+    engineer: { main: "#3E64B0", trim: "#F59A1C", gear: "#B8C4C0" },
+    scout:    { main: "#55683A", trim: "#00D8FF", gear: "#22302C" },
+    gunner:   { main: "#5E6A3A", trim: "#E8641C", gear: "#8E969C" },
+    butcher:  { main: "#9A2E36", trim: "#C8D0CC", gear: "#E2D6BC" },
+    bulwark:  { main: "#747C86", trim: "#F08A1C", gear: "#9AA2AA" }
 };
 
 // ---------------------------------------------------
@@ -235,7 +240,9 @@ function dcDrawRiderOnBike(ctx, x, y, u, r, rot, lift) {
         dcLine(ctx, [0, -s * 0.8, 0, -s * 0.72], L.gear, 0, Math.max(1.2, s * 0.025));
         dcSolid(ctx, [s * 0.14, -s * 0.66, s * 0.22, -s * 0.66, s * 0.22, -s * 0.58, s * 0.14, -s * 0.58], L.trim, 0, lw);
     } else if (r.role === "engineer") {
-        // A wrench slung diagonally, a tool belt.
+        // Overall straps, a wrench slung diagonally, a tool belt.
+        dcLine(ctx, [-s * 0.08, -s * 0.88, -s * 0.06, -s * 0.63], "#22396A", 0, Math.max(1, s * 0.02));
+        dcLine(ctx, [s * 0.08, -s * 0.88, s * 0.06, -s * 0.63], "#22396A", 0, Math.max(1, s * 0.02));
         dcLine(ctx, [-s * 0.1, -s * 0.66, s * 0.1, -s * 0.86], L.gear, 0, Math.max(1.2, s * 0.025));
         dcLine(ctx, [s * 0.08, -s * 0.88, s * 0.12, -s * 0.84], L.gear, 0, Math.max(1.2, s * 0.035));
         dcLine(ctx, [-s * 0.16, -s * 0.63, s * 0.16, -s * 0.63], L.trim, 0, Math.max(1, s * 0.022));
@@ -244,15 +251,17 @@ function dcDrawRiderOnBike(ctx, x, y, u, r, rot, lift) {
         dcLine(ctx, [-s * 0.22, -s * 0.66, s * 0.22, -s * 0.9], L.gear, 0, Math.max(1.2, s * 0.028));
         dcLine(ctx, [-s * 0.06, -s * 0.74, -s * 0.03, -s * 0.69], L.gear, 0, Math.max(1, s * 0.02));
     } else if (r.role === "butcher") {
-        // Apron ties in a bow, the cleaver on the back.
+        // Apron neck strap and ties in a bow (cream over the maroon shirt), the cleaver on the back.
+        dcLine(ctx, [-s * 0.06, -s * 0.88, 0, -s * 0.8, s * 0.06, -s * 0.88], L.gear, 0, Math.max(1, s * 0.018));
         dcLine(ctx, [-s * 0.15, -s * 0.66, -s * 0.03, -s * 0.66, -s * 0.07, -s * 0.6], L.gear, 0, lw);
         dcLine(ctx, [s * 0.15, -s * 0.66, s * 0.03, -s * 0.66, s * 0.07, -s * 0.6], L.gear, 0, lw);
         dcSolid(ctx, [s * 0.02, -s * 0.72, s * 0.12, -s * 0.72, s * 0.12, -s * 0.84, s * 0.02, -s * 0.84], L.trim, 0, lw);
         dcLine(ctx, [s * 0.07, -s * 0.72, s * 0.07, -s * 0.66], L.gear, 0, lw);
     } else if (r.role === "bulwark") {
         // The shield on his back, nearly as tall as the torso.
-        dcSolid(ctx, [-s * 0.12, -s * 0.64, -s * 0.13, -s * 0.86, s * 0.13, -s * 0.86, s * 0.12, -s * 0.64, 0, -s * 0.58], L.trim, 3, Math.max(1.2, s * 0.022));
-        dcLine(ctx, [0, -s * 0.84, 0, -s * 0.62], L.trim, 0, lw);
+        dcSolid(ctx, [-s * 0.12, -s * 0.64, -s * 0.13, -s * 0.86, s * 0.13, -s * 0.86, s * 0.12, -s * 0.64, 0, -s * 0.58], L.gear, 3, Math.max(1.2, s * 0.022));
+        dcLine(ctx, [-s * 0.02, -s * 0.7, s * 0.09, -s * 0.8], L.trim, 0, Math.max(1.2, s * 0.028));
+        dcLine(ctx, [-s * 0.02, -s * 0.64, s * 0.1, -s * 0.74], L.trim, 0, Math.max(1.2, s * 0.028));
     } else if (r.role === "scout") {
         dcLine(ctx, [-s * 0.12, -s * 0.66, s * 0.12, -s * 0.66], L.trim, 0, lw);
     }

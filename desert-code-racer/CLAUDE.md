@@ -143,8 +143,8 @@ aftermath, card, loop, `GameInstance`.
 - Hand-steering through a 0.44-wide gap at 300 MPH; the beam lock window (0.75 s); whether the
   lash warning (1.15 s) and strafe lead (0.75 s) are fair reaction windows for a person.
 - Whether sustained 400 MPH plus two charges makes hardcore too easy.
-- Character art: drawn from the crew figures (`shared/crew.js` look), not a model sheet. Swap in
-  the agreed character sheet when one exists.
+- Character art: colours and signature items match Ry's crew lineup sheet (2026-11-21,
+  `/mnt/project-files/characters/`); whether they read at speed on a real screen.
 - Three or four riders; latency over the real server; host migration mid-run (beams in flight
   are lost; the case survives because every client holds its last state); a late joiner sees
   hazard states (popped mines, smashed barricades) as fresh.
