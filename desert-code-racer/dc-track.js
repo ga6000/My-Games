@@ -187,6 +187,11 @@ function dcBuildTrack() {
         }
         sg.scene.push({ kind: kind, x: x, h: 0.7 + r3 * 0.6 });
     }
+    // Heading: how far the road has turned by each segment (the projection
+    // adds `curve` to the lateral step every segment, so the slope of the road
+    // grows by curve / DC_SEG a segment). The far mountains are locked to it.
+    let hd = 0;
+    for (let k = 0; k < segs.length; k++) { segs[k].hd = hd; hd += segs[k].curve / DC_SEG; }
     return { segs: segs, legStart: legStart, cpSeg: cpSeg, finish: finish, features: features, kickers: kick, length: segs.length * DC_SEG };
 }
 
