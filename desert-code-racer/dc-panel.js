@@ -159,6 +159,31 @@ function dcDrawRoute() {
         ctx.strokeStyle = dc.leg > L ? DC_COL.cyan : DC_COL.mid;
         ctx.strokeRect(q.x - 4, q.y - 4, 8, 8);
     }
+    // Names on the map (Ry 2026-11-24): each stop labelled on the open side
+    // of the route, on a black plate so the ranges behind don't eat it.
+    // Passed stops go cyan, the next one amber, the rest dim.
+    const stops = [
+        { p: 0, name: "DOME BASE", leg: -1 },
+        { p: dcProgress(t.cpSeg[0] * DC_SEG), name: "ALPHA", leg: 0 },
+        { p: dcProgress(t.cpSeg[1] * DC_SEG), name: "BRAVO", leg: 1 },
+        { p: 1, name: "MOUNTAIN BASE", leg: 2 }
+    ];
+    ctx.font = "8px 'Press Start 2P', monospace";
+    ctx.textBaseline = "middle";
+    for (const st of stops) {
+        const q = dcRoutePoint(st.p, w, h);
+        const tw = ctx.measureText(st.name).width;
+        const right = q.x < w / 2;
+        let tx = right ? q.x + 12 : q.x - 12 - tw;
+        tx = dcClamp(tx, 3, w - tw - 3);
+        let ty = q.y;
+        if (st.leg === -1) ty = Math.min(h - 7, q.y + 2);
+        if (st.leg === 2) ty = Math.max(7, q.y + 16);
+        ctx.fillStyle = "#000";
+        ctx.fillRect(Math.round(tx) - 2, Math.round(ty) - 6, Math.ceil(tw) + 4, 12);
+        ctx.fillStyle = st.leg < dc.leg ? DC_COL.cyan : (st.leg === dc.leg ? DC_COL.amber : DC_COL.mid);
+        ctx.fillText(st.name, Math.round(tx), Math.round(ty) + 1);
+    }
     // Riders, then the case on top.
     for (const id in dc.riders) {
         const r = dc.riders[id];

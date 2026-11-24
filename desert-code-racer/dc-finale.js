@@ -16,8 +16,12 @@
 const DC_HOME_GRACE = 10;           // s for the stragglers once the codes are in
 const DC_HOME_BONUS = 1500;         // per rider who made it into the lab
 const DC_SLIDE_T = 1.5;
-const DC_TOSS_AT = 1.3, DC_TOSS_T = 0.75;
-const DC_FRIENDLY_SEG = 44;         // segs past the finish line: where the friendly stands
+// The toss waits for the slide to finish and the carrier to step off the bike
+// (Ry 2026-11-24: the toss "appears to be missing": it used to fly mid-slide,
+// from a seated rider, to a tech 20 segs away who was a few pixels tall).
+const DC_STEP_OFF = 0.25;           // s after the slide stops: the rider stands up beside the bike
+const DC_TOSS_AT = 2.0, DC_TOSS_T = 0.9;
+const DC_FRIENDLY_SEG = 30;         // segs past the finish line: the tech steps up to meet the riders
 
 // ---- every client: my own bike crossing the line ----
 function dcHomeUpdate(r, dt) {
@@ -86,7 +90,8 @@ function dcFinaleBuckets() {
     if (f && f.tossed && !f.caught) {
         const k = dcClamp((dc.simT - f.t - DC_TOSS_AT) / DC_TOSS_T, 0, 1);
         const c = dc.riders[f.by];
-        const z0 = c ? c.z : dc.track.finish * DC_SEG, x0 = c ? c.x : 0;
+        // From the carrier's hands: they stand beside the bike, on the far side from where it fell.
+        const z0 = c ? c.z : dc.track.finish * DC_SEG, x0 = c ? c.x + (c.slideDir || 1) * 0.085 : 0;
         const z = dcLerp(z0, zF, k);
         dcBucket(z, 7, dcDrawTossedCase, k, { z0: z0, x0: x0, zF: zF });
     }
@@ -94,10 +99,16 @@ function dcFinaleBuckets() {
 
 function dcDrawTossedCase(ctx, k, o) {
     const z = dcLerp(o.z0, o.zF, k), x = dcLerp(o.x0, 0, k);
-    const y = dcLerp(500, 1500, k) + Math.sin(Math.PI * k) * 2200;
+    const y = dcLerp(420, 520, k) + Math.sin(Math.PI * k) * 1400;
     const p = dcScreenAt(z, x, y);
     if (!p) return;
-    const u = p.s * dcVy, w = Math.max(4, 240 * u), h = Math.max(3, 150 * u);
+    const u = p.s * dcVy, w = Math.max(5, 300 * u), h = Math.max(4, 190 * u);
+    // A short amber trail, so the arc reads on a low-res screen.
+    for (let i = 1; i <= 3; i++) {
+        const kk = Math.max(0, k - i * 0.06);
+        const q = dcScreenAt(dcLerp(o.z0, o.zF, kk), dcLerp(o.x0, 0, kk), dcLerp(420, 520, kk) + Math.sin(Math.PI * kk) * 1400);
+        if (q) { ctx.fillStyle = dcShade(DC_COL.amber, 0.8 - i * 0.2); ctx.fillRect(Math.round(q.x) - 1, Math.round(q.y) - 1, 2, 2); }
+    }
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(k * 8);
     dcSolid(ctx, [-w / 2, h / 2, -w / 2, -h / 2, w / 2, -h / 2, w / 2, h / 2], DC_COL.amber, 4, 1.8);
     ctx.restore();
