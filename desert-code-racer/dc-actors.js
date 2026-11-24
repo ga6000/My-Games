@@ -1,33 +1,15 @@
 // ===================================================
 //   Desert Code Racer — riders, krill, beams, effects, HUD
 // ===================================================
-// The riders are the crew from shared/crew.js seen from behind on a bike:
-// each class keeps its silhouette marks (Maren's white coat and satchel,
-// Elodie's hard hat and wrench, Soren's hood and cape, Greer's bandana and
-// rifle, Bex's apron ties and cleaver, Booke's shield) in that class's
-// palette, with a solid black body under the strokes (Ry, pass 2: "more
-// solidity"). Identity colour rides on the fairing and the helmet stripe.
+// The riders are the crew as pixel sprites (dc-sprites.js, from Ry's crew
+// lineup sheet, 2026-11-23: "not vector drawn ... pixelized"), seen from
+// behind on a vector bike that carries the rider's identity colour.
 //
 // A crash plays out instead of blinking: the bike and the rider part the
 // way the crash happened (thrown over a wall, flipped by a crater, blown up
 // by a mine, swatted by a tendril, dragged off by krill, low-sided into a
 // cactus), the rider gets up, runs back, picks the bike up and swings on.
 "use strict";
-
-// Class palettes, matched to Ry's crew lineup sheet (2026-11-21,
-// /mnt/project-files/characters/crew-lineup-reference.png, CREW_LOOK.md):
-// Maren white coat + teal, Elodie blue overalls + orange hard hat, Soren
-// olive cloak + cyan goggles, Greer olive armour + orange bandana + dark
-// rifle, Bex maroon shirt under a cream apron + steel cleaver, Booke grey
-// power armour + orange visor + grey shield with orange stripes.
-const DC_CREW_LOOK = {
-    medic:    { main: "#E8FFF4", trim: "#3FB8A0", gear: "#00E5FF" },
-    engineer: { main: "#3E64B0", trim: "#F59A1C", gear: "#B8C4C0" },
-    scout:    { main: "#55683A", trim: "#00D8FF", gear: "#22302C" },
-    gunner:   { main: "#5E6A3A", trim: "#E8641C", gear: "#8E969C" },
-    butcher:  { main: "#9A2E36", trim: "#C8D0CC", gear: "#E2D6BC" },
-    bulwark:  { main: "#747C86", trim: "#F08A1C", gear: "#9AA2AA" }
-};
 
 // ---------------------------------------------------
 //   THE CRASH, AS A POSE OVER TIME
@@ -117,7 +99,7 @@ function dcDrawRider(ctx, r) {
         // Bike first (it is nearer the road), then the rider wherever they are.
         dcDrawBikeBody(ctx, bx, by - P.bikeY * u, u, r, P.bikeRot, P.bikeSpin, true);
         const q = dcScreenAt(r.z + P.rz, r.x + P.rx, P.ry);
-        if (q) dcDrawRiderFigure(ctx, q.x, q.y, q.s * dcVy, r, P.pose, P.rRot, P.t);
+        if (q && P.pose !== "lift" && P.pose !== "mount") dcDrawRiderFigure(ctx, q.x, q.y, q.s * dcVy, r, P.pose, P.rRot, P.t);
         if (!DC_REDUCED && P.t < 0.45 && Math.random() < 0.5) dcBloom(ctx, bx + (Math.random() - 0.5) * u * 300, by - Math.random() * u * 80, 1.2);
         if (P.pose === "lift" || P.pose === "mount") dcDrawRiderFigure(ctx, bx - (r.crashSide || 1) * u * 90, by, u, r, P.pose, 0, P.t);
     } else if (r.slide > 0) {
@@ -126,6 +108,7 @@ function dcDrawRider(ctx, r) {
         const rot = -(r.slideDir || 1) * 1.25 * Math.sin(Math.min(1, k * 1.6) * Math.PI / 2) * (k > 0.85 ? (1 - k) / 0.15 : 1);
         dcDrawBikeBody(ctx, bx, by, u, r, rot, 0, false);
         dcDrawRiderOnBike(ctx, bx, by, u, r, rot, 0);
+        dcDrawBikeTail(ctx, bx, by, u, r, rot, false);
         if (!DC_REDUCED && k < 0.8) for (let i = 0; i < 3; i++) dcBloom(ctx, bx - (r.slideDir || 1) * u * 200 + Math.random() * u * 60, by - Math.random() * u * 30, 1.3);
     } else {
         // Shadow under a jump.
@@ -134,6 +117,7 @@ function dcDrawRider(ctx, r) {
         const rot = r.lean * 0.32 + wob;
         dcDrawBikeBody(ctx, bx, by - lift, u, r, rot, 0, false);
         dcDrawRiderOnBike(ctx, bx, by - lift, u, r, rot, lift);
+        dcDrawBikeTail(ctx, bx, by - lift, u, r, rot, false);
         dcDrawStatus(ctx, bx, by - lift, u, r);
     }
     ctx.restore();
@@ -202,89 +186,39 @@ function dcDrawBikeBody(ctx, x, y, u, r, rot, spin, down) {
     ctx.restore();
 }
 
-// The rider in the saddle: legs on the pegs, back, arms to the bars, helmet,
-// and the class's marks.
+// The back of the bike again, over the rider's hips: from the chase camera the
+// tail cowl, the tyre and the light bar are the nearest things. The cowl
+// carries the rider's identity colour.
+function dcDrawBikeTail(ctx, x, y, u, r, rot, down) {
+    const s = u * 430;
+    if (s < 6) return;
+    const col = r.color, lw = Math.max(1, s * 0.018);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.beginPath(); ctx.ellipse(0, -s * 0.2, s * 0.075, s * 0.2, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#000"; ctx.fill();
+    ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = Math.max(1, s * 0.022); ctx.stroke();
+    const cowl = [-s * 0.15, -s * 0.3, -s * 0.11, -s * 0.46, s * 0.11, -s * 0.46, s * 0.15, -s * 0.3, s * 0.07, -s * 0.24, -s * 0.07, -s * 0.24];
+    dcSolid(ctx, cowl, col, Math.max(2, s * 0.05), Math.max(1.2, s * 0.02));
+    const brake = r.local && dcInput.brake && !down;
+    dcLine(ctx, [-s * 0.1, -s * 0.36, s * 0.1, -s * 0.36], DC_COL.magenta, brake ? Math.max(3, s * 0.05) : 0, Math.max(1, s * (brake ? 0.03 : 0.02)));
+    dcLine(ctx, [-s * 0.05, -s * 0.42, s * 0.05, -s * 0.42], col, 0, lw);
+    ctx.restore();
+}
+
+// The rider in the saddle, then any krill latched on.
 function dcDrawRiderOnBike(ctx, x, y, u, r, rot, lift) {
     const s = u * 430;
-    const L = DC_CREW_LOOK[r.role] || DC_CREW_LOOK.medic;
     const t = dc.simT;
-    const lw = Math.max(1, s * 0.016);
     const flap = DC_REDUCED ? 0.5 : 0.5 + 0.5 * Math.sin(t * 18 + (r.z % 7));
     const wind = dcClamp(r.v / DC_BOOST, 0, 1.2);
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rot);
-    // Legs: thigh down to the peg, boot.
-    for (let e = -1; e <= 1; e += 2) {
-        dcLine(ctx, [e * s * 0.13, -s * 0.6, e * s * 0.24, -s * 0.42, e * s * 0.2, -s * 0.28], L.main, 0, Math.max(1.2, s * 0.04));
-        dcLine(ctx, [e * s * 0.2, -s * 0.28, e * s * 0.26, -s * 0.27], DC_COL.dim, 0, Math.max(1.2, s * 0.03));
-    }
-    // Class marks that sit BEHIND the back (capes, coat tails, shields).
-    if (r.role === "scout") {
-        const fl = s * (0.12 + 0.18 * wind) * (0.8 + 0.4 * flap);
-        dcSolid(ctx, [-s * 0.15, -s * 0.9, -s * 0.24 - fl * 0.4, -s * 0.5 + fl * 0.6, s * 0.24 + fl * 0.4, -s * 0.5 + fl * 0.6, s * 0.15, -s * 0.9], L.main, 3, lw);
-    } else if (r.role === "medic") {
-        const fl = s * 0.06 * flap * (0.5 + wind);
-        dcSolid(ctx, [-s * 0.16, -s * 0.62, -s * 0.22 - fl, -s * 0.44, -s * 0.03, -s * 0.5, s * 0.03, -s * 0.5, s * 0.22 + fl, -s * 0.44, s * 0.16, -s * 0.62], L.main, 0, lw);
-    }
-    // Torso: hunched back, solid.
-    const torso = [-s * 0.16, -s * 0.6, -s * 0.12, -s * 0.88, s * 0.12, -s * 0.88, s * 0.16, -s * 0.6];
-    dcSolid(ctx, torso, L.main, Math.max(2, s * 0.04), Math.max(1.2, s * 0.02));
-    // Arms to the bars.
-    dcLine(ctx, [-s * 0.12, -s * 0.84, -s * 0.24, -s * 0.74, -s * 0.29, -s * 0.66], L.main, 0, Math.max(1.2, s * 0.032));
-    dcLine(ctx, [s * 0.12, -s * 0.84, s * 0.24, -s * 0.74, s * 0.29, -s * 0.66], L.main, 0, Math.max(1.2, s * 0.032));
-    // Class marks on the back.
-    if (r.role === "medic") {
-        // A cross between the shoulders, the satchel at the hip.
-        dcLine(ctx, [-s * 0.04, -s * 0.76, s * 0.04, -s * 0.76], L.gear, 0, Math.max(1.2, s * 0.025));
-        dcLine(ctx, [0, -s * 0.8, 0, -s * 0.72], L.gear, 0, Math.max(1.2, s * 0.025));
-        dcSolid(ctx, [s * 0.14, -s * 0.66, s * 0.22, -s * 0.66, s * 0.22, -s * 0.58, s * 0.14, -s * 0.58], L.trim, 0, lw);
-    } else if (r.role === "engineer") {
-        // Overall straps, a wrench slung diagonally, a tool belt.
-        dcLine(ctx, [-s * 0.08, -s * 0.88, -s * 0.06, -s * 0.63], "#22396A", 0, Math.max(1, s * 0.02));
-        dcLine(ctx, [s * 0.08, -s * 0.88, s * 0.06, -s * 0.63], "#22396A", 0, Math.max(1, s * 0.02));
-        dcLine(ctx, [-s * 0.1, -s * 0.66, s * 0.1, -s * 0.86], L.gear, 0, Math.max(1.2, s * 0.025));
-        dcLine(ctx, [s * 0.08, -s * 0.88, s * 0.12, -s * 0.84], L.gear, 0, Math.max(1.2, s * 0.035));
-        dcLine(ctx, [-s * 0.16, -s * 0.63, s * 0.16, -s * 0.63], L.trim, 0, Math.max(1, s * 0.022));
-    } else if (r.role === "gunner") {
-        // A rifle across the back.
-        dcLine(ctx, [-s * 0.22, -s * 0.66, s * 0.22, -s * 0.9], L.gear, 0, Math.max(1.2, s * 0.028));
-        dcLine(ctx, [-s * 0.06, -s * 0.74, -s * 0.03, -s * 0.69], L.gear, 0, Math.max(1, s * 0.02));
-    } else if (r.role === "butcher") {
-        // Apron neck strap and ties in a bow (cream over the maroon shirt), the cleaver on the back.
-        dcLine(ctx, [-s * 0.06, -s * 0.88, 0, -s * 0.8, s * 0.06, -s * 0.88], L.gear, 0, Math.max(1, s * 0.018));
-        dcLine(ctx, [-s * 0.15, -s * 0.66, -s * 0.03, -s * 0.66, -s * 0.07, -s * 0.6], L.gear, 0, lw);
-        dcLine(ctx, [s * 0.15, -s * 0.66, s * 0.03, -s * 0.66, s * 0.07, -s * 0.6], L.gear, 0, lw);
-        dcSolid(ctx, [s * 0.02, -s * 0.72, s * 0.12, -s * 0.72, s * 0.12, -s * 0.84, s * 0.02, -s * 0.84], L.trim, 0, lw);
-        dcLine(ctx, [s * 0.07, -s * 0.72, s * 0.07, -s * 0.66], L.gear, 0, lw);
-    } else if (r.role === "bulwark") {
-        // The shield on his back, nearly as tall as the torso.
-        dcSolid(ctx, [-s * 0.12, -s * 0.64, -s * 0.13, -s * 0.86, s * 0.13, -s * 0.86, s * 0.12, -s * 0.64, 0, -s * 0.58], L.gear, 3, Math.max(1.2, s * 0.022));
-        dcLine(ctx, [-s * 0.02, -s * 0.7, s * 0.09, -s * 0.8], L.trim, 0, Math.max(1.2, s * 0.028));
-        dcLine(ctx, [-s * 0.02, -s * 0.64, s * 0.1, -s * 0.74], L.trim, 0, Math.max(1.2, s * 0.028));
-    } else if (r.role === "scout") {
-        dcLine(ctx, [-s * 0.12, -s * 0.66, s * 0.12, -s * 0.66], L.trim, 0, lw);
-    }
-    // Helmet (or hood, or hard hat), with an identity-colour stripe.
-    const hy = -s * 0.98;
-    if (r.role === "scout") {
-        dcSolid(ctx, [-s * 0.095, hy + s * 0.08, -s * 0.09, hy - s * 0.04, 0, hy - s * 0.13, s * 0.09, hy - s * 0.04, s * 0.095, hy + s * 0.08], L.main, 0, Math.max(1.2, s * 0.02));
-    } else {
-        ctx.beginPath(); ctx.ellipse(0, hy, s * 0.09, s * 0.1, 0, 0, Math.PI * 2);
-        ctx.fillStyle = "#000"; ctx.fill();
-        ctx.strokeStyle = r.role === "medic" || r.role === "butcher" ? L.trim : L.main; ctx.lineWidth = Math.max(1.2, s * 0.022); ctx.stroke();
-        dcLine(ctx, [0, hy - s * 0.1, 0, hy + s * 0.08], r.color, 0, Math.max(1, s * 0.02));
-    }
-    if (r.role === "engineer") {
-        dcSolid(ctx, [-s * 0.13, hy - s * 0.02, -s * 0.09, hy - s * 0.12, s * 0.09, hy - s * 0.12, s * 0.13, hy - s * 0.02], L.trim, 0, Math.max(1.2, s * 0.022));
-    } else if (r.role === "gunner") {
-        // Bandana tails streaming back in the wind.
-        const tl = s * (0.08 + 0.14 * wind);
-        dcLine(ctx, [s * 0.05, hy + s * 0.02, s * 0.1 + tl * 0.5, hy + s * 0.04 + flap * s * 0.04, s * 0.12 + tl, hy + s * 0.02], L.trim, 0, Math.max(1.2, s * 0.025));
-        dcLine(ctx, [s * 0.05, hy + s * 0.04, s * 0.08 + tl * 0.5, hy + s * 0.09 - flap * s * 0.03, s * 0.1 + tl * 0.8, hy + s * 0.1], L.trim, 0, Math.max(1, s * 0.02));
-    } else if (r.role === "bulwark") {
-        dcLine(ctx, [-s * 0.09, hy + s * 0.01, s * 0.09, hy + s * 0.01], L.trim, 0, Math.max(1, s * 0.02));
-    }
+    // The rider is a pixel sprite from the crew lineup (dc-sprites.js), feet on
+    // the pegs; frame 1 is the wind flap (cape, coat tails, bandana).
+    dcDrawSprite(ctx, r.role, flap > 0.5 && wind > 0.4 ? "ride1" : "ride0", 0, -s * 0.26, s * DC_PX_RIDE);
     // Latched krill: clinging to the back and arms, tendrils wrapped round,
     // squeezing in time with a countdown (Ry, pass 2: "clarity on what the
     // air crabs are doing").
@@ -308,42 +242,23 @@ function dcDrawRiderOnBike(ctx, x, y, u, r, rot, lift) {
 }
 
 // A rider off the bike: tumbling, sliding, lying, getting up, running back,
-// lifting the bike, swinging on. Stick figure with a solid torso.
+// lifting the bike, swinging on. Pixel sprites seen from the front (they run
+// back toward the camera and the bike).
 function dcDrawRiderFigure(ctx, x, y, u, r, pose, rot, t) {
     const s = u * 430;
     if (s < 2) return;
-    const L = DC_CREW_LOOK[r.role] || DC_CREW_LOOK.medic;
-    const lw = Math.max(1.2, s * 0.03);
-    const run = DC_REDUCED ? 0 : Math.sin(dc.simT * 18);
+    let frame = "stand";
+    if (pose === "tumble" || pose === "slide") frame = "flail";
+    else if (pose === "run") frame = DC_REDUCED || Math.sin(dc.simT * 18) > 0 ? "runA" : "runB";
+    else if (pose === "lift") frame = "reach";
     ctx.save();
     ctx.translate(x, y);
-    let lie = 0;
-    if (pose === "tumble" || pose === "slide") ctx.rotate(rot);
-    if (pose === "rise") { lie = Math.abs(Math.sin(rot)); ctx.rotate(rot); }
-    const legA = pose === "run" ? run * 0.5 : (pose === "tumble" ? 0.7 : 0.15);
-    const hip = -s * 0.45, sh = -s * 0.85;
-    // Legs.
-    dcLine(ctx, [0, hip, -s * 0.12 - legA * s * 0.15, -s * 0.22, -s * 0.12 + legA * s * 0.2, 0], L.main, 0, lw);
-    dcLine(ctx, [0, hip, s * 0.12 + legA * s * 0.15, -s * 0.22, s * 0.12 - legA * s * 0.2, 0], L.main, 0, lw);
-    // Torso.
-    dcSolid(ctx, [-s * 0.13, hip, -s * 0.11, sh, s * 0.11, sh, s * 0.13, hip], L.main, 0, Math.max(1.2, s * 0.022));
-    // Arms: flailing, pumping, or reaching down for the bars.
-    const armUp = pose === "tumble" ? 1 : 0;
-    if (pose === "lift") {
-        dcLine(ctx, [-s * 0.11, sh + s * 0.05, -s * 0.22, -s * 0.5], L.main, 0, lw);
-        dcLine(ctx, [s * 0.11, sh + s * 0.05, s * 0.22, -s * 0.5], L.main, 0, lw);
-    } else {
-        dcLine(ctx, [-s * 0.11, sh + s * 0.05, -s * 0.25, sh - armUp * s * 0.2 + run * s * 0.1, -s * 0.3, sh - armUp * s * 0.35], L.main, 0, lw);
-        dcLine(ctx, [s * 0.11, sh + s * 0.05, s * 0.25, sh - armUp * s * 0.2 - run * s * 0.1, s * 0.3, sh - armUp * s * 0.35], L.main, 0, lw);
-    }
-    // Head.
-    ctx.beginPath(); ctx.ellipse(0, sh - s * 0.12, s * 0.09, s * 0.1, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "#000"; ctx.fill(); ctx.strokeStyle = L.trim; ctx.lineWidth = Math.max(1.2, s * 0.022); ctx.stroke();
-    dcLine(ctx, [0, sh - s * 0.22, 0, sh - s * 0.02], r.color, 0, Math.max(1, s * 0.02));
+    if (pose === "tumble" || pose === "slide" || pose === "rise") ctx.rotate(rot);
+    dcDrawSprite(ctx, r.role, frame, 0, 0, s * DC_PX_RIDE);
     ctx.restore();
     // Little impact stars while tumbling.
     if (pose === "tumble" && !DC_REDUCED && Math.random() < 0.15) dcBloom(ctx, x + (Math.random() - 0.5) * s * 0.4, y - Math.random() * s * 0.6, 1);
-    void lie; void t;
+    void t;
 }
 
 // Shields, patches, the remount blink.

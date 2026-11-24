@@ -46,6 +46,15 @@ homing beams down the road. Right before Cliff Run in the chronology.
   crash. Jump to shake two off.
 - **Crashes (pass 2):** context poses (thrown over the bars, laid down sideways, blown up),
   then the rider walks back, picks up the bike and remounts.
+- **The crew are pixel art (Ry, 2026-11-23):** "not vector drawn ... pixelized to more closely
+  resemble the pixel characters on the lineup reference", sized to the lineup. `dc-sprites.js`
+  paints each crew member (and the lab tech) once at load into small canvases: seated from behind
+  (two wind-flap frames) and standing/running/reaching/flailing from the front for the crash and
+  remount. Heights follow the lineup (Greer 1, Maren 0.95, Elodie 0.94, Soren 0.97, Bex 0.96,
+  Booke 1.04 and half again as broad), one art pixel = 0.0178 s for everyone. The bikes stay
+  vector; the bike's tail cowl is drawn again over the rider's hips and carries the identity colour.
+  **Dated deviation (2026-11-23):** a VECTOR cabinet calls for stroked, unfilled geometry; the
+  pixel crew is Ry's call over that rule (`AESTHETIC_GUIDE.md` has no §6 entry for this game yet).
 
 ## Controls (keyboard and mouse only)
 A/D or ←/→ steer · W/↑ boost · S/↓ brake · Space jump · E, Shift or left click: ability · M sound.
@@ -107,7 +116,7 @@ beams, krill, grabs, crashes, points).
 ## Files (classic scripts, `"use strict"`, every top-level name `dc*` / `DC_*`)
 `dc-core` constants, tuning, timers, state · `dc-font` stroke font · `dc-track` road and set
 pieces · `dc-audio` every SFX + the music hook · `dc-rider` input, bike physics, collisions ·
-`dc-crew` abilities and the matrix · `dc-hazards` beams, krill, the case (host) · `dc-attacks`
+`dc-crew` abilities and the matrix · `dc-sprites` the pixel crew · `dc-hazards` beams, krill, the case (host) · `dc-attacks`
 lash, strafe, Gunner seekers · `dc-finale` the slide, toss and HOME · `dc-net` the
 event bus and MP · `dc-fx` bursts, banners, toasts · `dc-render` the road, scenery, tunnels, lab · `dc-actors`
 riders, crash poses, krill, beams, HUD · `dc-panel`
@@ -143,8 +152,8 @@ aftermath, card, loop, `GameInstance`.
 - Hand-steering through a 0.44-wide gap at 300 MPH; the beam lock window (0.75 s); whether the
   lash warning (1.15 s) and strafe lead (0.75 s) are fair reaction windows for a person.
 - Whether sustained 400 MPH plus two charges makes hardcore too easy.
-- Character art: colours and signature items match Ry's crew lineup sheet (2026-11-21,
-  `/mnt/project-files/characters/`); whether they read at speed on a real screen.
+- Pixel crew: whether they read at speed and at a distance on a real screen, and whether the
+  pixel figures sit right next to the vector world (the cabinet deviation above).
 - Three or four riders; latency over the real server; host migration mid-run (beams in flight
   are lost; the case survives because every client holds its last state); a late joiner sees
   hazard states (popped mines, smashed barricades) as fresh.
