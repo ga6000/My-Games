@@ -51,10 +51,30 @@ homing beams down the road. Right before Cliff Run in the chronology.
   paints each crew member (and the lab tech) once at load into small canvases: seated from behind
   (two wind-flap frames) and standing/running/reaching/flailing from the front for the crash and
   remount. Heights follow the lineup (Greer 1, Maren 0.95, Elodie 0.94, Soren 0.97, Bex 0.96,
-  Booke 1.04 and half again as broad), one art pixel = 0.0178 s for everyone. The bikes stay
-  vector; the bike's tail cowl is drawn again over the rider's hips and carries the identity colour.
-  **Dated deviation (2026-11-23):** a VECTOR cabinet calls for stroked, unfilled geometry; the
-  pixel crew is Ry's call over that rule (`AESTHETIC_GUIDE.md` has no §6 entry for this game yet).
+  Booke 1.04 and half again as broad), one art pixel = 0.0178 s for everyone. The bike's tail
+  cowl is drawn again over the rider's hips and carries the identity colour.
+
+## Cabinet: RASTER (reassigned from VECTOR, Ry 2026-11-23; night desert)
+Ry: "transitioning to a raster cabinet would be strongly preferred", then chose the night sky.
+Done as a package (`AESTHETIC_GUIDE.md` §6.8 "a reassignment is a package, not a switch"):
+- **The canvas is the virtual screen** (`dcResize`): about `DC_VROWS` = 216 rows, width from the
+  window, CSS-scaled by an integer `dcPixel` with `image-rendering: pixelated`. Every coordinate
+  in the draw code is a fat pixel, so nothing needs a separate snap. At 640 px tall that is 3 CSS
+  px a pixel, which makes one crew art pixel one screen pixel up close.
+- **Scanlines on** (`#dcScan.retro-scanlines`, gated on `data-cabinet="raster"`); no phosphor
+  persistence, no beam overdraw (`dcLine`'s `wide` is ignored), no vertex bloom (`dcBloom` is a
+  no-op).
+- **Flat fills** (`dcSolid`: a dark shade of the colour plus a one-pixel lit edge).
+- **The road** (Pole Position anchor): `dcDrawRoadSeg` fills sand, rumble strips, asphalt and the
+  centre dash per segment in 3-segment bands (`DC_RAS`); distance darkens in three flat steps
+  (`dcFog`). Tunnel lamps light the asphalt one flat step brighter; valley walls and tunnel rock are
+  filled. Sky: black with four flat bands of the world hue over the horizon, filled ridgelines.
+- **Text** is Press Start 2P at 8 or 16 px (`dc-font.js`'s `dcText`); in-world text too small for
+  8 px is not drawn. The stroke glyph table is kept but unused.
+- **Not done in this pass:** the colour count is well over §1's "≤4 on screen" (the crew sprites,
+  the road bands), the same way the other raster cards already run; the krill, beams and FX are
+  still one-pixel line art on the grid rather than sprites; the cabinet panel's minimap is still
+  line art.
 
 ## Controls (keyboard and mouse only)
 A/D or ←/→ steer · W/↑ boost · S/↓ brake · Space jump · E, Shift or left click: ability · M sound.
@@ -114,7 +134,7 @@ beams, krill, grabs, crashes, points).
   then the hub's stored pick (`gamehub_role`), then a deal by name (offline only).
 
 ## Files (classic scripts, `"use strict"`, every top-level name `dc*` / `DC_*`)
-`dc-core` constants, tuning, timers, state · `dc-font` stroke font · `dc-track` road and set
+`dc-core` constants, tuning, timers, state · `dc-font` text (Press Start 2P) · `dc-track` road and set
 pieces · `dc-audio` every SFX + the music hook · `dc-rider` input, bike physics, collisions ·
 `dc-crew` abilities and the matrix · `dc-sprites` the pixel crew · `dc-hazards` beams, krill, the case (host) · `dc-attacks`
 lash, strafe, Gunner seekers · `dc-finale` the slide, toss and HOME · `dc-net` the
@@ -152,8 +172,8 @@ aftermath, card, loop, `GameInstance`.
 - Hand-steering through a 0.44-wide gap at 300 MPH; the beam lock window (0.75 s); whether the
   lash warning (1.15 s) and strafe lead (0.75 s) are fair reaction windows for a person.
 - Whether sustained 400 MPH plus two charges makes hardcore too easy.
-- Pixel crew: whether they read at speed and at a distance on a real screen, and whether the
-  pixel figures sit right next to the vector world (the cabinet deviation above).
+- The raster look by eye on a real screen (scanline beat at other window sizes, readability of
+  8 px text, whether the road bands are too busy at 400 MPH).
 - Three or four riders; latency over the real server; host migration mid-run (beams in flight
   are lost; the case survives because every client holds its last state); a late joiner sees
   hazard states (popped mines, smashed barricades) as fresh.

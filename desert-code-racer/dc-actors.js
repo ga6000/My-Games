@@ -123,7 +123,7 @@ function dcDrawRider(ctx, r) {
     ctx.restore();
     if (!r.local && u > 0.004 && !r.home) {
         const a = DC_ABILITY[r.role];
-        dcText(ctx, a ? a.crew : r.name, bx, by - 560 * u - lift - 12, Math.max(6, Math.min(12, u * 900)), r.color, "center");
+        dcText(ctx, a ? a.crew : r.name, bx, by - 560 * u - lift - 10, u * 430 > 20 ? 8 : 0, r.color, "center");
     }
 }
 
@@ -497,56 +497,57 @@ function dcDrawFxAt(ctx, f, k) {
 // ---------------------------------------------------
 //   HUD: the driving cluster, bottom left (speed, jump, ability charges)
 // ---------------------------------------------------
+// The HUD on the raster screen: Press Start 2P at 16 and 8 px, flat bars.
 function dcDrawHud(ctx) {
     const r = dc.me;
     if (!r || dc.mode === "result") return;
-    const big = Math.max(16, Math.min(34, dcH * 0.045));
-    const x = Math.max(16, dcW * 0.03), y = dcH - big * 3.4;
+    const big = 8;
+    const x = 6, y = dcH - 42;
     const mph = Math.round(r.v * DC_MPH);
     dcText(ctx, mph + " MPH", x, y, big, DC_COL.hot, "left");
-    const bw = Math.max(120, big * 5.2), by = y + big * 1.35;
+    const bw = 96, by = y + 10, bh = 4;
     // Speed bar: cruise mark, boost zone.
-    const bh = Math.max(7, big * 0.26);
-    ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1.2; ctx.strokeRect(x, by, bw, bh);
+    ctx.fillStyle = "#000"; ctx.fillRect(x, by, bw, bh);
+    ctx.fillStyle = DC_COL.dim; ctx.fillRect(x, by, bw, 1); ctx.fillRect(x, by + bh - 1, bw, 1); ctx.fillRect(x, by, 1, bh); ctx.fillRect(x + bw - 1, by, 1, bh);
     const sp = dcClamp(r.v / DC_BOOST, 0, 1);
     ctx.fillStyle = r.boosting ? DC_COL.amber : DC_COL.hot;
-    ctx.fillRect(x + 2, by + 2, (bw - 4) * sp, bh - 4);
-    const cm = x + 2 + (bw - 4) * (DC_CRUISE / DC_BOOST);
-    dcLine(ctx, [cm, by - 3, cm, by + bh + 3], DC_COL.cyan, 0, 1.2);
+    ctx.fillRect(x + 1, by + 1, Math.round((bw - 2) * sp), bh - 2);
+    const cm = Math.round(x + 1 + (bw - 2) * (DC_CRUISE / DC_BOOST));
+    ctx.fillStyle = DC_COL.cyan; ctx.fillRect(cm, by - 2, 1, bh + 4);
     // Ability: name and its charges.
     const a = DC_ABILITY[r.role];
     if (a) {
-        const ay = by + bh + big * 0.45, sz = Math.max(9, big * 0.42);
+        const ay = by + bh + 4, sz = 8;
         dcText(ctx, a.name, x, ay, sz, r.ch > 0 ? r.color : DC_COL.dim, "left");
-        const tw = dcTextWidth(a.name, sz) + sz;
-        const cw = (bw - tw - 6) / DC_CHARGES;
+        const tw = dcTextWidth(a.name, sz) + 4;
+        const cw = Math.floor((bw - tw - 3) / DC_CHARGES);
         for (let i = 0; i < DC_CHARGES; i++) {
-            const cx = x + tw + i * (cw + 6);
-            ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1.2; ctx.strokeRect(cx, ay + 1, cw, sz - 2);
-            let frac = i < r.ch ? 1 : (i === r.ch ? 1 - r.cd / dcAbilityCd(r) : 0);
+            const cx = x + tw + i * (cw + 3);
+            ctx.fillStyle = DC_COL.dim; ctx.fillRect(cx, ay, cw, sz);
+            ctx.fillStyle = "#000"; ctx.fillRect(cx + 1, ay + 1, cw - 2, sz - 2);
+            const frac = i < r.ch ? 1 : (i === r.ch ? 1 - r.cd / dcAbilityCd(r) : 0);
             ctx.fillStyle = i < r.ch ? r.color : DC_COL.mid;
-            ctx.fillRect(cx + 2, ay + 3, Math.max(0, (cw - 4) * dcClamp(frac, 0, 1)), sz - 6);
+            ctx.fillRect(cx + 1, ay + 1, Math.round(Math.max(0, (cw - 2) * dcClamp(frac, 0, 1))), sz - 2);
         }
         // Jump readiness: a small JUMP lamp.
-        const jy = ay + sz * 1.5;
-        dcText(ctx, "JUMP", x, jy, sz * 0.8, r.jcd <= 0 && r.air <= 0 ? DC_COL.hot : DC_COL.dim, "left");
+        dcText(ctx, "JUMP", x, ay + sz + 3, 8, r.jcd <= 0 && r.air <= 0 ? DC_COL.hot : DC_COL.dim, "left");
     }
     // Latched krill: what they are doing and what to do about it.
     if (r.krill > 0 && r.down <= 0) {
         const g = dcGripOf(r);
         const p = dcBikeScreen();
         const label = dcCarrying(r) ? "KRILL TAKING THE CODES" : "KRILL DRAGGING YOU DOWN";
-        dcText(ctx, label, dcW / 2, dcH * 0.36, Math.max(10, big * 0.55), DC_COL.magenta, "center");
+        dcText(ctx, label, dcW / 2, Math.round(dcH * 0.36), 8, DC_COL.magenta, "center");
         const blink = DC_REDUCED || Math.floor(dc.simT * (g > 0.6 ? 10 : 5)) % 2 === 0;
-        if (blink) dcText(ctx, "JUMP TO SHAKE THEM", dcW / 2, dcH * 0.36 + big * 0.9, Math.max(9, big * 0.45), DC_COL.hot, "center");
+        if (blink) dcText(ctx, "JUMP TO SHAKE THEM", dcW / 2, Math.round(dcH * 0.36) + 11, 8, DC_COL.hot, "center");
         if (p) {
-            const R = Math.max(30, dcH * 0.09);
+            const R = Math.max(14, Math.round(dcH * 0.09));
             ctx.beginPath(); ctx.arc(p.x, p.y - R * 0.9, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - g));
-            ctx.strokeStyle = DC_COL.magenta; ctx.lineWidth = 3; ctx.stroke();
+            ctx.strokeStyle = DC_COL.magenta; ctx.lineWidth = 2; ctx.stroke();
             ctx.globalAlpha = 0.3; ctx.beginPath(); ctx.arc(p.x, p.y - R * 0.9, R, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = 1;
         }
     }
-    if (r.down > 0) dcText(ctx, "DOWN", dcW / 2, dcH * 0.62, Math.max(14, big * 0.8), DC_COL.magenta, "center");
+    if (r.down > 0) dcText(ctx, "DOWN", dcW / 2, Math.round(dcH * 0.62), 16, DC_COL.magenta, "center");
     dcDrawFinaleHud(ctx, big);
 }
 
@@ -556,11 +557,10 @@ function dcDrawTexts(ctx) {
         const k = t.t / t.life;
         const a = k > 0.75 ? (1 - k) * 4 : 1;
         if (t.kind === "banner") {
-            const size = Math.max(14, Math.min(34, dcW * 0.032));
-            dcText(ctx, t.s, dcW / 2, dcH * 0.27, size, t.col, "center", a);
+            dcText(ctx, t.s, dcW / 2, Math.round(dcH * 0.27), t.s.length * 16 < dcW * 0.7 ? 16 : 8, t.col, "center", a);
         } else {
             const p = dcScreenAt(t.z, t.x, 900 + k * 900);
-            if (p) dcText(ctx, t.s, p.x, p.y, Math.max(7, Math.min(16, p.w * 0.08)), t.col, "center", a);
+            if (p) dcText(ctx, t.s, p.x, p.y, 8, t.col, "center", a);
         }
     }
 }

@@ -126,7 +126,7 @@ function dcDrawFinaleHud(ctx, big) {
     const r = dc.me;
     if (!r || dc.mode !== "play") return;
     const f = dc.finale;
-    const sz = Math.max(10, big * 0.5);
+    const sz = 8; void big;
     if (f && !r.home) {
         const left = Math.max(0, Math.ceil(DC_HOME_GRACE + 2 - (dc.simT - f.t)));
         dcText(ctx, "CODES ARE IN  GET TO THE LAB  " + left, dcW / 2, dcH * 0.2, sz, DC_COL.amber, "center");
