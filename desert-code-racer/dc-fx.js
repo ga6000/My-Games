@@ -121,7 +121,9 @@ function dcToastAtMe(pts, label) {
     if (!c) return;
     const rect = c.getBoundingClientRect();
     const p = dcBikeScreen();
-    const x = rect.left + (p ? p.x : rect.width / 2) + (Math.random() - 0.5) * 50;
-    const y = rect.top + (p ? p.y : rect.height * 0.8) - 70;
+    // The canvas is the low-res virtual screen, CSS-scaled: map its pixels to the page's.
+    const sx = rect.width / Math.max(1, dcW), sy = rect.height / Math.max(1, dcH);
+    const x = rect.left + (p ? p.x * sx : rect.width / 2) + (Math.random() - 0.5) * 50;
+    const y = rect.top + (p ? p.y * sy : rect.height * 0.8) - 70;
     HUBSCORE.toast(x, y, pts, { color: dc.me.color, text: label ? label + "  " + HUBSCORE.format(pts) : undefined, big: pts >= 1000 });
 }
