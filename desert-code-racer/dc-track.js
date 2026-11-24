@@ -126,13 +126,30 @@ function dcBuildTrack() {
     const hr = dcMulberry(dcSeed() ^ 0x4111);
     let h = 0, i = 0;
     const base = new Array(segs.length).fill(0);
+    // Ry 2026-11-24: the drops and rises are "among the best part", so the
+    // rolling hills are steeper and closer together than pass 2's.
     while (i < segs.length) {
-        const len = 90 + Math.floor(hr() * 150);
-        const to = dcClamp(h + (hr() - 0.5) * 3600, -1400, 2200);
+        const len = 70 + Math.floor(hr() * 120);
+        const to = dcClamp(h + (hr() - 0.5) * 4600, -1900, 2800);
         for (let k = 0; k < len && i < segs.length; k++, i++) base[i] = dcLerp(h, to, dcEase(k / len));
         h = to;
     }
     for (let k = 0; k < DC_START_SEGS + 30; k++) base[k] = base[DC_START_SEGS + 30] * dcEase(k / (DC_START_SEGS + 30));
+    // KICKERS: short sharp crests (a quick rise, a longer fall) that throw a
+    // fast bike into the air (dc-rider.js dcCrestUpdate). Out in the open
+    // only: not in valleys, tunnels, the lab run or the start.
+    const kick = [];
+    const lastK = segs.length - DC_FINALE_SEGS - DC_END_SEGS - 120;
+    for (let k = DC_START_SEGS + 140; k < lastK; k += 150 + Math.floor(hr() * 170)) {
+        const up = 14 + Math.floor(hr() * 8), down = 36 + Math.floor(hr() * 18);
+        let ok = true;
+        for (let j = k - 25; j < k + up + down + 25; j++) { const z = segs[j] && segs[j].zone; if (z === "valley" || z === "tunnel" || z === "lab") { ok = false; break; } }
+        if (!ok) continue;
+        const H = 800 + hr() * 700;
+        for (let j = 0; j < up; j++) base[k + j] += H * dcEase(j / up);
+        for (let j = 0; j < down; j++) base[k + up + j] += H * (1 - dcEase(j / down));
+        kick.push(k + up);
+    }
     for (let k = 0; k < segs.length; k++) {
         const sg = segs[k];
         sg.y = base[k] - 2600 * (sg.zone === "valley" ? Math.max(0.0001, sg.dark) : 0);
@@ -170,7 +187,7 @@ function dcBuildTrack() {
         }
         sg.scene.push({ kind: kind, x: x, h: 0.7 + r3 * 0.6 });
     }
-    return { segs: segs, legStart: legStart, cpSeg: cpSeg, finish: finish, features: features, length: segs.length * DC_SEG };
+    return { segs: segs, legStart: legStart, cpSeg: cpSeg, finish: finish, features: features, kickers: kick, length: segs.length * DC_SEG };
 }
 
 // ---------------------------------------------------

@@ -102,6 +102,10 @@ Transcribed from Ry's older notebook. Fit, conflicts and proposed standards rewr
 - 2026-11-18 · desert-code-racer · Strafe leads its target (aims where you'll be on a curve, not where you were)
 - 2026-11-18 · desert-code-racer · Lab finale camera: a short cut to a fixed lab view for the toss, then back
 - 2026-11-18 · desert-code-racer · Swap the rider art for the agreed character sheet once one exists (one model sheet per crew member)
+- 2026-11-24 · desert-code-racer · Blind crests: hazards sat just over the tops more often, read by braking or a Scout scan (the card's option B)
+- 2026-11-24 · desert-code-racer · Tide beams lose their lock when a crest hides you
+- 2026-11-24 · desert-code-racer · A dip that hides a pad or chips at the bottom; a stacked "roller" of quick bumps; one big cliff drop per leg as a set piece
+- 2026-11-24 · desert-code-racer · Real 3D (three.js, vendored): same chase view with voxel crew built from the pixel sprites, rendered at 216 rows to stay raster. Ry asked the size; about 40% of the code
 
 ## Promoted / dropped
 

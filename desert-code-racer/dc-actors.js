@@ -93,7 +93,10 @@ function dcDrawRider(ctx, r) {
     const bx = p0.x, by = p0.y, u = p0.s * dcVy, clip = p0.clip;
     if (u * 430 < 1.2) return;
     dcClipBegin(ctx, clip);
-    const lift = r.air > 0 && r.airMax > 0 ? dcJumpLift(r) * 520 * u : 0;
+    // A crest flight is a real height over the road below (dcCrestUpdate);
+    // a plain jump is the quick hop curve.
+    const flyH = r.local ? (r.fly ? r.fy - dcRoadY(r.z) : 0) : (r.flyH || 0);
+    const lift = flyH > 0 ? Math.min(1600, flyH) * u : (r.air > 0 && r.airMax > 0 ? dcJumpLift(r) * 520 * u : 0);
     if (r.down > 0) {
         const P = dcCrashPose(r);
         // Bike first (it is nearer the road), then the rider wherever they are.
@@ -137,7 +140,13 @@ function dcDrawRider(ctx, r) {
         }
     } else {
         // Shadow under a jump.
-        if (lift > 0) { ctx.beginPath(); ctx.ellipse(bx, by, u * 120, u * 22, 0, 0, Math.PI * 2); ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1; ctx.stroke(); }
+        // A flat dark shadow on the road, smaller the higher the bike: the
+        // height reads from it on a low-res screen.
+        if (lift > 0) {
+            const k = 1 / (1 + lift / (u * 2500));
+            ctx.beginPath(); ctx.ellipse(Math.round(bx), Math.round(by), Math.max(3, u * 170 * k), Math.max(1, u * 34 * k), 0, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fill();
+        }
         const wob = r.stumble > 0 ? Math.sin(dc.simT * 40) * 0.12 : 0;
         const rot = r.lean * 0.32 + wob;
         dcDrawBikeBody(ctx, bx, by - lift, u, r, rot, 0, false);

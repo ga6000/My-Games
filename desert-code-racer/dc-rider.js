@@ -23,7 +23,7 @@ function dcNewRider(id, name, color, role, local) {
 function dcResetRider(r, z, x) {
     r.z = z; r.x = x || 0; r.v = 0; r.lean = 0; r.air = 0; r.jcd = 0; r.ch = DC_CHARGES; r.down = 0; r.inv = 0;
     r.stumble = 0; r.patchedUntil = -1; r.krill = 0; r.cd = 0; r.pts = 0; r.carryAcc = 0;
-    r.grabWait = 0; r.passed = {};
+    r.grabWait = 0; r.passed = {}; r.fly = false; r.flyH = 0;
     r.home = 0; r.slide = 0; r.chips = 0; r.scrape = 0; r.crashKind = ""; r.downMax = 0;
     r.contrib = { carry: 0, solves: 0, revives: 0, beams: 0, krill: 0, grabs: 0, crashes: 0 };
 }
@@ -165,10 +165,12 @@ function dcRiderUpdate(r, inp, dt) {
     // Jump: instant, short, on its own quick cooldown; shakes off latched krill.
     if (inp.jump && r.air <= 0 && r.jcd <= 0) {
         r.jcd = DC_TUNE.jumpCd;
-        dcLaunch(r, DC_TUNE.airT, false);
+        // Pop the lip of a crest and the jump becomes a flight (dcFly).
+        if (dcCrestPull(r) > DC_LIP_PULL) dcFly(r, DC_LIP_KICK, true);
+        else dcLaunch(r, DC_TUNE.airT, false);
         if (r.krill > 0) dcShakeKrill(r);
     }
-    if (r.air > 0) {
+    if (r.air > 0 && !r.fly) {
         r.air -= dt;
         if (r.air <= 0) { r.air = 0; r.v *= 0.95; if (!dc.demo) dcSnd.land(); dcBurstDust(r.z, r.x, 6); }
     }
@@ -190,12 +192,88 @@ function dcRiderUpdate(r, inp, dt) {
         while (r.carryAcc >= 6700) { r.carryAcc -= 6700; r.pts += 10; }
     }
 
+    dcCrestUpdate(r, z0, dt);
     dcCollide(r, Math.floor(z0 / DC_SEG), Math.floor(r.z / DC_SEG));
     dcTryGrab(r);
 }
 
+// ---------------------------------------------------
+//   CRESTS (Ry 2026-11-24: "more play with the depth drops and raises")
+// ---------------------------------------------------
+// Real ballistics over the road's hills. A bike stays down while the road
+// bends over no faster than gravity can pull it along; when the crest is
+// sharper than that for your speed (curvature x speed^2 > g), you leave the
+// road and fly a true arc while the ground drops away under you. So speed is
+// the choice: brake and you stay glued, boost and you sail over what is past
+// the top. Pop a jump on the lip for a bigger flight. Landing on the downslope
+// is clean (a little speed); landing flat from high is hard (it costs speed).
+// High enough over a barricade and you clear it outright.
+const DC_G = 15000;                 // world units / s^2 (arcade gravity: snappy flights)
+const DC_LIP_PULL = 0.45;           // crest pull (in g) where a jump turns into a flight
+const DC_LIP_KICK = 3600;           // the jump's upward speed when it does
+const DC_HIGH = 650;                // world units over the road: clears a barricade
+
+function dcRoadSlope(z) {
+    return (dcRoadY(z + DC_SEG) - dcRoadY(z - DC_SEG)) / (2 * DC_SEG);
+}
+
+// How hard the road bends away under this bike, in g (over ±3 segs, so the
+// segment joins don't read as tiny cliffs).
+function dcCrestPull(r) {
+    if (!dc.track || dcInTunnel(r.z)) return 0;
+    const L = 3 * DC_SEG;
+    const k = (dcRoadSlope(r.z + L) - dcRoadSlope(r.z - L)) / (2 * L);
+    return -k * r.v * r.v / DC_G;
+}
+
+function dcFly(r, kick, popped) {
+    r.fly = true;
+    r.flyT = 0;
+    r.fy = dcRoadY(r.z);
+    r.fvy = dcRoadSlope(r.z) * r.v + (kick || 0);
+    r.flyTop = 0;
+    r.air = 1;
+    r.airMax = 1;
+    r.flySnd = !!popped;
+    if (popped && !dc.demo && r.local) dcSnd.jump();
+}
+
+function dcCrestUpdate(r, z0, dt) {
+    if (!dc.track || dt <= 0 || r.down > 0) return;
+    const y = dcRoadY(r.z);
+    if (r.fly) {
+        r.fvy -= DC_G * dt;
+        r.fy += r.fvy * dt;
+        r.flyT += dt;
+        r.air = 1;
+        r.flyTop = Math.max(r.flyTop, r.fy - y);
+        // The whoosh waits until it is a real flight, not a one-frame hop over a crest.
+        if (!r.flySnd && r.flyT > 0.12) { r.flySnd = true; if (!dc.demo && r.local) dcSnd.ramp(); }
+        if (r.fy <= y || dcInTunnel(r.z)) dcLand(r, y);
+        return;
+    }
+    if (r.air <= 0 && dcCrestPull(r) > 1.2) dcFly(r, 0, false);
+}
+
+function dcLand(r, y) {
+    const rel = r.fvy - dcRoadSlope(r.z) * r.v;      // how fast you meet the road
+    const t = r.flyT, top = r.flyTop;
+    r.fly = false; r.fy = y; r.fvy = 0; r.air = 0; r.airMax = 0;
+    if (t < 0.25) return;                            // a hop: no fuss
+    if (!dc.demo) { dcSnd.land(); dcBurstDust(r.z, r.x, t > 0.7 ? 12 : 6); }
+    if (rel < -7000 && top > 600) {
+        r.v *= 0.82;
+        if (!dc.demo && r.local) { dcShake(8); dcText3D("HARD LANDING", r.z + 4 * DC_SEG, r.x, DC_COL.hot); }
+    } else if (t > 0.55) {
+        r.v = Math.min(DC_BOOST * 1.08, r.v + 700);
+        if (r.local) dcCredit(t > 1.1 ? 100 : 50, null, 0, t > 1.1 ? "BIG AIR" : "CLEAN");
+    }
+}
+
 function dcSteerRate(r) {
-    return 1.9 * (0.7 + 0.3 * Math.min(1, r.v / DC_CRUISE)) * (r.air > 0 ? 0.55 : 1);
+    // A quick hop steers sluggishly; a crest flight keeps most of its steering,
+    // or a kicker in front of a barricade would throw you into it blind.
+    return 1.9 * (0.7 + 0.3 * Math.min(1, r.v / DC_CRUISE)) * (r.fly ? 0.9 : (r.air > 0 ? 0.55 : 1));
 }
 
 function dcLaunch(r, t, ramp) {
@@ -233,7 +311,7 @@ function dcCrash(r, why) {
     r.down = r.downMax = DC_TUNE.respawn;
     r.crashKind = why;
     r.crashSide = r.x > 0.3 ? 1 : (r.x < -0.3 ? -1 : (Math.random() < 0.5 ? -1 : 1));
-    r.air = 0;
+    r.air = 0; r.fly = false;
     r.krill = 0;
     r.v *= 0.15;                        // the bike tumbles a few metres, no further
     r.contrib.crashes++;
@@ -272,6 +350,11 @@ function dcCollide(r, s0, s1) {
             const key = h.id + ":" + s1;
             if (r.passed[key]) continue;
             // A ram or a shield goes straight through, gap or no gap.
+            if (r.fly && r.fy - dcRoadY(r.z) > DC_HIGH && !r.passed[h.id]) {
+                r.passed[h.id] = 1;
+                if (r.local) dcCredit(100, "solves", 1, "OVER THE TOP");
+                continue;
+            }
             const hit = dcBarrierHits(h, s0, s1, r.x, air, DC_BIKE_HALF);
             const st0 = h.st;
             if (h.st === "ramp" && !r.passed[h.id] && s1 >= h.seg) { r.passed[h.id] = 1; dcLaunch(r, 0.85, true); continue; }
@@ -351,6 +434,7 @@ function dcRemoteUpdate(r, dt) {
     if (r.home) { r.v = Math.max(0, r.v - Math.max(3000, r.v * 1.6) * dt); r.x = dcLerp(r.x, r.tx, Math.min(1, dt * 4)); r.z += r.v * dt; r.z = Math.min(r.z, (dc.track.finish + 26) * DC_SEG); return; }
     if (r.down > 0) { r.down -= dt; r.v = Math.max(0, r.v - 9000 * dt); }
     if (r.air > 0) r.air -= dt;
+    if (r.flyH > 0) r.flyH = Math.max(0, r.flyH - 900 * dt);   // eases down between relays
     r.z += r.v * dt;
     if (r.tz !== undefined) { r.z += (r.tz - r.z) * Math.min(1, dt * 4); r.tz += r.v * dt; }
     r.x = dcLerp(r.x, r.tx, Math.min(1, dt * 10));

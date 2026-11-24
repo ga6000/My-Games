@@ -117,6 +117,7 @@ function dcOnPos(m, from) {
     r.role = DC_ABILITY[m.r] ? m.r : r.role;
     r.tz = m.z; r.tx = m.x; r.v = m.v;
     r.air = m.a || 0;
+    r.flyH = m.fh || 0;
     if (!(r.down > 0 && m.d > 0)) r.down = m.d || 0;      // keep our own crash clock for the animation
     r.boosting = !!m.b;
     r.pts = m.pt || 0;
@@ -135,7 +136,7 @@ function dcNetTick() {
     if (!dcOnline() || dc.demo || !dc.me) return;
     const r = dc.me;
     if (MP.canSend("dc-pos", 100)) {
-        MP.send({ k: "p", z: Math.round(r.z), x: +r.x.toFixed(3), v: Math.round(r.v), a: +Math.max(0, r.air).toFixed(2),
+        MP.send({ k: "p", z: Math.round(r.z), x: +r.x.toFixed(3), v: Math.round(r.v), a: +Math.max(0, r.air).toFixed(2), fh: r.fly ? Math.round(r.fy - dcRoadY(r.z)) : 0,
             d: +Math.max(0, r.down).toFixed(2), b: r.boosting ? 1 : 0, r: r.role, pt: r.pts, kr: r.krill,
             run: dc.mode === "play" ? 1 : 0 });
     }

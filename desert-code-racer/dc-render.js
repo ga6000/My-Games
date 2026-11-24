@@ -88,7 +88,10 @@ function dcProjectRoad(focus) {
     const fz = Math.min(focus.z, (t.finish + 22) * DC_SEG);
     dcCam.z = fz - DC_CAM_BACK;
     dcCam.x = focus.x * DC_ROAD_W;
-    dcCam.y = Math.max(dcRoadY(dcCam.z), dcRoadY(fz)) + DC_CAM_H;
+    // Over a crest the camera follows the flight down only partway, so the
+    // ground visibly drops away under the bike.
+    const flyY = focus.fly ? dcRoadY(fz) + 0.3 * Math.min(1600, Math.max(0, focus.fy - dcRoadY(fz))) : -Infinity;
+    dcCam.y = Math.max(dcRoadY(dcCam.z), dcRoadY(fz), flyY) + DC_CAM_H;
     const camSeg = dcSegAt(dcCam.z);
     dcCam.inside = camSeg.zone === "tunnel" || camSeg.zone === "lab";
     dcCam.dark = dcSegAt(fz).dark;

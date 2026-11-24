@@ -24,6 +24,19 @@ homing beams down the road. Right before Cliff Run in the chronology.
 - **The road (pass 2):** hills (crests hide what is behind them), dark valleys (legs 1 and 3),
   tunnels (legs 2 and 3: no beams, no attacks, krill scraped off), side roads that fork off and
   rejoin (a pad or chips on them, sometimes traps). Set pieces never sit in a tunnel.
+- **Crests (Ry 2026-11-24: the drops and rises are "among the best part"):** steeper, closer
+  rolling hills, plus ~28 KICKERS a run (a short sharp rise, a longer fall; open desert only,
+  `dc-track.js`). The bike follows real ballistics (`dcCrestUpdate` in `dc-rider.js`): it leaves
+  the road when the crest bends away faster than gravity can hold it at that speed (curvature ×
+  speed² > 1.2 g, `DC_G` = 15000), flies a true arc while the ground drops away, and lands where
+  the arc meets the road. So speed is the choice: brake to stay glued, boost to sail further.
+  Jump on the lip (crest pull > 0.45 g) for a bigger flight. Steering keeps 90% in a flight (55% in a
+  plain hop), so a kicker before a barricade is a chance, not a blind trap. Landing: under 0.25 s is a hop;
+  meeting the road too steeply from high (> 600 up) is a HARD LANDING (speed ×0.82, shake);
+  otherwise CLEAN (+50, +700 speed) or BIG AIR over 1.1 s (+100). More than 650 up over a
+  barricade clears it (OVER THE TOP, +100). The camera rises 30% of the flight height (drawn height
+  capped at 1600) so the bike lifts on screen over a flat shadow while the road drops away. Bot run at seed 4242: ~24 flights of 0.3–1.1 s, a few hard landings, all at 400 MPH.
+  Tuning is unplayed by a person.
 - **Finale (pass 2):** the last 150 segs run into a tunnel in a solid mountain, lit from above,
   into the computer lab. Each rider who crosses the line slides sideways (Akira) into a parking
   spot: HOME. When the case gets home the carrier tosses it to the tech at the console
