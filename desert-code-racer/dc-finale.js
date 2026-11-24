@@ -103,8 +103,8 @@ function dcDrawTossedCase(ctx, k, o) {
     ctx.restore();
 }
 
-// The friendly at the console: a tech in a lab coat, arms up for the catch,
-// then the case held high.
+// The friendly at the console: a lab tech (pixel sprite, like the crew),
+// arms up for the catch, then the case held high.
 function dcDrawFriendly(ctx) {
     const zF = (dc.track.finish + DC_FRIENDLY_SEG) * DC_SEG;
     const p = dcScreenAt(zF, 0, 0);
@@ -113,21 +113,12 @@ function dcDrawFriendly(ctx) {
     if (s < 2) return;
     const f = dc.finale;
     const age = f ? dc.simT - f.t : 0;
-    const reach = f && f.tossed ? 1 : (DC_REDUCED ? 0.2 : 0.2 + 0.2 * Math.sin(dc.simT * 3));
-    const hold = f && f.caught;
-    const x = p.x, y = p.y, col = DC_COL.cyan;
-    const lw = Math.max(1.2, s * 0.03);
-    dcLine(ctx, [x - s * 0.08, y, x - s * 0.05, y - s * 0.45], col, 0, lw);
-    dcLine(ctx, [x + s * 0.08, y, x + s * 0.05, y - s * 0.45], col, 0, lw);
-    dcSolid(ctx, [x - s * 0.16, y - s * 0.3, x - s * 0.12, y - s * 0.85, x + s * 0.12, y - s * 0.85, x + s * 0.16, y - s * 0.3], DC_COL.hot, 0, Math.max(1.2, s * 0.022));
-    const ay = y - s * (0.85 + 0.4 * reach);
-    dcLine(ctx, [x - s * 0.11, y - s * 0.8, x - s * 0.24, dcLerp(y - s * 0.55, ay, reach)], DC_COL.hot, 0, lw);
-    dcLine(ctx, [x + s * 0.11, y - s * 0.8, x + s * 0.24, dcLerp(y - s * 0.55, ay, reach)], DC_COL.hot, 0, lw);
-    ctx.beginPath(); ctx.ellipse(x, y - s * 0.96, s * 0.08, s * 0.09, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "#000"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.2, s * 0.02); ctx.stroke();
-    if (hold) {
-        const w = s * 0.3, h = s * 0.18, cy = ay - h * 0.5 - (DC_REDUCED ? 0 : Math.abs(Math.sin(age * 5)) * s * 0.05);
-        dcSolid(ctx, [x - w / 2, cy + h / 2, x - w / 2, cy - h / 2, x + w / 2, cy - h / 2, x + w / 2, cy + h / 2], DC_COL.amber, 4, 1.8);
+    const up = f && f.tossed;
+    const wave = !f && !DC_REDUCED && Math.sin(dc.simT * 3) > 0.6;
+    dcDrawSprite(ctx, "tech", up || wave ? "flail" : "stand", p.x, p.y, s * DC_PX_RIDE);
+    if (f && f.caught) {
+        const w = s * 0.3, h = s * 0.18, cy = p.y - s * 1.12 - (DC_REDUCED ? 0 : Math.abs(Math.sin(age * 5)) * s * 0.05);
+        dcSolid(ctx, [p.x - w / 2, cy + h / 2, p.x - w / 2, cy - h / 2, p.x + w / 2, cy - h / 2, p.x + w / 2, cy + h / 2], DC_COL.amber, 4, 1.8);
     }
 }
 
