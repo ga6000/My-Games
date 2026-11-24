@@ -77,10 +77,20 @@ Done as a package (`AESTHETIC_GUIDE.md` §6.8 "a reassignment is a package, not 
   line art.
 
 ## Controls (keyboard and mouse only)
-A/D or ←/→ steer · W/↑ boost · S/↓ brake · Space jump · E, Shift or left click: ability · M sound.
+A/D or ←/→ steer · W/↑ boost · S/↓ brake · Space jump · E, Shift or left click: ability · M sound
+(or the SOUND button in the cabinet panel: the same hub-wide SFX mute) · hold L+G: dev tools.
 Pass 2: no throttle = coast at cruise (300 MPH); hold W for 400 MPH as long as you like; hold S
 to slow all the way to 0. Jump is quicker (hardcore 0.56 s in the air, 0.4 s cooldown). Each
 ability holds **2 charges** that refill one at a time on the class cooldown. Esc is the shared hub menu.
+
+## Dev tools (hold L+G; Ry 2026-11-24)
+The shared panel (`shared/devtools.js`, `DEV_TOOLS_PLAN.md`), registered in `dc-dev.js`, which
+loads last. Always armed (the game binds neither L nor G). It pauses offline only. The report
+shows mode, road segment/zone/leg, speed, charges, the case, live hazards and the last crashes
+and pip losses. Buttons: NEXT CHECKPOINT, SKIP TO THE LAB, FILL CHARGES, CASE PIPS FULL, CLEAR
+THE SKY, SEND KRILL, SEND BEAM, NEXT CLASS (offline), GOD MODE, BOT TAKEOVER, MUTE, CRASH ME,
+WIN NOW, LOSE NOW. Case and end buttons are host only. GOD MODE and BOT TAKEOVER are two flags on
+`dc` (`devGod`, read in `dcCrash`; `devBot`, read in `dcStep`).
 
 ## Abilities and the coverage matrix
 Each class misses exactly one hazard, so any lineup is universal-only on at most one type.
@@ -140,8 +150,8 @@ pieces · `dc-audio` every SFX + the music hook · `dc-rider` input, bike physic
 lash, strafe, Gunner seekers · `dc-finale` the slide, toss and HOME · `dc-net` the
 event bus and MP · `dc-fx` bursts, banners, toasts · `dc-render` the road, scenery, tunnels, lab · `dc-actors`
 riders, crash poses, krill, beams, HUD · `dc-panel`
-the cabinet panel · `dc-bot` autopilot · `dc-crawl` the chapter crawl · `dc-flow` boot, run,
-aftermath, card, loop, `GameInstance`.
+the cabinet panel and SOUND button · `dc-bot` autopilot · `dc-crawl` the chapter crawl · `dc-flow` boot, run,
+aftermath, card, loop, `GameInstance` · `dc-dev` the L+G dev panel.
 
 ## Hooks for what comes later
 - **Music:** `dcMusic.start()` / `dcMusic.stop()` in `dc-audio.js` (called at GO and at the end).

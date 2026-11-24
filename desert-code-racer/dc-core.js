@@ -128,7 +128,9 @@ const dc = {
     hostT: { beam: 0, krill: 0 },
     crashLog: [],
     pipLog: [],                 // why the case lost pips (host; tests read it)               // why the local bike went down (tests read it)
-    nextId: 1
+    nextId: 1,
+    devGod: false,          // the L+G panel's GOD MODE (dc-dev.js)
+    devBot: false           // the L+G panel's BOT TAKEOVER
 };
 
 function dcSelfId() {

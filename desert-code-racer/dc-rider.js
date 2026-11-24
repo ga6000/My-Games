@@ -217,6 +217,7 @@ function dcRemount(r) {
 // Every way a bike can go down comes through here.
 function dcCrash(r, why) {
     if (r.down > 0 || r.inv > 0) return "none";
+    if (r.local && dc.devGod) return "none";        // dev panel GOD MODE
     if (dcPatched(r)) {
         // MEND's patch: the crash becomes a stumble. No drop, some speed.
         r.v *= 0.62;

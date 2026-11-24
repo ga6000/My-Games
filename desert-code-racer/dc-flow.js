@@ -242,7 +242,7 @@ function dcStep(dt) {
     const live = dc.mode === "play" || dc.mode === "aftermath" || (dc.demo && (dc.mode === "ready" || dc.mode === "crawl" || dc.mode === "boot"));
     if (!live || !dc.me) return;
     dc.simT += dt;
-    const inp = (dc.demo || DC_BOT) ? dcBotThink(dc.me) : dcReadInput();
+    const inp = (dc.demo || DC_BOT || dc.devBot) ? dcBotThink(dc.me) : dcReadInput();
     dcRiderUpdate(dc.me, inp, dt);
     for (const id in dc.riders) { const r = dc.riders[id]; if (!r.local) dcRemoteUpdate(r, dt); }
     if (dcIsHost()) dcHostUpdate(dt);
