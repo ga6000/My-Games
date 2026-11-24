@@ -51,6 +51,10 @@
   .crew-txt b { font-family: 'VT323', monospace !important; font-size: 18px !important; }
   .crew-txt span { color: #8FA89C; font-size: 15px; }
   .crew-row i { color: #E8FFF4 !important; font-size: 17px !important; }
+  #dcMute { font-family: 'Press Start 2P', monospace; font-size: 11px; min-width: 64px; padding: 6px 8px; cursor: pointer;
+    color: #000; background: #39FF14; border: 2px solid #39FF14; box-shadow: 3px 3px 0 #2E3A34; }
+  #dcMute.off { color: #FF3344; background: #000; border-color: #FF3344; }
+  #dcMute:hover { border-color: #E8FFF4; }
   .keys { color: #2E3A34; font-size: 14px; letter-spacing: 1px; line-height: 1.15; }
   @media (prefers-reduced-motion: reduce) { .cond-red { animation: none; } }
 
@@ -106,7 +110,8 @@
   <div class="row"><i>NEXT</i><span id="dcNext">CHECKPOINT ALPHA</span></div>
   <div class="row"><i>ROUTE</i><span id="dcLeg">LEG 1/3</span></div>
   <div id="dcCrew"></div>
-  <div class="keys">A D STEER · W BOOST · S BRAKE<br>SPACE JUMP · E / CLICK ABILITY · M SOUND</div>
+  <div class="row"><i>SOUND</i><button id="dcMute" type="button" tabindex="-1" aria-pressed="false">ON</button></div>
+  <div class="keys">A D STEER · W BOOST · S BRAKE<br>SPACE JUMP · E / CLICK ABILITY · M SOUND · L+G DEV</div>
 </aside>
 <div id="dcCrawl" hidden></div>
 <div id="dcCard" hidden></div>
@@ -138,5 +143,8 @@
 <script src="dc-bot.js"></script>
 <script src="dc-crawl.js"></script>
 <script src="dc-flow.js"></script>
+<!-- Dev tools: hold L+G. Shared panel, registration in dc-dev.js (loads last). -->
+<script src="../shared/devtools.js"></script>
+<script src="dc-dev.js"></script>
 </body>
 </html>

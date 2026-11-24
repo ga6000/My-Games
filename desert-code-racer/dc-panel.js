@@ -23,6 +23,7 @@ const dcRoutePath = [];
 function dcPanelInit() {
     dcRouteCv = document.getElementById("dcRoute");
     dcRouteCtx = dcRouteCv.getContext("2d");
+    dcPanelMuteInit();
     // The route: a fixed winding line, sampled once (0 = dome, 1 = mountain base).
     for (let i = 0; i <= 120; i++) {
         const p = i / 120;
@@ -75,7 +76,30 @@ function dcPanelUpdate() {
         dcSet("dcLeg", "LEG " + Math.min(3, dc.leg + 1) + "/3");
         dcPanelCrew(riders);
     }
+    dcPanelMute();
     dcDrawRoute();
+}
+
+// THE MUTE BUTTON. Same toggle as M (the hub-wide SFX mute, stored per game).
+// tabindex -1 and pointerdown preventDefault keep it from taking focus, or
+// Space (jump) would press it again.
+let dcMuteShown = null;
+function dcPanelMuteInit() {
+    const b = document.getElementById("dcMute");
+    if (!b) return;
+    dcOn(b, "pointerdown", function (e) { e.preventDefault(); });
+    dcOn(b, "click", function () { dcAudioInit(); dcToggleMute(); dcPanelMute(); });
+}
+function dcPanelMute() {
+    const m = dcMuted();
+    if (m === dcMuteShown) return;
+    dcMuteShown = m;
+    const b = document.getElementById("dcMute");
+    if (!b) return;
+    b.textContent = m ? "OFF" : "ON";
+    b.className = m ? "off" : "";
+    b.setAttribute("aria-pressed", m ? "true" : "false");
+    b.title = m ? "Sound off (M)" : "Sound on (M)";
 }
 
 function dcPanelCrew(riders) {
