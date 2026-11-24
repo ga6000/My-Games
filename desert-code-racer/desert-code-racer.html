@@ -5,9 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Desert Code Racer</title>
 <!--
-  ACT IV · LAUNCH. A VECTOR cabinet (AESTHETIC_GUIDE §1): pure black, stroked
-  geometry, phosphor persistence, NO scanlines (data-cabinet="vector" keeps
-  shared/retro.css's scanline rule off). World hue: desert dusk violet.
+  ACT IV · LAUNCH. A RASTER cabinet (AESTHETIC_GUIDE §1; reassigned from
+  VECTOR on Ry's call, 2026-11-23): the world is drawn on a coarse virtual
+  pixel grid (about 216 rows) and CSS-scaled by an integer factor with
+  image-rendering: pixelated; flat fills, stepped light, scanlines on
+  (data-cabinet="raster" is what permits retro.css's overlay). World hue:
+  desert dusk violet.
   Classic scripts only, so a double-clicked file:// page plays (solo).
 -->
 <link rel="stylesheet" href="../shared/retro.css">
@@ -17,7 +20,9 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #E8FFF4; }
   body { font-family: 'VT323', 'Courier New', monospace; text-transform: uppercase; }
-  #dcCanvas { position: fixed; left: 0; top: 0; display: block; background: #000; cursor: crosshair; }
+  #dcCanvas { position: fixed; left: 0; top: 0; display: block; background: #000; cursor: crosshair;
+    image-rendering: pixelated; image-rendering: crisp-edges; }
+  #dcScan { position: fixed; left: 0; top: 0; z-index: 1; }
 
   /* THE CABINET PANEL (§4.11a) */
   #dcPanel { position: fixed; right: 0; top: 0; bottom: 0; width: var(--side-w); background: #050505;
@@ -86,8 +91,9 @@
   #dcCard button:hover, #dcCard button:focus { background: #E8FFF4; border-color: #E8FFF4; outline: 0; }
 </style>
 </head>
-<body data-game="desert-code-racer" data-cabinet="vector">
+<body data-game="desert-code-racer" data-cabinet="raster">
 <canvas id="dcCanvas" aria-label="Desert Code Racer"></canvas>
+<div id="dcScan" class="retro-scanlines"></div>
 <aside id="dcPanel">
   <div class="row"><i>HI-SCORE</i><b id="dcHi">000000</b></div>
   <div class="row big"><i>TEAM</i><b id="dcTeam">000000</b></div>

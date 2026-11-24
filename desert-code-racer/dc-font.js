@@ -69,42 +69,29 @@ const DC_GLYPHS = (function () {
     return out;
 })();
 
-function dcTextWidth(str, size) {
-    return String(str).length * size * (5.6 / 6) - size * (1.6 / 6);
-}
+// RASTER cabinet (2026-11-23): text is Press Start 2P, the hub's display face
+// (AESTHETIC_GUIDE §3.1), at a multiple of 8 px so it sits on the pixel grid.
+// The stroke glyphs above stay for reference but are no longer drawn.
+function dcFontPx(size) { return Math.max(8, Math.round(size / 8) * 8); }
+function dcTextWidth(str, size) { return String(str).length * dcFontPx(size); }
 
 // Draws `str` with its top-left at (x, y) (or centred / right-aligned).
-// size is the glyph height in px. Two passes: a wide dim beam, a hot core.
 function dcText(ctx, str, x, y, size, color, align, alpha) {
     str = String(str).toUpperCase();
-    const w = dcTextWidth(str, size);
+    if (size < 4.5) return 0;            // too far off to letter: a raster screen can't go below 8 px
+    let px = dcFontPx(size);
+    if (px > 8 && str.length * px > dcW - 8) px = Math.max(8, Math.floor((dcW - 8) / str.length / 8) * 8);
+    const w = str.length * px;
     if (align === "center") x -= w / 2;
     else if (align === "right") x -= w;
-    const k = size / 6;
-    const adv = size * (5.6 / 6);
     ctx.save();
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    for (let i = 0; i < str.length; i++) {
-        const g = DC_GLYPHS[str[i]];
-        if (!g) continue;
-        const ox = x + i * adv;
-        for (let p = 0; p < g.length; p++) {
-            const line = g[p];
-            ctx.moveTo(ox + line[0][0] * k, y + line[0][1] * k);
-            for (let q = 1; q < line.length; q++) ctx.lineTo(ox + line[q][0] * k, y + line[q][1] * k);
-        }
-    }
-    const a = alpha === undefined ? 1 : alpha;
-    ctx.globalAlpha = 0.22 * a;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = Math.max(2.5, size / 5);
-    ctx.stroke();
-    ctx.globalAlpha = a;
-    ctx.strokeStyle = color === DC_COL.hot ? DC_COL.hot : color;
-    ctx.lineWidth = Math.max(1.2, size / 11);
-    ctx.stroke();
+    ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+    ctx.font = px + "px 'Press Start 2P', monospace";
+    ctx.textBaseline = "top"; ctx.textAlign = "left";
+    ctx.fillStyle = "#000";
+    ctx.fillText(str, Math.round(x) + 1, Math.round(y) + 1);   // a hard drop shadow
+    ctx.fillStyle = color;
+    ctx.fillText(str, Math.round(x), Math.round(y));
     ctx.restore();
     return w;
 }

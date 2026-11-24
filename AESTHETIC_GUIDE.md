@@ -957,6 +957,16 @@ done. Its world hue is `--sig-cyan` by deliberate exception (§2.5). **Effort: S
 
 ---
 
+### 6.19 Desert Code Racer — `desert-code-racer/desert-code-racer.html` · **RASTER** · anchor: *Pole Position* (1982)
+
+> **2026-11-23: built VECTOR (Major Havoc), reassigned to RASTER on Ry's call, night sky.** Done as
+> §6.8's package: the canvas is a ~216-row virtual screen integer-scaled with
+> `image-rendering: pixelated`, scanlines on, persistence/overdraw/bloom removed, a filled
+> pseudo-3D road in 3-segment bands with three flat distance steps, Press Start 2P for all text.
+> The crew are pixel sprites from Ry's lineup sheet (`/mnt/project-files/characters/`). Known
+> departures: well over four colours on screen (like the other raster cards); krill, beams and FX
+> still one-pixel line art. Details in `desert-code-racer/CLAUDE.md`.
+
 ## 7. Cross-cutting gameplay changes worth making
 
 Answering the brief's last question directly. These are the ones where the era's *design* — not

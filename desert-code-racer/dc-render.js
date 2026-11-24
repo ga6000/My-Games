@@ -1,11 +1,17 @@
 // ===================================================
-//   Desert Code Racer — the VECTOR cabinet renderer: the world
+//   Desert Code Racer — the RASTER cabinet renderer: the world
 // ===================================================
-// Anchor: Major Havoc (Atari, 1983) colour vector. Pure black, stroked
-// geometry, black fills only to occlude (the mothership's underside, canyon
-// walls, the mountain round a tunnel, a barricade's panels, a bike's body),
-// phosphor persistence instead of a clear, beam overdraw on the strong
-// lines, and NO scanlines (AESTHETIC_GUIDE §1, §3.3, §4).
+// Reassigned from VECTOR to RASTER on Ry's call (2026-11-23: "transitioning
+// to a raster cabinet would be strongly preferred"), as a package
+// (AESTHETIC_GUIDE §6.8 "a reassignment is a package, not a switch"):
+//   - the canvas IS the virtual screen: about DC_VROWS rows, its CSS size an
+//     integer multiple with image-rendering: pixelated, so one unit here is
+//     one fat pixel and every shape lands on the grid (§4.4);
+//   - flat fills and hard edges; no phosphor persistence, no beam overdraw,
+//     no vertex bloom (those are vector-hardware artifacts);
+//   - light steps in flat bands (§4.9): the sky glow, the ground, tunnels;
+//   - scanlines on, gated on data-cabinet="raster" in the markup (§4.6).
+// Anchor: Pole Position (Namco, 1982), the raster pseudo-3D road.
 //
 // The road is the classic pseudo-3D road with hills: every segment's start
 // is projected once a frame into dcProj[] (bend accumulated as an x offset,
@@ -20,6 +26,8 @@
 "use strict";
 
 let dcCv = null, dcCtx = null, dcW = 800, dcH = 600, dcDpr = 1;
+const DC_VROWS = 216;               // virtual screen height in rows (Pole Position ran 224)
+let dcPixel = 3;                    // CSS pixels per virtual pixel (an integer)
 let dcHy = 260;                     // horizon line
 let dcK = 256;                      // x scale of the projection
 let dcVy = 300;                     // y scale of the projection
@@ -54,13 +62,18 @@ function dcRenderInit() {
 function dcResize() {
     const panel = document.getElementById("dcPanel");
     const pw = panel ? panel.getBoundingClientRect().width : 0;
-    dcDpr = Math.min(2, window.devicePixelRatio || 1);
-    dcW = Math.max(320, Math.floor(window.innerWidth - pw));
-    dcH = Math.max(240, Math.floor(window.innerHeight));
-    dcCv.style.width = dcW + "px";
-    dcCv.style.height = dcH + "px";
-    dcCv.width = Math.floor(dcW * dcDpr);
-    dcCv.height = Math.floor(dcH * dcDpr);
+    // The virtual screen: about DC_VROWS rows, square pixels, an integer scale.
+    const aw = Math.max(160, Math.floor(window.innerWidth - pw)), ah = Math.max(120, Math.floor(window.innerHeight));
+    dcDpr = 1;
+    dcPixel = Math.max(1, Math.round(ah / DC_VROWS));
+    dcW = Math.floor(aw / dcPixel);
+    dcH = Math.floor(ah / dcPixel);
+    dcCv.width = dcW;
+    dcCv.height = dcH;
+    dcCv.style.width = dcW * dcPixel + "px";
+    dcCv.style.height = dcH * dcPixel + "px";
+    const scan = document.getElementById("dcScan");
+    if (scan) { scan.style.width = dcW * dcPixel + "px"; scan.style.height = dcH * dcPixel + "px"; scan.style.backgroundSize = "100% " + dcPixel + "px"; }
     dcHy = Math.round(dcH * 0.43);
     dcK = dcW * 0.32;
     dcVy = dcH * 0.42;
@@ -159,8 +172,8 @@ function dcRender() {
     const ctx = dcCtx;
     if (!ctx || !dc.track || !dc.me) return;
     ctx.setTransform(dcDpr, 0, 0, dcDpr, 0, 0);
-    if (typeof RETRO !== "undefined") RETRO.persist(ctx, dcW, dcH, DC_REDUCED ? 1 : 0.42);
-    else { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, dcW, dcH); }
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, dcW, dcH);
 
     const f = dcFocus();
     dcSkyOff += (dcSegAt(f.z).curve * (f.v / DC_CRUISE)) * 0.0016;
@@ -168,7 +181,7 @@ function dcRender() {
 
     ctx.save();
     if (dcShakeAmt > 0) ctx.translate((Math.random() - 0.5) * dcShakeAmt, (Math.random() - 0.5) * dcShakeAmt);
-    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.lineCap = "butt"; ctx.lineJoin = "miter";
     if (!dcCam.inside) dcDrawSky(ctx);
     dcFillBuckets();
     dcDrawWorld(ctx);
@@ -185,27 +198,41 @@ function dcLine(ctx, pts, col, wide, core) {
     ctx.beginPath();
     ctx.moveTo(pts[0], pts[1]);
     for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
-    const a0 = ctx.globalAlpha;
-    if (wide) { ctx.globalAlpha = a0 * 0.2; ctx.strokeStyle = col; ctx.lineWidth = wide; ctx.stroke(); }
-    ctx.globalAlpha = a0; ctx.strokeStyle = col; ctx.lineWidth = core || 1.4; ctx.stroke();
+    // Raster: one hard line, at least a pixel wide. No beam overdraw (wide is ignored).
+    void wide;
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, Math.round(core || 1)); ctx.stroke();
 }
 
-// A closed shape: black fill (occludes what is behind), then the stroke.
+// A closed shape: a flat fill in a dark shade of its colour, then a one-pixel
+// edge in the colour itself (the raster way to give a block a lit rim).
 function dcSolid(ctx, pts, col, wide, core) {
     ctx.beginPath();
     ctx.moveTo(pts[0], pts[1]);
     for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
     ctx.closePath();
-    ctx.fillStyle = "#000"; ctx.fill();
-    const a0 = ctx.globalAlpha;
-    if (wide) { ctx.globalAlpha = a0 * 0.2; ctx.strokeStyle = col; ctx.lineWidth = wide; ctx.stroke(); }
-    ctx.globalAlpha = a0; ctx.strokeStyle = col; ctx.lineWidth = core || 1.4; ctx.stroke();
+    ctx.fillStyle = dcShade(col, 0.32); ctx.fill();
+    void wide;
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, Math.round(core || 1)); ctx.stroke();
 }
 
-function dcBloom(ctx, x, y, r) {
-    ctx.fillStyle = DC_COL.hot;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+// A colour scaled toward black (k = 0..1), cached.
+const dcShadeCache = {};
+function dcShade(col, k) {
+    const key = col + k;
+    if (dcShadeCache[key]) return dcShadeCache[key];
+    let r = 0, g = 0, b = 0;
+    if (col[0] === "#") { const n = parseInt(col.length === 4 ? col[1] + col[1] + col[2] + col[2] + col[3] + col[3] : col.slice(1, 7), 16); r = n >> 16 & 255; g = n >> 8 & 255; b = n & 255; }
+    else { const m = col.match(/[\d.]+/g); if (m && col.indexOf("hsl") === 0) { const c = dcHslRgb(+m[0], +m[1] / 100, +m[2] / 100); r = c[0]; g = c[1]; b = c[2]; } else if (m) { r = +m[0]; g = +m[1]; b = +m[2]; } }
+    return (dcShadeCache[key] = "rgb(" + Math.round(r * k) + "," + Math.round(g * k) + "," + Math.round(b * k) + ")");
 }
+function dcHslRgb(h, s, l) {
+    const a = s * Math.min(l, 1 - l);
+    const f = function (n) { const k = (n + h / 30) % 12; return 255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))); };
+    return [f(0), f(8), f(4)];
+}
+
+// Vertex bloom is a vector-hardware artifact: off on a raster cabinet.
+function dcBloom() {}
 
 // How bright a thing is by its distance down the road: far things are dim
 // and thin, near things bright (Ry, pass 2: "more readable in their depth").
@@ -217,31 +244,36 @@ function dcDepthAlpha(z) {
 // ---------------------------------------------------
 //   SKY: ridges, the mothership, the second ship
 // ---------------------------------------------------
+// Night sky (raster): black above, a glow over the horizon in four flat
+// bands of the world hue, two filled ridgelines, the ships.
 function dcDrawSky(ctx) {
     const off = dcSkyOff;
-    const a0 = 1 - 0.88 * dcCam.dark;          // a canyon is darker: the sky barely shows
-    ctx.globalAlpha = a0;
-    const fw = dcW * 1.6, step = fw / (dcRidgeFar.length - 1);
-    let sx = -((off * dcW * 0.6) % fw);
-    if (sx > 0) sx -= fw;
-    for (let rep = 0; rep < 3; rep++) {
-        const pts = [];
-        for (let i = 0; i < dcRidgeFar.length; i++) pts.push(sx + rep * fw + i * step, dcHy - dcRidgeFar[i] * dcH * 0.11);
-        dcLine(ctx, pts, "#4B3A8C", 0, 1.2);
+    const dim = 1 - 0.85 * dcCam.dark;          // a canyon is darker: the sky barely shows
+    const bands = [[0.22, 0.05], [0.14, 0.09], [0.09, 0.14], [0.05, 0.2]];
+    for (let i = 0; i < bands.length; i++) {
+        const h = Math.round(dcH * bands[i][0]);
+        ctx.fillStyle = dcShade(DC_COL.hue, bands[i][1] * dim);
+        ctx.fillRect(0, dcHy - h, dcW, h);
     }
+    // Ground under everything below the horizon (the far road fills over it).
+    ctx.fillStyle = dcShade(DC_RAS.sand[1], 0.5);
+    ctx.fillRect(0, dcHy, dcW, dcH - dcHy);
+    const ridge = function (data, wmul, speed, hmul, fill, edge) {
+        const fw = dcW * wmul, step = fw / (data.length - 1);
+        let sx = -((off * dcW * speed) % fw);
+        if (sx > 0) sx -= fw;
+        for (let rep = 0; rep < 3; rep++) {
+            ctx.beginPath(); ctx.moveTo(Math.round(sx + rep * fw), dcHy + 1);
+            for (let i = 0; i < data.length; i++) ctx.lineTo(Math.round(sx + rep * fw + i * step), Math.round(dcHy - data[i] * dcH * hmul));
+            ctx.lineTo(Math.round(sx + rep * fw + fw), dcHy + 1); ctx.closePath();
+            ctx.fillStyle = fill; ctx.fill();
+            ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke();
+        }
+    };
+    ridge(dcRidgeFar, 1.6, 0.6, 0.11, dcShade("#4B3A8C", 0.42 * dim), dcShade("#4B3A8C", dim));
     dcDrawMothership(ctx, dcHy - dcH * 0.2);
-    ctx.globalAlpha = a0;
-    const nw = dcW * 2.2, nstep = nw / (dcRidgeNear.length - 1);
-    let nx = -((off * dcW * 1.4) % nw);
-    if (nx > 0) nx -= nw;
-    for (let rep = 0; rep < 3; rep++) {
-        const pts = [];
-        for (let i = 0; i < dcRidgeNear.length; i++) pts.push(nx + rep * nw + i * nstep, dcHy - dcRidgeNear[i] * dcH * 0.07);
-        dcLine(ctx, pts, DC_COL.hue, 4, 1.4);
-    }
-    dcLine(ctx, [0, dcHy, dcW, dcHy], "#4B3A8C", 0, 1);
+    ridge(dcRidgeNear, 2.2, 1.4, 0.07, dcShade(DC_COL.hue, 0.3 * dim), dcShade(DC_COL.hue, 0.8 * dim));
     dcDrawSmallShip(ctx);
-    ctx.globalAlpha = 1;
 }
 
 const dcShip = { x: 0, y: 0, eyeX: 0, eyeY: 0, sx: 0, sy: 0 };
@@ -255,7 +287,7 @@ function dcDrawMothership(ctx, cy) {
     dcShip.x = cx; dcShip.y = cy;
     const x0 = cx - w / 2, x1 = cx + w / 2;
     const yTop = cy - h * 0.55, yBot = cy + h * 0.25, yUnder = cy + h * 0.45;
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = "#1A1824";
     ctx.beginPath();
     ctx.moveTo(x0, yBot); ctx.lineTo(cx - topW / 2, yTop); ctx.lineTo(cx + topW / 2, yTop); ctx.lineTo(x1, yBot);
     ctx.lineTo(x1 - w * 0.08, yUnder); ctx.lineTo(x0 + w * 0.08, yUnder); ctx.closePath();
@@ -289,7 +321,7 @@ function dcDrawSmallShip(ctx) {
     if (st) { x = dcLerp(x, st.x - dcW * 0.1, st.k); y = dcLerp(y, st.y, st.k); }
     const w = dcW * 0.2, h = dcH * 0.035;
     dcShip.sx = x + w * 0.7; dcShip.sy = y + h * 0.6;
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = "#1A1824";
     ctx.beginPath(); ctx.moveTo(x, y + h * 0.6); ctx.lineTo(x + w, y - h * 0.4); ctx.lineTo(x + w, y + h * 0.7); ctx.closePath(); ctx.fill();
     dcLine(ctx, [x, y + h * 0.6, x + w, y - h * 0.4, x + w, y + h * 0.7], DC_COL.mid, 3, 1.2);
     dcLine(ctx, [x + w * 0.04, y + h * 0.66, x + w, y + h * 0.8], DC_COL.magenta, 4, st ? 2.4 : 1.6);
@@ -359,8 +391,8 @@ function dcDrawWorld(ctx) {
         const sg = t.segs[si];
         if (!sg || !a.s || !b.s) continue;
         const zone = sg.zone;
-        if (zone === "tunnel" || zone === "lab") dcDrawTunnelSeg(ctx, n, si, sg);
         if (a.vis) dcDrawRoadSeg(ctx, n, si, sg, a, b);
+        if (zone === "tunnel" || zone === "lab") dcDrawTunnelSeg(ctx, n, si, sg);
         if (zone === "valley") dcDrawWallSeg(ctx, n, si, sg, a, b);
         const bk = dcBuckets[n];
         if (bk.length) {
@@ -376,52 +408,58 @@ function dcDrawWorld(ctx) {
 
 function dcBucketOrder(p, q) { return (p.o - q.o) || (q.z - p.z); }
 
+// RASTER road (Pole Position): every segment is a strip of flat fills,
+// nearest drawn last. Sand across the whole width, rumble strips, asphalt,
+// a centre dash, all alternating in 3-segment bands (the speed cue). Distance
+// darkens in three flat steps, never a ramp (§4.9).
+const DC_RAS = {
+    sand: ["#2E2140", "#261B36"], sandValley: ["#1A1328", "#150F21"],
+    asph: ["#3A3546", "#322E3D"], asphTun: ["#2A2833", "#24222C"], asphLit: ["#5A4E3E", "#524736"],
+    rumble: ["#8A6BFF", "#D8D0E8"], dash: "#D8D0E8",
+    lab: ["#0E2A30", "#0B2328"], labLine: "#1F6A76", alt: ["#3E3628", "#363022"]
+};
+function dcFog(n) { return n < DC_DRAW * 0.28 ? 1 : (n < DC_DRAW * 0.55 ? 0.72 : 0.5); }
+function dcQuad(ctx, x1, y1, w1, x2, y2, w2, col) {
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x1 - w1), Math.round(y1)); ctx.lineTo(Math.round(x2 - w2), Math.round(y2));
+    ctx.lineTo(Math.round(x2 + w2), Math.round(y2)); ctx.lineTo(Math.round(x1 + w1), Math.round(y1));
+    ctx.closePath(); ctx.fill();
+}
 function dcDrawRoadSeg(ctx, n, si, sg, a, b) {
-    const dark = sg.dark;
-    const lab = sg.zone === "lab";
-    const fade = dcClamp(1.3 - n / (DC_DRAW * 0.95), 0.25, 1) * (1 - 0.45 * dark);
-    ctx.globalAlpha = fade;
+    const band = Math.floor(si / 3) % 2;
+    const k = dcFog(n);
+    const lab = sg.zone === "lab", tun = sg.zone === "tunnel";
+    const y0 = Math.round(b.y), y1 = Math.round(a.y) + 1;
+    if (y1 <= y0) return;
+    const sh = function (c) { return k === 1 ? c : dcShade(c, k); };
+    // Sand (or the lab floor) across the whole width.
+    let ground = sg.zone === "valley" ? DC_RAS.sandValley[band] : DC_RAS.sand[band];
+    if (lab) ground = DC_RAS.lab[band];
+    else if (tun) ground = "#120E1A";
+    ctx.fillStyle = sh(ground);
+    ctx.fillRect(0, y0, dcW, y1 - y0);
     if (lab) {
-        // The lab floor: a cyan grid instead of tarmac.
-        const w0 = a.w * 1.7, w1 = b.w * 1.7;
-        dcLine(ctx, [a.x - w0, a.y, b.x - w1, b.y], DC_COL.cyan, 0, 1.2);
-        dcLine(ctx, [a.x + w0, a.y, b.x + w1, b.y], DC_COL.cyan, 0, 1.2);
-        if (si % 4 === 0) { ctx.globalAlpha = fade * 0.45; dcLine(ctx, [a.x - w0, a.y, a.x + w0, a.y], DC_COL.cyan, 0, 1); }
-        ctx.globalAlpha = fade * 0.3;
-        ctx.beginPath();
-        for (let k = -3; k <= 3; k++) { ctx.moveTo(a.x + w0 * k / 3.5, a.y); ctx.lineTo(b.x + w1 * k / 3.5, b.y); }
-        ctx.strokeStyle = DC_COL.cyan; ctx.lineWidth = 1; ctx.stroke();
-        ctx.globalAlpha = 1;
+        dcQuad(ctx, a.x, a.y, a.w * 1.7, b.x, b.y, b.w * 1.7, sh(DC_RAS.lab[band ^ 1]));
+        if (si % 4 === 0) { ctx.fillStyle = sh(DC_RAS.labLine); ctx.fillRect(Math.round(a.x - a.w * 1.7), Math.round(a.y), Math.round(a.w * 3.4), 1); }
         return;
     }
-    // Ground lines rushing past: the speed cue a vector racer has instead of texture.
-    if (si % 8 === 0 && sg.zone === "") {
-        ctx.beginPath();
-        ctx.moveTo(a.x - a.w * 5, a.y); ctx.lineTo(a.x - a.w * 1.1, a.y);
-        ctx.moveTo(a.x + a.w * 1.1, a.y); ctx.lineTo(a.x + a.w * 5, a.y);
-        ctx.strokeStyle = "#241C44"; ctx.lineWidth = 1; ctx.stroke();
-    }
-    const edge = sg.zone === "tunnel" ? DC_COL.mid : DC_COL.hue;
-    dcLine(ctx, [a.x - a.w, a.y, b.x - b.w, b.y], edge, 5, 1.6);
-    dcLine(ctx, [a.x + a.w, a.y, b.x + b.w, b.y], edge, 5, 1.6);
-    ctx.beginPath();
-    if (Math.floor(si / 3) % 2 === 0) { ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
-    if (si % 6 === 0) {
-        ctx.moveTo(a.x - a.w, a.y); ctx.lineTo(a.x - a.w * 1.1, a.y);
-        ctx.moveTo(a.x + a.w, a.y); ctx.lineTo(a.x + a.w * 1.1, a.y);
-    }
-    ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1.2; ctx.stroke();
-    // A side road: its own two edges, drawn only where they leave the main road.
+    // A side road first, so the main road paints over where they share tarmac.
     const nx = dc.track.segs[si + 1];
     if (sg.alt && nx && nx.alt) {
+        dcQuad(ctx, a.x + sg.alt.off * a.w, a.y, sg.alt.w * a.w, b.x + nx.alt.off * b.w, b.y, nx.alt.w * b.w, sh(DC_RAS.alt[band]));
         for (let e = -1; e <= 1; e += 2) {
             const xa = sg.alt.off + e * sg.alt.w, xb = nx.alt.off + e * nx.alt.w;
             if (Math.abs(xa) <= 1.02 && Math.abs(xb) <= 1.02) continue;
-            dcLine(ctx, [a.x + xa * a.w, a.y, b.x + xb * b.w, b.y], DC_COL.amber, 4, 1.3);
+            dcQuad(ctx, a.x + xa * a.w, a.y, Math.max(0.5, a.w * 0.05), b.x + xb * b.w, b.y, Math.max(0.5, b.w * 0.05), sh(band ? DC_COL.amber : "#7A5A10"));
         }
-        if (sg.alt.hold && si % 6 < 3) dcLine(ctx, [a.x + sg.alt.off * a.w, a.y, b.x + nx.alt.off * b.w, b.y], "#7A6A3A", 0, 1);
     }
-    ctx.globalAlpha = 1;
+    // Rumble strips, then the asphalt over their inner half.
+    if (!tun) dcQuad(ctx, a.x, a.y, a.w * 1.12, b.x, b.y, b.w * 1.12, sh(DC_RAS.rumble[band]));
+    // Tunnel lamps throw pools of light on the road: the lit segments are one flat step brighter.
+    const lit = tun && Math.abs((si % 10) - 5) <= 1;
+    dcQuad(ctx, a.x, a.y, a.w, b.x, b.y, b.w, sh(lit ? DC_RAS.asphLit[band] : (tun ? DC_RAS.asphTun[band] : DC_RAS.asph[band])));
+    if (band === 0) dcQuad(ctx, a.x, a.y, Math.max(0.5, a.w * 0.025), b.x, b.y, Math.max(0.5, b.w * 0.025), sh(DC_RAS.dash));
 }
 
 // Canyon walls: black faces rising either side, a jagged rim, strata.
@@ -443,7 +481,7 @@ function dcDrawWallSeg(ctx, n, si, sg, a, b) {
         ctx.globalAlpha = 1;
         ctx.beginPath();
         ctx.moveTo(ax, a.y); ctx.lineTo(bx, b.y); ctx.lineTo(bx, bT); ctx.lineTo(far, bT); ctx.lineTo(far, a.y + 4); ctx.closePath();
-        ctx.fillStyle = "#000"; ctx.fill();
+        ctx.fillStyle = dcShade(Math.floor(si / 5) % 2 ? "#2A2142" : "#241C3A", dcFog(n)); ctx.fill();
         ctx.beginPath();
         ctx.moveTo(ax, aT); ctx.lineTo(bx, bT); ctx.lineTo(far, bT);
         ctx.globalAlpha = fade * 0.9;
@@ -491,7 +529,7 @@ function dcDrawTunnelSeg(ctx, n, si, sg) {
     ctx.lineTo(x1, yt + arch); ctx.quadraticCurveTo(x1, yt, x1 - arch, yt); ctx.lineTo(x0 + arch, yt); ctx.quadraticCurveTo(x0, yt, x0, yt + arch);
     ctx.lineTo(x0, yb + 2);
     ctx.closePath();
-    ctx.fillStyle = "#000"; ctx.fill();
+    ctx.fillStyle = lab ? "#0A1E22" : (si % 10 < 5 ? "#1E1830" : "#1A1529"); ctx.fill();
     // Below the road line, the floor: keep it black too so nothing shows under a crest.
     if (entrance) {
         dcLine(ctx, [p.x - mw, yb, p.x - mw * 0.55, yb - mh * 0.55, p.x - mw * 0.25, yb - mh * 0.8, p.x + mw * 0.05, yb - mh, p.x + mw * 0.4, yb - mh * 0.7, p.x + mw * 0.7, yb - mh * 0.45, p.x + mw, yb], DC_COL.hue, 5, 1.6);
@@ -610,10 +648,13 @@ function dcDrawGantry(ctx, seg, label) {
     if (!p) return;
     dcClipBegin(ctx, p.clip);
     const w = p.w * 1.15, h = p.s * 2600 * dcVy;
-    const pts = [p.x - w, p.y, p.x - w, p.y - h, p.x + w, p.y - h, p.x + w, p.y];
-    dcLine(ctx, pts, DC_COL.cyan, 5, 1.8);
-    dcBloom(ctx, p.x - w, p.y - h, 1.5); dcBloom(ctx, p.x + w, p.y - h, 1.5);
-    const size = Math.max(4, Math.min(30, h * 0.16));
+    // Raster gantry: two filled posts and a filled sign beam.
+    const pw = Math.max(1, Math.round(p.w * 0.05)), bh = Math.max(2, Math.round(h * 0.2));
+    const X0 = Math.round(p.x - w), X1 = Math.round(p.x + w), Y = Math.round(p.y), T = Math.round(p.y - h);
+    ctx.fillStyle = "#1F5A66"; ctx.fillRect(X0 - pw, T, pw, Y - T); ctx.fillRect(X1, T, pw, Y - T);
+    ctx.fillStyle = "#0A1E22"; ctx.fillRect(X0 - pw, T - Math.round(bh * 0.2), X1 - X0 + pw * 2, bh);
+    ctx.fillStyle = DC_COL.cyan; ctx.fillRect(X0 - pw, T - Math.round(bh * 0.2), X1 - X0 + pw * 2, 1);
+    const size = Math.max(4, Math.min(16, h * 0.16));
     dcText(ctx, label, p.x, p.y - h + size * 0.5, size, DC_COL.cyan, "center");
     ctx.restore();
 }
@@ -621,14 +662,13 @@ function dcDrawGantry(ctx, seg, label) {
 function dcDrawFinishLine(ctx) {
     const p = dcScreenAt(dc.track.finish * DC_SEG, 0, 0);
     if (!p) return;
-    const w = p.w * 1.6;
-    ctx.beginPath();
-    for (let k = 0; k < 12; k++) {
-        if (k % 2) continue;
-        const xa = p.x - w + (2 * w) * k / 12, xb = p.x - w + (2 * w) * (k + 1) / 12;
-        ctx.moveTo(xa, p.y); ctx.lineTo(xb, p.y);
+    const w = p.w * 1.6, hh = Math.max(1, Math.round(p.w * 0.04));
+    // A checkered band across the road, two rows of flat squares.
+    for (let k = 0; k < 12; k++) for (let r = 0; r < 2; r++) {
+        ctx.fillStyle = (k + r) % 2 ? "#000" : DC_COL.amber;
+        const xa = Math.round(p.x - w + (2 * w) * k / 12), xb = Math.round(p.x - w + (2 * w) * (k + 1) / 12);
+        ctx.fillRect(xa, Math.round(p.y) - hh * (r + 1), xb - xa, hh);
     }
-    ctx.strokeStyle = DC_COL.amber; ctx.lineWidth = Math.max(1.5, p.w * 0.02); ctx.stroke();
 }
 
 function dcDrawDome(ctx, x) {
@@ -636,6 +676,8 @@ function dcDrawDome(ctx, x) {
     if (!p) return;
     dcClipBegin(ctx, p.clip);
     const r = p.s * 2400 * dcK;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, Math.PI, 0); ctx.closePath();
+    ctx.fillStyle = "#0A1E22"; ctx.fill();
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, Math.PI, 0);
     for (let i = 1; i < 6; i++) {
@@ -659,16 +701,20 @@ function dcDrawSceneObj(ctx, o, z) {
     ctx.globalAlpha = 1;
 }
 
+// A saguaro as flat blocks: lit left face, shaded right face, two arms.
 function dcDrawCactus(ctx, x, y, h) {
-    if (h < 1.5) return;
-    const w = h * 0.12;
-    const a0 = ctx.globalAlpha;
-    ctx.beginPath();
-    ctx.moveTo(x, y); ctx.lineTo(x, y - h);
-    ctx.moveTo(x, y - h * 0.45); ctx.lineTo(x - w * 2.2, y - h * 0.45); ctx.lineTo(x - w * 2.2, y - h * 0.75);
-    ctx.moveTo(x, y - h * 0.6); ctx.lineTo(x + w * 1.9, y - h * 0.6); ctx.lineTo(x + w * 1.9, y - h * 0.85);
-    ctx.globalAlpha = a0 * 0.25; ctx.strokeStyle = "#39C46A"; ctx.lineWidth = Math.max(1, w * 1.4); ctx.stroke();
-    ctx.globalAlpha = a0; ctx.lineWidth = Math.max(1, w * 0.35); ctx.stroke();
+    if (h < 2) return;
+    const tw = Math.max(1, Math.round(h * 0.14)), aw = Math.max(1, Math.round(tw * 0.8));
+    const X = Math.round(x), Y = Math.round(y), H = Math.round(h);
+    const block = function (bx, by, bw, bh) {
+        ctx.fillStyle = "#2E9C55"; ctx.fillRect(bx, by, bw, bh);
+        if (bw >= 3) { ctx.fillStyle = "#1A5E33"; ctx.fillRect(bx + bw - Math.max(1, Math.floor(bw / 3)), by, Math.max(1, Math.floor(bw / 3)), bh); ctx.fillStyle = "#5BE08A"; ctx.fillRect(bx, by, 1, bh); }
+    };
+    block(X - Math.floor(tw / 2), Y - H, tw, H);
+    const lx = X - Math.round(h * 0.26), ly = Math.round(Y - h * 0.47);
+    block(lx, ly, X - lx, aw); block(lx, Math.round(Y - h * 0.76), aw, ly - Math.round(Y - h * 0.76) + aw);
+    const rx = X + Math.round(h * 0.23), ry = Math.round(Y - h * 0.62);
+    block(X, ry, rx - X + aw, aw); block(rx, Math.round(Y - h * 0.86), aw, ry - Math.round(Y - h * 0.86) + aw);
 }
 
 function dcDrawScrub(ctx, x, y, h) {
