@@ -13,7 +13,7 @@ function dcNewRider(id, name, color, role, local) {
     return {
         id: id, name: name || "RIDER", color: color || DC_COL.hot, role: role || "medic", local: !!local,
         z: DC_START_SEGS * 0.5 * DC_SEG, x: 0, v: 0, tx: 0, lean: 0,
-        air: 0, airMax: 0, cap: 1, down: 0, inv: 0, stumble: 0,
+        air: 0, airMax: 0, jcd: 0, ch: DC_CHARGES, down: 0, inv: 0, stumble: 0,
         patchedUntil: -1, patchedBy: "", krill: 0, boosting: false, dustT: 0,
         cd: 0, pts: 0, carryAcc: 0, grabWait: 0, passed: {}, seen: 0,
         contrib: { carry: 0, solves: 0, revives: 0, beams: 0, krill: 0, grabs: 0, crashes: 0 }
@@ -21,9 +21,10 @@ function dcNewRider(id, name, color, role, local) {
 }
 
 function dcResetRider(r, z, x) {
-    r.z = z; r.x = x || 0; r.v = 0; r.lean = 0; r.air = 0; r.cap = 1; r.down = 0; r.inv = 0;
+    r.z = z; r.x = x || 0; r.v = 0; r.lean = 0; r.air = 0; r.jcd = 0; r.ch = DC_CHARGES; r.down = 0; r.inv = 0;
     r.stumble = 0; r.patchedUntil = -1; r.krill = 0; r.cd = 0; r.pts = 0; r.carryAcc = 0;
     r.grabWait = 0; r.passed = {};
+    r.home = 0; r.slide = 0; r.chips = 0; r.scrape = 0; r.crashKind = ""; r.downMax = 0;
     r.contrib = { carry: 0, solves: 0, revives: 0, beams: 0, krill: 0, grabs: 0, crashes: 0 };
 }
 
@@ -108,10 +109,16 @@ function dcCreditTo(id, pts, field, label) {
 // ---------------------------------------------------
 function dcRiderUpdate(r, inp, dt) {
     if (r.grabWait > 0) r.grabWait -= dt;
-    if (r.cd > 0) { r.cd -= dt; if (r.cd <= 0 && !dc.demo) dcSnd.abilityReady(); }
+    // Ability charges: one recharges at a time, over the class cooldown.
+    if (r.ch < DC_CHARGES) {
+        r.cd -= dt;
+        if (r.cd <= 0) { r.ch++; r.cd = r.ch < DC_CHARGES ? dcAbilityCd(r) : 0; if (!dc.demo && r.local) dcSnd.abilityReady(); }
+    } else r.cd = 0;
+    if (r.jcd > 0 && r.air <= 0) r.jcd -= dt;
     if (r.inv > 0) r.inv -= dt;
     if (r.dustT > 0) r.dustT -= dt;
 
+    if (dcHomeUpdate(r, dt)) return;
     if (r.down > 0) {
         r.down -= dt;
         r.v = Math.max(0, r.v - 30000 * dt);
@@ -127,35 +134,37 @@ function dcRiderUpdate(r, inp, dt) {
     const steerRate = dcSteerRate(r);
     r.x += inp.steer * steerRate * dt;
     r.x -= dt * sp * sp * seg.curve * 0.28;
-    r.x = dcClamp(r.x, -1.9, 1.9);
+    // Walls (canyon, tunnel) scrape and push back; open desert lets you wander.
+    const lim = dcLaneLimit(seg);
+    if (Math.abs(r.x) > lim) {
+        r.x = Math.sign(r.x) * lim;
+        if (seg.zone === "valley" || seg.zone === "tunnel" || seg.zone === "lab") {
+            r.v *= Math.pow(0.55, dt);
+            r.scrape = 0.12;
+            if (!dc.demo && Math.random() < dt * 30) dcBurstSparks(r.z, r.x, DC_COL.hot, 2);
+        }
+    }
+    if (r.scrape > 0) r.scrape -= dt;
     r.lean = dcLerp(r.lean, inp.steer, Math.min(1, dt * 8));
 
     // Speed.
+    // Coast at cruise; hold boost for 400 as long as you like; brake to a stop.
     let target = DC_CRUISE;
     r.boosting = false;
-    if (inp.boost && r.cap > 0.02 && !inp.brake) { target = DC_BOOST; r.cap -= 0.36 * dt; r.boosting = true; }
-    else r.cap = Math.min(1, r.cap + 0.13 * dt);
-    if (inp.brake) target = DC_BRAKE;
-    if (Math.abs(r.x) > 1) target = Math.min(target, DC_OFFROAD);
+    if (inp.boost && !inp.brake) { target = DC_BOOST; r.boosting = true; }
+    if (inp.brake) target = 0;
+    if (!dcOnRoad(r.x, seg)) target = Math.min(target, DC_OFFROAD);
     target *= (1 - 0.08 * r.krill);
     if (r.dustT > 0) target *= 0.95;
-    // The convoy: riders behind the case surge to catch up; riders far ahead
-    // are held back (nobody can ride back for a dropped case).
-    const cz = dcCaseZ();
-    if (cz !== null && !dcCarrying(r) && dc.mode === "play") {
-        const d = (r.z - cz) / DC_SEG;
-        if (d < -40 && !inp.brake) target *= 1.22;
-        if (d > 120) target = Math.min(target, DC_CRUISE * 0.6);
-        else if (d > 60) target = Math.min(target, DC_CRUISE * 0.82);
-    }
+    // The convoy spreads out freely (Ry, pass 2): no hold-back, no surge.
     if (dcRamming(r.id)) target = Math.max(target, DC_BOOST * 1.05);
     if (r.stumble > 0) { r.stumble -= dt; target = Math.min(target, r.v); }
     if (r.v < target) r.v = Math.min(target, r.v + (target > DC_CRUISE ? 6200 : 4200) * dt);
-    else r.v = Math.max(target, r.v - (inp.brake ? 9000 : 3200) * dt);
+    else r.v = Math.max(target, r.v - (inp.brake ? 7500 : 3200) * dt);
 
-    // Jump: costs a quarter of the capacitor, and shakes off latched krill.
-    if (inp.jump && r.air <= 0 && r.cap >= 0.25) {
-        r.cap -= 0.25;
+    // Jump: instant, short, on its own quick cooldown; shakes off latched krill.
+    if (inp.jump && r.air <= 0 && r.jcd <= 0) {
+        r.jcd = DC_TUNE.jumpCd;
         dcLaunch(r, DC_TUNE.airT, false);
         if (r.krill > 0) dcShakeKrill(r);
     }
@@ -166,7 +175,7 @@ function dcRiderUpdate(r, inp, dt) {
 
     // Ability.
     if (inp.ability) {
-        if (r.cd <= 0) dcCast(r);
+        if (r.ch > 0) dcCast(r);
         else if (!dc.demo) dcSnd.denied();
     }
 
@@ -220,14 +229,16 @@ function dcCrash(r, why) {
     }
     if (r.local) dc.crashLog.push(why + "@" + Math.floor(r.z / DC_SEG));
     const v0 = r.v;
-    r.down = DC_TUNE.respawn;
+    r.down = r.downMax = DC_TUNE.respawn;
+    r.crashKind = why;
+    r.crashSide = r.x > 0.3 ? 1 : (r.x < -0.3 ? -1 : (Math.random() < 0.5 ? -1 : 1));
     r.air = 0;
     r.krill = 0;
     r.v *= 0.15;                        // the bike tumbles a few metres, no further
     r.contrib.crashes++;
     if (!dc.demo) { dcSnd.crash(); dcShake(14); }
     dcBurstExplosion(r.z, r.x, r.color, 1);
-    dcEmit({ k: "crash", z: Math.round(r.z), x: +r.x.toFixed(3), w: why });
+    dcEmit({ k: "crash", z: Math.round(r.z), x: +r.x.toFixed(3), w: why, sd: r.crashSide });
     if (dcCarrying(r)) dcEmit({ k: "drop", z: Math.round(r.z), x: +r.x.toFixed(3), v: Math.round(v0), by: r.id });
     return "crash";
 }
@@ -255,19 +266,37 @@ function dcCollide(r, s0, s1) {
             if (ram) { dcLaunch(r, 0.45, true); dcCredit(100, "solves", 1, "CARRIED OVER"); continue; }
             dcCrash(r, "crater");
         } else if (h.type === "barricade") {
-            if (s1 < h.seg || s0 > h.seg || r.passed[h.id]) continue;
-            r.passed[h.id] = 1;
+            if (s1 < h.seg || s0 > h.seg + h.len) continue;
             if (h.st === "gone") continue;
+            const key = h.id + ":" + s1;
+            if (r.passed[key]) continue;
             // A ram or a shield goes straight through, gap or no gap.
-            if (ram) { dcSmash(h, r, "RAMMED"); dcCredit(100, "solves", 1); continue; }
-            if (sh) { dcSmash(h, r, "PLOWED"); dcCreditTo(sh.by, 100, "solves", "PLOWED"); continue; }
-            const gw = h.st === "open" ? 1.15 : h.gapW;
-            if (Math.abs(r.x - h.gapX) <= gw / 2 - DC_BIKE_HALF) {
-                if (h.st === "") { dcCredit(10, null, 0); if (!dc.demo) dcSnd.gap(); }
+            const hit = dcBarrierHits(h, s0, s1, r.x, air, DC_BIKE_HALF);
+            const st0 = h.st;
+            if (h.st === "ramp" && !r.passed[h.id] && s1 >= h.seg) { r.passed[h.id] = 1; dcLaunch(r, 0.85, true); continue; }
+            if (!hit) {
+                // Threaded it: the universal answer pays a little.
+                if (st0 === "" && !r.passed[h.id] && s1 >= h.seg + h.len - 1) { r.passed[h.id] = 1; dcCredit(10, null, 0); if (!dc.demo) dcSnd.gap(); }
                 continue;
             }
-            if (h.st === "ramp") { dcLaunch(r, 0.85, true); continue; }
-            dcCrash(r, "barricade");
+            r.passed[key] = 1;
+            if (ram) { dcSmash(h, r, "RAMMED"); dcCredit(100, "solves", 1); continue; }
+            if (sh) { dcSmash(h, r, "PLOWED"); dcCreditTo(sh.by, 100, "solves", "PLOWED"); continue; }
+            dcCrash(r, h.kind === "pipe" ? "pipe" : (h.kind === "traps" ? "trap" : "barricade"));
+        } else if (h.type === "pad") {
+            if (s1 < h.seg || s0 > h.seg + h.len || r.passed[h.id]) continue;
+            if (Math.abs(r.x - h.x) < 0.3 && !air) { r.passed[h.id] = 1; dcLaunch(r, 0.9, true); dcCredit(50, null, 0, "AIR"); }
+        } else if (h.type === "chips") {
+            for (let c = 0; c < h.chips.length; c++) {
+                const ch = h.chips[c];
+                if (ch.seg < s0 || ch.seg > s1 || r.passed[h.id + "c" + c]) continue;
+                if (Math.abs(r.x - ch.x) < 0.2) {
+                    r.passed[h.id + "c" + c] = 1;
+                    r.chips = (r.chips || 0) + 1;
+                    dcCredit(50, null, 0, "");
+                    if (!dc.demo) { dcSnd.chip(); dcBurstSparks(ch.seg * DC_SEG, ch.x, DC_COL.amber, 5); }
+                }
+            }
         } else if (h.type === "dust") {
             if (s1 < h.seg || s0 > h.seg + h.len) continue;
             if (Math.abs(r.x - h.x) < h.w / 2 && !air) r.dustT = 0.15;
@@ -284,7 +313,7 @@ function dcCollide(r, s0, s1) {
         }
     }
     // Cacti off the road.
-    if (Math.abs(r.x) > 1.2 && !air) {
+    if (!dcOnRoad(r.x, dcSegAt(r.z)) && Math.abs(r.x) > 1.2 && !air) {
         for (let s = s0; s <= s1; s++) {
             const sg = dc.track.segs[s];
             if (!sg) continue;
@@ -317,9 +346,16 @@ function dcTryGrab(r) {
 //   REMOTE RIDERS: extrapolated between relays
 // ---------------------------------------------------
 function dcRemoteUpdate(r, dt) {
+    dcRemoteHome(r, dt);
+    if (r.home) { r.v = Math.max(0, r.v - Math.max(3000, r.v * 1.6) * dt); r.x = dcLerp(r.x, r.tx, Math.min(1, dt * 4)); r.z += r.v * dt; r.z = Math.min(r.z, (dc.track.finish + 26) * DC_SEG); return; }
     if (r.down > 0) { r.down -= dt; r.v = Math.max(0, r.v - 9000 * dt); }
     if (r.air > 0) r.air -= dt;
     r.z += r.v * dt;
     if (r.tz !== undefined) { r.z += (r.tz - r.z) * Math.min(1, dt * 4); r.tz += r.v * dt; }
     r.x = dcLerp(r.x, r.tx, Math.min(1, dt * 10));
+}
+
+function dcAbilityCd(r) {
+    const a = DC_ABILITY[r.role];
+    return a ? a.cd : 10;
 }

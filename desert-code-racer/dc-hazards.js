@@ -73,7 +73,7 @@ function dcBeamImpact(b) {
         if (me && b.soak === me.id) { dcSnd.soak(); dcBurstSparks(me.z, me.x, me.color, 14); dcCredit(200, "beams", 1, "SOAKED"); }
         return;
     }
-    if (!me || me.down > 0 || dc.mode !== "play") return;
+    if (!me || me.down > 0 || dc.mode !== "play" || dcInTunnel(b.z) || me.home) return;
     const dz = Math.abs(me.z - b.z) / DC_SEG, dx = Math.abs(me.x - b.x);
     if (dz < 1.7 && dx < DC_RING + DC_BIKE_HALF) {
         const sh = dcShieldOf(me.id);
@@ -134,12 +134,22 @@ function dcOnKrillLatch(m) {
 function dcOnKrillGone(m) {
     const k = dcFindKrill(m.id);
     if (!k || k.phase === "gone") return;
+    if (m.d && !k.dying) {
+        // Seekers are on the way: it dies when they arrive (it can't bite meanwhile).
+        k.dying = true;
+        trackTimeout(function () { m.d = 0; dcOnKrillGone(m); }, m.d * 1000 / (dcOnline() ? 1 : DC_TIMESCALE));
+        return;
+    }
     const r = dc.riders[k.tg];
     k.phase = "gone";
-    if (dc.me && k.tg === dc.me.id) dc.me.krill = 0;
+    if (dc.me && k.tg === dc.me.id) {
+        dc.me.krill = 0;
+        // They held on too long: they drag the rider down (Ry, pass 2).
+        if (m.why === "bite" && dc.mode === "play") { if (!dc.demo) dcSnd.krillBite(); dcCrash(dc.me, "krill"); }
+    }
     if (r) dcBurstKrill(r.z, r.x);
     if (!dc.demo && r) dcSnd.krillOff(dcVolAt(r.z));
-    const labels = { shot: "SHOT OFF", scatter: "SCATTERED", rip: "RIPPED OFF", decoy: "DECOYED", bounce: "BOUNCED" };
+    const labels = { shot: "SHOT DOWN", scatter: "SCATTERED", rip: "RIPPED OFF", decoy: "DECOYED", bounce: "BOUNCED" };
     if (dc.me && m.by === dc.me.id && labels[m.why]) dcCredit(200, "krill", 1, labels[m.why]);
 }
 
@@ -160,7 +170,7 @@ function dcShakeKrill(r) {
 // ---------------------------------------------------
 function dcAliveRiders() {
     const out = [];
-    for (const id in dc.riders) { const r = dc.riders[id]; if (r.down <= 0 && r.seen >= 0) out.push(r); }
+    for (const id in dc.riders) { const r = dc.riders[id]; if (r.down <= 0 && r.seen >= 0 && !r.home && !dcInTunnel(r.z) && !dcInTunnel(r.z + 30 * DC_SEG)) out.push(r); }
     return out;
 }
 
@@ -173,7 +183,7 @@ function dcHostPick(preferCase) {
     const alive = dcAliveRiders();
     if (!alive.length) return null;
     const c = dc.caseS;
-    if (c && c.holder && dc.riders[c.holder] && dc.riders[c.holder].down <= 0 && Math.random() < preferCase) return dc.riders[c.holder];
+    if (c && c.holder && dc.riders[c.holder] && alive.indexOf(dc.riders[c.holder]) >= 0 && Math.random() < preferCase) return dc.riders[c.holder];
     return alive[Math.floor(Math.random() * alive.length)];
 }
 
@@ -195,6 +205,7 @@ function dcHostUpdate(dt) {
         const t = dcHostPick(0.45);
         if (t || bc) dcEmit({ k: "bm", id: dc.nextId++, tg: t ? t.id : "beacon", src: Math.random() < 0.25 ? 1 : 0 });
     }
+    if (!quiet) dcHostAttacks(dt, leg, crowd);
     for (let i = 0; i < dc.beams.length; i++) {
         const b = dc.beams[i];
         if (b.phase === "track" && dc.simT >= b.lockAt) {
@@ -229,12 +240,14 @@ function dcHostUpdate(dt) {
             const sh = dcShieldOf(r.id);
             if (bc && Math.abs(bc.z - r.z) < 60 * DC_SEG) dcEmit({ k: "kx", id: k.id, why: "decoy", by: bc.by });
             else if (sh) dcEmit({ k: "kx", id: k.id, why: "bounce", by: sh.by });
-            else if (r.down > 0) dcEmit({ k: "kx", id: k.id, why: "lost" });
+            else if (r.down > 0 || r.home || dcInTunnel(r.z)) dcEmit({ k: "kx", id: k.id, why: "lost" });
             else dcEmit({ k: "kl", id: k.id, n: 3 });
         } else if (k.phase === "latch") {
             const sh = dcShieldOf(r.id);
             if (sh) { dcEmit({ k: "kx", id: k.id, why: "bounce", by: sh.by }); continue; }
             if (r.down > 0) { dcEmit({ k: "kx", id: k.id, why: "lost" }); continue; }
+            if (dcInTunnel(r.z) || r.home) { dcEmit({ k: "kx", id: k.id, why: "scrape" }); continue; }
+            if (k.dying) continue;
             // A rammer rips krill off herself and anyone she passes.
             for (const rid in dc.rams) {
                 const rr = dc.riders[rid];
@@ -246,10 +259,9 @@ function dcHostUpdate(dt) {
                 // They tear the case loose.
                 dcEmit({ k: "kx", id: k.id, why: "steal" });
                 dcHostDrop(r.z, r.x, r.id, "krill", r.v);
-            } else if (!dcCarrying(r) && held > 5 && dc.caseS.holder && dc.caseS.holder !== r.id) {
-                // Bored of a rider with nothing to steal: they go for the case.
-                dcEmit({ k: "kx", id: k.id, why: "hop" });
-                dcEmit({ k: "kk", id: dc.nextId++, tg: dc.caseS.holder, arr: 1.2 });
+            } else if (!dcCarrying(r) && held > DC_TUNE.steal) {
+                // Nothing to steal: they drag the rider down.
+                dcEmit({ k: "kx", id: k.id, why: "bite" });
             }
         }
     }
@@ -276,7 +288,8 @@ function dcHostAbility(m) {
     const liveKrill = dc.krill.filter(function (k) { return k.phase !== "gone"; });
     if (m.a === "gunner") {
         liveBeams.forEach(function (b) { if (near(b.tg, 30) || ringIn(b, -10, 90)) dcEmit({ k: "bx", id: b.id, why: "shot", by: m.by }); });
-        liveKrill.forEach(function (k) { if (near(k.tg, 35)) dcEmit({ k: "kx", id: k.id, why: "shot", by: m.by }); });
+        // Greer's seekers chase every krill near the convoy, latched or still diving.
+        liveKrill.forEach(function (k) { if (near(k.tg, DC_FIRE_KRILL)) dcEmit({ k: "kx", id: k.id, why: "shot", by: m.by, d: 0.4 }); });
     } else if (m.a === "scout") {
         liveBeams.forEach(function (b) { if (near(b.tg, 40) || ringIn(b, -10, 130)) dcEmit({ k: "bx", id: b.id, why: "jam", by: m.by }); });
         liveKrill.forEach(function (k) { if (near(k.tg, 45)) dcEmit({ k: "kx", id: k.id, why: "scatter", by: m.by }); });
@@ -321,12 +334,13 @@ function dcHostCase(dt) {
             c.pips = Math.min(DC_TUNE.pips, c.pips + 1);
             dcEmitCase();
         }
-        if (leg >= 3) { dcHostEnd(true); return; }
+        if (leg >= 3 && h.home && !dc.finale) { dcEmit({ k: "fin", by: h.id }); }
     } else {
         // Left behind by every rider (nobody can ride back): it tumbles on
         // into the road ahead of the last rider. It still costs pips lying.
         let rear = Infinity;
-        for (const id in dc.riders) rear = Math.min(rear, dc.riders[id].z);
+        for (const id in dc.riders) if (!dc.riders[id].home) rear = Math.min(rear, dc.riders[id].z);
+        if (rear === Infinity) rear = c.z;
         if (c.v <= 0 && rear > c.z + 3 * DC_SEG) {
             c.behind = (c.behind || 0) + dt;
             if (c.behind > 1.5) { c.behind = 0; c.z = rear + 14 * DC_SEG; c.x = 0; c.v = 0; dcEmitCase(); }
@@ -342,6 +356,7 @@ function dcHostCase(dt) {
     }
     dcCaseBeat -= dt;
     if (dcCaseBeat <= 0) { dcCaseBeat = 1; dcEmitCase(); }
+    dcHostFinale();
 }
 
 // A dropped case skids on down the road from the carrier's speed, so the
@@ -379,10 +394,11 @@ function dcHostEnd(won) {
     const rows = [];
     for (const id in dc.riders) {
         const r = dc.riders[id];
-        rows.push({ id: id, name: r.name, color: r.color, role: r.role, pts: r.pts, c: r.contrib });
+        rows.push({ id: id, name: r.name, color: r.color, role: r.role, pts: r.pts, c: r.contrib, home: r.home ? 1 : 0 });
     }
     rows.sort(function (a, b) { return b.pts - a.pts; });
-    const bonus = won ? 10000 + 1000 * Math.max(0, c.pips) : 0;
+    const homeN = rows.filter(function (r) { return r.home; }).length;
+    const bonus = won ? 10000 + 1000 * Math.max(0, c.pips) + DC_HOME_BONUS * homeN : 0;
     let team = dc.team + bonus;
     rows.forEach(function (r) { team += r.pts; });
     dcEmit({ k: "end", won: won ? 1 : 0, team: team, bonus: bonus, cps: dc.team, pips: Math.max(0, c.pips), rows: rows });

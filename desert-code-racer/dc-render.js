@@ -1,16 +1,22 @@
 // ===================================================
-//   Desert Code Racer — the VECTOR cabinet renderer
+//   Desert Code Racer — the VECTOR cabinet renderer: the world
 // ===================================================
 // Anchor: Major Havoc (Atari, 1983) colour vector. Pure black, stroked
-// geometry, no fill except black (the mothership's underside, which is
-// black on black and only occludes), phosphor persistence instead of a
-// clear, beam overdraw on the strong lines, and NO scanlines
-// (AESTHETIC_GUIDE §1, §3.3, §4).
+// geometry, black fills only to occlude (the mothership's underside, canyon
+// walls, the mountain round a tunnel, a barricade's panels, a bike's body),
+// phosphor persistence instead of a clear, beam overdraw on the strong
+// lines, and NO scanlines (AESTHETIC_GUIDE §1, §3.3, §4).
 //
-// The road is the classic pseudo-3D road: every segment's start point is
-// projected once a frame into dcProj[], with the bend accumulated as an
-// x offset; everything that sits on the road is placed by interpolating
-// between two projected segment points (dcScreenAt).
+// The road is the classic pseudo-3D road with hills: every segment's start
+// is projected once a frame into dcProj[] (bend accumulated as an x offset,
+// height from the segment's y). Then the world is drawn FAR TO NEAR, one
+// segment at a time: its road lines, its canyon walls or tunnel frame, then
+// everything standing on it (scenery, set pieces, riders, ground effects).
+// The black fills of nearer things cover farther ones, which is all the
+// occlusion a vector cabinet needs; a hill crest hides the road behind it
+// with the classic "lowest y so far" clip (p.clip).
+//
+// Riders, krill, beams, the attacks, effects and the HUD: dc-actors.js.
 "use strict";
 
 let dcCv = null, dcCtx = null, dcW = 800, dcH = 600, dcDpr = 1;
@@ -18,16 +24,17 @@ let dcHy = 260;                     // horizon line
 let dcK = 256;                      // x scale of the projection
 let dcVy = 300;                     // y scale of the projection
 let dcSkyOff = 0;
-const dcCam = { x: 0, z: 0, h: DC_CAM_H };
+const dcCam = { x: 0, z: 0, y: DC_CAM_H, inside: false, dark: 0 };
 const dcProj = [];
 let dcProjBase = 0;
 let dcProjN = 0;
 const dcRidgeFar = [], dcRidgeNear = [];
+const dcBuckets = [];               // per projected segment: things standing on it
 
 function dcRenderInit() {
     dcCv = document.getElementById("dcCanvas");
     dcCtx = dcCv.getContext("2d");
-    for (let i = 0; i <= DC_DRAW + 2; i++) dcProj.push({ x: 0, y: 0, w: 0, s: 0, cx: 0 });
+    for (let i = 0; i <= DC_DRAW + 2; i++) { dcProj.push({ x: 0, y: 0, w: 0, s: 0, cx: 0, clip: 0, vis: false }); dcBuckets.push([]); }
     // Two ridgelines, generated once, tiled around the horizon.
     const r = dcMulberry(4242);
     let h = 0.5;
@@ -64,35 +71,46 @@ function dcResize() {
 // ---------------------------------------------------
 function dcProjectRoad(focus) {
     const t = dc.track;
-    dcCam.z = focus.z - DC_CAM_BACK;
+    // In the lab after the finish the camera parks, so the room stays in view.
+    const fz = Math.min(focus.z, (t.finish + 22) * DC_SEG);
+    dcCam.z = fz - DC_CAM_BACK;
     dcCam.x = focus.x * DC_ROAD_W;
+    dcCam.y = Math.max(dcRoadY(dcCam.z), dcRoadY(fz)) + DC_CAM_H;
+    const camSeg = dcSegAt(dcCam.z);
+    dcCam.inside = camSeg.zone === "tunnel" || camSeg.zone === "lab";
+    dcCam.dark = dcSegAt(fz).dark;
     const base = Math.floor(dcCam.z / DC_SEG);
     const frac = (dcCam.z / DC_SEG) - base;
     dcProjBase = base;
     const s0 = t.segs[dcClamp(base, 0, t.segs.length - 1)];
     let x = 0, dx = -(s0.curve * frac);
-    let n = 0;
+    let n = 0, maxy = dcH * 2;
     for (; n <= DC_DRAW + 1; n++) {
         const si = base + n;
         if (si >= t.segs.length) break;
         const z = si * DC_SEG - dcCam.z;
         const p = dcProj[n];
-        if (z <= 1) { p.s = 0; continue; }
+        dcBuckets[n].length = 0;
+        if (z <= 1) { p.s = 0; p.vis = false; continue; }
+        const sg = t.segs[si];
         const s = DC_CAM_DEPTH / z;
         p.s = s;
         p.cx = x;
         p.x = dcW / 2 + s * (x - dcCam.x) * dcK;
-        p.y = dcHy + s * dcCam.h * (dcVy);
+        p.y = dcHy + s * (dcCam.y - sg.y) * dcVy;
         p.w = s * DC_ROAD_W * dcK;
+        p.clip = maxy;
+        p.vis = p.y < maxy;
+        if (p.vis) maxy = p.y;
         x += dx;
-        dx += t.segs[si].curve;
+        dx += sg.curve;
     }
     dcProjN = n;
 }
 
 // Screen point for world (z, x) on the road, x in road units. y is the
-// height above the road in world units.
-const dcSP = { x: 0, y: 0, w: 0, s: 0 };
+// height above the road in world units. clip: hidden below this y (a crest).
+const dcSP = { x: 0, y: 0, w: 0, s: 0, clip: 0, n: 0 };
 function dcScreenAt(z, x, y) {
     const f = z / DC_SEG - dcProjBase;
     const n = Math.floor(f);
@@ -106,7 +124,15 @@ function dcScreenAt(z, x, y) {
     dcSP.y = dcLerp(a.y, b.y, t) - (y || 0) * s * dcVy;
     dcSP.w = w;
     dcSP.s = s;
+    dcSP.clip = a.clip;
+    dcSP.n = n;
     return dcSP;
+}
+
+// Hide the part of a standing thing that is behind a crest (call, draw, restore).
+function dcClipBegin(ctx, clipY) {
+    ctx.save();
+    if (clipY < dcH * 2) { ctx.beginPath(); ctx.rect(-50, -50, dcW + 100, clipY + 50); ctx.clip(); }
 }
 
 function dcBikeScreen() {
@@ -117,6 +143,14 @@ function dcBikeScreen() {
 }
 
 function dcFocus() { return dc.me; }
+
+// Things standing on the road go into their segment's bucket; they are drawn
+// when the far-to-near pass reaches it. order: lower first within a segment.
+function dcBucket(z, order, fn, a, b) {
+    const n = Math.floor(z / DC_SEG - dcProjBase);
+    if (n < 1 || n >= dcProjN - 1) return;
+    dcBuckets[n].push({ o: order, z: z, fn: fn, a: a, b: b });
+}
 
 // ---------------------------------------------------
 //   THE FRAME
@@ -134,16 +168,12 @@ function dcRender() {
 
     ctx.save();
     if (dcShakeAmt > 0) ctx.translate((Math.random() - 0.5) * dcShakeAmt, (Math.random() - 0.5) * dcShakeAmt);
-    dcDrawSky(ctx);
-    dcDrawGround(ctx);
-    dcDrawRoad(ctx);
-    dcDrawScenery(ctx);
-    dcDrawHazards(ctx);
-    dcDrawBeacons(ctx);
-    dcDrawCase(ctx);
-    dcDrawFx(ctx, false);
-    dcDrawRiders(ctx);
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    if (!dcCam.inside) dcDrawSky(ctx);
+    dcFillBuckets();
+    dcDrawWorld(ctx);
     dcDrawBeams(ctx);
+    dcDrawAttacksTop(ctx);
     dcDrawFx(ctx, true);
     ctx.restore();
     dcDrawHud(ctx);
@@ -155,8 +185,21 @@ function dcLine(ctx, pts, col, wide, core) {
     ctx.beginPath();
     ctx.moveTo(pts[0], pts[1]);
     for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
-    if (wide) { ctx.globalAlpha = 0.2; ctx.strokeStyle = col; ctx.lineWidth = wide; ctx.stroke(); }
-    ctx.globalAlpha = 1; ctx.strokeStyle = col; ctx.lineWidth = core || 1.4; ctx.stroke();
+    const a0 = ctx.globalAlpha;
+    if (wide) { ctx.globalAlpha = a0 * 0.2; ctx.strokeStyle = col; ctx.lineWidth = wide; ctx.stroke(); }
+    ctx.globalAlpha = a0; ctx.strokeStyle = col; ctx.lineWidth = core || 1.4; ctx.stroke();
+}
+
+// A closed shape: black fill (occludes what is behind), then the stroke.
+function dcSolid(ctx, pts, col, wide, core) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0], pts[1]);
+    for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+    ctx.closePath();
+    ctx.fillStyle = "#000"; ctx.fill();
+    const a0 = ctx.globalAlpha;
+    if (wide) { ctx.globalAlpha = a0 * 0.2; ctx.strokeStyle = col; ctx.lineWidth = wide; ctx.stroke(); }
+    ctx.globalAlpha = a0; ctx.strokeStyle = col; ctx.lineWidth = core || 1.4; ctx.stroke();
 }
 
 function dcBloom(ctx, x, y, r) {
@@ -164,12 +207,20 @@ function dcBloom(ctx, x, y, r) {
     ctx.fillRect(x - r, y - r, r * 2, r * 2);
 }
 
+// How bright a thing is by its distance down the road: far things are dim
+// and thin, near things bright (Ry, pass 2: "more readable in their depth").
+function dcDepthAlpha(z) {
+    const d = (z - dc.me.z) / DC_SEG;
+    return dcClamp(1.25 - d / 170, 0.22, 1);
+}
+
 // ---------------------------------------------------
 //   SKY: ridges, the mothership, the second ship
 // ---------------------------------------------------
 function dcDrawSky(ctx) {
     const off = dcSkyOff;
-    // Far ridge.
+    const a0 = 1 - 0.88 * dcCam.dark;          // a canyon is darker: the sky barely shows
+    ctx.globalAlpha = a0;
     const fw = dcW * 1.6, step = fw / (dcRidgeFar.length - 1);
     let sx = -((off * dcW * 0.6) % fw);
     if (sx > 0) sx -= fw;
@@ -178,9 +229,8 @@ function dcDrawSky(ctx) {
         for (let i = 0; i < dcRidgeFar.length; i++) pts.push(sx + rep * fw + i * step, dcHy - dcRidgeFar[i] * dcH * 0.11);
         dcLine(ctx, pts, "#4B3A8C", 0, 1.2);
     }
-    // The mothership, hanging over the horizon (parallax between the ridges).
     dcDrawMothership(ctx, dcHy - dcH * 0.2);
-    // Near ridge.
+    ctx.globalAlpha = a0;
     const nw = dcW * 2.2, nstep = nw / (dcRidgeNear.length - 1);
     let nx = -((off * dcW * 1.4) % nw);
     if (nx > 0) nx -= nw;
@@ -189,29 +239,27 @@ function dcDrawSky(ctx) {
         for (let i = 0; i < dcRidgeNear.length; i++) pts.push(nx + rep * nw + i * nstep, dcHy - dcRidgeNear[i] * dcH * 0.07);
         dcLine(ctx, pts, DC_COL.hue, 4, 1.4);
     }
-    // Horizon.
     dcLine(ctx, [0, dcHy, dcW, dcHy], "#4B3A8C", 0, 1);
     dcDrawSmallShip(ctx);
+    ctx.globalAlpha = 1;
 }
 
 const dcShip = { x: 0, y: 0, eyeX: 0, eyeY: 0, sx: 0, sy: 0 };
 
 function dcDrawMothership(ctx, cy) {
-    // Keep it on screen: it wanders a little with the bends, never off.
     const cx = dcW / 2 + Math.sin(dcSkyOff * 2.1) * dcW * 0.18;
     const w = dcW * 0.46, h = dcH * 0.13;
     const topW = w * 0.34;
     const t = dc.simT;
+    const a0 = ctx.globalAlpha;
     dcShip.x = cx; dcShip.y = cy;
     const x0 = cx - w / 2, x1 = cx + w / 2;
     const yTop = cy - h * 0.55, yBot = cy + h * 0.25, yUnder = cy + h * 0.45;
-    // Black underside first (occludes the far ridge behind it).
     ctx.fillStyle = "#000";
     ctx.beginPath();
     ctx.moveTo(x0, yBot); ctx.lineTo(cx - topW / 2, yTop); ctx.lineTo(cx + topW / 2, yTop); ctx.lineTo(x1, yBot);
     ctx.lineTo(x1 - w * 0.08, yUnder); ctx.lineTo(x0 + w * 0.08, yUnder); ctx.closePath();
     ctx.fill();
-    // Hull: the wedge, hatched like the sketch.
     dcLine(ctx, [x0, yBot, cx - topW / 2, yTop, cx + topW / 2, yTop, x1, yBot], DC_COL.mid, 4, 1.4);
     ctx.beginPath();
     for (let i = 1; i < 22; i++) {
@@ -219,15 +267,12 @@ function dcDrawMothership(ctx, cy) {
         const xb = dcLerp(x0, x1, u), xt = dcLerp(cx - topW / 2, cx + topW / 2, u);
         ctx.moveTo(xt, yTop + 2); ctx.lineTo(dcLerp(xt, xb, 0.85), dcLerp(yTop, yBot, 0.85));
     }
-    ctx.globalAlpha = 0.45; ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = 1;
-    // The dome hatch on top.
+    ctx.globalAlpha = a0 * 0.45; ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = a0;
     ctx.beginPath(); ctx.ellipse(cx, yTop, topW * 0.28, h * 0.12, 0, Math.PI, 0); ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1.2; ctx.stroke();
-    // The red rim, breathing on one slow clock (the story's breath rule).
     const breath = DC_REDUCED ? 1 : 0.7 + 0.3 * Math.sin(t * 1.4);
-    ctx.globalAlpha = breath;
+    ctx.globalAlpha = a0 * breath;
     dcLine(ctx, [x0, yBot, x0 + w * 0.08, yUnder, x1 - w * 0.08, yUnder, x1, yBot], DC_COL.magenta, 6, 2);
-    ctx.globalAlpha = 1;
-    // The eye under it: where the beams come from.
+    ctx.globalAlpha = a0;
     const charging = dc.beams.some(function (b) { return b.phase === "track" && b.src === 0; });
     dcShip.eyeX = cx; dcShip.eyeY = yUnder + h * 0.12;
     ctx.beginPath(); ctx.ellipse(cx, dcShip.eyeY, w * 0.035, h * 0.1, 0, 0, Math.PI * 2);
@@ -239,78 +284,358 @@ function dcDrawMothership(ctx, cy) {
 
 function dcDrawSmallShip(ctx) {
     const t = dc.simT;
-    const x = dcW * 0.09 + Math.sin(t * 0.23) * dcW * 0.04, y = dcH * 0.09 + Math.sin(t * 0.37) * dcH * 0.015;
+    const st = dcStrafeShip();                 // a strafing run pulls it down over the road
+    let x = dcW * 0.09 + Math.sin(t * 0.23) * dcW * 0.04, y = dcH * 0.09 + Math.sin(t * 0.37) * dcH * 0.015;
+    if (st) { x = dcLerp(x, st.x - dcW * 0.1, st.k); y = dcLerp(y, st.y, st.k); }
     const w = dcW * 0.2, h = dcH * 0.035;
     dcShip.sx = x + w * 0.7; dcShip.sy = y + h * 0.6;
     ctx.fillStyle = "#000";
     ctx.beginPath(); ctx.moveTo(x, y + h * 0.6); ctx.lineTo(x + w, y - h * 0.4); ctx.lineTo(x + w, y + h * 0.7); ctx.closePath(); ctx.fill();
     dcLine(ctx, [x, y + h * 0.6, x + w, y - h * 0.4, x + w, y + h * 0.7], DC_COL.mid, 3, 1.2);
-    dcLine(ctx, [x + w * 0.04, y + h * 0.66, x + w, y + h * 0.8], DC_COL.magenta, 4, 1.6);
+    dcLine(ctx, [x + w * 0.04, y + h * 0.66, x + w, y + h * 0.8], DC_COL.magenta, 4, st ? 2.4 : 1.6);
     dcBloom(ctx, x, y + h * 0.6, 1.2);
 }
 
 // ---------------------------------------------------
-//   GROUND AND ROAD
+//   BUCKETS: what stands on which segment
 // ---------------------------------------------------
-function dcDrawGround(ctx) {
-    // Ground lines rushing past: the speed cue a vector racer has instead of texture.
-    ctx.beginPath();
-    for (let n = 1; n < dcProjN; n++) {
-        const si = dcProjBase + n;
-        if (si % 8 !== 0) continue;
-        const p = dcProj[n];
-        if (!p.s) continue;
-        ctx.moveTo(p.x - p.w * 5, p.y); ctx.lineTo(p.x - p.w * 1.1, p.y);
-        ctx.moveTo(p.x + p.w * 1.1, p.y); ctx.lineTo(p.x + p.w * 5, p.y);
+function dcFillBuckets() {
+    const t = dc.track;
+    const s0 = dcProjBase + 1, s1 = dcProjBase + dcProjN - 2;
+    // Scenery.
+    for (let n = 1; n < dcProjN - 1; n++) {
+        const sg = t.segs[dcProjBase + n];
+        if (!sg) continue;
+        for (let k = 0; k < sg.scene.length; k++) dcBucket((dcProjBase + n) * DC_SEG, 1, dcDrawSceneObj, sg.scene[k], (dcProjBase + n) * DC_SEG);
     }
-    ctx.strokeStyle = "#241C44"; ctx.lineWidth = 1; ctx.stroke();
-}
-
-function dcDrawRoad(ctx) {
-    const L = [], R = [];
-    for (let n = 1; n < dcProjN; n++) {
-        const p = dcProj[n];
-        if (!p.s) continue;
-        L.push(p.x - p.w, p.y); R.push(p.x + p.w, p.y);
-    }
-    dcLine(ctx, L, DC_COL.hue, 5, 1.6);
-    dcLine(ctx, R, DC_COL.hue, 5, 1.6);
-    // Centre dashes and edge ticks.
-    ctx.beginPath();
-    for (let n = 1; n + 1 < dcProjN; n++) {
-        const si = dcProjBase + n;
-        const a = dcProj[n], b = dcProj[n + 1];
-        if (!a.s || !b.s) continue;
-        if (Math.floor(si / 3) % 2 === 0) { ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
-        if (si % 6 === 0) {
-            ctx.moveTo(a.x - a.w, a.y); ctx.lineTo(a.x - a.w * 1.1, a.y);
-            ctx.moveTo(a.x + a.w, a.y); ctx.lineTo(a.x + a.w * 1.1, a.y);
+    // Set pieces: ground marks at their far end, standing parts at their row.
+    const list = dcHazardsIn(s0 - 2, s1);
+    for (let i = 0; i < list.length; i++) {
+        const h = list[i];
+        if (h.type === "crater") dcBucket((h.seg + h.len) * DC_SEG, 0, dcDrawCrater, h);
+        else if (h.type === "dust") dcDrawDustBuckets(h);
+        else if (h.type === "barricade") dcBarricadeBuckets(h);
+        else if (h.type === "pad") dcBucket((h.seg + h.len) * DC_SEG, 0, dcDrawPad, h);
+        else if (h.type === "chips") {
+            for (let c = 0; c < h.chips.length; c++) {
+                if (dc.me.passed[h.id + "c" + c]) continue;
+                dcBucket(h.chips[c].seg * DC_SEG, 3, dcDrawChip, h.chips[c], c);
+            }
         }
     }
-    ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1.2; ctx.stroke();
-    // Checkpoint gantries and the bases.
-    const t = dc.track;
-    for (let L2 = 0; L2 < 3; L2++) dcDrawGantry(ctx, t.cpSeg[L2], L2 === 2 ? "MOUNTAIN BASE" : DC_LEG_NAMES[L2 + 1].split(" ")[1]);
-    dcDrawDome(ctx, 22, -2.6);
-    dcDrawBunker(ctx, t.finish + 30);
+    // Barricade approach marks on the road (a depth cue).
+    for (let i = 0; i < list.length; i++) {
+        const h = list[i];
+        if (h.type !== "barricade" || h.st === "gone" || h.fork !== undefined) continue;
+        for (let k = 1; k <= 3; k++) dcBucket((h.seg - k * 14) * DC_SEG, 0, dcDrawApproach, h, k);
+    }
+    // Gantries, the dome, the lab's back wall.
+    for (let L = 0; L < 2; L++) dcBucket(t.cpSeg[L] * DC_SEG, 2, dcDrawGantry, t.cpSeg[L], DC_LEG_NAMES[L + 1].split(" ")[1]);
+    dcBucket(22 * DC_SEG, 2, dcDrawDome, -2.6);
+    dcBucket((t.finish + DC_LAB_DEPTH) * DC_SEG, -1, dcDrawLabWall);
+    dcBucket(t.finish * DC_SEG, 2, dcDrawFinishLine);
+    // Beacons, the case, riders, the finale's friendly, ground effects.
+    for (let i = 0; i < dc.beacons.length; i++) dcBucket(dc.beacons[i].z, 4, dcDrawBeacon, dc.beacons[i]);
+    const c = dc.caseS;
+    if (c && !c.holder && !c.over) dcBucket(c.z, 4, dcDrawCaseOnRoad, c);
+    for (const id in dc.riders) { const r = dc.riders[id]; dcBucket(r.z, 6, dcDrawRiderAt, r); }
+    dcFinaleBuckets();
+    dcAttacksBuckets();
+    for (let i = 0; i < dc.fx.length; i++) {
+        const fx = dc.fx[i];
+        if (fx.delay > 0 || fx.y > 50 || fx.kind === "tracer" || fx.kind === "seeker") continue;
+        dcBucket(fx.kind === "pulse" ? fx.z + (fx.t / fx.life) * fx.len * DC_SEG : fx.z, 5, dcDrawFxOne, fx);
+    }
 }
 
+// ---------------------------------------------------
+//   THE WORLD, FAR TO NEAR
+// ---------------------------------------------------
+function dcDrawWorld(ctx) {
+    const t = dc.track;
+    for (let n = dcProjN - 2; n >= 1; n--) {
+        const a = dcProj[n], b = dcProj[n + 1];
+        const si = dcProjBase + n;
+        const sg = t.segs[si];
+        if (!sg || !a.s || !b.s) continue;
+        const zone = sg.zone;
+        if (zone === "tunnel" || zone === "lab") dcDrawTunnelSeg(ctx, n, si, sg);
+        if (a.vis) dcDrawRoadSeg(ctx, n, si, sg, a, b);
+        if (zone === "valley") dcDrawWallSeg(ctx, n, si, sg, a, b);
+        const bk = dcBuckets[n];
+        if (bk.length) {
+            if (bk.length > 1) bk.sort(dcBucketOrder);
+            for (let k = 0; k < bk.length; k++) {
+                const it = bk[k];
+                it.fn(ctx, it.a, it.b);
+                ctx.globalAlpha = 1;
+            }
+        }
+    }
+}
+
+function dcBucketOrder(p, q) { return (p.o - q.o) || (q.z - p.z); }
+
+function dcDrawRoadSeg(ctx, n, si, sg, a, b) {
+    const dark = sg.dark;
+    const lab = sg.zone === "lab";
+    const fade = dcClamp(1.3 - n / (DC_DRAW * 0.95), 0.25, 1) * (1 - 0.45 * dark);
+    ctx.globalAlpha = fade;
+    if (lab) {
+        // The lab floor: a cyan grid instead of tarmac.
+        const w0 = a.w * 1.7, w1 = b.w * 1.7;
+        dcLine(ctx, [a.x - w0, a.y, b.x - w1, b.y], DC_COL.cyan, 0, 1.2);
+        dcLine(ctx, [a.x + w0, a.y, b.x + w1, b.y], DC_COL.cyan, 0, 1.2);
+        if (si % 4 === 0) { ctx.globalAlpha = fade * 0.45; dcLine(ctx, [a.x - w0, a.y, a.x + w0, a.y], DC_COL.cyan, 0, 1); }
+        ctx.globalAlpha = fade * 0.3;
+        ctx.beginPath();
+        for (let k = -3; k <= 3; k++) { ctx.moveTo(a.x + w0 * k / 3.5, a.y); ctx.lineTo(b.x + w1 * k / 3.5, b.y); }
+        ctx.strokeStyle = DC_COL.cyan; ctx.lineWidth = 1; ctx.stroke();
+        ctx.globalAlpha = 1;
+        return;
+    }
+    // Ground lines rushing past: the speed cue a vector racer has instead of texture.
+    if (si % 8 === 0 && sg.zone === "") {
+        ctx.beginPath();
+        ctx.moveTo(a.x - a.w * 5, a.y); ctx.lineTo(a.x - a.w * 1.1, a.y);
+        ctx.moveTo(a.x + a.w * 1.1, a.y); ctx.lineTo(a.x + a.w * 5, a.y);
+        ctx.strokeStyle = "#241C44"; ctx.lineWidth = 1; ctx.stroke();
+    }
+    const edge = sg.zone === "tunnel" ? DC_COL.mid : DC_COL.hue;
+    dcLine(ctx, [a.x - a.w, a.y, b.x - b.w, b.y], edge, 5, 1.6);
+    dcLine(ctx, [a.x + a.w, a.y, b.x + b.w, b.y], edge, 5, 1.6);
+    ctx.beginPath();
+    if (Math.floor(si / 3) % 2 === 0) { ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); }
+    if (si % 6 === 0) {
+        ctx.moveTo(a.x - a.w, a.y); ctx.lineTo(a.x - a.w * 1.1, a.y);
+        ctx.moveTo(a.x + a.w, a.y); ctx.lineTo(a.x + a.w * 1.1, a.y);
+    }
+    ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1.2; ctx.stroke();
+    // A side road: its own two edges, drawn only where they leave the main road.
+    const nx = dc.track.segs[si + 1];
+    if (sg.alt && nx && nx.alt) {
+        for (let e = -1; e <= 1; e += 2) {
+            const xa = sg.alt.off + e * sg.alt.w, xb = nx.alt.off + e * nx.alt.w;
+            if (Math.abs(xa) <= 1.02 && Math.abs(xb) <= 1.02) continue;
+            dcLine(ctx, [a.x + xa * a.w, a.y, b.x + xb * b.w, b.y], DC_COL.amber, 4, 1.3);
+        }
+        if (sg.alt.hold && si % 6 < 3) dcLine(ctx, [a.x + sg.alt.off * a.w, a.y, b.x + nx.alt.off * b.w, b.y], "#7A6A3A", 0, 1);
+    }
+    ctx.globalAlpha = 1;
+}
+
+// Canyon walls: black faces rising either side, a jagged rim, strata.
+function dcDrawWallSeg(ctx, n, si, sg, a, b) {
+    const nx = dc.track.segs[si + 1];
+    if (!nx || nx.zone !== "valley") return;
+    // Mesa rims: a height per 9-segment block, sloped between blocks.
+    const blk = function (b, side) { const h = Math.sin(b * 12.9898 + side * 78.233) * 43758.5453; return 2300 + 1500 * (h - Math.floor(h)); };
+    const hgt = function (i, side) { const b = Math.floor(i / 9), f = (i % 9) / 9; return dcLerp(blk(b, side), blk(b + 1, side), f < 0.7 ? 0 : (f - 0.7) / 0.3); };
+    const fade = dcClamp(1.3 - n / (DC_DRAW * 0.9), 0.2, 1);
+    for (let side = -1; side <= 1; side += 2) {
+        const xw = side * 1.45;
+        const ha = hgt(si, side) * sg.dark, hb = hgt(si + 1, side) * nx.dark;
+        if (ha < 50 && hb < 50) continue;
+        const ax = a.x + xw * a.w, bx = b.x + xw * b.w;
+        const aT = a.y - ha * a.s * dcVy, bT = b.y - hb * b.s * dcVy;
+        // The face runs outward to the screen edge so nothing beyond shows.
+        const far = side < 0 ? -dcW : dcW * 2;
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.moveTo(ax, a.y); ctx.lineTo(bx, b.y); ctx.lineTo(bx, bT); ctx.lineTo(far, bT); ctx.lineTo(far, a.y + 4); ctx.closePath();
+        ctx.fillStyle = "#000"; ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(ax, aT); ctx.lineTo(bx, bT); ctx.lineTo(far, bT);
+        ctx.globalAlpha = fade * 0.9;
+        dcLine(ctx, [ax, aT, bx, bT], "#5B4E8C", 3, 1.2);
+        dcLine(ctx, [ax, a.y, bx, b.y], "#3A2E66", 0, 1);
+        if (si % 5 === 0) {
+            ctx.globalAlpha = fade * 0.5;
+            dcLine(ctx, [ax, a.y, ax, aT], "#3A2E66", 0, 1);
+            dcLine(ctx, [ax, dcLerp(a.y, aT, 0.4), ax + side * a.w * 0.6, dcLerp(a.y, aT, 0.45)], "#3A2E66", 0, 1);
+        }
+    }
+    ctx.globalAlpha = 1;
+}
+
+// A tunnel (or the lab) at one segment: the mountain round the opening is
+// filled black, so nearer frames hide everything outside the bore; ribs every
+// few segments; down lights; the portal face at the entrance.
+function dcDrawTunnelSeg(ctx, n, si, sg) {
+    const p = dcProj[n];
+    const lab = sg.zone === "lab";
+    const prev = dc.track.segs[si - 1];
+    const entrance = prev && prev.zone !== "tunnel" && prev.zone !== "lab";
+    const labDoor = lab && prev && prev.zone === "tunnel";
+    const halfW = (lab ? 1.7 : 1.15) * p.w;
+    const hgt = (lab ? 3400 : 2300) * p.s * dcVy;
+    const x0 = p.x - halfW, x1 = p.x + halfW, yb = p.y, yt = p.y - hgt;
+    const arch = lab ? 0 : Math.min(halfW * 0.5, hgt * 0.35);
+    function bore() {
+        ctx.moveTo(x0, yb); ctx.lineTo(x0, yt + arch);
+        ctx.quadraticCurveTo(x0, yt, x0 + arch, yt);
+        ctx.lineTo(x1 - arch, yt);
+        ctx.quadraticCurveTo(x1, yt, x1, yt + arch);
+        ctx.lineTo(x1, yb);
+    }
+    // The mountain: huge for the finale, a ridge for a pass-through tunnel.
+    const finale = si >= dc.track.finish - DC_FINALE_SEGS - 2;
+    const mw = (finale ? 16 : 7) * p.w, mh = (finale ? 15000 : 6500) * p.s * dcVy;
+    ctx.beginPath();
+    ctx.moveTo(p.x - mw, yb + 2);
+    ctx.lineTo(p.x - mw * 0.55, yb - mh * 0.55); ctx.lineTo(p.x - mw * 0.25, yb - mh * 0.8);
+    ctx.lineTo(p.x + mw * 0.05, yb - mh); ctx.lineTo(p.x + mw * 0.4, yb - mh * 0.7); ctx.lineTo(p.x + mw * 0.7, yb - mh * 0.45);
+    ctx.lineTo(p.x + mw, yb + 2);
+    ctx.lineTo(x1, yb + 2); ctx.lineTo(x1, yb);
+    // ...minus the bore (traced the other way round).
+    ctx.lineTo(x1, yt + arch); ctx.quadraticCurveTo(x1, yt, x1 - arch, yt); ctx.lineTo(x0 + arch, yt); ctx.quadraticCurveTo(x0, yt, x0, yt + arch);
+    ctx.lineTo(x0, yb + 2);
+    ctx.closePath();
+    ctx.fillStyle = "#000"; ctx.fill();
+    // Below the road line, the floor: keep it black too so nothing shows under a crest.
+    if (entrance) {
+        dcLine(ctx, [p.x - mw, yb, p.x - mw * 0.55, yb - mh * 0.55, p.x - mw * 0.25, yb - mh * 0.8, p.x + mw * 0.05, yb - mh, p.x + mw * 0.4, yb - mh * 0.7, p.x + mw * 0.7, yb - mh * 0.45, p.x + mw, yb], DC_COL.hue, 5, 1.6);
+        ctx.beginPath(); bore();
+        ctx.strokeStyle = finale ? DC_COL.cyan : DC_COL.mid; ctx.lineWidth = finale ? 2.2 : 1.6; ctx.stroke();
+        if (finale) {
+            const size = Math.max(5, Math.min(30, hgt * 0.13));
+            dcText(ctx, "MOUNTAIN BASE", p.x, yt - size * 1.6, size, DC_COL.cyan, "center");
+            for (let k = 0; k <= 8; k++) {
+                const u = k / 8;
+                const blink = DC_REDUCED || Math.floor(dc.simT * 3 + k) % 2 === 0;
+                if (blink) dcBloom(ctx, dcLerp(x0 + arch, x1 - arch, u), yt - 3, Math.max(1, p.w * 0.01));
+            }
+        }
+        return;
+    }
+    if (labDoor) {
+        ctx.beginPath(); bore(); ctx.strokeStyle = DC_COL.cyan; ctx.lineWidth = 2; ctx.stroke();
+        return;
+    }
+    // Ribs and lights.
+    const ribEvery = lab ? 4 : 5;
+    if (si % ribEvery === 0) {
+        const fade = dcClamp(1.25 - n / 150, 0.2, 1);
+        ctx.globalAlpha = fade;
+        ctx.beginPath(); bore();
+        ctx.strokeStyle = lab ? "#1F5A66" : "#4B3A8C"; ctx.lineWidth = 1.2; ctx.stroke();
+        ctx.globalAlpha = 1;
+    }
+    if (!lab && si % 10 === 5) dcDrawLamp(ctx, p, yt, sg.lit, n);
+    if (lab && si % 8 === 2) dcDrawRacks(ctx, p, x0, x1, yb, hgt, si);
+}
+
+// A ceiling lamp and the cone it throws down (the finale is lit brighter).
+function dcDrawLamp(ctx, p, yt, lit, n) {
+    const fade = dcClamp(1.25 - n / 160, 0.2, 1);
+    const lw = p.w * 0.18;
+    ctx.globalAlpha = fade;
+    dcLine(ctx, [p.x - lw, yt + 2, p.x + lw, yt + 2], DC_COL.amber, 4, 1.6);
+    const pool = p.w * (lit ? 0.75 : 0.5);
+    ctx.globalAlpha = fade * (lit ? 0.32 : 0.16);
+    ctx.beginPath();
+    ctx.moveTo(p.x - lw, yt + 3); ctx.lineTo(p.x - pool, p.y);
+    ctx.moveTo(p.x + lw, yt + 3); ctx.lineTo(p.x + pool, p.y);
+    ctx.strokeStyle = DC_COL.amber; ctx.lineWidth = 1; ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, pool, Math.max(1, pool * 0.12), 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+}
+
+// The lab's side walls: server racks with blinking lights.
+function dcDrawRacks(ctx, p, x0, x1, yb, hgt, si) {
+    const rh = hgt * 0.72, rw = p.w * 0.22;
+    for (let side = -1; side <= 1; side += 2) {
+        const xe = side < 0 ? x0 : x1;
+        const xi = xe - side * rw;
+        dcSolid(ctx, [xe, yb, xe, yb - rh, xi, yb - rh, xi, yb], "#1F5A66", 0, 1.2);
+        for (let k = 0; k < 6; k++) {
+            const yy = yb - rh * (0.12 + k * 0.14);
+            ctx.globalAlpha = 0.6;
+            dcLine(ctx, [xe - side * rw * 0.1, yy, xi + side * rw * 0.1, yy], "#1F5A66", 0, 1);
+            const on = DC_REDUCED || Math.floor(dc.simT * 4 + k * 1.7 + si) % 3 !== 0;
+            ctx.globalAlpha = 1;
+            if (on) { ctx.fillStyle = (k + si) % 3 ? DC_COL.cyan : DC_COL.amber; ctx.fillRect(xi + side * rw * 0.25 - 1, yy - 3, Math.max(1.5, rw * 0.06), Math.max(1.5, rw * 0.06)); }
+        }
+    }
+}
+
+// The lab's back wall: the big screens, the console. The friendly stands
+// in front of it (dc-finale.js draws them).
+function dcDrawLabWall(ctx) {
+    const p = dcScreenAt((dc.track.finish + DC_LAB_DEPTH) * DC_SEG, 0, 0);
+    if (!p) return;
+    const halfW = 1.7 * p.w, hgt = 3400 * p.s * dcVy;
+    const x0 = p.x - halfW, x1 = p.x + halfW, yb = p.y, yt = p.y - hgt;
+    dcSolid(ctx, [x0, yb, x0, yt, x1, yt, x1, yb], "#1F5A66", 0, 1.4);
+    // Three screens: a world map with the launch arc, code, a countdown.
+    const sw = halfW * 0.55, sh = hgt * 0.32, sy = yt + hgt * 0.12;
+    for (let k = -1; k <= 1; k++) {
+        const cx = p.x + k * halfW * 0.62;
+        dcLine(ctx, [cx - sw / 2, sy, cx + sw / 2, sy, cx + sw / 2, sy + sh, cx - sw / 2, sy + sh, cx - sw / 2, sy], DC_COL.cyan, 4, 1.4);
+        ctx.save(); ctx.beginPath(); ctx.rect(cx - sw / 2 + 2, sy + 2, sw - 4, sh - 4); ctx.clip();
+        if (k === 0) {
+            const arm = dc.finale && dc.finale.caught;
+            const fit = function (str, max) { return Math.min(max, (sw * 0.86) / Math.max(1, dcTextWidth(str, 10) / 10)); };
+            const l1 = arm ? "CODES IN" : "AWAITING", l2 = arm ? "LAUNCH ARMED" : "LAUNCH CODES";
+            dcText(ctx, l1, cx, sy + sh * 0.22, Math.max(4, fit(l1, sh * 0.22)), arm ? DC_COL.amber : DC_COL.cyan, "center");
+            dcText(ctx, l2, cx, sy + sh * 0.58, Math.max(4, fit(l2, sh * 0.18)), arm ? DC_COL.amber : DC_COL.mid, "center");
+        } else if (k < 0) {
+            ctx.globalAlpha = 0.7;
+            const scroll = DC_REDUCED ? 0 : (dc.simT * 18) % (sh * 0.16);
+            for (let i = 0; i < 9; i++) {
+                const yy = sy + sh * 0.1 + i * sh * 0.16 - scroll;
+                const len = sw * (0.3 + 0.5 * Math.abs(Math.sin(i * 2.7 + Math.floor(dc.simT * 2))));
+                dcLine(ctx, [cx - sw * 0.4, yy, cx - sw * 0.4 + len, yy], DC_COL.cyan, 0, 1);
+            }
+        } else {
+            ctx.globalAlpha = 0.8;
+            ctx.beginPath(); ctx.ellipse(cx, sy + sh * 0.6, sw * 0.4, sh * 0.35, 0, Math.PI, 0);
+            ctx.strokeStyle = DC_COL.cyan; ctx.lineWidth = 1; ctx.stroke();
+            const u = DC_REDUCED ? 0.6 : (dc.simT * 0.3) % 1;
+            dcBloom(ctx, cx - sw * 0.4 * Math.cos(u * Math.PI), sy + sh * 0.6 - sh * 0.35 * Math.sin(u * Math.PI), 1.5);
+        }
+        ctx.restore();
+        ctx.globalAlpha = 1;
+    }
+    // The console desk.
+    const dy = yb - hgt * 0.16;
+    dcSolid(ctx, [p.x - halfW * 0.6, yb, p.x - halfW * 0.55, dy, p.x + halfW * 0.55, dy, p.x + halfW * 0.6, yb], "#1F5A66", 0, 1.3);
+}
+
+// ---------------------------------------------------
+//   STANDING THINGS
+// ---------------------------------------------------
 function dcDrawGantry(ctx, seg, label) {
     const p = dcScreenAt(seg * DC_SEG, 0, 0);
     if (!p) return;
+    dcClipBegin(ctx, p.clip);
     const w = p.w * 1.15, h = p.s * 2600 * dcVy;
     const pts = [p.x - w, p.y, p.x - w, p.y - h, p.x + w, p.y - h, p.x + w, p.y];
     dcLine(ctx, pts, DC_COL.cyan, 5, 1.8);
     dcBloom(ctx, p.x - w, p.y - h, 1.5); dcBloom(ctx, p.x + w, p.y - h, 1.5);
     const size = Math.max(4, Math.min(30, h * 0.16));
     dcText(ctx, label, p.x, p.y - h + size * 0.5, size, DC_COL.cyan, "center");
+    ctx.restore();
 }
 
-function dcDrawDome(ctx, seg, x) {
-    const p = dcScreenAt(seg * DC_SEG, x, 0);
+function dcDrawFinishLine(ctx) {
+    const p = dcScreenAt(dc.track.finish * DC_SEG, 0, 0);
     if (!p) return;
+    const w = p.w * 1.6;
+    ctx.beginPath();
+    for (let k = 0; k < 12; k++) {
+        if (k % 2) continue;
+        const xa = p.x - w + (2 * w) * k / 12, xb = p.x - w + (2 * w) * (k + 1) / 12;
+        ctx.moveTo(xa, p.y); ctx.lineTo(xb, p.y);
+    }
+    ctx.strokeStyle = DC_COL.amber; ctx.lineWidth = Math.max(1.5, p.w * 0.02); ctx.stroke();
+}
+
+function dcDrawDome(ctx, x) {
+    const p = dcScreenAt(22 * DC_SEG, x, 0);
+    if (!p) return;
+    dcClipBegin(ctx, p.clip);
     const r = p.s * 2400 * dcK;
-    // A geodesic dome: a half circle and its struts.
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, Math.PI, 0);
     for (let i = 1; i < 6; i++) {
@@ -319,47 +644,31 @@ function dcDrawDome(ctx, seg, x) {
     }
     ctx.moveTo(p.x - r * 0.87, p.y - r * 0.5); ctx.lineTo(p.x + r * 0.87, p.y - r * 0.5);
     ctx.strokeStyle = DC_COL.cyan; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.restore();
 }
 
-function dcDrawBunker(ctx, seg) {
-    const p = dcScreenAt(seg * DC_SEG, 0, 0);
-    if (!p) return;
-    const w = p.w * 1.6, h = p.s * 5200 * dcVy;
-    // The mountain base: a mountain with a door cut into it.
-    const pts = [p.x - w * 3, p.y, p.x - w * 1.2, p.y - h * 1.3, p.x - w * 0.4, p.y - h * 0.9, p.x + w * 0.5, p.y - h * 1.7, p.x + w * 3, p.y];
-    dcLine(ctx, pts, DC_COL.hue, 5, 1.6);
-    dcLine(ctx, [p.x - w * 0.5, p.y, p.x - w * 0.5, p.y - h * 0.55, p.x + w * 0.5, p.y - h * 0.55, p.x + w * 0.5, p.y], DC_COL.cyan, 5, 1.8);
-}
-
-// ---------------------------------------------------
-//   SCENERY: cacti, scrub, rocks
-// ---------------------------------------------------
-function dcDrawScenery(ctx) {
-    ctx.lineCap = "round";
-    for (let n = dcProjN - 2; n >= 1; n--) {
-        const sg = dc.track.segs[dcProjBase + n];
-        if (!sg || !sg.scene.length) continue;
-        for (let k = 0; k < sg.scene.length; k++) {
-            const o = sg.scene[k];
-            const p = dcScreenAt((dcProjBase + n) * DC_SEG, o.x, 0);
-            if (!p || p.x < -100 || p.x > dcW + 100) continue;
-            const u = p.s * dcVy;          // px per world unit, vertically
-            if (o.kind === "cactus") dcDrawCactus(ctx, p.x, p.y, u * 1100 * o.h);
-            else if (o.kind === "scrub") dcDrawScrub(ctx, p.x, p.y, u * 380 * o.h);
-            else dcDrawRock(ctx, p.x, p.y, u * 420 * o.h);
-        }
-    }
+function dcDrawSceneObj(ctx, o, z) {
+    const p = dcScreenAt(z, o.x, 0);
+    if (!p || p.x < -100 || p.x > dcW + 100) return;
+    if (p.y > p.clip + 2) return;
+    const u = p.s * dcVy;
+    ctx.globalAlpha = dcClamp(1.3 - p.n / DC_DRAW, 0.3, 1);
+    if (o.kind === "cactus") dcDrawCactus(ctx, p.x, p.y, u * 1100 * o.h);
+    else if (o.kind === "scrub") dcDrawScrub(ctx, p.x, p.y, u * 380 * o.h);
+    else dcDrawRock(ctx, p.x, p.y, u * 420 * o.h);
+    ctx.globalAlpha = 1;
 }
 
 function dcDrawCactus(ctx, x, y, h) {
     if (h < 1.5) return;
     const w = h * 0.12;
+    const a0 = ctx.globalAlpha;
     ctx.beginPath();
     ctx.moveTo(x, y); ctx.lineTo(x, y - h);
     ctx.moveTo(x, y - h * 0.45); ctx.lineTo(x - w * 2.2, y - h * 0.45); ctx.lineTo(x - w * 2.2, y - h * 0.75);
     ctx.moveTo(x, y - h * 0.6); ctx.lineTo(x + w * 1.9, y - h * 0.6); ctx.lineTo(x + w * 1.9, y - h * 0.85);
-    ctx.globalAlpha = 0.25; ctx.strokeStyle = "#39C46A"; ctx.lineWidth = Math.max(1, w * 1.4); ctx.stroke();
-    ctx.globalAlpha = 1; ctx.lineWidth = Math.max(1, w * 0.35); ctx.stroke();
+    ctx.globalAlpha = a0 * 0.25; ctx.strokeStyle = "#39C46A"; ctx.lineWidth = Math.max(1, w * 1.4); ctx.stroke();
+    ctx.globalAlpha = a0; ctx.lineWidth = Math.max(1, w * 0.35); ctx.stroke();
 }
 
 function dcDrawScrub(ctx, x, y, h) {
@@ -371,45 +680,73 @@ function dcDrawScrub(ctx, x, y, h) {
 
 function dcDrawRock(ctx, x, y, h) {
     if (h < 1) return;
-    dcLine(ctx, [x - h, y, x - h * 0.6, y - h * 0.7, x + h * 0.2, y - h, x + h, y], "#5B4E8C", 0, 1);
+    dcSolid(ctx, [x - h, y, x - h * 0.6, y - h * 0.7, x + h * 0.2, y - h, x + h, y], "#5B4E8C", 0, 1);
 }
 
 // ---------------------------------------------------
-//   HAZARDS
+//   SET PIECES
 // ---------------------------------------------------
-function dcDrawHazards(ctx) {
-    const s0 = dcProjBase + 1, s1 = dcProjBase + dcProjN - 2;
-    const list = dcHazardsIn(s0, s1);
-    for (let i = list.length - 1; i >= 0; i--) {
-        const h = list[i];
-        if (h.type === "crater") dcDrawCrater(ctx, h);
-        else if (h.type === "barricade") dcDrawBarricade(ctx, h);
-        else dcDrawDust(ctx, h);
-    }
-}
-
-function dcEllipseOnRoad(ctx, z, x, r, len) {
-    const a = dcScreenAt(z, x, 0);
-    if (!a) return null;
-    const ax = a.x, ay = a.y, aw = a.w;
-    const b = dcScreenAt(z + len * DC_SEG, x, 0);
-    const ry = b ? Math.max(1, (ay - b.y) / 2) : 2;
-    const cy = b ? (ay + b.y) / 2 : ay;
-    const cx = b ? (ax + b.x) / 2 : ax;
-    return { x: cx, y: cy, rx: r * aw, ry: ry };
-}
-
+// SCORCH CRATERS are the Tide's: where its earlier beams hit. A jagged black
+// pit with a molten amber rim, veined cracks that pulse on the Tide's breath,
+// and smoke curling up (Ry, pass 2: unmistakably enemy-made, and nothing like
+// the smooth flashing magenta ring a beam paints before it lands).
 function dcDrawCrater(ctx, h) {
-    const e = dcEllipseOnRoad(ctx, h.seg * DC_SEG, h.x, h.r, h.len);
-    if (!e) return;
-    const col = h.st === "ramp" ? DC_COL.cyan : DC_COL.magenta;
-    ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx, e.ry, 0, 0, Math.PI * 2);
-    ctx.globalAlpha = 0.25; ctx.strokeStyle = col; ctx.lineWidth = 5; ctx.stroke();
-    ctx.globalAlpha = 1; ctx.lineWidth = 1.6; ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx * 0.7, e.ry * 0.6, 0, 0, Math.PI * 2);
-    ctx.moveTo(e.x - e.rx * 0.5, e.y + e.ry * 0.9); ctx.lineTo(e.x + e.rx * 0.4, e.y - e.ry * 1.1);
-    ctx.lineWidth = 1; ctx.stroke();
-    if (h.st === "ramp") dcDrawRamp(ctx, h.seg - 3, h.x, h.r * 1.2);
+    const st = h.st;
+    dcDrawScorchMark(ctx, h.seg * DC_SEG, h.x, h.r, h.len, h.seed || h.id, st === "ramp" ? 0.5 : 1, dcDepthAlpha(h.seg * DC_SEG));
+    if (st === "ramp") dcDrawRamp(ctx, h.seg - 3, h.x, h.r * 1.2);
+}
+
+function dcDrawScorchMark(ctx, z, x, r, len, seed, heat, alpha) {
+    const a = dcScreenAt(z, x, 0);
+    if (!a) return;
+    const ax = a.x, ay = a.y, aw = a.w, clip = a.clip;
+    const b = dcScreenAt(z + len * DC_SEG, x, 0);
+    if (!b) return;
+    if (ay > clip + 2) return;
+    const cx = (ax + b.x) / 2, cy = (ay + b.y) / 2;
+    const rx = r * aw, ry = Math.max(1.5, (ay - b.y) / 2 + rx * 0.06);
+    const rnd = dcMulberry(Math.floor(seed * 977) | 0);
+    const pts = [];
+    const N = 11;
+    for (let i = 0; i < N; i++) {
+        const t = i / N * Math.PI * 2;
+        const k = 0.78 + rnd() * 0.36;
+        pts.push(cx + Math.cos(t) * rx * k, cy + Math.sin(t) * ry * k);
+    }
+    ctx.globalAlpha = alpha;
+    dcSolid(ctx, pts, DC_COL.amber, 5, 1.6);
+    // Inner glow ring and cracks.
+    const breath = DC_REDUCED ? 0.7 : 0.55 + 0.45 * Math.sin(dc.simT * 1.4 + seed);
+    ctx.globalAlpha = alpha * heat * breath;
+    ctx.beginPath(); ctx.ellipse(cx, cy, rx * 0.42, ry * 0.42, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = DC_COL.magenta; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+        const t = rnd() * Math.PI * 2;
+        const r0 = 0.45, r1 = 1.05 + rnd() * 0.45;
+        ctx.moveTo(cx + Math.cos(t) * rx * r0, cy + Math.sin(t) * ry * r0);
+        const mt = t + (rnd() - 0.5) * 0.4;
+        ctx.lineTo(cx + Math.cos(mt) * rx * 0.75, cy + Math.sin(mt) * ry * 0.75);
+        ctx.lineTo(cx + Math.cos(t) * rx * r1, cy + Math.sin(t) * ry * r1);
+    }
+    ctx.stroke();
+    // Smoke: two curls rising, drifting.
+    if (rx > 3) {
+        ctx.globalAlpha = alpha * 0.45;
+        ctx.beginPath();
+        for (let k = 0; k < 2; k++) {
+            const ph = (DC_REDUCED ? 0.3 : (dc.simT * 0.6 + k * 0.5 + seed) % 1);
+            const sx = cx + (k ? 0.3 : -0.25) * rx;
+            const top = rx * (1.2 + ph * 1.6);
+            ctx.moveTo(sx, cy);
+            for (let j = 1; j <= 5; j++) {
+                const u = j / 5;
+                ctx.lineTo(sx + Math.sin(u * 5 + dc.simT * 2 + k) * rx * 0.12 * u, cy - top * u);
+            }
+        }
+        ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1; ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
 }
 
 function dcDrawRamp(ctx, seg, x, half) {
@@ -417,113 +754,229 @@ function dcDrawRamp(ctx, seg, x, half) {
     const b = dcScreenAt((seg + 3) * DC_SEG, x, 500);
     if (!b0 || !b) return;
     const w0 = half * b0.w, w1 = half * b.w;
-    dcLine(ctx, [b0.x - w0, b0.y, b.x - w1, b.y, b.x + w1, b.y, b0.x + w0, b0.y], DC_COL.cyan, 5, 1.6);
+    dcSolid(ctx, [b0.x - w0, b0.y, b.x - w1, b.y, b.x + w1, b.y, b0.x + w0, b0.y], DC_COL.cyan, 5, 1.6);
     ctx.beginPath();
     for (let i = 1; i < 4; i++) { const u = i / 4; ctx.moveTo(dcLerp(b0.x - w0, b.x - w1, u), dcLerp(b0.y, b.y, u)); ctx.lineTo(dcLerp(b0.x + w0, b.x + w1, u), dcLerp(b0.y, b.y, u)); }
     ctx.strokeStyle = DC_COL.cyan; ctx.lineWidth = 1; ctx.stroke();
 }
 
-function dcDrawBarricade(ctx, h) {
-    const z = h.seg * DC_SEG;
-    if (h.st === "gone") {
-        const p = dcScreenAt(z, h.gapX, 0);
-        if (!p) return;
-        ctx.beginPath();
-        for (let i = 0; i < 9; i++) { const xx = p.x + (i - 4) * p.w * 0.2, yy = p.y + ((i * 37) % 7 - 3) * 0.6; ctx.moveTo(xx, yy); ctx.lineTo(xx + p.w * 0.06, yy - 1); }
-        ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1.2; ctx.stroke();
-        return;
-    }
-    const gw = h.st === "open" ? 1.15 : h.gapW;
-    const gl = h.gapX - gw / 2, gr = h.gapX + gw / 2;
-    const p = dcScreenAt(z, 0, 0);
-    if (!p) return;
-    const px = p.x, py = p.y, pw = p.w, u = p.s * dcVy;
-    const ht = 520 * u;
-    function zig(x0, x1) {
-        if (x1 - x0 < 0.02) return;
-        const pts = [];
-        const n = Math.max(2, Math.round((x1 - x0) * 7));
-        for (let i = 0; i <= n; i++) {
-            const xx = px + dcLerp(x0, x1, i / n) * pw;
-            pts.push(xx, py - (i % 2 ? ht : ht * 0.35));
-        }
-        dcLine(ctx, pts, DC_COL.hot, 4, 1.4);
-        dcLine(ctx, [px + x0 * pw, py, px + x1 * pw, py], DC_COL.magenta, 0, 1.2);
-    }
-    zig(-1.15, Math.max(-1.15, gl));
-    zig(Math.min(1.15, gr), 1.15);
-    // The gap, marked navigable (cyan posts).
-    ctx.beginPath();
-    ctx.moveTo(px + gl * pw, py); ctx.lineTo(px + gl * pw, py - ht * 1.2);
-    ctx.moveTo(px + gr * pw, py); ctx.lineTo(px + gr * pw, py - ht * 1.2);
-    ctx.strokeStyle = DC_COL.cyan; ctx.lineWidth = 1.6; ctx.stroke();
-    if (h.st === "ramp") dcDrawRamp(ctx, h.seg - 3, 0, 1.1);
+function dcDrawPad(ctx, h) {
+    ctx.globalAlpha = dcDepthAlpha(h.seg * DC_SEG);
+    dcDrawRamp(ctx, h.seg, h.x, 0.32);
+    ctx.globalAlpha = 1;
 }
 
-function dcDrawDust(ctx, h) {
-    const z0 = h.seg * DC_SEG;
+function dcDrawChip(ctx, ch, c) {
+    const p = dcScreenAt(ch.seg * DC_SEG, ch.x, 160);
+    if (!p || p.y > p.clip + 30) return;
+    const r = Math.max(1.5, p.w * 0.05);
+    const spin = DC_REDUCED ? 1 : Math.abs(Math.cos(dc.simT * 4 + c));
+    ctx.globalAlpha = dcDepthAlpha(ch.seg * DC_SEG);
+    dcLine(ctx, [p.x, p.y - r, p.x + r * spin, p.y, p.x, p.y + r, p.x - r * spin, p.y, p.x, p.y - r], DC_COL.amber, 3, 1.3);
+    ctx.globalAlpha = 1;
+}
+
+// Painted chevrons on the road before a barricade: count down 3, 2, 1.
+function dcDrawApproach(ctx, h, k) {
+    const z = (h.seg - k * 14) * DC_SEG;
+    const p = dcScreenAt(z, 0, 0);
+    if (!p || !dcProj[p.n].vis) return;
+    const b = dcScreenAt(z + 2 * DC_SEG, 0, 0);
+    if (!b) return;
+    const ax = p.x, ay = p.y, aw = p.w;
+    ctx.globalAlpha = dcDepthAlpha(z) * (0.35 + 0.2 * (4 - k));
+    ctx.beginPath();
+    for (let e = -1; e <= 1; e += 2) {
+        const x0 = ax + e * aw * 0.92, x1 = ax + e * aw * 0.7;
+        ctx.moveTo(x0, ay); ctx.lineTo(x1, (ay + b.y) / 2); ctx.lineTo(x0, b.y);
+    }
+    ctx.strokeStyle = DC_COL.magenta; ctx.lineWidth = Math.max(1, aw * 0.012); ctx.stroke();
+    ctx.globalAlpha = 1;
+}
+
+function dcBarricadeBuckets(h) {
+    if (h.st === "gone") { dcBucket(h.seg * DC_SEG, 0, dcDrawRubble, h); return; }
+    for (let i = 0; i < h.walls.length; i++) dcBucket(h.walls[i].seg * DC_SEG, 2, dcDrawWall, h, h.walls[i]);
+    if (h.st !== "open") for (let i = 0; i < h.traps.length; i++) dcBucket(h.traps[i].seg * DC_SEG, 2, dcDrawTrap, h, h.traps[i]);
+    else if (h.traps.length) dcBucket(h.seg * DC_SEG, 0, dcDrawRubble, h);
+    if (h.st === "ramp") dcBucket((h.seg - 3) * DC_SEG, 1, function (ctx) { dcDrawRamp(ctx, h.seg - 3, 0, 1.1); });
+}
+
+function dcDrawRubble(ctx, h) {
+    const p = dcScreenAt(h.seg * DC_SEG, h.gapX, 0);
+    if (!p || p.y > p.clip + 2) return;
     const r = dcMulberry(h.id);
     ctx.beginPath();
-    for (let i = 0; i < 46; i++) {
-        const zz = z0 + r() * h.len * DC_SEG;
-        const xx = h.x + (r() - 0.5) * h.w;
+    for (let i = 0; i < 9; i++) {
+        const xx = p.x + (r() - 0.5) * p.w * 1.2, yy = p.y + (r() - 0.5) * Math.max(2, p.w * 0.04);
+        ctx.moveTo(xx, yy); ctx.lineTo(xx + p.w * 0.05, yy - p.w * 0.015);
+    }
+    ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1.2; ctx.stroke();
+}
+
+// One row of a barricade: solid panels between the gaps, hatched, with
+// cyan posts marking each way through. A pipe is low and amber-striped.
+function dcDrawWall(ctx, h, wl) {
+    const z = wl.seg * DC_SEG;
+    const p = dcScreenAt(z, 0, 0);
+    if (!p) return;
+    const px = p.x, py = p.y, pw = p.w, u = p.s * dcVy, clip = p.clip;
+    const alpha = dcDepthAlpha(z);
+    dcClipBegin(ctx, clip);
+    ctx.globalAlpha = alpha;
+    if (wl.low) {
+        if (h.st === "open") { ctx.restore(); return; }
+        const y0 = py - 120 * u, y1 = py - 300 * u;
+        dcSolid(ctx, [px - 1.15 * pw, y0, px - 1.15 * pw, y1, px + 1.15 * pw, y1, px + 1.15 * pw, y0], DC_COL.hot, 4, 1.4);
+        ctx.beginPath();
+        for (let k = 0; k < 14; k++) { const xx = px - 1.15 * pw + k * (2.3 * pw / 14); ctx.moveTo(xx, y0); ctx.lineTo(xx + pw * 0.08, y1); }
+        ctx.strokeStyle = DC_COL.amber; ctx.lineWidth = 1; ctx.stroke();
+        dcLine(ctx, [px - 1.15 * pw, py, px - 1.15 * pw, y1], DC_COL.hot, 0, 1.4);
+        dcLine(ctx, [px + 1.15 * pw, py, px + 1.15 * pw, y1], DC_COL.hot, 0, 1.4);
+        // A shadow line on the road under it: where to take off.
+        dcLine(ctx, [px - 1.1 * pw, py, px + 1.1 * pw, py], DC_COL.magenta, 0, 1.2);
+        ctx.restore(); ctx.globalAlpha = 1;
+        return;
+    }
+    const gaps = dcWallGaps(h, wl, []).sort(function (a, b) { return a.x - b.x; });
+    const ht = 560 * u;
+    let from = -1.15;
+    const panels = [];
+    for (let i = 0; i < gaps.length; i++) { panels.push([from, gaps[i].x - gaps[i].w / 2]); from = gaps[i].x + gaps[i].w / 2; }
+    panels.push([from, 1.15]);
+    for (let i = 0; i < panels.length; i++) {
+        const x0 = Math.max(-1.15, panels[i][0]), x1 = Math.min(1.15, panels[i][1]);
+        if (x1 - x0 < 0.02) continue;
+        const X0 = px + x0 * pw, X1 = px + x1 * pw;
+        dcSolid(ctx, [X0, py, X0, py - ht, X1, py - ht, X1, py], DC_COL.hot, 4, 1.4);
+        // Hazard hatching across the panel.
+        ctx.beginPath();
+        const nH = Math.max(1, Math.round((x1 - x0) * 6));
+        for (let k = 0; k < nH; k++) {
+            const xa = dcLerp(X0, X1, k / nH), xb = dcLerp(X0, X1, (k + 1) / nH);
+            ctx.moveTo(xa, py - ht * 0.15); ctx.lineTo(xb, py - ht * 0.85);
+        }
+        ctx.strokeStyle = DC_COL.magenta; ctx.lineWidth = Math.max(1, pw * 0.006); ctx.stroke();
+    }
+    // Ground line and the posts at each gap.
+    dcLine(ctx, [px - 1.15 * pw, py, px + 1.15 * pw, py], DC_COL.magenta, 0, 1);
+    ctx.beginPath();
+    for (let i = 0; i < gaps.length; i++) {
+        const gl = px + (gaps[i].x - gaps[i].w / 2) * pw, gr = px + (gaps[i].x + gaps[i].w / 2) * pw;
+        ctx.moveTo(gl, py); ctx.lineTo(gl, py - ht * 1.25);
+        ctx.moveTo(gr, py); ctx.lineTo(gr, py - ht * 1.25);
+    }
+    ctx.strokeStyle = DC_COL.cyan; ctx.lineWidth = Math.max(1.6, pw * 0.008); ctx.stroke();
+    // A sliding gate shows which way it is going.
+    if (wl.mv && h.st === "") {
+        const dir = Math.cos(dc.simT * wl.mv.rate + wl.mv.ph) > 0 ? 1 : -1;
+        for (let i = 0; i < gaps.length; i++) {
+            const gx = px + gaps[i].x * pw, gy = py - ht * 1.4, s = Math.max(2, pw * 0.05);
+            dcLine(ctx, [gx - dir * s, gy - s * 0.6, gx, gy, gx - dir * s, gy + s * 0.6], DC_COL.cyan, 0, 1.4);
+        }
+    }
+    ctx.restore(); ctx.globalAlpha = 1;
+}
+
+// A tank trap (Czech hedgehog): three crossed beams.
+function dcDrawTrap(ctx, h, tp) {
+    const p = dcScreenAt(tp.seg * DC_SEG, tp.x, 0);
+    if (!p) return;
+    const u = p.s * dcVy, s = Math.max(1.5, 260 * u);
+    dcClipBegin(ctx, p.clip);
+    ctx.globalAlpha = dcDepthAlpha(tp.seg * DC_SEG);
+    const x = p.x, y = p.y;
+    dcLine(ctx, [x - s, y, x + s * 0.8, y - s * 1.5], DC_COL.hot, 4, Math.max(1.2, s * 0.08));
+    dcLine(ctx, [x + s, y, x - s * 0.8, y - s * 1.5], DC_COL.hot, 4, Math.max(1.2, s * 0.08));
+    dcLine(ctx, [x - s * 0.15, y - s * 0.1, x + s * 0.1, y - s * 1.7], DC_COL.hot, 4, Math.max(1.2, s * 0.08));
+    dcLine(ctx, [x - s * 1.1, y, x + s * 1.1, y], DC_COL.magenta, 0, 1);
+    ctx.restore(); ctx.globalAlpha = 1;
+}
+
+// Dust: one defined patch, outlined, its rubble inside it (Ry, pass 2: "more
+// localized or defined"). Mines show only when scanned or right on top of you.
+function dcDrawDustBuckets(h) {
+    dcBucket((h.seg + h.len) * DC_SEG, 0, dcDrawDustPatch, h);
+    for (let m = 0; m < h.mines.length; m++) dcBucket(h.mines[m].seg * DC_SEG, 1, dcDrawMine, h, m);
+}
+
+function dcDrawDustPatch(ctx, h) {
+    const z0 = h.seg * DC_SEG, z1 = (h.seg + h.len) * DC_SEG;
+    const pts = [];
+    const N = 8;
+    for (let i = 0; i <= N; i++) {
+        const p = dcScreenAt(dcLerp(z0, z1, i / N), h.x - h.w / 2 + Math.sin(i * 1.7 + h.id) * 0.03, 0);
+        if (p) pts.push(p.x, p.y);
+    }
+    for (let i = N; i >= 0; i--) {
+        const p = dcScreenAt(dcLerp(z0, z1, i / N), h.x + h.w / 2 + Math.cos(i * 1.3 + h.id) * 0.03, 0);
+        if (p) pts.push(p.x, p.y);
+    }
+    if (pts.length < 8) return;
+    const alpha = dcDepthAlpha(z0);
+    ctx.globalAlpha = alpha;
+    ctx.save(); ctx.setLineDash([4, 3]);
+    pts.push(pts[0], pts[1]);
+    dcLine(ctx, pts, "#9A8A6A", 0, 1.2);
+    ctx.restore();
+    ctx.globalAlpha = alpha;
+    const r = dcMulberry(h.id);
+    ctx.beginPath();
+    for (let i = 0; i < 60; i++) {
+        const zz = z0 + (0.05 + r() * 0.9) * h.len * DC_SEG;
+        const xx = h.x + (r() - 0.5) * h.w * 0.85;
         const p = dcScreenAt(zz, xx, 0);
         if (!p) continue;
-        const l = Math.max(1, p.w * 0.04);
-        ctx.moveTo(p.x - l, p.y); ctx.lineTo(p.x + l, p.y - l * 0.3);
+        const l = Math.max(1, p.w * 0.03);
+        ctx.moveTo(p.x - l, p.y); ctx.lineTo(p.x + l, p.y - l * 0.4);
     }
-    ctx.strokeStyle = "#9A8A6A"; ctx.lineWidth = 1; ctx.stroke();
-    // Mines: hidden unless revealed by a scan, or right on top of you.
+    ctx.strokeStyle = "#B8A47A"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.globalAlpha = 1;
+}
+
+function dcDrawMine(ctx, h, m) {
+    const mn = h.mines[m];
+    const p = dcScreenAt(mn.seg * DC_SEG, mn.x, 0);
+    if (!p || p.y > p.clip + 2) return;
+    const sz = Math.max(2, p.w * 0.05);
+    if (mn.st === "pop" && !(mn.popT !== undefined && dc.simT < mn.popT)) {
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, sz * 1.6, sz * 0.4, 0, 0, Math.PI * 2); ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1; ctx.stroke();
+        return;
+    }
     const me = dc.me;
     const revealed = h.reveal && dc.simT - h.reveal < 6;
-    for (let m = 0; m < h.mines.length; m++) {
-        const mn = h.mines[m];
-        const p = dcScreenAt(mn.seg * DC_SEG, mn.x, 0);
-        if (!p) continue;
-        const sz = Math.max(2, p.w * 0.05);
-        if (mn.st === "pop") {
-            if (mn.popT !== undefined && dc.simT < mn.popT) { /* the pulse hasn't reached it */ }
-            else { ctx.beginPath(); ctx.ellipse(p.x, p.y, sz * 1.6, sz * 0.4, 0, 0, Math.PI * 2); ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1; ctx.stroke(); continue; }
-        }
-        const close = me && (mn.seg * DC_SEG - me.z) / DC_SEG < 7;
-        if (!revealed && !close) continue;
-        const blink = DC_REDUCED || Math.floor(dc.simT * 6) % 2 === 0;
-        ctx.beginPath();
-        ctx.moveTo(p.x - sz, p.y - sz * 0.5); ctx.lineTo(p.x + sz, p.y + sz * 0.5);
-        ctx.moveTo(p.x + sz, p.y - sz * 0.5); ctx.lineTo(p.x - sz, p.y + sz * 0.5);
-        ctx.strokeStyle = DC_COL.magenta; ctx.globalAlpha = revealed ? (blink ? 1 : 0.5) : 0.45;
-        ctx.lineWidth = 1.6; ctx.stroke(); ctx.globalAlpha = 1;
+    const close = me && (mn.seg * DC_SEG - me.z) / DC_SEG < 7;
+    if (!revealed && !close) return;
+    const blink = DC_REDUCED || Math.floor(dc.simT * 6) % 2 === 0;
+    ctx.beginPath();
+    ctx.moveTo(p.x - sz, p.y - sz * 0.5); ctx.lineTo(p.x + sz, p.y + sz * 0.5);
+    ctx.moveTo(p.x + sz, p.y - sz * 0.5); ctx.lineTo(p.x - sz, p.y + sz * 0.5);
+    ctx.strokeStyle = DC_COL.magenta; ctx.globalAlpha = revealed ? (blink ? 1 : 0.5) : 0.45;
+    ctx.lineWidth = 1.6; ctx.stroke(); ctx.globalAlpha = 1;
+}
+
+function dcDrawBeacon(ctx, b) {
+    const p = dcScreenAt(b.z, b.x, 0);
+    if (!p) return;
+    const u = p.s * dcVy, h = 900 * u;
+    const live = b.until > dc.simT;
+    dcLine(ctx, [p.x - h * 0.2, p.y, p.x, p.y - h, p.x + h * 0.2, p.y], b.color, 4, 1.6);
+    dcBloom(ctx, p.x, p.y - h, 2);
+    if (live) {
+        const ph = DC_REDUCED ? 0.5 : (dc.simT * 1.6) % 1;
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, p.w * (0.2 + ph * 0.9), p.w * (0.05 + ph * 0.2), 0, 0, Math.PI * 2);
+        ctx.globalAlpha = 1 - ph; ctx.strokeStyle = b.color; ctx.lineWidth = 1.5; ctx.stroke(); ctx.globalAlpha = 1;
     }
 }
 
-function dcDrawBeacons(ctx) {
-    for (let i = 0; i < dc.beacons.length; i++) {
-        const b = dc.beacons[i];
-        const p = dcScreenAt(b.z, b.x, 0);
-        if (!p) continue;
-        const u = p.s * dcVy, h = 900 * u;
-        const live = b.until > dc.simT;
-        dcLine(ctx, [p.x - h * 0.2, p.y, p.x, p.y - h, p.x + h * 0.2, p.y], b.color, 4, 1.6);
-        dcBloom(ctx, p.x, p.y - h, 2);
-        if (live) {
-            const ph = DC_REDUCED ? 0.5 : (dc.simT * 1.6) % 1;
-            ctx.beginPath(); ctx.ellipse(p.x, p.y, p.w * (0.2 + ph * 0.9), p.w * (0.05 + ph * 0.2), 0, 0, Math.PI * 2);
-            ctx.globalAlpha = 1 - ph; ctx.strokeStyle = b.color; ctx.lineWidth = 1.5; ctx.stroke(); ctx.globalAlpha = 1;
-        }
-    }
-}
-
-function dcDrawCase(ctx) {
-    const c = dc.caseS;
-    if (!c || c.holder || c.over) return;
+function dcDrawCaseOnRoad(ctx, c) {
     const p = dcScreenAt(c.z, c.x, 0);
     if (!p) return;
     const u = p.s * dcVy;
     const w = Math.max(3, 220 * u), h = Math.max(2, 140 * u);
     const blink = DC_REDUCED || Math.floor(dc.simT * 4) % 2 === 0;
-    dcLine(ctx, [p.x - w / 2, p.y, p.x - w / 2, p.y - h, p.x + w / 2, p.y - h, p.x + w / 2, p.y, p.x - w / 2, p.y], DC_COL.amber, 4, 1.8);
+    dcSolid(ctx, [p.x - w / 2, p.y, p.x - w / 2, p.y - h, p.x + w / 2, p.y - h, p.x + w / 2, p.y], DC_COL.amber, 4, 1.8);
     dcLine(ctx, [p.x - w * 0.15, p.y - h, p.x - w * 0.15, p.y - h * 1.25, p.x + w * 0.15, p.y - h * 1.25, p.x + w * 0.15, p.y - h], DC_COL.amber, 0, 1.2);
-    // A locator line straight up, so the case reads from far down the road.
     if (blink) {
         ctx.save(); ctx.setLineDash([3, 5]);
         dcLine(ctx, [p.x, p.y - h * 1.3, p.x, Math.max(dcHy * 0.6, p.y - h * 1.3 - dcH * 0.25)], DC_COL.amber, 0, 1.2);
@@ -531,285 +984,4 @@ function dcDrawCase(ctx) {
     }
 }
 
-// ---------------------------------------------------
-//   RIDERS
-// ---------------------------------------------------
-function dcDrawRiders(ctx) {
-    const list = [];
-    for (const id in dc.riders) list.push(dc.riders[id]);
-    list.sort(function (a, b) { return b.z - a.z; });
-    for (let i = 0; i < list.length; i++) {
-        const r = list[i];
-        const p = dcScreenAt(r.z, r.x, 0);
-        if (!p) continue;
-        const u = p.s * dcVy;
-        const lift = r.air > 0 && r.airMax > 0 ? Math.sin(Math.PI * dcClamp(1 - r.air / r.airMax, 0, 1)) * 520 * u : 0;
-        dcDrawBike(ctx, p.x, p.y, u, r, lift);
-        if (!r.local && u > 0.004) {
-            const a = DC_ABILITY[r.role];
-            dcText(ctx, a ? a.crew : r.name, p.x, p.y - 520 * u - lift - 12, Math.max(6, Math.min(12, u * 900)), r.color, "center");
-        }
-    }
-}
-
-function dcDrawBike(ctx, x, y, u, r, lift) {
-    const s = u * 430;                      // bike height scale, px
-    if (s < 1.2) return;
-    const col = r.color;
-    const t = dc.simT;
-    // Shadow under a jump.
-    if (lift > 0) { ctx.beginPath(); ctx.ellipse(x, y, s * 0.28, s * 0.05, 0, 0, Math.PI * 2); ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1; ctx.stroke(); }
-    ctx.save();
-    ctx.translate(x, y - lift);
-    if (r.down > 0) {
-        // Down: the bike on its side, sparks.
-        ctx.rotate(1.35);
-        dcLine(ctx, [-s * 0.1, 0, -s * 0.1, -s * 0.5, s * 0.1, -s * 0.55, s * 0.12, 0], col, 3, 1.2);
-        ctx.restore();
-        if (!DC_REDUCED && Math.random() < 0.4) dcBloom(ctx, x + (Math.random() - 0.5) * s * 0.6, y - Math.random() * s * 0.2, 1.2);
-        return;
-    }
-    ctx.rotate(r.lean * 0.32);
-    const wob = r.stumble > 0 ? Math.sin(t * 40) * 0.12 : 0;
-    if (wob) ctx.rotate(wob);
-    // Rear wheel (seen from behind: a tall narrow ellipse).
-    ctx.beginPath(); ctx.ellipse(0, -s * 0.2, s * 0.07, s * 0.2, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = Math.max(1, s * 0.02); ctx.stroke();
-    // Fairing and tail.
-    const body = [-s * 0.22, -s * 0.34, -s * 0.13, -s * 0.58, s * 0.13, -s * 0.58, s * 0.22, -s * 0.34, s * 0.09, -s * 0.24, -s * 0.09, -s * 0.24, -s * 0.22, -s * 0.34];
-    dcLine(ctx, body, col, Math.max(2, s * 0.06), Math.max(1.2, s * 0.018));
-    // Tail light bar (brighter on a brake... and in a boost, the exhaust flares).
-    dcLine(ctx, [-s * 0.12, -s * 0.36, s * 0.12, -s * 0.36], DC_COL.magenta, 0, Math.max(1, s * 0.02));
-    if (r.boosting || dcRamming(r.id)) {
-        const fl = DC_REDUCED ? 0.18 : 0.12 + Math.random() * 0.12;
-        dcLine(ctx, [-s * 0.08, -s * 0.28, 0, -s * (0.28 - fl) + s * 0.25, s * 0.08, -s * 0.28], dcRamming(r.id) ? col : DC_COL.amber, 3, 1.2);
-    }
-    // Rider: hunched torso, helmet, arms to the bars.
-    dcLine(ctx, [-s * 0.15, -s * 0.58, -s * 0.11, -s * 0.86, s * 0.11, -s * 0.86, s * 0.15, -s * 0.58], DC_COL.hot, 0, Math.max(1, s * 0.016));
-    ctx.beginPath(); ctx.ellipse(0, -s * 0.96, s * 0.085, s * 0.095, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, s * 0.02); ctx.stroke();
-    dcLine(ctx, [-s * 0.11, -s * 0.8, -s * 0.26, -s * 0.66], DC_COL.hot, 0, Math.max(1, s * 0.014));
-    dcLine(ctx, [s * 0.11, -s * 0.8, s * 0.26, -s * 0.66], DC_COL.hot, 0, Math.max(1, s * 0.014));
-    dcBloom(ctx, -s * 0.22, -s * 0.34, Math.max(0.8, s * 0.008)); dcBloom(ctx, s * 0.22, -s * 0.34, Math.max(0.8, s * 0.008));
-    // The case, strapped behind the seat.
-    if (dcCarrying(r)) {
-        dcLine(ctx, [-s * 0.12, -s * 0.58, -s * 0.12, -s * 0.72, s * 0.12, -s * 0.72, s * 0.12, -s * 0.58, -s * 0.12, -s * 0.58], DC_COL.amber, 3, Math.max(1.2, s * 0.02));
-    }
-    // Krill, latched and wriggling.
-    if (r.krill > 0) {
-        for (let k = 0; k < r.krill; k++) {
-            const a = k * 2.1 + (DC_REDUCED ? 0 : t * 5);
-            const kx = Math.cos(a) * s * 0.22, ky = -s * (0.45 + 0.2 * Math.sin(a * 1.3));
-            dcDrawKrillShape(ctx, kx, ky, s * 0.07, a);
-        }
-    }
-    ctx.restore();
-    // Status rings drawn upright, after the lean.
-    const sh = dcShieldOf(r.id);
-    if (sh) {
-        const owner = dc.riders[sh.by];
-        const c2 = owner ? owner.color : DC_COL.hot;
-        ctx.beginPath();
-        for (let i = 0; i <= 6; i++) {
-            const a = Math.PI + i * Math.PI / 6;
-            const px = x + Math.cos(a) * s * 0.5, py = y - lift + Math.sin(a) * s * 1.15 - s * 0.05;
-            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-        }
-        ctx.globalAlpha = DC_REDUCED ? 0.8 : 0.6 + 0.3 * Math.sin(t * 12);
-        ctx.strokeStyle = c2; ctx.lineWidth = 2; ctx.stroke(); ctx.globalAlpha = 1;
-    }
-    if (r.local ? dcPatched(r) : false) {
-        const c3 = (dc.riders[r.patchedBy] || {}).color || DC_COL.hot;
-        const cy = y - lift - s * 1.25, k = s * 0.08;
-        dcLine(ctx, [x - k, cy, x + k, cy], c3, 3, 1.6);
-        dcLine(ctx, [x, cy - k, x, cy + k], c3, 3, 1.6);
-    }
-    if (r.inv > 0 && r.local && !DC_REDUCED && Math.floor(t * 12) % 2 === 0) {
-        ctx.beginPath(); ctx.ellipse(x, y - lift - s * 0.5, s * 0.35, s * 0.6, 0, 0, Math.PI * 2);
-        ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1; ctx.stroke();
-    }
-}
-
-function dcDrawKrillShape(ctx, x, y, s, a) {
-    // An airkrill: a chevron body and two flicking legs, eyes in danger magenta.
-    ctx.beginPath();
-    ctx.moveTo(x - s, y - s * 0.5); ctx.lineTo(x, y + s * 0.3); ctx.lineTo(x + s, y - s * 0.5);
-    ctx.moveTo(x - s * 0.5, y); ctx.lineTo(x - s * 0.9, y + s * (0.6 + 0.3 * Math.sin(a * 3)));
-    ctx.moveTo(x + s * 0.5, y); ctx.lineTo(x + s * 0.9, y + s * (0.6 + 0.3 * Math.cos(a * 3)));
-    ctx.strokeStyle = DC_COL.hot; ctx.lineWidth = Math.max(1, s * 0.25); ctx.stroke();
-    ctx.fillStyle = DC_COL.magenta;
-    ctx.fillRect(x - s * 0.25, y - s * 0.15, Math.max(1, s * 0.18), Math.max(1, s * 0.18));
-}
-
-// ---------------------------------------------------
-//   BEAMS AND KRILL IN FLIGHT
-// ---------------------------------------------------
-function dcDrawBeams(ctx) {
-    for (let i = 0; i < dc.beams.length; i++) {
-        const b = dc.beams[i];
-        if (b.phase === "gone") continue;
-        const aim = b.phase === "lock" ? { z: b.z, x: b.x } : dcBeamAim(b);
-        const p = dcScreenAt(aim.z, aim.x, 0);
-        const sx = b.src === 1 ? dcShip.sx : dcShip.eyeX, sy = b.src === 1 ? dcShip.sy : dcShip.eyeY;
-        let ex, ey, rr = 0, ry = 0;
-        if (p) { ex = p.x; ey = p.y; rr = DC_RING * p.w; ry = Math.max(2, rr * 0.22); }
-        else { ex = dcW / 2 + (aim.x - dcCam.x / DC_ROAD_W) * dcW * 0.3; ey = dcH * 0.98; rr = 40; ry = 8; }
-        const lock = b.phase === "lock";
-        const col = b.safe ? DC_COL.cyan : DC_COL.magenta;
-        // The weaving dotted beam (dots flow downward).
-        const n = 34;
-        const prog = lock ? 1 : dcClamp((dc.simT - b.t) / DC_TUNE.track, 0, 1);
-        const flow = DC_REDUCED ? 0 : (dc.simT * 3) % 1;
-        ctx.fillStyle = col;
-        for (let k = 0; k < n; k++) {
-            const u = (k + flow) / n;
-            if (u > prog) break;
-            const amp = (1 - u) * dcW * 0.05 * (lock ? 0.4 : 1);
-            const wx = Math.sin(u * Math.PI * 3 + b.phs + dc.simT * (lock ? 6 : 2)) * amp;
-            const xx = dcLerp(sx, ex, u) + wx, yy = dcLerp(sy, ey, u);
-            const d = lock ? 2.2 : 1.5;
-            ctx.globalAlpha = lock ? 1 : 0.6;
-            ctx.fillRect(xx - d / 2, yy - d / 2, d, d);
-        }
-        ctx.globalAlpha = 1;
-        // The ring on the road.
-        if (p) {
-            const left = lock ? Math.max(0, b.impactAt - dc.simT) : 1;
-            const flash = lock && !DC_REDUCED && Math.floor(dc.simT * (left < 0.35 ? 20 : 10)) % 2 === 0;
-            ctx.save();
-            if (!lock) ctx.setLineDash([4, 4]);
-            ctx.beginPath(); ctx.ellipse(ex, ey, rr, ry, 0, 0, Math.PI * 2);
-            ctx.globalAlpha = 0.25; ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke();
-            ctx.globalAlpha = lock ? (flash ? 1 : 0.7) : 0.7; ctx.lineWidth = lock ? 2.2 : 1.4; ctx.stroke();
-            ctx.restore();
-            if (lock) {
-                dcLine(ctx, [ex - rr * 0.6, ey, ex + rr * 0.6, ey], col, 0, 1);
-                dcLine(ctx, [ex - rr * 0.35, ey + ry * 0.9, ex + rr * 0.35, ey - ry * 0.9], col, 0, 1);
-            }
-        }
-    }
-    // Krill in flight: a little flock homing in from the horizon.
-    for (let i = 0; i < dc.krill.length; i++) {
-        const k = dc.krill[i];
-        if (k.phase !== "fly") continue;
-        const r = dc.riders[k.tg];
-        if (!r) continue;
-        const u = dcClamp((dc.simT - k.t) / Math.max(0.1, k.arriveAt - k.t), 0, 1);
-        const p = dcScreenAt(r.z, r.x, 0);
-        if (!p) continue;
-        const sx = dcShip.eyeX, sy = dcShip.eyeY;
-        const tx = p.x, ty = p.y - p.s * dcVy * 600;
-        for (let j = 0; j < 5; j++) {
-            const jj = j * 1.7 + k.seed;
-            const xx = dcLerp(sx, tx, u) + Math.sin(jj + dc.simT * 7) * 18 * (1 - u * 0.7);
-            const yy = dcLerp(sy, ty, u * u) + Math.cos(jj * 1.3 + dc.simT * 6) * 10;
-            dcDrawKrillShape(ctx, xx, yy, 3 + 9 * u, jj + dc.simT * 9);
-        }
-    }
-}
-
-// ---------------------------------------------------
-//   FX
-// ---------------------------------------------------
-function dcDrawFx(ctx, top) {
-    for (let i = 0; i < dc.fx.length; i++) {
-        const f = dc.fx[i];
-        if (f.delay > 0) continue;
-        const air = f.y > 50 || f.kind === "tracer";
-        if (air !== top && f.kind !== "pulse") continue;
-        if (f.kind === "pulse" && top) continue;
-        const k = f.t / f.life;
-        if (f.kind === "pulse") {
-            const zz = f.z + k * f.len * DC_SEG;
-            const p = dcScreenAt(zz, 0, 0);
-            if (!p) continue;
-            ctx.globalAlpha = 1 - k * 0.6;
-            dcLine(ctx, [p.x - p.w * 1.3, p.y, p.x + p.w * 1.3, p.y], f.col, 6, 2);
-            ctx.globalAlpha = 1;
-            continue;
-        }
-        const p = dcScreenAt(f.z, f.x, f.y);
-        if (!p) continue;
-        if (f.kind === "ring") {
-            const r = dcLerp(f.r0, f.r1, k) * p.w;
-            ctx.beginPath(); ctx.ellipse(p.x, p.y, r, Math.max(1, r * (f.y > 50 ? 0.9 : 0.24)), 0, 0, Math.PI * 2);
-            ctx.globalAlpha = 1 - k; ctx.strokeStyle = f.col; ctx.lineWidth = 1.6; ctx.stroke(); ctx.globalAlpha = 1;
-        } else if (f.kind === "star") {
-            const len = f.len * p.s * dcVy * (0.4 + k);
-            ctx.beginPath();
-            for (let j = 0; j < f.n; j++) {
-                const a = -Math.PI * (j + 0.5) / f.n;
-                ctx.moveTo(p.x + Math.cos(a) * len * 0.35, p.y + Math.sin(a) * len * 0.35);
-                ctx.lineTo(p.x + Math.cos(a) * len, p.y + Math.sin(a) * len);
-            }
-            ctx.globalAlpha = 1 - k; ctx.strokeStyle = f.col; ctx.lineWidth = 1.6; ctx.stroke(); ctx.globalAlpha = 1;
-        } else if (f.kind === "spark") {
-            const d = Math.max(1.2, p.s * 700);
-            ctx.globalAlpha = 1 - k; ctx.fillStyle = f.col; ctx.fillRect(p.x - d / 2, p.y - d / 2, d, d); ctx.globalAlpha = 1;
-        } else if (f.kind === "krill") {
-            dcDrawKrillShape(ctx, p.x, p.y, Math.max(2, p.s * 3000), f.rot + f.t * 12);
-        } else if (f.kind === "chunk") {
-            const d = Math.max(2, p.s * 3500);
-            const a = f.rot + f.t * 8;
-            dcLine(ctx, [p.x - Math.cos(a) * d, p.y - Math.sin(a) * d, p.x + Math.cos(a) * d, p.y + Math.sin(a) * d], f.col, 0, 1.4);
-        } else if (f.kind === "tracer") {
-            const q = { x: p.x, y: p.y };
-            const p2 = dcScreenAt(f.z + 6 * DC_SEG, f.x, f.y);
-            if (p2) dcLine(ctx, [q.x, q.y, p2.x, p2.y], f.col, 3, 1.6);
-        } else if (f.kind === "scorch") {
-            const r = f.r1 * p.w;
-            ctx.beginPath(); ctx.ellipse(p.x, p.y, r, Math.max(1, r * 0.2), 0, 0, Math.PI * 2);
-            ctx.globalAlpha = (1 - k) * 0.8; ctx.strokeStyle = f.col; ctx.lineWidth = 1.4; ctx.stroke(); ctx.globalAlpha = 1;
-        }
-    }
-}
-
-// ---------------------------------------------------
-//   HUD: the driving cluster, bottom left (speed, capacitor, ability)
-// ---------------------------------------------------
-function dcDrawHud(ctx) {
-    const r = dc.me;
-    if (!r || dc.mode === "result") return;
-    const big = Math.max(16, Math.min(34, dcH * 0.045));
-    const x = Math.max(16, dcW * 0.03), y = dcH - big * 3.4;
-    const mph = Math.round(r.v * DC_MPH);
-    dcText(ctx, mph + " MPH", x, y, big, DC_COL.hot, "left");
-    // Capacitor (boost and jump share it).
-    const bw = Math.max(120, big * 5.2), bh = Math.max(7, big * 0.26), by = y + big * 1.35;
-    const segs = 12, filled = Math.floor(r.cap * segs + 0.0001);
-    ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1.2; ctx.strokeRect(x, by, bw, bh);
-    for (let i = 0; i < filled; i++) {
-        ctx.fillStyle = i < 3 ? DC_COL.mid : DC_COL.hot;
-        ctx.fillRect(x + 2 + i * (bw - 4) / segs, by + 2, (bw - 4) / segs - 2, bh - 4);
-    }
-    // Ability.
-    const a = DC_ABILITY[r.role];
-    if (a) {
-        const ay = by + bh + big * 0.45, sz = Math.max(9, big * 0.42);
-        const ready = r.cd <= 0;
-        dcText(ctx, a.name, x, ay, sz, ready ? r.color : DC_COL.dim, "left");
-        const tw = dcTextWidth(a.name, sz) + sz;
-        const cw = bw - tw;
-        ctx.strokeStyle = DC_COL.dim; ctx.strokeRect(x + tw, ay + 1, cw, sz - 2);
-        const frac = ready ? 1 : 1 - r.cd / a.cd;
-        ctx.fillStyle = ready ? r.color : DC_COL.mid;
-        ctx.fillRect(x + tw + 2, ay + 3, Math.max(0, (cw - 4) * frac), sz - 6);
-    }
-    if (r.krill > 0) dcText(ctx, "KRILL " + r.krill, x, y - big * 0.9, Math.max(9, big * 0.45), DC_COL.magenta, "left");
-    if (r.down > 0) dcText(ctx, "DOWN", dcW / 2, dcH * 0.62, Math.max(14, big * 0.8), DC_COL.magenta, "center");
-}
-
-function dcDrawTexts(ctx) {
-    for (let i = 0; i < dc.texts.length; i++) {
-        const t = dc.texts[i];
-        const k = t.t / t.life;
-        const a = k > 0.75 ? (1 - k) * 4 : 1;
-        if (t.kind === "banner") {
-            const size = Math.max(14, Math.min(34, dcW * 0.032));
-            dcText(ctx, t.s, dcW / 2, dcH * 0.27, size, t.col, "center", a);
-        } else {
-            const p = dcScreenAt(t.z, t.x, 900 + k * 900);
-            if (p) dcText(ctx, t.s, p.x, p.y, Math.max(7, Math.min(16, p.w * 0.08)), t.col, "center", a);
-        }
-    }
-}
+function dcDrawRiderAt(ctx, r) { dcDrawRider(ctx, r); }

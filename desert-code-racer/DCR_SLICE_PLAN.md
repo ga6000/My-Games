@@ -91,3 +91,13 @@ a skippable crawl (no shared one exists: `dc-crawl.js`, placeholder text), BOOTF
 Plays start to finish solo (file:// and dev-serve) with no console errors; two headless
 clients see each other, the case hands over on a crash, same result card; every class finishes
 a solo run (bot); both checkers pass; reduced-motion run passes; `CLAUDE.md` written.
+
+## Pass 2 (2026-11-18, Ry's playtest list)
+Variety (hills, dark valleys, tunnels, side roads), a mountain-tunnel finale into the lab with an
+Akira slide and a toss to a friendly, staggered finishes (10 s grace, +1,500 each), Gunner homing
+rounds at krill, a krill grip ring with a bite for non-carriers, 2 ability charges, Gyro
+Fleet-style krill, solid rider art with context crashes and a remount, lash and strafe attacks,
+six barricade kinds, depth-readable barricades (solid panels, posts, shadows), enemy scorch marks
+distinct from beam rings, local debris, coast at cruise / brake to 0 / sustained 400, faster jump.
+Assumed (Ry hadn't answered): crew figures for the character look; the finale starts when the
+case reaches the lab; krill grip 3 s then bite or steal. Details in `CLAUDE.md`.

@@ -86,15 +86,16 @@ function dcStartWorld(demo) {
     dc.demo = demo;
     dc.track = dcBuildTrack();
     dc.hazards = dcBuildHazards(dc.track);
-    dc.beams = []; dc.krill = []; dc.beacons = []; dc.fx = []; dc.texts = [];
+    dc.beams = []; dc.krill = []; dc.beacons = []; dc.fx = []; dc.texts = []; dc.attacks = []; dc.finale = null;
     dc.shields = {}; dc.rams = {};
     dc.leg = 0; dc.team = 0; dc.result = null; dc.cpSeen = {};
     dc.simT = 0;
     dc.crashLog = [];
     dc.pipLog = [];
-    dc.hostT = { beam: 5, krill: 13 };
+    dc.hostT = { beam: 5, krill: 13, atk: 14 };
     // Keep me and the riders the server knows; reset me to the start line.
     for (const id in dc.riders) if (!dc.riders[id].local && demo) delete dc.riders[id];
+    for (const id in dc.riders) { dc.riders[id].home = 0; dc.riders[id].slide = 0; }
     const ids = Object.keys(dc.riders).sort();
     const lanes = [-0.45, 0.45, -0.15, 0.15];
     const lane = lanes[Math.max(0, ids.indexOf(dc.me.id)) % 4];
@@ -140,13 +141,12 @@ function dcOnEnd(m) {
     if (dc.result) return;
     dc.result = m;
     dc.mode = "aftermath";
-    dc.aftermathT = DC_AFTERMATH;
+    dc.aftermathT = m.won ? 2 : DC_AFTERMATH;      // a win has already had its finale
     dcMusic.stop();
     const c = dc.caseS;
     if (m.won) {
         dcSnd.win();
         dcBanner("CODES DELIVERED", DC_COL.cyan);
-        for (let i = 0; i < 4; i++) dcBurstAir(dc.track.finish * DC_SEG + i * 6 * DC_SEG, (i % 2 ? -0.6 : 0.6), i % 2 ? DC_COL.cyan : DC_COL.amber);
     } else {
         dcSnd.lose();
         dcBanner("CODES LOST", DC_COL.magenta);
@@ -242,11 +242,13 @@ function dcStep(dt) {
     const live = dc.mode === "play" || dc.mode === "aftermath" || (dc.demo && (dc.mode === "ready" || dc.mode === "crawl" || dc.mode === "boot"));
     if (!live || !dc.me) return;
     dc.simT += dt;
-    const inp = (dc.demo || DC_BOT || dc.mode === "aftermath" && dc.result && dc.result.won) ? dcBotThink(dc.me) : dcReadInput();
+    const inp = (dc.demo || DC_BOT) ? dcBotThink(dc.me) : dcReadInput();
     dcRiderUpdate(dc.me, inp, dt);
     for (const id in dc.riders) { const r = dc.riders[id]; if (!r.local) dcRemoteUpdate(r, dt); }
     if (dcIsHost()) dcHostUpdate(dt);
     dcHazardsUpdate(dt);
+    dcAttacksUpdate(dt);
+    dcFinaleUpdate();
     dcFxUpdate(dt);
     if (dc.mode === "play" && !dc.demo && typeof PARTY !== "undefined") PARTY.live(dcTeamScore());
     if (dc.mode === "aftermath") {

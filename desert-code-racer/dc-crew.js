@@ -27,15 +27,16 @@ const DC_ABILITY = {
     butcher:  { name: "RAM",    cd: 10, crew: "BEX" },
     bulwark:  { name: "SHIELD", cd: 12, crew: "BOOKE" }
 };
+const DC_FIRE_KRILL = 70;           // segs: Greer's seekers find every krill on riders this close
 const DC_ROLES = ["medic", "engineer", "scout", "gunner", "butcher", "bulwark"];
-const DC_HAZARD_TYPES = ["beam", "crater", "barricade", "krill", "mines"];
+const DC_HAZARD_TYPES = ["beam", "crater", "barricade", "krill", "mines", "lash", "strafe"];
 const DC_COVER = {
-    medic:    ["beam", "crater", "barricade", "mines"],
-    engineer: ["beam", "crater", "barricade", "krill"],
-    scout:    ["beam", "barricade", "krill", "mines"],
-    gunner:   ["beam", "barricade", "krill", "mines"],
-    butcher:  ["crater", "barricade", "krill", "mines"],
-    bulwark:  ["beam", "barricade", "krill", "mines"]
+    medic:    ["beam", "crater", "barricade", "mines", "lash", "strafe"],
+    engineer: ["beam", "crater", "barricade", "krill", "lash", "strafe"],
+    scout:    ["beam", "barricade", "krill", "mines", "lash", "strafe"],
+    gunner:   ["beam", "barricade", "krill", "mines", "lash", "strafe"],
+    butcher:  ["crater", "barricade", "krill", "mines", "lash", "strafe"],
+    bulwark:  ["beam", "barricade", "krill", "mines", "lash", "strafe"]
 };
 
 // For tests: the worst count of universal-only hazard types over every
@@ -78,7 +79,8 @@ function dcMyRole() {
 function dcCast(r) {
     const a = DC_ABILITY[r.role];
     if (!a) return;
-    r.cd = a.cd;
+    if (r.ch >= DC_CHARGES) r.cd = a.cd;      // start the recharge clock
+    r.ch--;
     const msg = { k: "ab", a: r.role, by: r.id, z: Math.round(r.z), x: +r.x.toFixed(3) };
     if (r.role === "bulwark") msg.ally = dcNearestRider(r);
     dcEmit(msg);
@@ -152,5 +154,5 @@ function dcApplyAbility(m) {
         dc.shields[m.by] = { until: dc.simT + 4, by: m.by };
         if (m.ally) dc.shields[m.ally] = { until: dc.simT + 4, by: m.by };
     }
-    if (dcIsHost()) dcHostAbility(m);
+    if (dcIsHost()) { dcHostAbility(m); dcHostAttackAbility(m); }
 }
