@@ -28,6 +28,11 @@ homing beams down the road. Right before Cliff Run in the chronology.
   into the computer lab. Each rider who crosses the line slides sideways (Akira) into a parking
   spot: HOME. When the case gets home the carrier tosses it to the tech at the console
   (LAUNCH ARMED); riders still out get 10 s to make it in, +1,500 each. Then the card.
+  Ry 2026-11-24: the slide ends HORIZONTAL (the bike goes all the way down on its side and stays),
+  the rider steps off beside it, and the carrier throws the case once standing (`DC_TOSS_AT` 2.0 s
+  after the carrier crosses) to the tech, who now stands 30 segs in (was 44: a few pixels tall).
+- **Minimap names (Ry 2026-11-24):** DOME BASE, ALPHA, BRAVO, MOUNTAIN BASE on the route map;
+  passed stops cyan, the next amber, the rest dim.
 - **Fail rule: case integrity.** 4 pips (casual 6). −1 each time it hits the road (crash or krill
   steal), −1 per 5 s lying there, +1 per checkpoint. 0 = codes lost.
 - **A dropped case skids** on from the carrier's speed (about 8 segs), so the riders behind and

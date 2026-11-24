@@ -104,12 +104,37 @@ function dcDrawRider(ctx, r) {
         if (P.pose === "lift" || P.pose === "mount") dcDrawRiderFigure(ctx, bx - (r.crashSide || 1) * u * 90, by, u, r, P.pose, 0, P.t);
     } else if (r.slide > 0) {
         // The Akira slide into the lab: laid over sideways, sparks off the tarmac.
+        // Ry 2026-11-24: it ends HORIZONTAL. The bike goes all the way down
+        // on its side and stays there (it used to pop back upright); then the
+        // rider steps off beside it and, if they carry the case, throws it.
         const k = dcClamp(r.slide, 0, 1);
-        const rot = -(r.slideDir || 1) * 1.25 * Math.sin(Math.min(1, k * 1.6) * Math.PI / 2) * (k > 0.85 ? (1 - k) / 0.15 : 1);
+        const dir = r.slideDir || 1;
+        const rot = -dir * (Math.PI / 2) * Math.sin(Math.min(1, k * 1.5) * Math.PI / 2);
+        const off = r.home ? dc.simT - r.home - DC_SLIDE_T : 0;
         dcDrawBikeBody(ctx, bx, by, u, r, rot, 0, false);
-        dcDrawRiderOnBike(ctx, bx, by, u, r, rot, 0);
-        dcDrawBikeTail(ctx, bx, by, u, r, rot, false);
-        if (!DC_REDUCED && k < 0.8) for (let i = 0; i < 3; i++) dcBloom(ctx, bx - (r.slideDir || 1) * u * 200 + Math.random() * u * 60, by - Math.random() * u * 30, 1.3);
+        if (k < 1 || off < DC_STEP_OFF) {
+            dcDrawRiderOnBike(ctx, bx, by, u, r, rot, 0);
+            dcDrawBikeTail(ctx, bx, by, u, r, rot, false);
+        } else {
+            dcDrawBikeTail(ctx, bx, by, u, r, rot, false);
+            const f = dc.finale;
+            const age = f ? dc.simT - f.t : -9;
+            const throwing = f && f.by === r.id && age > DC_TOSS_AT - 0.35 && age < DC_TOSS_AT + 0.4;
+            const up = Math.min(1, (off - DC_STEP_OFF) / 0.3);
+            dcDrawRiderFigure(ctx, bx + dir * u * 170, by, u, r, throwing ? "lift" : "rise", dir * 0.9 * (1 - up), 0);
+            // The case in hand until it leaves.
+            if (f && f.by === r.id && !f.tossed) {
+                const cw = Math.max(4, 300 * u), chh = Math.max(3, 190 * u), cx = bx + dir * u * 170, cy = by - 470 * u;
+                dcSolid(ctx, [cx - cw / 2, cy + chh / 2, cx - cw / 2, cy - chh / 2, cx + cw / 2, cy - chh / 2, cx + cw / 2, cy + chh / 2], DC_COL.amber, 4, 1.8);
+            }
+        }
+        // Sparks off the tarmac: hard pixels (the raster cabinet has no bloom).
+        if (!DC_REDUCED && k < 0.9) {
+            for (let i = 0; i < 6; i++) {
+                ctx.fillStyle = i % 2 ? DC_COL.amber : "#FFF2B0";
+                ctx.fillRect(Math.round(bx - dir * u * (120 + Math.random() * 260)), Math.round(by - Math.random() * u * 90), 1, 1);
+            }
+        }
     } else {
         // Shadow under a jump.
         if (lift > 0) { ctx.beginPath(); ctx.ellipse(bx, by, u * 120, u * 22, 0, 0, Math.PI * 2); ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1; ctx.stroke(); }
