@@ -46,7 +46,8 @@ homing beams down the road. Right before Cliff Run in the chronology.
   after the carrier crosses) to the tech, who now stands 30 segs in (was 44: a few pixels tall).
 - **Minimap names (Ry 2026-11-24):** DOME BASE, ALPHA, BRAVO, MOUNTAIN BASE on the route map;
   passed stops cyan, the next amber, the rest dim.
-- **Fail rule: case integrity.** 4 pips (casual 6). −1 each time it hits the road (crash or krill
+- **Fail rule: case integrity.** 6 pips (casual 8; Ry 2026-11-24 "lower difficulty slightly, start by
+  adding two more lives": was 4 / 6). −1 each time it hits the road (crash or krill
   steal), −1 per 5 s lying there, +1 per checkpoint. 0 = codes lost.
 - **A dropped case skids** on from the carrier's speed (about 8 segs), so the riders behind and
   the remounting carrier ride up on it. If every rider has passed it (nobody can ride back), it
@@ -87,6 +88,10 @@ Done as a package (`AESTHETIC_GUIDE.md` §6.8 "a reassignment is a package, not 
   centre dash per segment in 3-segment bands (`DC_RAS`); distance darkens in three flat steps
   (`dcFog`). Tunnel lamps light the asphalt one flat step brighter; valley walls and tunnel rock are
   filled. Sky: black with four flat bands of the world hue over the horizon, filled ridgelines.
+  The ridgelines sit at infinity: their scroll is the road's heading under the camera (`hd` per
+  segment in `dc-track.js`, `dcSkyAt`), so they turn with the road at any frame rate (Ry 2026-11-24:
+  they used to slide a fixed step per drawn frame). The near range also slides slightly with the
+  bike's lateral position.
 - **Text** is Press Start 2P at 8 or 16 px (`dc-font.js`'s `dcText`); in-world text too small for
   8 px is not drawn. The stroke glyph table is kept but unused.
 - **Not done in this pass:** the colour count is well over §1's "≤4 on screen" (the crew sprites,

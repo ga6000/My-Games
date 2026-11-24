@@ -31,7 +31,24 @@ let dcPixel = 3;                    // CSS pixels per virtual pixel (an integer)
 let dcHy = 260;                     // horizon line
 let dcK = 256;                      // x scale of the projection
 let dcVy = 300;                     // y scale of the projection
-let dcSkyOff = 0;
+let dcSkyOff = 0;                   // dcSkyPx / dcW (the mothership's sway reads it)
+let dcSkyPx = 0;
+
+// Ry 2026-11-24: "the parallax of the mountains needs fixed". They used to
+// slide a fixed step every drawn frame through a bend: too far on a fast
+// screen, too little on a slow one, and never in step with the road. Now
+// they sit at infinity: their screen shift is exactly how far the road has
+// turned under the camera (the track's heading), in the projection's own
+// pixels per unit of slope, so they turn with the road at any frame rate.
+function dcSkyAt(z) {
+    const t = dc.track;
+    if (!t) return 0;
+    const f = z / DC_SEG;
+    const i = dcClamp(Math.floor(f), 0, t.segs.length - 1);
+    const sg = t.segs[i];
+    const hd = sg.hd + sg.curve * dcClamp(f - i, 0, 1) / DC_SEG;
+    return DC_CAM_DEPTH * dcK * hd;
+}
 const dcCam = { x: 0, z: 0, y: DC_CAM_H, inside: false, dark: 0 };
 const dcProj = [];
 let dcProjBase = 0;
@@ -179,8 +196,9 @@ function dcRender() {
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, dcW, dcH);
 
     const f = dcFocus();
-    dcSkyOff += (dcSegAt(f.z).curve * (f.v / DC_CRUISE)) * 0.0016;
     dcProjectRoad(f);
+    dcSkyPx = dcSkyAt(dcCam.z);
+    dcSkyOff = dcSkyPx / Math.max(1, dcW);
 
     ctx.save();
     if (dcShakeAmt > 0) ctx.translate((Math.random() - 0.5) * dcShakeAmt, (Math.random() - 0.5) * dcShakeAmt);
@@ -261,9 +279,14 @@ function dcDrawSky(ctx) {
     // Ground under everything below the horizon (the far road fills over it).
     ctx.fillStyle = dcShade(DC_RAS.sand[1], 0.5);
     ctx.fillRect(0, dcHy, dcW, dcH - dcHy);
-    const ridge = function (data, wmul, speed, hmul, fill, edge) {
+    // Both ranges sit at infinity, so they turn with the road the same; the
+    // nearer one also slides a little as the bike moves across the road (the
+    // parallax), the far one barely.
+    void off;
+    const lat = dcCam.x / DC_ROAD_W;
+    const ridge = function (data, wmul, slide, hmul, fill, edge) {
         const fw = dcW * wmul, step = fw / (data.length - 1);
-        let sx = -((off * dcW * speed) % fw);
+        let sx = -(((dcSkyPx + lat * dcW * slide) % fw + fw) % fw);
         if (sx > 0) sx -= fw;
         for (let rep = 0; rep < 3; rep++) {
             ctx.beginPath(); ctx.moveTo(Math.round(sx + rep * fw), dcHy + 1);
@@ -273,9 +296,9 @@ function dcDrawSky(ctx) {
             ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke();
         }
     };
-    ridge(dcRidgeFar, 1.6, 0.6, 0.11, dcShade("#4B3A8C", 0.42 * dim), dcShade("#4B3A8C", dim));
+    ridge(dcRidgeFar, 1.6, 0.012, 0.11, dcShade("#4B3A8C", 0.42 * dim), dcShade("#4B3A8C", dim));
     dcDrawMothership(ctx, dcHy - dcH * 0.2);
-    ridge(dcRidgeNear, 2.2, 1.4, 0.07, dcShade(DC_COL.hue, 0.3 * dim), dcShade(DC_COL.hue, 0.8 * dim));
+    ridge(dcRidgeNear, 2.2, 0.05, 0.07, dcShade(DC_COL.hue, 0.3 * dim), dcShade(DC_COL.hue, 0.8 * dim));
     dcDrawSmallShip(ctx);
 }
 

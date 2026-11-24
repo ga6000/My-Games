@@ -69,10 +69,10 @@ function dcReadDifficulty() {
 }
 const DC_DIFF = dcReadDifficulty();
 const DC_TUNE = DC_DIFF === "casual" ? {
-    pips: 6, respawn: 1.8, track: 2.2, lock: 1.0, beamEvery: [7.5, 6.0, 4.8],
+    pips: 8, respawn: 1.8, track: 2.2, lock: 1.0, beamEvery: [7.5, 6.0, 4.8],
     krillEvery: [20, 15, 12], steal: 4.5, airT: 0.62, jumpCd: 0.3
 } : {
-    pips: 4, respawn: 3.0, track: 1.6, lock: 0.75, beamEvery: [5.2, 4.0, 3.1],
+    pips: 6, respawn: 3.0, track: 1.6, lock: 0.75, beamEvery: [5.2, 4.0, 3.1],
     krillEvery: [15, 11, 8.5], steal: 3.0, airT: 0.56, jumpCd: 0.4
 };
 
