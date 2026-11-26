@@ -195,7 +195,10 @@ function dcHostUpdate(dt) {
     const caseZ = dcCaseZ() || 0;
     const caseSeg = caseZ / DC_SEG;
     const legStart = dc.track.legStart[leg];
-    const quiet = caseSeg < legStart + 60 || caseSeg > dc.track.finish - 40;
+    let quiet = caseSeg < legStart + 60 || caseSeg > dc.track.finish - 40;
+    // The round break: the sky holds fire from the checkpoint tunnel's mouth.
+    const ct = dc.track.cpTun || [];
+    for (let i = 0; i < ct.length; i++) if (caseSeg >= ct[i].a - 40 && caseSeg < ct[i].b) quiet = true;
 
     // Beams.
     dc.hostT.beam -= dt;
@@ -333,6 +336,8 @@ function dcHostCase(dt) {
             dcEmit({ k: "cp", leg: leg });
             c.pips = Math.min(DC_TUNE.pips, c.pips + 1);
             dcEmitCase();
+            // Where a lost case sends the convoy back to (Ry 2026-11-25).
+            if (leg < 3) dc.hostSnap = { leg: leg, pips: c.pips, holder: c.holder };
         }
         if (leg >= 3 && h.home && !dc.finale) { dcEmit({ k: "fin", by: h.id }); }
     } else {
@@ -351,7 +356,7 @@ function dcHostCase(dt) {
             c.pips -= 1;
             dc.pipLog.push("lying@" + Math.floor(c.z / DC_SEG));
             dcEmitCase();
-            if (c.pips <= 0) { dcHostEnd(false); return; }
+            if (c.pips <= 0) { dcHostRoundLost(); return; }
         }
     }
     dcCaseBeat -= dt;
@@ -373,7 +378,7 @@ function dcHostDrop(z, x, by, why, v) {
     c.lying = 0;
     dc.pipLog.push(why + "@" + Math.floor(z / DC_SEG));
     dcEmitCase();
-    if (c.pips <= 0) dcHostEnd(false);
+    if (c.pips <= 0) dcHostRoundLost();
 }
 
 function dcHostGrab(by) {
@@ -383,6 +388,17 @@ function dcHostGrab(by) {
     c.lying = 0;
     dcEmitCase();
     dcEmit({ k: "cr", to: by, pts: 100, f: "grabs", l: "GOT IT" });
+}
+
+// THE ROUND IS LOST (Ry 2026-11-25: "just restarting from that round"): the
+// case hit zero, so the host sends everyone back to the start of the round
+// they are on, with the pips and the holder it had when the round began.
+// The attract run still just ends.
+function dcHostRoundLost() {
+    if (dc.demo) { dcHostEnd(false); return; }
+    const s = dc.hostSnap || { leg: 0, pips: DC_TUNE.pips, holder: null };
+    const h = s.holder && dc.riders[s.holder] ? s.holder : dc.me.id;
+    dcEmit({ k: "rr", leg: s.leg, p: s.pips, h: h, n: (dc.restarts || 0) + 1 });
 }
 
 // The end: the host freezes the numbers so every screen shows the same card.

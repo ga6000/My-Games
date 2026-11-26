@@ -124,9 +124,77 @@ function dcStartRun(joining) {
         dcEmitCase();
         dcEmit({ k: "go" });
     }
+    dc.restarts = 0; dc.tally = null;
+    dc.hostSnap = { leg: 0, pips: DC_TUNE.pips, holder: dc.caseS ? dc.caseS.holder : dc.me.id };
+    dcRoundSnap(0);
     dcMusic.start();
     dcSnd.go();
     dcBanner("GO", DC_COL.amber);
+}
+
+// ---------------------------------------------------
+//   ROUNDS (Ry 2026-11-25): three of about a minute. Rounds 1 and 2 end at
+//   a checkpoint inside a mountain tunnel; a lost case restarts the round.
+// ---------------------------------------------------
+function dcRoundSnap(L) {
+    const me = dc.me;
+    dc.roundSnap = { leg: L, team: dc.team, score: dcTeamScore(), pts: me ? me.pts : 0,
+                     contrib: me ? JSON.parse(JSON.stringify(me.contrib)) : null };
+}
+
+// Round 1 restarts on the start line; rounds 2 and 3 inside the checkpoint
+// tunnel that began them, past the gate, so the restart is calm.
+function dcRoundStartZ(L) {
+    if (L === 0 || !dc.track.cpTun[L - 1]) return DC_START_SEGS * 0.5 * DC_SEG;
+    return (dc.track.cpTun[L - 1].b - 70) * DC_SEG;
+}
+
+function dcOnRoundRestart(m) {
+    if (dc.mode !== "play" || !dc.track || !dc.me) return;
+    const L = m.leg;
+    dc.restarts = m.n || (dc.restarts || 0) + 1;
+    dc.leg = L;
+    dc.tally = null;
+    for (const k in dc.cpSeen) if (+k > L) delete dc.cpSeen[k];
+    const snap = dc.roundSnap && dc.roundSnap.leg === L ? dc.roundSnap : null;
+    if (snap) dc.team = snap.team;
+    // This round's road is fresh again: barricades stand, mines are buried.
+    const a = L === 0 ? 0 : dc.track.legStart[L] - 80, b = dc.track.cpSeg[L];
+    for (let i = 0; i < dc.hazards.length; i++) {
+        const h = dc.hazards[i];
+        if (h.seg < a || h.seg > b) continue;
+        h.st = ""; h.reveal = 0;
+        if (h.mines) h.mines.forEach(function (mn) { mn.st = ""; mn.fx = 0; });
+    }
+    dc.beams.length = 0; dc.krill.length = 0; dc.attacks.length = 0; dc.beacons.length = 0;
+    dc.shields = {}; dc.rams = {}; dc.finale = null;
+    dc.hostT = { beam: 6, krill: 12, atk: 12 };
+    const z = dcRoundStartZ(L);
+    const ids = Object.keys(dc.riders).sort();
+    const lanes = [-0.45, 0.45, -0.15, 0.15];
+    const me = dc.me;
+    const pts = snap ? snap.pts : me.pts;
+    const contrib = snap && snap.contrib ? JSON.parse(JSON.stringify(snap.contrib)) : me.contrib;
+    dcResetRider(me, z, lanes[Math.max(0, ids.indexOf(me.id)) % 4]);
+    me.pts = pts; me.contrib = contrib;
+    me.v = L === 0 ? 0 : DC_CRUISE * 0.7;
+    me.inv = 2.5;
+    for (const id in dc.riders) {
+        const r = dc.riders[id];
+        if (r.local) continue;
+        r.z = z; r.tz = z; r.down = 0; r.home = 0; r.slide = 0; r.krill = 0; r.flyH = 0;
+    }
+    const c = dc.caseS;
+    if (c) {
+        c.holder = dc.riders[m.h] ? m.h : me.id; c.pips = m.p; c.lying = 0; c.over = false; c.v = 0; c.behind = 0;
+        c.z = z; c.x = 0;
+        if (dcIsHost()) dcEmitCase();
+    }
+    if (!dc.demo) {
+        dcSnd.pipLost();
+        dcShake(12);
+        dcBanner("CODES LOST  ROUND " + (L + 1) + " AGAIN", DC_COL.magenta);
+    }
 }
 
 // ---------------------------------------------------

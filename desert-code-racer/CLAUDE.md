@@ -19,8 +19,20 @@ homing beams down the road. Right before Cliff Run in the chronology.
 - **The convoy.** 1 to 4 riders on one road. One holds the case. A carrier who crashes drops it;
   anyone rides over it to take it. Pass 2: no rubber-banding. Riders spread out freely and
   finish at different times; the minimap marks every rider.
-- **Three legs**, each a fixed count of road set pieces (10 / 13 / 16), checkpoints ALPHA and
-  BRAVO, then the mountain base. No clock (rule 0). Bot runs take about 2:40 to 2:50.
+- **Three ROUNDS of about a minute (Ry 2026-11-25)** (`DC_LEG_SEGS` 2350 / 2550 / 2750, set pieces
+  9 / 12 / 15). Rounds 1 and 2 end inside a mountain: a 240-seg lit tunnel (`DC_CP_TUNNEL`, in
+  `track.cpTun`) with the checkpoint gate 30 segs in, the mountain face lettered with the
+  checkpoint's name. The sky holds fire from 40 segs before the tunnel to its exit, and a TALLY
+  board (`dcDrawTally`, dc-finale.js; ~5.5 s) rides over live play through the tunnel: round,
+  you, team, case pips. Round 2 or 3 starts at the exit. Round 3 ends at the lab. No clock
+  (rule 0). Bot runs at seed 4242: rounds land at about 40 s, 54 s and 72 s, ~2:45 total.
+- **Lose the case, replay the round (Ry 2026-11-25).** When the pips run out the host emits `rr`
+  (`dcHostRoundLost`); every screen puts the convoy back at that round's start (round 1 the start
+  line, else inside the previous checkpoint tunnel past the gate), resets that round's road
+  (barricades stand, mines rebury), clears the sky, restores the team score and your points to
+  the checkpoint snapshot (`dcRoundSnap`), and the case comes back with the pips it had at the
+  checkpoint. So outside the attract demo the run cannot be lost now (CODES LOST is unreachable);
+  a restart cap is an open question for Ry.
 - **The road (pass 2):** hills (crests hide what is behind them), dark valleys (legs 1 and 3),
   tunnels (legs 2 and 3: no beams, no attacks, krill scraped off), side roads that fork off and
   rejoin (a pad or chips on them, sometimes traps). Set pieces never sit in a tunnel.
@@ -46,9 +58,19 @@ homing beams down the road. Right before Cliff Run in the chronology.
   after the carrier crosses) to the tech, who now stands 30 segs in (was 44: a few pixels tall).
 - **Minimap names (Ry 2026-11-24):** DOME BASE, ALPHA, BRAVO, MOUNTAIN BASE on the route map;
   passed stops cyan, the next amber, the rest dim.
-- **Fail rule: case integrity.** 6 pips (casual 8; Ry 2026-11-24 "lower difficulty slightly, start by
-  adding two more lives": was 4 / 6). −1 each time it hits the road (crash or krill
-  steal), −1 per 5 s lying there, +1 per checkpoint. 0 = codes lost.
+- **Case integrity.** 4 pips (casual 6; Ry 2026-11-26 "back to 4 pips. yes to + 1 @ ea
+  checkpoint", after a day at 6 / 8). −1 each time it hits the road (crash or krill steal),
+  −1 per 5 s lying there, +1 per checkpoint, carried over between rounds. 0 = the round restarts.
+- **The motherships (Ry 2026-11-25, `dc-ships.js`):** "stationary and monolithic, but rendered as
+  if 3d if it rotates to line up an attack ... wedge shapes with round brain at front" (refs in
+  /mnt/project-files/desert-code-racer/ref/). One small flat-shaded mesh drawn twice: an arrowhead
+  slab pointing at the camera with a U notch cut from the back, bone ribs down violet sides, a
+  breathing red rim underneath, a pink brain dome at the point, tendrils hanging. Neither moves
+  across the sky. The big one hangs centre; the small one top left, angled in. Each turns slowly
+  (0.55 rad/s) toward the target while its beam is tracking (lining up), holds still once the beam
+  locks (the laser lands), drifts back nose-on when idle. The small ship no longer dives for a
+  strafe: it turns toward the line and fires bolts down to each mark from where it hangs
+  (`dcDrawStrafeBolts`). Beams leave from the eye under the point (`dcShip.eyeX/eyeY`, `sx/sy`).
 - **A dropped case skids** on from the carrier's speed (about 8 segs), so the riders behind and
   the remounting carrier ride up on it. If every rider has passed it (nobody can ride back), it
   tumbles back into the road 14 segs ahead of the last rider after 1.5 s; it keeps losing pips
@@ -58,7 +80,7 @@ homing beams down the road. Right before Cliff Run in the chronology.
   jump), airkrill swarms, mines hidden in dust, and two skill attacks:
   - **Lash:** a tendril from the small ship sweeps across the road ahead. A shadow line and a
     closing ring warn for 1.15 s; jump it at the line (or shield/ram through).
-  - **Strafe:** the small ship dives and walks a line of fire back down your lane (0.75 s
+  - **Strafe:** the small ship, hanging where it is, walks a line of fire back down your lane (0.75 s
     lead, marks on the road); change lanes. The hit is swept, so you can't slip between shots.
 - **Krill grip (pass 2):** a latched swarm shows a grip ring that fills. Carrier: at the end of
   it they tear the case off (3 s hardcore, 4.5 casual). Anyone else: the krill BITE and you
@@ -112,7 +134,7 @@ loads last. Always armed (the game binds neither L nor G). It pauses offline onl
 shows mode, road segment/zone/leg, speed, charges, the case, live hazards and the last crashes
 and pip losses. Buttons: NEXT CHECKPOINT, SKIP TO THE LAB, FILL CHARGES, CASE PIPS FULL, CLEAR
 THE SKY, SEND KRILL, SEND BEAM, NEXT CLASS (offline), GOD MODE, BOT TAKEOVER, MUTE, CRASH ME,
-WIN NOW, LOSE NOW. Case and end buttons are host only. GOD MODE and BOT TAKEOVER are two flags on
+WIN NOW, LOSE ROUND (runs the case dry: the round restarts), LOSE NOW. Case and end buttons are host only. GOD MODE and BOT TAKEOVER are two flags on
 `dc` (`devGod`, read in `dcCrash`; `devBot`, read in `dcStep`).
 
 ## Abilities and the coverage matrix
@@ -171,7 +193,8 @@ beams, krill, grabs, crashes, points).
 pieces · `dc-audio` every SFX + the music hook · `dc-rider` input, bike physics, collisions ·
 `dc-crew` abilities and the matrix · `dc-sprites` the pixel crew · `dc-hazards` beams, krill, the case (host) · `dc-attacks`
 lash, strafe, Gunner seekers · `dc-finale` the slide, toss and HOME · `dc-net` the
-event bus and MP · `dc-fx` bursts, banners, toasts · `dc-render` the road, scenery, tunnels, lab · `dc-actors`
+event bus and MP · `dc-fx` bursts, banners, toasts · `dc-render` the road, scenery, tunnels, lab ·
+`dc-ships` the two motherships · `dc-actors`
 riders, crash poses, krill, beams, HUD · `dc-panel`
 the cabinet panel and SOUND button · `dc-bot` autopilot · `dc-crawl` the chapter crawl · `dc-flow` boot, run,
 aftermath, card, loop, `GameInstance` · `dc-dev` the L+G dev panel.

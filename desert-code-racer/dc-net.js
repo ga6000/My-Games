@@ -51,6 +51,7 @@ function dcHandle(m, from) {
         case "cr": if (dc.me && m.to === dc.me.id) dcCredit(m.pts || 0, m.f || null, 1, m.l || ""); return;
         case "cs": dcOnCase(m); return;
         case "cp": dcOnCheckpoint(m); return;
+        case "rr": dcOnRoundRestart(m); return;
         case "end": dcOnEnd(m); return;
         case "go": dcOnGo(m, from); return;
         // Requests only the host acts on.
@@ -100,9 +101,14 @@ function dcOnCheckpoint(m) {
     if (m.leg >= 3) return;                         // the finish is the end card's, not a checkpoint
     dc.team += 1000;
     if (dc.demo) return;
-    dcSnd.checkpoint();
-    dcBanner(DC_LEG_NAMES[m.leg], DC_COL.cyan);
-    dcToastAtMe(1000, "CHECKPOINT");
+    // The round is banked: the tally rides with you through the tunnel, and
+    // a lost case in the next round comes back to here.
+    const prev = dc.roundSnap;
+    const score = dcTeamScore();
+    dc.tally = { leg: m.leg, t: dc.simT, round: score - (prev ? prev.score : 0), team: score,
+                 mine: dc.me ? dc.me.pts - (prev ? prev.pts : 0) : 0 };
+    dcRoundSnap(m.leg);
+    dcSnd.checkpoint();         // the tally board names the checkpoint: no banner over it
 }
 
 // ---- positions ----

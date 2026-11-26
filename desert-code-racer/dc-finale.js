@@ -144,4 +144,46 @@ function dcDrawFinaleHud(ctx, big) {
     } else if (r.home && !f) {
         dcText(ctx, "HOME  WAITING FOR THE CODES", dcW / 2, dcH * 0.2, sz, DC_COL.cyan, "center");
     }
+    dcDrawTally(ctx);
+}
+
+// The round break (Ry 2026-11-25): a checkpoint tally that rides over live
+// play through the mountain tunnel. dcOnCheckpoint fills dc.tally (leg 1 =
+// ALPHA, so round 1 is clear); hazards
+// are already quiet in the tunnel, so the board can sit mid-screen.
+const DC_TALLY_T = 5.5;
+function dcDrawTally(ctx) {
+    const t = dc.tally;
+    if (!t || dc.demo) return;
+    const age = dc.simT - t.t;
+    if (age > DC_TALLY_T) { dc.tally = null; return; }
+    const rows = [
+        ["ROUND " + t.leg + " CLEAR", DC_COL.amber],
+        [DC_LEG_NAMES[t.leg] || "", DC_COL.cyan],
+        ["CHECKPOINT +1000", DC_COL.mid],
+        ["ROUND   " + t.round, DC_COL.hot],
+        ["YOU     " + t.mine, DC_COL.hot],
+        ["TEAM    " + t.team, DC_COL.amber],
+        ["CASE    " + (dc.caseS ? dc.caseS.pips : 0) + " PIPS", DC_COL.magenta],
+        ["", null],
+        ["ROUND " + (t.leg + 1) + " AT THE EXIT", DC_COL.mid]
+    ];
+    const lh = 11, w = Math.min(dcW - 16, 200), h = rows.length * lh + 12;
+    const x = Math.round(dcW / 2 - w / 2), y = Math.round(dcH * 0.13);
+    // In and out: a quick wipe so it does not pop.
+    const k = Math.min(1, age / 0.25, (DC_TALLY_T - age) / 0.4);
+    const shown = Math.max(0, Math.min(rows.length, Math.floor(age / 0.12)));
+    ctx.save();
+    ctx.globalAlpha = 0.72 * k;
+    ctx.fillStyle = "#05070A";
+    ctx.fillRect(x, y, w, Math.round(h * k));
+    ctx.globalAlpha = k;
+    ctx.strokeStyle = DC_COL.amber; ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, Math.round(h * k) - 1);
+    ctx.restore();
+    if (k < 0.9) return;
+    for (let i = 0; i < shown; i++) {
+        if (!rows[i][1]) continue;
+        dcText(ctx, rows[i][0], dcW / 2, y + 7 + i * lh, 8, rows[i][1], "center");
+    }
 }
