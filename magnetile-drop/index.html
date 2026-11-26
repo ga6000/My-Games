@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magnetile Drop</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1d2b; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #f2f0ea; user-select: none; -webkit-user-select: none; }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  body.holding #scene { cursor: grabbing; }
+  #tray { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; padding: 10px 12px; background: rgba(20,22,34,0.82); border: 2px solid rgba(255,255,255,0.12); border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); z-index: 5; touch-action: none; }
+  .slot { position: relative; width: 92px; height: 92px; border-radius: 12px; background: radial-gradient(circle at 50% 40%, #3a3e58, #24273a); border: 2px solid rgba(255,255,255,0.1); cursor: grab; display: flex; align-items: center; justify-content: center; transition: transform .08s ease, border-color .1s; }
+  .slot:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.35); }
+  .slot img { width: 88px; height: 88px; pointer-events: none; }
+  .slot.empty { cursor: default; }
+  .slot.empty img { visibility: hidden; }
+  .slot.pop img { animation: pop .18s ease-out; }
+  @keyframes pop { from { transform: translateY(-26px) scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+  .slot .key { position: absolute; left: 6px; top: 4px; font-size: 11px; opacity: .45; }
+  #hud { position: fixed; left: 14px; bottom: 14px; font-size: 14px; line-height: 1.5; background: rgba(20,22,34,0.7); padding: 8px 12px; border-radius: 10px; pointer-events: none; }
+  #hud .dim { opacity: .6; font-size: 12px; }
+  #title { position: fixed; left: 16px; top: 14px; font-weight: 800; letter-spacing: .04em; font-size: 18px; opacity: .85; pointer-events: none; }
+  #title small { display: block; font-weight: 500; font-size: 11px; opacity: .6; letter-spacing: 0; }
+  #btns { position: fixed; right: 14px; bottom: 14px; display: flex; gap: 8px; }
+  #btns button { font: inherit; font-size: 13px; color: #f2f0ea; background: rgba(40,44,66,0.9); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  #btns button:hover { background: rgba(60,66,96,0.95); }
+  #help { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(10,10,18,0.6); z-index: 10; }
+  #help.show { display: flex; }
+  #help .card { background: #252840; border-radius: 16px; padding: 22px 28px; max-width: 460px; line-height: 1.6; box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+  #help h2 { margin: 0 0 8px; }
+  #help kbd { display: inline-block; min-width: 18px; text-align: center; padding: 1px 6px; border-radius: 5px; background: #3a3e5c; border-bottom: 2px solid #1c1e2e; font-family: inherit; font-size: 13px; }
+  #help .dim { opacity: .6; font-size: 13px; }
+  @media (max-width: 640px) { .slot { width: 58px; height: 58px; } .slot img { width: 54px; height: 54px; } #tray { gap: 6px; padding: 6px; } #title { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="title">MAGNETILE DROP<small>pass 1 · sandbox</small></div>
+<div id="tray"></div>
+<div id="hud"></div>
+<div id="btns">
+  <button id="btnSound">Sound on</button>
+  <button id="btnClear">Clear (C)</button>
+  <button id="btnHelp">Help (H)</button>
+</div>
+<div id="help" class="show">
+  <div class="card">
+    <h2>Magnetile Drop</h2>
+    <div><b>Drag</b> a tile out of the tray and let go over the floor. Flick while letting go to throw it.</div>
+    <div>While holding:
+      <kbd>W</kbd><kbd>S</kbd> tilt toward / away,
+      <kbd>A</kbd><kbd>D</kbd> spin,
+      <kbd>Q</kbd><kbd>E</kbd> roll,
+      <kbd>R</kbd> stand on edge, <kbd>F</kbd> lay flat,
+      <kbd>Space</kbd> drop now, <kbd>Esc</kbd> put back.</div>
+    <div><kbd>1</kbd>–<kbd>5</kbd> grab a slot without dragging (click to drop).
+      Click a tile on the floor to pick it up again.</div>
+    <div><kbd>←</kbd><kbd>→</kbd> rotate view, wheel zooms, <kbd>M</kbd> magnets, <kbd>C</kbd> clear.</div>
+    <div class="dim" style="margin-top:8px">Click anywhere to start.</div>
+  </div>
+</div>
+<script src="magnetile-drop.js"></script>
+</body>
+</html>
