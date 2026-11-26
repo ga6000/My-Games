@@ -74,7 +74,7 @@ function handleWrite(req, res, rel) {
   });
 }
 
-http.createServer((req, res) => {
+function handler(req, res) {
   let rel = decodeURIComponent(req.url.split("?")[0]);
   if (req.method === "POST") { handleWrite(req, res, rel); return; }
   if (rel.endsWith("/")) rel += "index.html";
@@ -88,4 +88,11 @@ http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": TYPES[path.extname(file).toLowerCase()] || "application/octet-stream" });
     res.end(body);
   });
-}).listen(PORT, () => console.log("dev-serve on http://localhost:" + PORT));
+}
+
+// play-launcher.js reuses this handler for the repo itself (2026-11-26), so
+// it only listens when run directly.
+module.exports = { handler, TYPES, ROOT };
+if (require.main === module) {
+  http.createServer(handler).listen(PORT, () => console.log("dev-serve on http://localhost:" + PORT));
+}
