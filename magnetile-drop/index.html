@@ -35,7 +35,7 @@
 </head>
 <body>
 <canvas id="scene"></canvas>
-<div id="title">MAGNETILE DROP<small>pass 1 · sandbox</small></div>
+<div id="title">MAGNETILE DROP<small>pass 2 · sandbox</small></div>
 <div id="tray"></div>
 <div id="hud"></div>
 <div id="btns">
@@ -47,15 +47,16 @@
   <div class="card">
     <h2>Magnetile Drop</h2>
     <div><b>Drag</b> a tile out of the tray and let go over the floor. Flick while letting go to throw it.</div>
-    <div>While holding:
-      <kbd>W</kbd><kbd>S</kbd> tilt toward / away,
-      <kbd>A</kbd><kbd>D</kbd> spin,
-      <kbd>Q</kbd><kbd>E</kbd> roll,
+    <div>While holding (each press turns 45°, hold Shift for 15°):
+      <kbd>W</kbd><kbd>S</kbd> tilt away / toward,
+      <kbd>A</kbd><kbd>D</kbd> spin left / right,
+      <kbd>Q</kbd><kbd>E</kbd> roll left / right,
       <kbd>R</kbd> stand on edge, <kbd>F</kbd> lay flat,
-      <kbd>Space</kbd> drop now, <kbd>Esc</kbd> put back.</div>
+      wheel raises / lowers, <kbd>Space</kbd> drop, <kbd>Esc</kbd> put back.
+      A held tile floats and gets tugged onto nearby magnet edges.</div>
     <div><kbd>1</kbd>–<kbd>5</kbd> grab a slot without dragging (click to drop).
       Click a tile on the floor to pick it up again.</div>
-    <div><kbd>←</kbd><kbd>→</kbd> rotate view, wheel zooms, <kbd>M</kbd> magnets, <kbd>C</kbd> clear.</div>
+    <div><kbd>←</kbd><kbd>→</kbd> rotate view, wheel zooms (when not holding), <kbd>M</kbd> magnets, <kbd>C</kbd> clear.</div>
     <div class="dim" style="margin-top:8px">Click anywhere to start.</div>
   </div>
 </div>
