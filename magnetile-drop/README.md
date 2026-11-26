@@ -15,13 +15,17 @@ Play: open `index.html` (works straight from disk, or on GitHub Pages).
 - 1-5 grab a slot without dragging (click to drop). Click a placed tile to pick it up again.
 - Left/Right arrows rotate the view, wheel zooms (when not holding), M magnets, C clear, P pause, H help.
 
-## Magnets (pass 2)
-- Parallel edges within ~0.38 tile pull together; touching edges lock with capped
-  point-to-point joints (two per long edge = a hinge). Stretch a joint past 0.07 and it lets go;
-  picking a tile up breaks its joints.
-- Pulling only happens while a tile is held or for 1.5 s after it is dropped. Settled tiles
-  keep their joints but stop tugging, so big piles go to sleep.
-- A held tile passes through everything while it is catching up with the cursor or moving fast.
+## Magnets (pass 3)
+- Parallel edges within 0.4 tile pull together (420 vs gravity 130). Touching, well-aligned
+  edges lock into capped point-to-point joints (2500 x mass; two per long edge = a hinge),
+  which let go if stretched past 0.15.
+- A held tile feels magnets once it has caught up with the cursor. When one of its magnets
+  seats on an edge, the hand goes soft so the magnets pull it flush; drag 0.75 away to tear it free.
+  Let go while seated and it locks at once. It never pulls placed tiles toward itself.
+- Held tiles hover just 0.06 above the surface. Pointing at the side of a standing tile aims
+  beside/behind it (so the 4th wall of a box can go in); a flat held tile aims on top (roofs).
+- Pulling only happens while held or for 3 s after a drop, so settled builds sleep.
+- R stands a tile on an edge with the bottom edge parallel to the screen.
 
 ## Files
 - `src/main.js` is the source. `src/lib/` holds vendored three.js r170 and cannon-es 0.20 (MIT).

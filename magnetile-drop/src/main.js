@@ -19,27 +19,33 @@ const CFG = {
   frameW: 0.075,         // opaque rim width
   floorCells: 12,        // floor is floorCells x floorCells grid cells
   trayRefillMs: 220,     // how fast an emptied tray slot gets a new tile
-  holdLift: 0.55,        // gap between the held tile's lowest point and the surface under the cursor
+  holdLift: 0.06,        // gap between the held tile's lowest point and the surface under the cursor
   rotStep: 45,           // degrees per W/A/S/D/Q/E press
   rotStepFine: 15,       // degrees per press with Shift held
   rotRepeatDelay: 320,   // ms before a held rotate key starts repeating
   rotRepeatEvery: 170,   // ms between repeats
   holdStiff: 900,        // spring pulling the held tile's centroid to the cursor target
   holdMaxAccel: 1500,
-  holdGhostDist: 0.45,
-  holdSolidSpeed: 3,     // ...or while moving faster than this (only slow, careful moves can nudge things)   // held tile ignores collisions while further than this from its target
-  holdRotStiff: 260,     // spring turning the held tile to its target rotation (magnets can bend it a little)
+  holdGhostDist: 0.45,   // held tile ignores collisions while further than this from its target
+  holdSolidSpeed: 3,     // ...or while moving faster than this (only slow, careful moves can nudge things)
+  holdRotStiff: 900,     // spring turning the held tile to its target rotation (magnets can bend it a little)
+  captureDist: 0.08,     // a held tile whose magnet comes this close to another edge is "captured"...
+  captureSoft: 0.12,     // ...its hold spring drops to this fraction so the magnets can seat it fully
+  captureBreak: 0.75,    // pull the cursor this far away and it tears free again
   flingMax: 22,
   magnetOn: true,
-  magnetRange: 0.38,     // distance at which edge magnets start pulling
-  magnetForce: 240,      // peak pull per magnet pair, as acceleration of the lighter tile (gravity is 130)
+  magnetRange: 0.4,      // distance at which edge magnets start pulling
+  magnetForce: 420,      // peak pull per magnet pair, as acceleration of the lighter tile (gravity is 130)
   magnetDamp: 6,
   magnetAlign: 0.8,      // |cos| between edges below which magnets ignore each other
-  magnetSlack: 0.012,
-  magnetGiveUp: 0.6,
-  magnetActiveSec: 1.5,  // after a drop, how long that tile's magnets keep pulling before they only hold
-  jointForce: 600,       // max hold force of a touching magnet pair (x lighter tile mass)
-  jointBreak: 0.07,      // a joint stretched further than this lets go     // seconds a blocked magnet pair keeps straining before it gives up    // magnets closer than this stop pulling (lets joined edges hinge)
+  magnetSlack: 0.03,     // touching closer than this locks the pair into a hinge joint
+  magnetGiveUp: 0.6,     // seconds a blocked magnet pair keeps straining before it gives up
+  magnetActiveSec: 3,    // after a drop, how long that tile's magnets keep pulling before they only hold
+  jointForce: 2500,      // max hold force of a touching magnet pair (x lighter tile mass; weight is 130)
+  jointStiff: 2e5,       // softer than contacts so joints and contacts don't fight in a pile
+  jointSoft: false,
+  jointAlign: 0.97,      // edges must be this parallel (|cos|) to lock; keeps jumbled piles from welding
+  jointBreak: 0.15,      // a joint stretched further than this lets go
   friction: 0.55,
   restitution: 0.08,
   maxTiles: 160,
@@ -333,7 +339,7 @@ function spawnTile(type, ci, pos, quat, vel) {
     magW: mags.map(() => new CANNON.Vec3()),
     dirW: mags.map(() => new CANNON.Vec3()),
     radius: Math.max(...TYPES[type].poly.map(([x, z]) => Math.hypot(x, z))),
-    born: performance.now(), wasTouching: false, activeUntil: world.time + CFG.magnetActiveSec,
+    born: performance.now(), wasTouching: false, activeUntil: world.time + CFG.magnetActiveSec, joinWideUntil: 0,
   };
   body.userData = t;
   mesh.traverse(o => { o.userData.tile = t; });
@@ -375,6 +381,7 @@ const joints = new Map(); // key -> { c, A, B }
 function addJoint(key, A, B, la, lb) {
   const c = new CANNON.PointToPointConstraint(A.body, la, B.body, lb, CFG.jointForce * Math.min(A.body.mass, B.body.mass));
   c.collideConnected = true;
+  if (CFG.jointSoft) for (const eq of c.equations) eq.setSpookParams(CFG.jointStiff, 4, CFG.step);
   world.addConstraint(c);
   joints.set(key, { c, A, B, la, lb });
 }
@@ -390,6 +397,7 @@ world.addEventListener('postStep', () => {
 });
 
 world.addEventListener('preStep', () => {
+  if (held) held.capNow = false;
   if (!CFG.magnetOn) return;
   if (++magStep % 60 === 0) for (const [k, v] of magState) if (magStep - v.seen > 2) magState.delete(k);
   const R = CFG.magnetRange, R2 = R * R;
@@ -418,6 +426,8 @@ world.addEventListener('preStep', () => {
             if (e2 < best) { best = e2; pa = a; pb = b; bu = u; bv = v; }
           }
           if (!pa) continue;
+          // a held tile only feels magnets once it has caught up with the cursor (not mid-swipe)
+          if ((A.held || B.held) && !held.solid) continue;
           // edge magnets pull hardest when the two edges run parallel; crossing edges
           // (common in a jumbled pile) barely attract, which keeps piles calm
           const al = Math.abs(A.dirW[p].dot(B.dirW[q]));
@@ -427,14 +437,16 @@ world.addEventListener('preStep', () => {
           const d = Math.sqrt(best) + 1e-6;
           // Touching surface edges stop pulling: the pair then acts as a free hinge, so
           // flat joins, 90-degree corners and roof angles are all stable.
+          if ((A.held || B.held) && d < CFG.captureDist) held.capNow = true;
           if (d < CFG.magnetSlack + 0.012) snapPairs.add(A.id < B.id ? A.id * 100000 + B.id : B.id * 100000 + A.id);
           const key = (A.id < B.id ? A.id * 100000 + B.id : B.id * 100000 + A.id) * 100 + (p >> 1) * 10 + (q >> 1);
           if (joints.has(key)) continue;
-          if (d < CFG.magnetSlack) {
+          const joinAt = (world.time < A.joinWideUntil || world.time < B.joinWideUntil) ? CFG.captureDist : CFG.magnetSlack;
+          if (d < joinAt) {
             // Touching: lock the two surface-edge points together with a magnetic joint.
             // Two joints along one edge make a hinge; the solver holds it, so it stays put
             // and can sleep. Never while one of them is in your hand.
-            if (!A.held && !B.held) addJoint(key, A, B, A.mags[p + bu], B.mags[q + bv]);
+            if (!A.held && !B.held && al > CFG.jointAlign) addJoint(key, A, B, A.mags[p + bu], B.mags[q + bv]);
             continue;
           }
           let ms = magState.get(key);
@@ -460,9 +472,11 @@ world.addEventListener('preStep', () => {
           let mag = (CFG.magnetForce * s + CFG.magnetDamp * vrel) * ramp * align * Math.min(ba.mass, bb.mass);
           if (mag <= 0) continue;
           _f.set(ux * mag, uy * mag, uz * mag);
-          if (aAwake) ba.applyForce(_f, _ra);
+          // A tile in your hand is pulled onto placed edges, but never tugs placed tiles toward
+          // itself (that just knocks over walls you've already stood up).
+          if (aAwake && !B.held) ba.applyForce(_f, _ra);
           _f.negate(_f);
-          if (bAwake) bb.applyForce(_f, _rb);
+          if (bAwake && !A.held) bb.applyForce(_f, _rb);
         }
       }
     }
@@ -668,7 +682,24 @@ function updateHoldTarget() {
   for (const t of tiles) if (!t.held) targets.push(t.mesh);
   const hits = raycaster.intersectObjects(targets, true);
   let p;
-  if (hits.length) { p = hits[0].point; held.valid = true; }
+  if (hits.length) {
+    const h = hits[0], t = h.object.userData.tile;
+    p = h.point; held.valid = true;
+    // Pointing at the side of a standing tile almost always means "next to / behind it", not
+    // "on top of it": aim at the level that tile stands on instead, so you can close a box.
+    if (t && h.face) {
+      const n = _v.copy(h.face.normal).transformDirection(h.object.matrixWorld);
+      if (Math.abs(n.y) < 0.5) {
+        t.body.updateAABB();
+        // a flat-ish held tile (a roof) goes on top of that wall; a standing one goes beside it
+        const heldUp = _v.set(0, 1, 0).applyQuaternion(held.quatTarget).y;
+        const level = Math.abs(heldUp) > 0.7 ? t.body.aabb.upperBound.y : Math.max(0, t.body.aabb.lowerBound.y);
+        const base = new THREE.Plane(_up, -level);
+        const q = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(base, q)) p = q;
+      }
+    }
+  }
   else {
     // off the floor: project onto the floor plane so it can still be dropped off-edge
     const plane = new THREE.Plane(_up, 0);
@@ -687,16 +718,16 @@ world.addEventListener('preStep', () => {
   const b = held.tile.body, dt = CFG.step;
   b.force.y += b.mass * CFG.gravity; // weightless while held
   // position: drive the centroid toward the target
-  const k = CFG.holdStiff, c = 2 * Math.sqrt(k);
   _e.set(held.target.x - b.position.x, held.target.y - b.position.y, held.target.z - b.position.z);
+  // Magnetic capture: once one of its magnets is seated on another edge, the hand goes soft so
+  // the magnets can pull it flush (and fix any height mismatch). Drag far enough and it tears free.
+  const far = Math.hypot(_e.x, _e.y, _e.z);
+  const captured = held.capNow && far < CFG.captureBreak;
+  const k = CFG.holdStiff * (captured ? CFG.captureSoft : 1), c = 2 * Math.sqrt(k);
   let ax = k * _e.x - c * b.velocity.x, ay = k * _e.y - c * b.velocity.y, az = k * _e.z - c * b.velocity.z;
   const al = Math.hypot(ax, ay, az);
   if (al > CFG.holdMaxAccel) { const s = CFG.holdMaxAccel / al; ax *= s; ay *= s; az *= s; }
   b.velocity.x += ax * dt; b.velocity.y += ay * dt; b.velocity.z += az * dt;
-  // while it is racing to catch up with the cursor it passes through other tiles, so a fast
-  // swipe (or the trip down from the tray) never bowls over what you've built
-  const solid = !held.ghost && Math.hypot(_e.x, _e.y, _e.z) < CFG.holdGhostDist && b.velocity.length() < CFG.holdSolidSpeed;
-  b.collisionFilterMask = solid ? -1 : 0; // mask 0 = no contacts at all (doesn't even wake what it passes)
   // orientation: shortest rotation from current to target
   const qt = held.quatTarget;
   _qt.set(qt.x, qt.y, qt.z, qt.w);
@@ -711,6 +742,11 @@ world.addEventListener('preStep', () => {
   w.x += (kr * _qe.x * f - cr * w.x) * dt;
   w.y += (kr * _qe.y * f - cr * w.y) * dt;
   w.z += (kr * _qe.z * f - cr * w.z) * dt;
+  // while it is catching up with the cursor, moving fast or still turning, it passes through
+  // other tiles, so a swipe, a rotation or the trip down from the tray never bowls over your build
+  const solid = !held.ghost && far < CFG.holdGhostDist && ang < 0.35 && b.velocity.length() < CFG.holdSolidSpeed;
+  held.solid = solid;
+  b.collisionFilterMask = solid ? -1 : 0; // mask 0 = no contacts at all (doesn't even wake what it passes)
 });
 
 function releaseHold(cancelToTray) {
@@ -721,8 +757,10 @@ function releaseHold(cancelToTray) {
   document.body.classList.remove('holding');
   t.held = false;
   b.allowSleep = true;
+  b.wakeUp(); // clears a stale "sleepy" timer from before it was picked up, or it freezes mid-air
   b.collisionFilterMask = -1;
   t.activeUntil = world.time + CFG.magnetActiveSec;
+  t.joinWideUntil = world.time + 0.1; // let go while seated on an edge: lock it right away
   if (cancelToTray && h.fromSlot >= 0) {
     // dropped back on the tray: return to its slot if that slot hasn't refilled yet
     removeTile(t);
@@ -769,7 +807,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 'f' && held) { held.quatTarget.setFromAxisAngle(_up, new THREE.Euler().setFromQuaternion(held.quatTarget, 'YXZ').y); return; }
   if (k === 'r' && held) { // stand it up on an edge, facing the camera
     const { right } = camAxes();
-    held.quatTarget.setFromAxisAngle(_up, -camAngle + Math.PI / 4).premultiply(_q.setFromAxisAngle(right, Math.PI / 2));
+    held.quatTarget.setFromAxisAngle(_up, -camAngle).premultiply(_q.setFromAxisAngle(right, Math.PI / 2)); // bottom edge parallel to the screen, so it stands on an edge, not a corner
     return;
   }
   if (k === ' ' && held) { e.preventDefault(); releaseHold(false); return; }
