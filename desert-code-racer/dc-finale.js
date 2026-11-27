@@ -165,6 +165,7 @@ function dcDrawTally(ctx) {
         ["YOU     " + t.mine, DC_COL.hot],
         ["TEAM    " + t.team, DC_COL.amber],
         ["CASE    " + (dc.caseS ? dc.caseS.pips : 0) + " PIPS", DC_COL.magenta],
+        ["RESTARTS " + Math.max(0, DC_RESTARTS - (dc.restarts || 0)) + " LEFT", DC_COL.mid],
         ["", null],
         ["ROUND " + (t.leg + 1) + " AT THE EXIT", DC_COL.mid]
     ];

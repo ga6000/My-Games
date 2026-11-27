@@ -193,7 +193,8 @@ function dcOnRoundRestart(m) {
     if (!dc.demo) {
         dcSnd.pipLost();
         dcShake(12);
-        dcBanner("CODES LOST  ROUND " + (L + 1) + " AGAIN", DC_COL.magenta);
+        const left = DC_RESTARTS - dc.restarts;
+        dcBanner("ROUND " + (L + 1) + " AGAIN  " + (left > 0 ? left + (left === 1 ? " RESTART LEFT" : " RESTARTS LEFT") : "LAST CHANCE"), DC_COL.magenta);
     }
 }
 
