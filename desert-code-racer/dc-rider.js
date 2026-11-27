@@ -350,8 +350,10 @@ function dcCollide(r, s0, s1) {
             const key = h.id + ":" + s1;
             if (r.passed[key]) continue;
             // A ram or a shield goes straight through, gap or no gap.
-            if (r.fly && r.fy - dcRoadY(r.z) > DC_HIGH && !r.passed[h.id]) {
-                r.passed[h.id] = 1;
+            const up = r.fly ? r.fy - dcRoadY(r.z) : (air && r.airMax > 0 ? dcJumpLift(r) * DC_TUNE.jumpH : 0);
+            if (r.passed[h.id + "^"]) continue;        // already over it: the whole barricade, both segs
+            if (up > DC_HIGH && !r.passed[h.id]) {
+                r.passed[h.id] = 1; r.passed[h.id + "^"] = 1;
                 if (r.local) dcCredit(100, "solves", 1, "OVER THE TOP");
                 continue;
             }

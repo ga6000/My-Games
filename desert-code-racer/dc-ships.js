@@ -21,9 +21,9 @@
 // The big ship is seen from a little below (its fleshy, veined underside and
 // the eye show); the small one from a little above (deck and brain show).
 //
-// IN THE SKY. Both sit at infinity like the ridgelines: as the road turns
-// they slide across the sky with the mountains (`dcSkyPx`). So a long bend
-// does not lose them for good, their bearing follows the road's heading very
+// IN THE SKY. Both sit at infinity with the ridgelines and turn with them
+// (`dcSkyTurn`: one shared number for the whole sky). So a long bend does not
+// lose them for good, the sky's bearing follows the road's heading very
 // slowly (`DC_SHIP_SETTLE` s), and it snaps back on a new run or a round
 // restart. Beams and strafe bolts still leave from the eye wherever it is,
 // on screen or off it; what they hit is decided on the road as before.
@@ -373,20 +373,27 @@ function dcShipTurn(cur, want, dt) {
     return Math.abs(d) <= m ? want : cur + Math.sign(d) * m;
 }
 
-// Once a frame (from dcDrawMothership): the frame's dt and where the sky has
-// turned to. Returns the ships' shared slide across the screen, in pixels.
-function dcShipSky() {
+// THE SKY'S TURN (Ry 2026-11-26): once a frame, from dcDrawSky, before the
+// ridgelines. Everything in the sky (both ranges and both ships) reads this
+// one number, so they stay locked together, and only the road's heading (the
+// bike's turning) moves it: not the bike sliding across the road. Returns
+// how far the sky has turned, in pixels, scaled down a touch (DC_SKY_TURN);
+// each layer then takes its own share (DC_SKY_LAYER): the far range least.
+const DC_SKY_TURN = 0.85;
+const DC_SKY_LAYER = { far: 0.75, ships: 0.9, near: 1.0 };
+function dcSkyTurn() {
     const snap = dcShip.anchor === null || dcShip.lastT < 0 || dc.simT < dcShip.lastT;
     dcShip.dt = snap ? 0 : dcClamp(dc.simT - dcShip.lastT, 0, 0.1);
     dcShip.lastT = dc.simT;
     const cur = dcSkyPx / Math.max(1, dcW);                  // the heading, in screen widths
     if (snap) dcShip.anchor = cur;
     else dcShip.anchor += (cur - dcShip.anchor) * (1 - Math.exp(-dcShip.dt / DC_SHIP_SETTLE));
-    return (dcShip.anchor - cur) * dcW;
+    dcShip.view = (cur - dcShip.anchor) * dcW * DC_SKY_TURN;
+    return dcShip.view;
 }
 
 function dcDrawMothership(ctx, cy) {
-    const slide = dcShipSky();
+    const slide = -(dcShip.view || 0) * DC_SKY_LAYER.ships;
     dcShip.slide = slide;
     const cx = Math.round(dcW * 0.5 + slide);
     // Idle it rests a little turned, so it reads as a solid thing, not a cut-out.

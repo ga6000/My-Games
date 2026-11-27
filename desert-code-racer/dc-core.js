@@ -74,12 +74,15 @@ function dcReadDifficulty() {
     return String(d).toLowerCase() === "casual" ? "casual" : "hardcore";
 }
 const DC_DIFF = dcReadDifficulty();
+// Jump (Ry 2026-11-26 "jump should be taller, to clear more obstacles"): jumpH is the
+// peak in world units (was a drawn 520). Over DC_HIGH (650) it clears a barricade wall
+// (walls stand 560), so a well-timed jump hops a wall: OVER THE TOP.
 const DC_TUNE = DC_DIFF === "casual" ? {
     pips: 6, respawn: 1.8, track: 2.2, lock: 1.0, beamEvery: [7.5, 6.0, 4.8],
-    krillEvery: [20, 15, 12], steal: 4.5, airT: 0.62, jumpCd: 0.3
+    krillEvery: [20, 15, 12], steal: 4.5, airT: 0.74, jumpH: 1050, jumpCd: 0.3
 } : {
     pips: 4, respawn: 3.0, track: 1.6, lock: 0.75, beamEvery: [5.2, 4.0, 3.1],
-    krillEvery: [15, 11, 8.5], steal: 3.0, airT: 0.56, jumpCd: 0.4
+    krillEvery: [15, 11, 8.5], steal: 3.0, airT: 0.68, jumpH: 950, jumpCd: 0.4
 };
 
 // Tests only: ?timescale=4 runs the simulation four times as fast in fixed

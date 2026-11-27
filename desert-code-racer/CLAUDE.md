@@ -70,7 +70,7 @@ homing beams down the road. Right before Cliff Run in the chronology.
   knobs, the red rim drips, the brain is two lumpy lobes with wandering folds. The big ship is seen
   from a little below (`DC_SHIP_PITCH_BIG` −0.22: veined underside, the eye, the brain rising over
   the point); the small one from above. FIXED IN THE SKY (Ry 2026-11-26): both slide with the
-  ridgelines as the road turns (`dcShipSky`); so a long bend can't lose them for good, their
+  ridgelines as the road turns (`dcSkyTurn`, shared with the ranges); so a long bend can't lose them for good, their
   bearing follows the road's heading with a 14 s lag (`DC_SHIP_SETTLE`) and snaps back on a new run
   or round restart. Beams and strafe bolts leave the eye wherever it is, on screen or off; hits are
   decided on the road as before. Each ship turns slowly (0.55 rad/s) toward the target while its
@@ -117,8 +117,11 @@ Done as a package (`AESTHETIC_GUIDE.md` §6.8 "a reassignment is a package, not 
   filled. Sky: black with four flat bands of the world hue over the horizon, filled ridgelines.
   The ridgelines sit at infinity: their scroll is the road's heading under the camera (`hd` per
   segment in `dc-track.js`, `dcSkyAt`), so they turn with the road at any frame rate (Ry 2026-11-24:
-  they used to slide a fixed step per drawn frame). The near range also slides slightly with the
-  bike's lateral position.
+  they used to slide a fixed step per drawn frame). Ry 2026-11-26: the whole sky (both ranges and
+  both ships) reads one number, `dcSkyTurn` in dc-ships.js, so it stays locked together; only the
+  road's heading moves it (the bike sliding across the road moves nothing up there); the turn is
+  scaled down a touch (`DC_SKY_TURN` 0.85) and each layer takes a share (`DC_SKY_LAYER`: far range
+  0.75, ships 0.9, near range 1.0).
 - **Text** is Press Start 2P at 8 or 16 px (`dc-font.js`'s `dcText`); in-world text too small for
   8 px is not drawn. The stroke glyph table is kept but unused.
 - **Not done in this pass:** the colour count is well over §1's "≤4 on screen" (the crew sprites,
@@ -130,7 +133,10 @@ Done as a package (`AESTHETIC_GUIDE.md` §6.8 "a reassignment is a package, not 
 A/D or ←/→ steer · W/↑ boost · S/↓ brake · Space jump · E, Shift or left click: ability · M sound
 (or the SOUND button in the cabinet panel: the same hub-wide SFX mute) · hold L+G: dev tools.
 Pass 2: no throttle = coast at cruise (300 MPH); hold W for 400 MPH as long as you like; hold S
-to slow all the way to 0. Jump is quicker (hardcore 0.56 s in the air, 0.4 s cooldown). Each
+to slow all the way to 0. Jump (Ry 2026-11-26 "taller, to clear more obstacles"): peak `jumpH`
+950 world units (casual 1050; was a drawn 520), 0.68 s in the air (casual 0.74), 0.4 s cooldown.
+Over `DC_HIGH` (650; walls stand 560) it clears a barricade, so a well-timed jump hops a wall
+(OVER THE TOP), as a crest flight already could. Each
 ability holds **2 charges** that refill one at a time on the class cooldown. Esc is the shared hub menu.
 
 ## Dev tools (hold L+G; Ry 2026-11-24)

@@ -280,14 +280,14 @@ function dcDrawSky(ctx) {
     // Ground under everything below the horizon (the far road fills over it).
     ctx.fillStyle = dcShade(DC_RAS.sand[1], 0.5);
     ctx.fillRect(0, dcHy, dcW, dcH - dcHy);
-    // Both ranges sit at infinity, so they turn with the road the same; the
-    // nearer one also slides a little as the bike moves across the road (the
-    // parallax), the far one barely.
+    // Both ranges sit at infinity: they turn with the road's heading only
+    // (the bike sliding across the road moves nothing in the sky), locked to
+    // the ships through dcSkyTurn; the far range takes the smallest share.
     void off;
-    const lat = dcCam.x / DC_ROAD_W;
-    const ridge = function (data, wmul, slide, hmul, fill, edge) {
+    const view = dcSkyTurn();
+    const ridge = function (data, wmul, share, hmul, fill, edge) {
         const fw = dcW * wmul, step = fw / (data.length - 1);
-        let sx = -(((dcSkyPx + lat * dcW * slide) % fw + fw) % fw);
+        let sx = -(((view * share) % fw + fw) % fw);
         if (sx > 0) sx -= fw;
         for (let rep = 0; rep < 3; rep++) {
             ctx.beginPath(); ctx.moveTo(Math.round(sx + rep * fw), dcHy + 1);
@@ -297,9 +297,9 @@ function dcDrawSky(ctx) {
             ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke();
         }
     };
-    ridge(dcRidgeFar, 1.6, 0.012, 0.11, dcShade("#4B3A8C", 0.42 * dim), dcShade("#4B3A8C", dim));
+    ridge(dcRidgeFar, 1.6, DC_SKY_LAYER.far, 0.11, dcShade("#4B3A8C", 0.42 * dim), dcShade("#4B3A8C", dim));
     dcDrawMothership(ctx, dcHy - dcH * 0.2);
-    ridge(dcRidgeNear, 2.2, 0.05, 0.07, dcShade(DC_COL.hue, 0.3 * dim), dcShade(DC_COL.hue, 0.8 * dim));
+    ridge(dcRidgeNear, 2.2, DC_SKY_LAYER.near, 0.07, dcShade(DC_COL.hue, 0.3 * dim), dcShade(DC_COL.hue, 0.8 * dim));
     dcDrawSmallShip(ctx);
 }
 

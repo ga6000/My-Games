@@ -96,7 +96,7 @@ function dcDrawRider(ctx, r) {
     // A crest flight is a real height over the road below (dcCrestUpdate);
     // a plain jump is the quick hop curve.
     const flyH = r.local ? (r.fly ? r.fy - dcRoadY(r.z) : 0) : (r.flyH || 0);
-    const lift = flyH > 0 ? Math.min(1600, flyH) * u : (r.air > 0 && r.airMax > 0 ? dcJumpLift(r) * 520 * u : 0);
+    const lift = flyH > 0 ? Math.min(1600, flyH) * u : (r.air > 0 && r.airMax > 0 ? dcJumpLift(r) * DC_TUNE.jumpH * u : 0);
     if (r.down > 0) {
         const P = dcCrashPose(r);
         // Bike first (it is nearer the road), then the rider wherever they are.
