@@ -573,8 +573,25 @@ function musApplyLevels(now) {
 // ---------------------------------------------------
 // Called from startGame(). The opening cue, then the organ swells in under
 // it from the second bar.
+// PLAYTEST 2026-11-27: with shared/music.js and music/zombie.js loaded, the
+// album track plays instead of the organ (?music=old brings the organ back).
+// musTrack still runs, so the horde around you still opens the track up.
+let musAlbum = false;
+function musAlbumOn() { return typeof MUSIC !== "undefined" && MUSIC.enabled(); }
+
 function musicStart() {
     musRunning = true;
+    musAlbum = musAlbumOn();
+    if (musAlbum) {
+        musEnding = "";
+        musIntensity = 0;
+        musRound = round;
+        musPhase = roundPhase;
+        MUSIC.setMuted(audioMuted);
+        MUSIC.intensity(0.35);
+        MUSIC.play("zombie", { sting: "sting-hook" });
+        return;
+    }
     musEnding = "";
     musEndAt = 0;
     musNextBeat = 0;
@@ -604,6 +621,15 @@ function musicStart() {
 // Every frame, from gameLoop.
 function musicUpdate(now, dt) {
     if (!musRunning) return;
+    if (musAlbum) {
+        musTrack(dt);
+        musCues = [];
+        MUSIC.setMuted(audioMuted);
+        // Never fully closed: an empty street is still a song, just a muffled one.
+        MUSIC.intensity(0.35 + 0.65 * musIntensity);
+        MUSIC.update();
+        return;
+    }
     if (!audioCtx || audioMuted) { musNextBeat = 0; return; }
     if (!musEnsureNodes()) return;
     musStartLfo();
@@ -627,6 +653,7 @@ function musicUpdate(now, dt) {
 // lets go over two bars.
 function musicEnd(kind) {
     if (!musRunning || musEnding) return;
+    if (musAlbum) { musRunning = false; MUSIC.end(); return; }
     musCues = [kind === "win" ? "win" : "over"];
     musEnding = kind || "over";
     if (!audioCtx || !musBus) { musRunning = false; return; }
@@ -645,6 +672,7 @@ function musicEnd(kind) {
 // Silence now. `hard` also drops the nodes (teardown); otherwise they are
 // kept for the next run on the same audio context.
 function musicStop(hard) {
+    if (musAlbum && typeof MUSIC !== "undefined") MUSIC.stop();
     musRunning = false;
     musEnding = "";
     musCues = [];
@@ -665,3 +693,6 @@ function musicStop(hard) {
         musCtx = null;
     }
 }
+
+// Album playtest: resume the music context on the first gesture.
+if (typeof MUSIC !== "undefined") MUSIC.unlockOn(window);

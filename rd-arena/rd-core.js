@@ -39,6 +39,7 @@ function trackInterval(fn, ms) {
 }
 function destroy() {
     running = false;
+    if (typeof MUSIC !== "undefined") MUSIC.stop();
     abortCtl.abort();
     timeoutIds.forEach(clearTimeout); timeoutIds.clear();
     intervalIds.forEach(clearInterval); intervalIds.clear();
@@ -239,6 +240,33 @@ RDSKIN.read();
 // so muting this game does not mute Zombie.
 SFX.configure({ game: "rd-arena" });
 SFX.unlockOn(window, abortCtl.signal);
+
+// Music playtest 2026-11-27 (shared/music.js): the album track, waiting for the
+// first tap. ?music=old keeps the game silent as before. Intensity is fed from
+// loop() via rdMusicTick() below.
+if (typeof MUSIC !== "undefined" && MUSIC.enabled()) {
+    MUSIC.unlockOn(window, abortCtl.signal);
+    MUSIC.setMuted(SFX.isMuted());
+    MUSIC.intensity(0.35);
+    MUSIC.play("rd-arena", { sting: "sting-hook" });
+}
+const RD_MUSIC_NEAR = 650;          // px: what counts as "on you"
+const RD_MUSIC_FULL = 14;           // this many grunts near = fully open
+function rdMusicTick() {
+    if (typeof MUSIC === "undefined" || !MUSIC.enabled()) return;
+    if (frameCount % 8 === 0) {
+        let near = 0;
+        if (player && !player.dead) {
+            for (let i = 0; i < enemies.length; i++) {
+                const e = enemies[i];
+                if (Math.abs(e.x - player.x) < RD_MUSIC_NEAR && Math.abs(e.y - player.y) < RD_MUSIC_NEAR) near++;
+            }
+        }
+        MUSIC.intensity(0.35 + 0.65 * Math.min(1, near / RD_MUSIC_FULL));
+        MUSIC.setMuted(SFX.isMuted());
+    }
+    MUSIC.update();
+}
 
 // Up to 40 grunts shoot on their own cooldowns across a 4800x4800 world. Playing
 // every one of those is a wall of noise that buries the shot about to kill you,

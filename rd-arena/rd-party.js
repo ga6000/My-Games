@@ -62,6 +62,7 @@ function rdPartyTick() {
     PARTY.live(rdScore);
     if (left !== null && left <= 0) {
         rdPartyDone = true;
+        if (typeof MUSIC !== "undefined") MUSIC.end();
         PARTY.finish({ score: HUBSCORE.snap(rdScore), cleared: true, game: "rd-arena" });
     }
 }

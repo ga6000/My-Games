@@ -492,6 +492,22 @@ let hubHumBeat = 0;
 function hubHumStart() {
     if (hubHumOn) return;
     hubHumOn = true;
+    // Music playtest 2026-11-27: the album's main theme (Breath and Bit)
+    // replaces the hum, full on the first screens and muffled on the board.
+    // ?music=old brings the hum back.
+    if (typeof MUSIC !== "undefined" && MUSIC.enabled()) {
+        MUSIC.unlockOn(window, hubSignal);
+        MUSIC.setMuted(typeof SFX !== "undefined" && SFX.isMuted());
+        MUSIC.intensity(1);
+        MUSIC.play("hub", { fadeIn: 1.5 });
+        trackInterval(() => {
+            if (isLaunching) { MUSIC.stop(); return; }
+            MUSIC.muffle(!(partyModeScreenUp() || crewScreenUp()));
+            MUSIC.setMuted(typeof SFX !== "undefined" && SFX.isMuted());
+            MUSIC.update();
+        }, 250);
+        return;
+    }
     // D minor, slow: in on the low note, out on the one above it.
     const line = [73.42, 0, 87.31, 0, 73.42, 0, 69.3, 0];
     trackInterval(() => {
