@@ -45,6 +45,7 @@ function dcBuildTrack() {
     const segs = [];
     const legStart = [];
     const cpSeg = [];
+    const cpTun = [];                   // { a, b } the checkpoint tunnels of rounds 1 and 2
     const features = [];                // { kind, a, b, side } for the map and the tests
     let n = 0;
     function seg(curve) { segs.push({ i: n++, curve: curve, y: 0, scene: [], zone: "", lit: false, alt: null, dark: 0 }); }
@@ -61,7 +62,7 @@ function dcBuildTrack() {
     for (let L = 0; L < 3; L++) {
         legStart.push(n);
         const rnd = dcMulberry(dcSeed() ^ Math.imul(L + 1, 0x9E3779B1));
-        const end = n + DC_LEG_SEGS[L] - (L === 2 ? DC_FINALE_SEGS : 0);
+        const end = n + DC_LEG_SEGS[L] - (L === 2 ? DC_FINALE_SEGS : DC_CP_TUNNEL);
         add(30, 0);                                   // a straight out of each base
         while (n < end - 60) {
             const left = end - 60 - n;
@@ -76,8 +77,17 @@ function dcBuildTrack() {
             bend(DC_FINALE_SEGS, (rnd() < 0.5 ? -1 : 1) * 1.1);
             for (let i = a; i < n; i++) { segs[i].zone = "tunnel"; segs[i].lit = true; }
             features.push({ kind: "tunnel", a: a, b: n, finale: true });
+            cpSeg.push(n);                            // the finish line, into the lab
+        } else {
+            // The round ends in a mountain: a lit tunnel with the checkpoint
+            // gate just inside; the next round starts where it comes out.
+            const a = n;
+            bend(DC_CP_TUNNEL, (rnd() < 0.5 ? -1 : 1) * 0.9);
+            for (let i = a; i < n; i++) { segs[i].zone = "tunnel"; segs[i].lit = true; }
+            features.push({ kind: "tunnel", a: a, b: n, cp: true });
+            cpTun.push({ a: a, b: n });
+            cpSeg.push(a + DC_CP_IN);
         }
-        cpSeg.push(n);                                // checkpoint at the end of the leg
     }
     const finish = cpSeg[2];
     add(DC_END_SEGS, 0);
@@ -86,7 +96,7 @@ function dcBuildTrack() {
     // ---- zones: one valley, a tunnel, a side road or two per leg ----
     for (let L = 0; L < 3; L++) {
         const zr = dcMulberry(dcSeed() ^ Math.imul(L + 31, 0x27D4EB2F));
-        const a0 = legStart[L] + 140, b0 = cpSeg[L] - (L === 2 ? DC_FINALE_SEGS + 60 : 60);
+        const a0 = legStart[L] + 140, b0 = L === 2 ? cpSeg[L] - DC_FINALE_SEGS - 60 : cpTun[L].a - 60;
         const span = b0 - a0;
         const plan = [];
         // Valley (legs 1 and 3), tunnel (legs 2 and 3), side roads (all).
@@ -192,7 +202,7 @@ function dcBuildTrack() {
     // grows by curve / DC_SEG a segment). The far mountains are locked to it.
     let hd = 0;
     for (let k = 0; k < segs.length; k++) { segs[k].hd = hd; hd += segs[k].curve / DC_SEG; }
-    return { segs: segs, legStart: legStart, cpSeg: cpSeg, finish: finish, features: features, kickers: kick, length: segs.length * DC_SEG };
+    return { segs: segs, legStart: legStart, cpSeg: cpSeg, cpTun: cpTun, finish: finish, features: features, kickers: kick, length: segs.length * DC_SEG };
 }
 
 // ---------------------------------------------------
@@ -245,7 +255,7 @@ function dcBuildHazards(track) {
     for (let L = 0; L < 3; L++) {
         const rnd = dcMulberry(dcSeed() ^ Math.imul(L + 11, 0x85EBCA6B));
         const first = track.legStart[L] + 110;
-        const last = track.cpSeg[L] - (L === 2 ? DC_FINALE_SEGS + 70 : 90);
+        const last = L === 2 ? track.cpSeg[L] - DC_FINALE_SEGS - 70 : track.cpTun[L].a - 90;
         const count = DC_LEG_PIECES[L];
         const gap = (last - first) / count;
         let bag = [];

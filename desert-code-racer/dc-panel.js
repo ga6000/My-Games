@@ -73,7 +73,7 @@ function dcPanelUpdate() {
         dcSet("dcHolder", c && c.over ? "" : holder ? (holder.local ? "YOU" : (DC_ABILITY[holder.role] || {}).crew || holder.name) : "ON THE ROAD");
         document.getElementById("dcHolder").style.color = holder ? holder.color : "#FF2E88";
         dcSet("dcNext", nextLeg >= 3 ? "MOUNTAIN BASE" : DC_LEG_NAMES[nextLeg]);
-        dcSet("dcLeg", "LEG " + Math.min(3, dc.leg + 1) + "/3");
+        dcSet("dcLeg", "ROUND " + Math.min(3, dc.leg + 1) + "/3");
         dcPanelCrew(riders);
     }
     dcPanelMute();

@@ -207,6 +207,7 @@ function dcRender() {
     dcFillBuckets();
     dcDrawWorld(ctx);
     dcDrawBeams(ctx);
+    dcDrawStrafeBolts(ctx);
     dcDrawAttacksTop(ctx);
     dcDrawFx(ctx, true);
     ctx.restore();
@@ -302,57 +303,7 @@ function dcDrawSky(ctx) {
     dcDrawSmallShip(ctx);
 }
 
-const dcShip = { x: 0, y: 0, eyeX: 0, eyeY: 0, sx: 0, sy: 0 };
-
-function dcDrawMothership(ctx, cy) {
-    const cx = dcW / 2 + Math.sin(dcSkyOff * 2.1) * dcW * 0.18;
-    const w = dcW * 0.46, h = dcH * 0.13;
-    const topW = w * 0.34;
-    const t = dc.simT;
-    const a0 = ctx.globalAlpha;
-    dcShip.x = cx; dcShip.y = cy;
-    const x0 = cx - w / 2, x1 = cx + w / 2;
-    const yTop = cy - h * 0.55, yBot = cy + h * 0.25, yUnder = cy + h * 0.45;
-    ctx.fillStyle = "#1A1824";
-    ctx.beginPath();
-    ctx.moveTo(x0, yBot); ctx.lineTo(cx - topW / 2, yTop); ctx.lineTo(cx + topW / 2, yTop); ctx.lineTo(x1, yBot);
-    ctx.lineTo(x1 - w * 0.08, yUnder); ctx.lineTo(x0 + w * 0.08, yUnder); ctx.closePath();
-    ctx.fill();
-    dcLine(ctx, [x0, yBot, cx - topW / 2, yTop, cx + topW / 2, yTop, x1, yBot], DC_COL.mid, 4, 1.4);
-    ctx.beginPath();
-    for (let i = 1; i < 22; i++) {
-        const u = i / 22;
-        const xb = dcLerp(x0, x1, u), xt = dcLerp(cx - topW / 2, cx + topW / 2, u);
-        ctx.moveTo(xt, yTop + 2); ctx.lineTo(dcLerp(xt, xb, 0.85), dcLerp(yTop, yBot, 0.85));
-    }
-    ctx.globalAlpha = a0 * 0.45; ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = a0;
-    ctx.beginPath(); ctx.ellipse(cx, yTop, topW * 0.28, h * 0.12, 0, Math.PI, 0); ctx.strokeStyle = DC_COL.mid; ctx.lineWidth = 1.2; ctx.stroke();
-    const breath = DC_REDUCED ? 1 : 0.7 + 0.3 * Math.sin(t * 1.4);
-    ctx.globalAlpha = a0 * breath;
-    dcLine(ctx, [x0, yBot, x0 + w * 0.08, yUnder, x1 - w * 0.08, yUnder, x1, yBot], DC_COL.magenta, 6, 2);
-    ctx.globalAlpha = a0;
-    const charging = dc.beams.some(function (b) { return b.phase === "track" && b.src === 0; });
-    dcShip.eyeX = cx; dcShip.eyeY = yUnder + h * 0.12;
-    ctx.beginPath(); ctx.ellipse(cx, dcShip.eyeY, w * 0.035, h * 0.1, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = charging ? DC_COL.magenta : DC_COL.mid; ctx.lineWidth = charging ? 2.4 : 1.2; ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx, dcShip.eyeY, Math.max(1.5, h * 0.035 * (charging ? 1.6 : 1)), 0, Math.PI * 2);
-    ctx.fillStyle = charging ? DC_COL.magenta : DC_COL.mid; ctx.fill();
-    dcBloom(ctx, x0, yBot, 1.4); dcBloom(ctx, x1, yBot, 1.4); dcBloom(ctx, cx - topW / 2, yTop, 1.2); dcBloom(ctx, cx + topW / 2, yTop, 1.2);
-}
-
-function dcDrawSmallShip(ctx) {
-    const t = dc.simT;
-    const st = dcStrafeShip();                 // a strafing run pulls it down over the road
-    let x = dcW * 0.09 + Math.sin(t * 0.23) * dcW * 0.04, y = dcH * 0.09 + Math.sin(t * 0.37) * dcH * 0.015;
-    if (st) { x = dcLerp(x, st.x - dcW * 0.1, st.k); y = dcLerp(y, st.y, st.k); }
-    const w = dcW * 0.2, h = dcH * 0.035;
-    dcShip.sx = x + w * 0.7; dcShip.sy = y + h * 0.6;
-    ctx.fillStyle = "#1A1824";
-    ctx.beginPath(); ctx.moveTo(x, y + h * 0.6); ctx.lineTo(x + w, y - h * 0.4); ctx.lineTo(x + w, y + h * 0.7); ctx.closePath(); ctx.fill();
-    dcLine(ctx, [x, y + h * 0.6, x + w, y - h * 0.4, x + w, y + h * 0.7], DC_COL.mid, 3, 1.2);
-    dcLine(ctx, [x + w * 0.04, y + h * 0.66, x + w, y + h * 0.8], DC_COL.magenta, 4, st ? 2.4 : 1.6);
-    dcBloom(ctx, x, y + h * 0.6, 1.2);
-}
+// The motherships (dcShip, dcDrawMothership, dcDrawSmallShip): dc-ships.js.
 
 // ---------------------------------------------------
 //   BUCKETS: what stands on which segment
@@ -542,8 +493,13 @@ function dcDrawTunnelSeg(ctx, n, si, sg) {
         ctx.quadraticCurveTo(x1, yt, x1, yt + arch);
         ctx.lineTo(x1, yb);
     }
-    // The mountain: huge for the finale, a ridge for a pass-through tunnel.
-    const finale = si >= dc.track.finish - DC_FINALE_SEGS - 2;
+    // The mountain: huge for the finale and the round-end checkpoints (Ry
+    // 2026-11-25: each round ends "at a checkpoint within a mountain"), a
+    // ridge for a pass-through tunnel.
+    let cpL = -1;
+    const ct = dc.track.cpTun || [];
+    for (let k = 0; k < ct.length; k++) if (si >= ct[k].a && si < ct[k].b) cpL = k;
+    const finale = si >= dc.track.finish - DC_FINALE_SEGS - 2 || cpL >= 0;
     const mw = (finale ? 16 : 7) * p.w, mh = (finale ? 15000 : 6500) * p.s * dcVy;
     ctx.beginPath();
     ctx.moveTo(p.x - mw, yb + 2);
@@ -563,7 +519,7 @@ function dcDrawTunnelSeg(ctx, n, si, sg) {
         ctx.strokeStyle = finale ? DC_COL.cyan : DC_COL.mid; ctx.lineWidth = finale ? 2.2 : 1.6; ctx.stroke();
         if (finale) {
             const size = Math.max(5, Math.min(30, hgt * 0.13));
-            dcText(ctx, "MOUNTAIN BASE", p.x, yt - size * 1.6, size, DC_COL.cyan, "center");
+            dcText(ctx, cpL >= 0 ? DC_LEG_NAMES[cpL + 1] : "MOUNTAIN BASE", p.x, yt - size * 1.6, size, DC_COL.cyan, "center");
             for (let k = 0; k <= 8; k++) {
                 const u = k / 8;
                 const blink = DC_REDUCED || Math.floor(dc.simT * 3 + k) % 2 === 0;
@@ -595,6 +551,7 @@ function dcDrawLamp(ctx, p, yt, lit, n) {
     const lw = p.w * 0.18;
     ctx.globalAlpha = fade;
     dcLine(ctx, [p.x - lw, yt + 2, p.x + lw, yt + 2], DC_COL.amber, 4, 1.6);
+    if (n < 6) { ctx.globalAlpha = 1; return; }     // overhead: its cone would streak the screen
     const pool = p.w * (lit ? 0.75 : 0.5);
     ctx.globalAlpha = fade * (lit ? 0.32 : 0.16);
     ctx.beginPath();

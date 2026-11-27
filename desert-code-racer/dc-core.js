@@ -29,8 +29,13 @@ const DC_MPH = 1 / 30;
 // The run: three legs, each a fixed COUNT of set pieces (SCOPE_RULES rule 0:
 // the loop sets the length, there is no clock).
 const DC_START_SEGS = 40;
-const DC_LEG_SEGS = [2300, 2600, 2900];
-const DC_LEG_PIECES = [10, 13, 16];
+// Three ROUNDS of about a minute (Ry 2026-11-25). Rounds 1 and 2 end in a
+// checkpoint tunnel through a mountain (DC_CP_TUNNEL segs, ~5 s at cruise:
+// the score tally plays while you ride it); round 3 ends at the lab.
+const DC_LEG_SEGS = [2350, 2550, 2750];
+const DC_LEG_PIECES = [9, 12, 15];
+const DC_CP_TUNNEL = 240;
+const DC_CP_IN = 30;                // segs into the tunnel: the checkpoint gate
 const DC_END_SEGS = 90;
 const DC_LEG_NAMES = ["DOME BASE", "CHECKPOINT ALPHA", "CHECKPOINT BRAVO", "MOUNTAIN BASE"];
 
@@ -69,10 +74,10 @@ function dcReadDifficulty() {
 }
 const DC_DIFF = dcReadDifficulty();
 const DC_TUNE = DC_DIFF === "casual" ? {
-    pips: 8, respawn: 1.8, track: 2.2, lock: 1.0, beamEvery: [7.5, 6.0, 4.8],
+    pips: 6, respawn: 1.8, track: 2.2, lock: 1.0, beamEvery: [7.5, 6.0, 4.8],
     krillEvery: [20, 15, 12], steal: 4.5, airT: 0.62, jumpCd: 0.3
 } : {
-    pips: 6, respawn: 3.0, track: 1.6, lock: 0.75, beamEvery: [5.2, 4.0, 3.1],
+    pips: 4, respawn: 3.0, track: 1.6, lock: 0.75, beamEvery: [5.2, 4.0, 3.1],
     krillEvery: [15, 11, 8.5], steal: 3.0, airT: 0.56, jumpCd: 0.4
 };
 
