@@ -69,3 +69,6 @@ in 1P/2P and online — it works mid-play. See `DEV_TOOLS_PLAN.md`.
 - "Add a dev-tools button for [thing]" — one entry in that game's `<game>-dev.js` `actions` array
 
 See `GIT_WORKFLOW.md` for version control.
+
+## Play log (2026-11-27)
+Every run started from the local launcher (`scripts/play-launcher.cmd`, desktop shortcut "Play Pleura (local)") is logged to `..\..\playtest-log\plays.jsonl` (Game Development folder, outside the repo). `node scripts/playlog.js` prints last playtest per game; a run counts as a playtest at 60 s of active play. Games opened by double-click are not logged.
