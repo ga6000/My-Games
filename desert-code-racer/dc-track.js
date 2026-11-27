@@ -325,6 +325,8 @@ function dcPieceCraters(list, rnd, seg, base, L) {
 }
 
 // BARRICADES come in kinds (Ry, pass 2: "more variation in the barriers").
+// Ry 2026-11-26: they span the whole drivable width (drawn to dcLaneLimit; the
+// hit test always was everywhere outside a gap) and the gaps are wider.
 // A barricade is walls (each a row across the road at one segment, with open
 // gaps; a wall can slide, or be low enough to jump) and traps (tank traps you
 // steer between or jump). Every kind counts as "barricade" in the matrix.
@@ -338,16 +340,16 @@ function dcPieceBarricade(list, rnd, seg, base, L) {
     const h = { id: base, type: "barricade", kind: kind, seg: seg, len: 2, walls: [], traps: [], st: "", gapX: 0 };
     if (kind === "wall") {
         const x = -0.62 + rnd() * 1.24;
-        h.walls.push({ seg: seg, gaps: [{ x: x, w: 0.44 + cas }] });
+        h.walls.push({ seg: seg, gaps: [{ x: x, w: 0.56 + cas }] });
     } else if (kind === "twin") {
         const x1 = -0.55 + rnd() * 0.35, x2 = 0.2 + rnd() * 0.35;
-        h.walls.push({ seg: seg, gaps: [{ x: x1, w: 0.36 + cas }, { x: x2, w: 0.36 + cas }] });
+        h.walls.push({ seg: seg, gaps: [{ x: x1, w: 0.46 + cas }, { x: x2, w: 0.46 + cas }] });
     } else if (kind === "gate") {
-        h.walls.push({ seg: seg, gaps: [{ x: 0, w: 0.5 + cas }], mv: { amp: 0.45, rate: 1.0 + rnd() * 0.5, ph: rnd() * 6.28 } });
+        h.walls.push({ seg: seg, gaps: [{ x: 0, w: 0.6 + cas }], mv: { amp: 0.45, rate: 1.0 + rnd() * 0.5, ph: rnd() * 6.28 } });
     } else if (kind === "chicane") {
         const side = rnd() < 0.5 ? -1 : 1;
-        h.walls.push({ seg: seg, gaps: [{ x: side * 0.5, w: 0.5 + cas }] });
-        h.walls.push({ seg: seg + 16, gaps: [{ x: -side * 0.5, w: 0.5 + cas }] });
+        h.walls.push({ seg: seg, gaps: [{ x: side * 0.5, w: 0.6 + cas }] });
+        h.walls.push({ seg: seg + 16, gaps: [{ x: -side * 0.5, w: 0.6 + cas }] });
         h.len = 17;
     } else if (kind === "pipe") {
         h.walls.push({ seg: seg, gaps: [], low: true });

@@ -854,27 +854,30 @@ function dcDrawWall(ctx, h, wl) {
     dcClipBegin(ctx, clip);
     ctx.globalAlpha = alpha;
     if (wl.low) {
+        const L = dcLaneLimit(dc.track.segs[wl.seg]) + 0.06;
         if (h.st === "open") { ctx.restore(); return; }
         const y0 = py - 120 * u, y1 = py - 300 * u;
-        dcSolid(ctx, [px - 1.15 * pw, y0, px - 1.15 * pw, y1, px + 1.15 * pw, y1, px + 1.15 * pw, y0], DC_COL.hot, 4, 1.4);
+        dcSolid(ctx, [px - L * pw, y0, px - L * pw, y1, px + L * pw, y1, px + L * pw, y0], DC_COL.hot, 4, 1.4);
         ctx.beginPath();
-        for (let k = 0; k < 14; k++) { const xx = px - 1.15 * pw + k * (2.3 * pw / 14); ctx.moveTo(xx, y0); ctx.lineTo(xx + pw * 0.08, y1); }
+        for (let k = 0; k < 22; k++) { const xx = px - L * pw + k * (2 * L * pw / 22); ctx.moveTo(xx, y0); ctx.lineTo(xx + pw * 0.08, y1); }
         ctx.strokeStyle = DC_COL.amber; ctx.lineWidth = 1; ctx.stroke();
-        dcLine(ctx, [px - 1.15 * pw, py, px - 1.15 * pw, y1], DC_COL.hot, 0, 1.4);
-        dcLine(ctx, [px + 1.15 * pw, py, px + 1.15 * pw, y1], DC_COL.hot, 0, 1.4);
+        dcLine(ctx, [px - L * pw, py, px - L * pw, y1], DC_COL.hot, 0, 1.4);
+        dcLine(ctx, [px + L * pw, py, px + L * pw, y1], DC_COL.hot, 0, 1.4);
         // A shadow line on the road under it: where to take off.
-        dcLine(ctx, [px - 1.1 * pw, py, px + 1.1 * pw, py], DC_COL.magenta, 0, 1.2);
+        dcLine(ctx, [px - L * pw, py, px + L * pw, py], DC_COL.magenta, 0, 1.2);
         ctx.restore(); ctx.globalAlpha = 1;
         return;
     }
     const gaps = dcWallGaps(h, wl, []).sort(function (a, b) { return a.x - b.x; });
     const ht = 560 * u;
-    let from = -1.15;
+    // Edge to edge of what you can drive here (Ry 2026-11-26): no riding round it.
+    const lim = dcLaneLimit(dc.track.segs[wl.seg]) + 0.06;
+    let from = -lim;
     const panels = [];
     for (let i = 0; i < gaps.length; i++) { panels.push([from, gaps[i].x - gaps[i].w / 2]); from = gaps[i].x + gaps[i].w / 2; }
-    panels.push([from, 1.15]);
+    panels.push([from, lim]);
     for (let i = 0; i < panels.length; i++) {
-        const x0 = Math.max(-1.15, panels[i][0]), x1 = Math.min(1.15, panels[i][1]);
+        const x0 = Math.max(-lim, panels[i][0]), x1 = Math.min(lim, panels[i][1]);
         if (x1 - x0 < 0.02) continue;
         const X0 = px + x0 * pw, X1 = px + x1 * pw;
         dcSolid(ctx, [X0, py, X0, py - ht, X1, py - ht, X1, py], DC_COL.hot, 4, 1.4);
@@ -888,7 +891,7 @@ function dcDrawWall(ctx, h, wl) {
         ctx.strokeStyle = DC_COL.magenta; ctx.lineWidth = Math.max(1, pw * 0.006); ctx.stroke();
     }
     // Ground line and the posts at each gap.
-    dcLine(ctx, [px - 1.15 * pw, py, px + 1.15 * pw, py], DC_COL.magenta, 0, 1);
+    dcLine(ctx, [px - lim * pw, py, px + lim * pw, py], DC_COL.magenta, 0, 1);
     ctx.beginPath();
     for (let i = 0; i < gaps.length; i++) {
         const gl = px + (gaps[i].x - gaps[i].w / 2) * pw, gr = px + (gaps[i].x + gaps[i].w / 2) * pw;
@@ -963,25 +966,46 @@ function dcDrawDustPatch(ctx, h) {
     ctx.globalAlpha = 1;
 }
 
+// A mine (Ry 2026-11-26: "very hard to see ... sometimes appearing under the
+// floor"): now always shown, a squat dark dome with spikes and a blinking red
+// lamp, sat on the dust, and clipped by the road's crest like everything else
+// so it never shows through a hill. Scout's reveal makes it flash brighter.
 function dcDrawMine(ctx, h, m) {
     const mn = h.mines[m];
     const p = dcScreenAt(mn.seg * DC_SEG, mn.x, 0);
     if (!p || p.y > p.clip + 2) return;
-    const sz = Math.max(2, p.w * 0.05);
+    const u = p.s * dcVy;
+    const r = Math.max(2, p.w * 0.075), hh = Math.max(2, 150 * u);
+    dcClipBegin(ctx, p.clip);
+    ctx.globalAlpha = Math.max(0.7, dcDepthAlpha(mn.seg * DC_SEG));
     if (mn.st === "pop" && !(mn.popT !== undefined && dc.simT < mn.popT)) {
-        ctx.beginPath(); ctx.ellipse(p.x, p.y, sz * 1.6, sz * 0.4, 0, 0, Math.PI * 2); ctx.strokeStyle = DC_COL.dim; ctx.lineWidth = 1; ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, r * 1.6, Math.max(1, r * 0.4), 0, 0, Math.PI * 2);
+        ctx.fillStyle = "#1A1410"; ctx.fill();
+        ctx.globalAlpha = 1; ctx.restore();
         return;
     }
-    const me = dc.me;
     const revealed = h.reveal && dc.simT - h.reveal < 6;
-    const close = me && (mn.seg * DC_SEG - me.z) / DC_SEG < 7;
-    if (!revealed && !close) return;
-    const blink = DC_REDUCED || Math.floor(dc.simT * 6) % 2 === 0;
+    const x = Math.round(p.x), y = Math.round(p.y);
+    // spikes
+    ctx.strokeStyle = "#8A7A66"; ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(p.x - sz, p.y - sz * 0.5); ctx.lineTo(p.x + sz, p.y + sz * 0.5);
-    ctx.moveTo(p.x + sz, p.y - sz * 0.5); ctx.lineTo(p.x - sz, p.y + sz * 0.5);
-    ctx.strokeStyle = DC_COL.magenta; ctx.globalAlpha = revealed ? (blink ? 1 : 0.5) : 0.45;
-    ctx.lineWidth = 1.6; ctx.stroke(); ctx.globalAlpha = 1;
+    for (let k = -2; k <= 2; k++) {
+        const a = -Math.PI / 2 + k * 0.55;
+        ctx.moveTo(x + Math.cos(a) * r * 0.8, y - hh * 0.45 + Math.sin(a) * hh * 0.7);
+        ctx.lineTo(x + Math.cos(a) * r * 1.25, y - hh * 0.45 + Math.sin(a) * hh * 1.15);
+    }
+    ctx.stroke();
+    // dome
+    ctx.beginPath(); ctx.ellipse(x, y - 0.5, r, hh, 0, Math.PI, 0); ctx.closePath();
+    ctx.fillStyle = "#2A2420"; ctx.fill();
+    ctx.strokeStyle = revealed ? DC_COL.magenta : "#6A5A48"; ctx.stroke();
+    // lamp
+    const on = DC_REDUCED || Math.floor(dc.simT * (revealed ? 8 : 3) + mn.seg) % 2 === 0;
+    const lr = Math.max(1, Math.round(r * 0.32));
+    ctx.fillStyle = on ? "#FF3344" : "#5A1018";
+    ctx.fillRect(x - lr, Math.round(y - hh * 0.75) - lr, lr * 2, lr * 2);
+    ctx.globalAlpha = 1;
+    ctx.restore();
 }
 
 function dcDrawBeacon(ctx, b) {

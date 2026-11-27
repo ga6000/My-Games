@@ -50,6 +50,19 @@ function dcCrashPose(r) {
             P.bikeRot = side * 1.45 * Math.min(1, u * 3);
             P.rx = side * u * 0.3; P.rz = u * 0.8 * DC_SEG; P.ry = arc * 160; P.rRot = side * 1.5 * Math.min(1, u * 3); P.pose = "slide";
         }
+        // Crashed in the air (Ry 2026-11-26: "crashing at height should have a
+        // different animation including falling"): bike and rider drop from
+        // where it happened, flailing, the bike turning over on the way down.
+        const H = r.crashH || 0;
+        if (H > 250) {
+            const f = Math.min(1, u * 1.45), drop = H * (1 - f * f);
+            const bounce = f >= 1 ? Math.sin(Math.PI * Math.min(1, (u * 1.45 - 1) / 0.3)) * 140 : 0;
+            P.ry = Math.max(P.ry * 0.4, 0) + drop + bounce;
+            P.bikeY = (P.bikeY || 0) * 0.4 + drop * 0.96;
+            P.bikeSpin = (P.bikeSpin || 0) + f * Math.PI * 1.25 * side;
+            P.rRot = P.rRot * 0.6 + side * f * 5;
+            P.pose = "tumble";
+        }
         P.landX = P.rx; P.landZ = P.rz;
         return P;
     }

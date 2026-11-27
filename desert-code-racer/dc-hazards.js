@@ -189,6 +189,11 @@ function dcHostPick(preferCase) {
 
 function dcHostUpdate(dt) {
     if (dc.mode !== "play" || !dc.caseS || dc.caseS.over) return;
+    // A lost round plays its crash out first (Ry 2026-11-26), then restarts.
+    if (dc.rrAt) {
+        if (dc.simT >= dc.rrAt) { const m = dc.rrMsg; dc.rrAt = 0; dc.rrMsg = null; dcEmit(m); }
+        return;
+    }
     const leg = Math.min(2, dc.leg);
     const n = Math.max(1, Object.keys(dc.riders).length);
     const crowd = 1 + 0.22 * (n - 1);
@@ -368,7 +373,7 @@ function dcHostCase(dt) {
 // riders behind (and the carrier, remounting) ride up on it.
 function dcHostDrop(z, x, by, why, v) {
     const c = dc.caseS;
-    if (!c || c.over || c.holder !== by) return;
+    if (!c || c.over || c.holder !== by || dc.rrAt) return;
     c.holder = null;
     c.z = z + 1.5 * DC_SEG;
     c.v = Math.min(DC_CRUISE, (v || 0) * 0.55);
@@ -396,9 +401,14 @@ function dcHostGrab(by) {
 // The attract run still just ends.
 function dcHostRoundLost() {
     if (dc.demo || (dc.restarts || 0) >= DC_RESTARTS) { dcHostEnd(false); return; }
+    if (dc.rrAt) return;
     const s = dc.hostSnap || { leg: 0, pips: DC_TUNE.pips, holder: null };
     const h = s.holder && dc.riders[s.holder] ? s.holder : dc.me.id;
-    dcEmit({ k: "rr", leg: s.leg, p: s.pips, h: h, n: (dc.restarts || 0) + 1 });
+    // Hold the restart while the crash plays out on every screen (Ry 2026-11-26:
+    // "I would still like to see the death animation/crash").
+    dc.rrMsg = { k: "rr", leg: s.leg, p: s.pips, h: h, n: (dc.restarts || 0) + 1 };
+    dc.rrAt = dc.simT + DC_RR_HOLD;
+    dcEmit({ k: "rp" });
 }
 
 // The end: the host freezes the numbers so every screen shows the same card.

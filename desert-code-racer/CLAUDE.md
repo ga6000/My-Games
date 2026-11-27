@@ -23,11 +23,13 @@ homing beams down the road. Right before Cliff Run in the chronology.
   9 / 12 / 15). Rounds 1 and 2 end inside a mountain: a 240-seg lit tunnel (`DC_CP_TUNNEL`, in
   `track.cpTun`) with the checkpoint gate 30 segs in, the mountain face lettered with the
   checkpoint's name. The sky holds fire from 40 segs before the tunnel to its exit, and a TALLY
-  board (`dcDrawTally`, dc-finale.js; ~5.5 s) rides over live play through the tunnel: round,
-  you, team, case pips. Round 2 or 3 starts at the exit. Round 3 ends at the lab. No clock
+  board (`dcDrawTally`, dc-finale.js; 3.2 s) rides over live play through the tunnel: two short
+  rows, the checkpoint name and REACHED (Ry 2026-11-26: show it was reached, not points). The
+  checkpoint banner and toast are gone so nothing overlaps it. Round 2 or 3 starts at the exit. Round 3 ends at the lab. No clock
   (rule 0). Bot runs at seed 4242: rounds land at about 40 s, 54 s and 72 s, ~2:45 total.
-- **Lose the case, replay the round (Ry 2026-11-25).** When the pips run out the host emits `rr`
-  (`dcHostRoundLost`); every screen puts the convoy back at that round's start (round 1 the start
+- **Lose the case, replay the round (Ry 2026-11-25).** When the pips run out the host emits `rp`
+  (CODES LOST banner; the crash keeps playing, nobody remounts) and, `DC_RR_HOLD` = 2.4 s later,
+  `rr` (`dcHostRoundLost`; Ry 2026-11-26: "I would still like to see the death animation"). Then every screen puts the convoy back at that round's start (round 1 the start
   line, else inside the previous checkpoint tunnel past the gate), resets that round's road
   (barricades stand, mines rebury), clears the sky, restores the team score and your points to
   the checkpoint snapshot (`dcRoundSnap`), and the case comes back with the pips it had at the
@@ -82,7 +84,8 @@ homing beams down the road. Right before Cliff Run in the chronology.
   while it lies. Found by the bot runs: without this a solo rider who missed the grab lost the run.
 - **Hazards (7):** homing beams (the ring tracks you, then locks; move out), scorch craters,
   debris barricades (six kinds: wall, twin gaps, sliding gate, chicane, tank traps, low pipe to
-  jump), airkrill swarms, mines hidden in dust, and two skill attacks:
+  jump), airkrill swarms, mines (always drawn since 2026-11-26: a dark spiked dome with a red
+  blinking lamp, clipped under crests; Scout's reveal turns it magenta), and two skill attacks:
   - **Lash:** a tendril from the small ship sweeps across the road ahead. A shadow line and a
     closing ring warn for 1.15 s; jump it at the line (or shield/ram through).
   - **Strafe:** the small ship, hanging where it is, walks a line of fire back down your lane (0.75 s
@@ -135,8 +138,15 @@ A/D or ←/→ steer · W/↑ boost · S/↓ brake · Space jump · E, Shift or 
 Pass 2: no throttle = coast at cruise (300 MPH); hold W for 400 MPH as long as you like; hold S
 to slow all the way to 0. Jump (Ry 2026-11-26 "taller, to clear more obstacles"): peak `jumpH`
 950 world units (casual 1050; was a drawn 520), 0.68 s in the air (casual 0.74), 0.4 s cooldown.
-Over `DC_HIGH` (650; walls stand 560) it clears a barricade, so a well-timed jump hops a wall
-(OVER THE TOP), as a crest flight already could. Each
+Over `DC_HIGH` (470; walls stand 560, so a bike drawn over the top counts as over) it clears a
+barricade, so a well-timed jump hops a wall (OVER THE TOP), as a crest flight already could. A
+barricade cleared once is cleared for all its segments (`passed[id+"^"]`). Jump works at speed:
+a press during a low crest skim (under 260 above the road) drops you to the road and jumps; a
+press while already airborne with krill on shakes them off. Barricades span the whole drivable
+width (`dcLaneLimit`) and the gaps are wider (wall 0.56, twin 0.46, gate/chicane 0.6; casual
++0.11). Side roads are shortcuts: on one you cover ground 1.4× (`DC_SHORTCUT`), SHORTCUT text.
+A crash from height (`crashH` > 250, sent in the crash message) falls: the bike and rider drop
+from where they were, tumble and bounce (`dcCrashPose`). Each
 ability holds **2 charges** that refill one at a time on the class cooldown. Esc is the shared hub menu.
 
 ## Dev tools (hold L+G; Ry 2026-11-24)
@@ -217,7 +227,7 @@ aftermath, card, loop, `GameInstance` · `dc-dev` the L+G dev panel.
 - **Difficulty:** `dcReadDifficulty()` reads `PARTY.difficulty()` if it ever exists, then
   `?difficulty=`. Hardcore by default. Tuning in `DC_TUNE`.
 - **Aftermath:** `shared/party.js` has no aftermath option, so the game holds 3.5 s itself
-  (`DC_AFTERMATH`), then its card, then `PARTY.finish()` when the hub opened it.
+  (`DC_AFTERMATH`) and a downed rider stays down on the crash (no remount; Ry 2026-11-26), then its card, then `PARTY.finish()` when the hub opened it.
 
 ## Verified (2026-11-17, headless)
 - Solo start to finish from `file://` and from dev-serve, no console errors.

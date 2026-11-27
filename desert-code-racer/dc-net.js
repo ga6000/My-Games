@@ -39,7 +39,7 @@ function dcHandle(m, from) {
         case "crash": {
             const r = dc.riders[from];
             if (r && !r.local) {
-                r.down = r.downMax = DC_TUNE.respawn; r.crashKind = m.w || "barricade"; r.crashSide = m.sd || 1;
+                r.down = r.downMax = DC_TUNE.respawn; r.crashKind = m.w || "barricade"; r.crashSide = m.sd || 1; r.crashH = m.h || 0;
                 dcBurstExplosion(m.z, m.x, r.color, 1); if (!dc.demo) dcSnd.beamImpact(dcVolAt(m.z) * 0.6);
             }
             return;
@@ -51,6 +51,7 @@ function dcHandle(m, from) {
         case "cr": if (dc.me && m.to === dc.me.id) dcCredit(m.pts || 0, m.f || null, 1, m.l || ""); return;
         case "cs": dcOnCase(m); return;
         case "cp": dcOnCheckpoint(m); return;
+        case "rp": dc.rrHold = true; if (!dc.demo) { dcSnd.pipLost(); dcBanner("CODES LOST", DC_COL.magenta); } return;
         case "rr": dcOnRoundRestart(m); return;
         case "end": dcOnEnd(m); return;
         case "go": dcOnGo(m, from); return;

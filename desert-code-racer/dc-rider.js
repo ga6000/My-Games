@@ -121,6 +121,9 @@ function dcRiderUpdate(r, inp, dt) {
     if (dcHomeUpdate(r, dt)) return;
     if (r.down > 0) {
         r.down -= dt;
+        // A lost round or the end: the crash plays out and the rider stays down
+        // where they landed, no getting up (Ry 2026-11-26).
+        if (dc.mode === "aftermath" || dc.rrHold) r.down = Math.max(r.down, (r.downMax || DC_TUNE.respawn) * 0.5);
         r.v = Math.max(0, r.v - 30000 * dt);
         r.z += r.v * dt;
         if (r.down <= 0) dcRemount(r);
@@ -163,6 +166,14 @@ function dcRiderUpdate(r, inp, dt) {
     else r.v = Math.max(target, r.v - (inp.brake ? 7500 : 3200) * dt);
 
     // Jump: instant, short, on its own quick cooldown; shakes off latched krill.
+    // Ry 2026-11-26: at speed the bike skims crest after crest in tiny hops, and
+    // a jump pressed during one used to be ignored (no jump over the wall, no
+    // shaking the krill). A low skim now turns into the jump; higher up, the
+    // press still shakes the krill off.
+    if (inp.jump && r.fly && r.jcd <= 0 && r.fy - dcRoadY(r.z) < 260) {
+        r.fly = false; r.fy = dcRoadY(r.z); r.fvy = 0; r.air = 0; r.airMax = 0;
+    }
+    if (inp.jump && r.air > 0 && r.jcd <= 0 && r.krill > 0) { r.jcd = DC_TUNE.jumpCd; dcShakeKrill(r); }
     if (inp.jump && r.air <= 0 && r.jcd <= 0) {
         r.jcd = DC_TUNE.jumpCd;
         // Pop the lip of a crest and the jump becomes a flight (dcFly).
@@ -182,7 +193,13 @@ function dcRiderUpdate(r, inp, dt) {
     }
 
     const z0 = r.z;
-    r.z += r.v * dt;
+    // SHORTCUTS (Ry 2026-11-26: "should provide some advantage"): on the side
+    // road proper it really is shorter, so every metre ridden there counts
+    // DC_SHORTCUT of the main road's: you come back out ahead of the convoy.
+    const sc = dcOnShortcut(r);
+    r.z += r.v * dt * (sc ? DC_SHORTCUT : 1);
+    if (sc && !r.onSc && r.local && !dc.demo) { dcText3D("SHORTCUT", r.z + 5 * DC_SEG, r.x, DC_COL.cyan); dcSnd.gap(); }
+    r.onSc = sc;
     if (dc.track) r.z = Math.min(r.z, dc.track.length - DC_SEG * 2);
 
     // Carrying the case: distance pays (a CHIP every 100 m).
@@ -211,7 +228,9 @@ function dcRiderUpdate(r, inp, dt) {
 const DC_G = 15000;                 // world units / s^2 (arcade gravity: snappy flights)
 const DC_LIP_PULL = 0.45;           // crest pull (in g) where a jump turns into a flight
 const DC_LIP_KICK = 3600;           // the jump's upward speed when it does
-const DC_HIGH = 650;                // world units over the road: clears a barricade
+const DC_HIGH = 470;                // world units over the road: clears a barricade (walls stand 560;
+                                    // Ry 2026-11-26 "clearing the barriers but still dying": the bike drawn
+                                    // over the wall must count as over it)
 
 function dcRoadSlope(z) {
     return (dcRoadY(z + DC_SEG) - dcRoadY(z - DC_SEG)) / (2 * DC_SEG);
@@ -283,6 +302,12 @@ function dcLaunch(r, t, ramp) {
     if (ramp) dcSnd.ramp(); else dcSnd.jump();
 }
 
+const DC_SHORTCUT = 1.4;
+function dcOnShortcut(r) {
+    const sg = dcSegAt(r.z);
+    return !!(sg.alt && sg.alt.hold && Math.abs(r.x) > 1.05 && Math.abs(r.x - sg.alt.off) <= sg.alt.w + 0.05);
+}
+
 function dcRemount(r) {
     r.down = 0;
     r.inv = 1.2;
@@ -311,13 +336,15 @@ function dcCrash(r, why) {
     r.down = r.downMax = DC_TUNE.respawn;
     r.crashKind = why;
     r.crashSide = r.x > 0.3 ? 1 : (r.x < -0.3 ? -1 : (Math.random() < 0.5 ? -1 : 1));
+    // How high it happened: a crash in the air falls from there (Ry 2026-11-26).
+    r.crashH = Math.round(r.fly ? Math.max(0, r.fy - dcRoadY(r.z)) : (r.air > 0 && r.airMax > 0 ? dcJumpLift(r) * DC_TUNE.jumpH : 0));
     r.air = 0; r.fly = false;
     r.krill = 0;
     r.v *= 0.15;                        // the bike tumbles a few metres, no further
     r.contrib.crashes++;
     if (!dc.demo) { dcSnd.crash(); dcShake(14); }
     dcBurstExplosion(r.z, r.x, r.color, 1);
-    dcEmit({ k: "crash", z: Math.round(r.z), x: +r.x.toFixed(3), w: why, sd: r.crashSide });
+    dcEmit({ k: "crash", z: Math.round(r.z), x: +r.x.toFixed(3), w: why, sd: r.crashSide, h: r.crashH });
     if (dcCarrying(r)) dcEmit({ k: "drop", z: Math.round(r.z), x: +r.x.toFixed(3), v: Math.round(v0), by: r.id });
     return "crash";
 }
@@ -434,7 +461,7 @@ function dcTryGrab(r) {
 function dcRemoteUpdate(r, dt) {
     dcRemoteHome(r, dt);
     if (r.home) { r.v = Math.max(0, r.v - Math.max(3000, r.v * 1.6) * dt); r.x = dcLerp(r.x, r.tx, Math.min(1, dt * 4)); r.z += r.v * dt; r.z = Math.min(r.z, (dc.track.finish + 26) * DC_SEG); return; }
-    if (r.down > 0) { r.down -= dt; r.v = Math.max(0, r.v - 9000 * dt); }
+    if (r.down > 0) { r.down -= dt; r.v = Math.max(0, r.v - 9000 * dt); if (dc.mode === "aftermath" || dc.rrHold) r.down = Math.max(r.down, (r.downMax || DC_TUNE.respawn) * 0.5); }
     if (r.air > 0) r.air -= dt;
     if (r.flyH > 0) r.flyH = Math.max(0, r.flyH - 900 * dt);   // eases down between relays
     r.z += r.v * dt;

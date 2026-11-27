@@ -151,29 +151,23 @@ function dcDrawFinaleHud(ctx, big) {
 // play through the mountain tunnel. dcOnCheckpoint fills dc.tally (leg 1 =
 // ALPHA, so round 1 is clear); hazards
 // are already quiet in the tunnel, so the board can sit mid-screen.
-const DC_TALLY_T = 5.5;
+// Ry 2026-11-26: "just show the checkpoints have been reached rather than
+// points, and the readout should be shortened": two lines, three seconds.
+const DC_TALLY_T = 3.2;
 function dcDrawTally(ctx) {
     const t = dc.tally;
     if (!t || dc.demo) return;
     const age = dc.simT - t.t;
     if (age > DC_TALLY_T) { dc.tally = null; return; }
     const rows = [
-        ["ROUND " + t.leg + " CLEAR", DC_COL.amber],
-        [DC_LEG_NAMES[t.leg] || "", DC_COL.cyan],
-        ["CHECKPOINT +1000", DC_COL.mid],
-        ["ROUND   " + t.round, DC_COL.hot],
-        ["YOU     " + t.mine, DC_COL.hot],
-        ["TEAM    " + t.team, DC_COL.amber],
-        ["CASE    " + (dc.caseS ? dc.caseS.pips : 0) + " PIPS", DC_COL.magenta],
-        ["RESTARTS " + Math.max(0, DC_RESTARTS - (dc.restarts || 0)) + " LEFT", DC_COL.mid],
-        ["", null],
-        ["ROUND " + (t.leg + 1) + " AT THE EXIT", DC_COL.mid]
+        [DC_LEG_NAMES[t.leg] || "CHECKPOINT", DC_COL.cyan],
+        ["REACHED", DC_COL.amber]
     ];
-    const lh = 11, w = Math.min(dcW - 16, 200), h = rows.length * lh + 12;
+    const lh = 11, w = Math.min(dcW - 16, 160), h = rows.length * lh + 12;
     const x = Math.round(dcW / 2 - w / 2), y = Math.round(dcH * 0.13);
     // In and out: a quick wipe so it does not pop.
     const k = Math.min(1, age / 0.25, (DC_TALLY_T - age) / 0.4);
-    const shown = Math.max(0, Math.min(rows.length, Math.floor(age / 0.12)));
+    const shown = Math.max(0, Math.min(rows.length, Math.floor(age / 0.15) ));
     ctx.save();
     ctx.globalAlpha = 0.72 * k;
     ctx.fillStyle = "#05070A";

@@ -124,7 +124,7 @@ function dcStartRun(joining) {
         dcEmitCase();
         dcEmit({ k: "go" });
     }
-    dc.restarts = 0; dc.tally = null;
+    dc.restarts = 0; dc.tally = null; dc.rrAt = 0; dc.rrMsg = null; dc.rrHold = false;
     dc.hostSnap = { leg: 0, pips: DC_TUNE.pips, holder: dc.caseS ? dc.caseS.holder : dc.me.id };
     dcRoundSnap(0);
     dcMusic.start();
@@ -154,7 +154,7 @@ function dcOnRoundRestart(m) {
     const L = m.leg;
     dc.restarts = m.n || (dc.restarts || 0) + 1;
     dc.leg = L;
-    dc.tally = null;
+    dc.tally = null; dc.rrHold = false; dc.rrAt = 0;
     dcShip.anchor = null;            // the sky ships settle where the round starts
     for (const k in dc.cpSeen) if (+k > L) delete dc.cpSeen[k];
     const snap = dc.roundSnap && dc.roundSnap.leg === L ? dc.roundSnap : null;
@@ -192,7 +192,6 @@ function dcOnRoundRestart(m) {
         if (dcIsHost()) dcEmitCase();
     }
     if (!dc.demo) {
-        dcSnd.pipLost();
         dcShake(12);
         const left = DC_RESTARTS - dc.restarts;
         dcBanner("ROUND " + (L + 1) + " AGAIN  " + (left > 0 ? left + (left === 1 ? " RESTART LEFT" : " RESTARTS LEFT") : "LAST CHANCE"), DC_COL.magenta);
