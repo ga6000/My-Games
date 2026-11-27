@@ -36,6 +36,7 @@ const DC_LEG_SEGS = [2350, 2550, 2750];
 const DC_LEG_PIECES = [9, 12, 15];
 const DC_CP_TUNNEL = 240;
 const DC_CP_IN = 30;                // segs into the tunnel: the checkpoint gate
+const DC_RESTARTS = 3;              // round restarts a run gets; the next lost case is CODES LOST (Ry 2026-11-27)
 const DC_END_SEGS = 90;
 const DC_LEG_NAMES = ["DOME BASE", "CHECKPOINT ALPHA", "CHECKPOINT BRAVO", "MOUNTAIN BASE"];
 

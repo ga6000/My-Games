@@ -31,8 +31,9 @@ homing beams down the road. Right before Cliff Run in the chronology.
   line, else inside the previous checkpoint tunnel past the gate), resets that round's road
   (barricades stand, mines rebury), clears the sky, restores the team score and your points to
   the checkpoint snapshot (`dcRoundSnap`), and the case comes back with the pips it had at the
-  checkpoint. So outside the attract demo the run cannot be lost now (CODES LOST is unreachable);
-  a restart cap is an open question for Ry.
+  checkpoint. A run gets `DC_RESTARTS` = 3 (Ry 2026-11-27: "a cap and three restarts before codes
+  are lost"); the banner counts them down (2 LEFT, 1 LEFT, LAST CHANCE), the tally shows what is
+  left, and the next lost case after the third is CODES LOST.
 - **The road (pass 2):** hills (crests hide what is behind them), dark valleys (legs 1 and 3),
   tunnels (legs 2 and 3: no beams, no attacks, krill scraped off), side roads that fork off and
   rejoin (a pad or chips on them, sometimes traps). Set pieces never sit in a tunnel.

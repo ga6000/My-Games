@@ -105,7 +105,6 @@ Transcribed from Ry's older notebook. Fit, conflicts and proposed standards rewr
 - 2026-11-24 · desert-code-racer · Blind crests: hazards sat just over the tops more often, read by braking or a Scout scan (the card's option B)
 - 2026-11-24 · desert-code-racer · Tide beams lose their lock when a crest hides you
 - 2026-11-24 · desert-code-racer · A dip that hides a pad or chips at the bottom; a stacked "roller" of quick bumps; one big cliff drop per leg as a set piece
-- 2026-11-26 · desert-code-racer · A restart cap: with replay-the-round the run can no longer be lost (e.g. 3 restarts, then CODES LOST)
 - 2026-11-24 · desert-code-racer · Real 3D (three.js, vendored): same chase view with voxel crew built from the pixel sprites, rendered at 216 rows to stay raster. Ry asked the size; about 40% of the code
 
 ## Promoted / dropped

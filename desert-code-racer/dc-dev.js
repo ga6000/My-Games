@@ -51,7 +51,7 @@ function dcDevReport() {
     if (t && me) {
         const seg = Math.floor(me.z / DC_SEG);
         rows.push(["road", "seg " + seg + "/" + t.finish + "  " + dcZoneAt(me.z) +
-            "  round " + (dc.leg + 1) + "  restarts " + (dc.restarts || 0) + "  cp " + t.cpSeg.join("/")]);
+            "  round " + (dc.leg + 1) + "  restarts " + (dc.restarts || 0) + "/" + DC_RESTARTS + "  cp " + t.cpSeg.join("/")]);
         rows.push(["you", me.role + "  " + Math.round(me.v * DC_MPH) + " MPH  x " + me.x.toFixed(2) +
             (me.air > 0 ? "  AIR" : "") + (me.down > 0 ? "  DOWN " + me.down.toFixed(1) : "") +
             (me.krill > 0 ? "  krill " + me.krill : "")]);
@@ -171,7 +171,7 @@ const dcDevActions = [
     {
         label: "LOSE ROUND",
         danger: true,
-        hint: "host only: the case runs out of pips, the round restarts",
+        hint: "host only: the case runs out of pips (the round restarts, or CODES LOST after " + DC_RESTARTS + ")",
         fn: function () { if (!dc.caseS || dc.mode !== "play") return "only during a run"; if (!dcIsHost()) return "host only"; dc.caseS.pips = 0; dcHostRoundLost(); return "round " + (dc.leg + 1) + " again"; }
     },
     {

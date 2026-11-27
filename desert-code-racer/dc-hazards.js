@@ -395,7 +395,7 @@ function dcHostGrab(by) {
 // they are on, with the pips and the holder it had when the round began.
 // The attract run still just ends.
 function dcHostRoundLost() {
-    if (dc.demo) { dcHostEnd(false); return; }
+    if (dc.demo || (dc.restarts || 0) >= DC_RESTARTS) { dcHostEnd(false); return; }
     const s = dc.hostSnap || { leg: 0, pips: DC_TUNE.pips, holder: null };
     const h = s.holder && dc.riders[s.holder] ? s.holder : dc.me.id;
     dcEmit({ k: "rr", leg: s.leg, p: s.pips, h: h, n: (dc.restarts || 0) + 1 });
