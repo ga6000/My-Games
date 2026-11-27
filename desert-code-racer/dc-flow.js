@@ -155,6 +155,7 @@ function dcOnRoundRestart(m) {
     dc.restarts = m.n || (dc.restarts || 0) + 1;
     dc.leg = L;
     dc.tally = null;
+    dcShip.anchor = null;            // the sky ships settle where the round starts
     for (const k in dc.cpSeen) if (+k > L) delete dc.cpSeen[k];
     const snap = dc.roundSnap && dc.roundSnap.leg === L ? dc.roundSnap : null;
     if (snap) dc.team = snap.team;

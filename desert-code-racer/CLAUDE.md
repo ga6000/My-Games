@@ -62,16 +62,20 @@ homing beams down the road. Right before Cliff Run in the chronology.
 - **Case integrity.** 4 pips (casual 6; Ry 2026-11-26 "back to 4 pips. yes to + 1 @ ea
   checkpoint", after a day at 6 / 8). −1 each time it hits the road (crash or krill steal),
   −1 per 5 s lying there, +1 per checkpoint, carried over between rounds. 0 = the round restarts.
-- **The motherships (Ry 2026-11-25, `dc-ships.js`):** "stationary and monolithic, but rendered as
+- **The motherships (Ry 2026-11-25/26, `dc-ships.js`):** "stationary and monolithic, but rendered as
   if 3d if it rotates to line up an attack ... wedge shapes with round brain at front" (refs in
   /mnt/project-files/desert-code-racer/ref/). One small flat-shaded mesh drawn twice: an arrowhead
-  slab pointing at the camera with a U notch cut from the back, bone ribs down violet sides, a
-  breathing red rim underneath, a pink brain dome at the point, tendrils hanging. Neither moves
-  across the sky. The big one hangs centre; the small one top left, angled in. Each turns slowly
-  (0.55 rad/s) toward the target while its beam is tracking (lining up), holds still once the beam
-  locks (the laser lands), drifts back nose-on when idle. The small ship no longer dives for a
-  strafe: it turns toward the line and fires bolts down to each mark from where it hangs
-  (`dcDrawStrafeBolts`). Beams leave from the eye under the point (`dcShip.eyeX/eyeY`, `sx/sy`).
+  slab pointing at the camera with a U notch cut from the back. Ry 2026-11-26 asked for it more
+  organic: the outline is knobbled and the thickness uneven (fixed seed), bone ribs bow at the
+  knobs, the red rim drips, the brain is two lumpy lobes with wandering folds. The big ship is seen
+  from a little below (`DC_SHIP_PITCH_BIG` −0.22: veined underside, the eye, the brain rising over
+  the point); the small one from above. FIXED IN THE SKY (Ry 2026-11-26): both slide with the
+  ridgelines as the road turns (`dcShipSky`); so a long bend can't lose them for good, their
+  bearing follows the road's heading with a 14 s lag (`DC_SHIP_SETTLE`) and snaps back on a new run
+  or round restart. Beams and strafe bolts leave the eye wherever it is, on screen or off; hits are
+  decided on the road as before. Each ship turns slowly (0.55 rad/s) toward the target while its
+  beam is tracking, holds still once it locks, and rests a little turned when idle. The small ship
+  fires its strafe from where it hangs (`dcDrawStrafeBolts`).
 - **A dropped case skids** on from the carrier's speed (about 8 segs), so the riders behind and
   the remounting carrier ride up on it. If every rider has passed it (nobody can ride back), it
   tumbles back into the road 14 segs ahead of the last rider after 1.5 s; it keeps losing pips
