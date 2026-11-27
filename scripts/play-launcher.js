@@ -17,6 +17,9 @@
  *                              is written "~", which git refs cannot contain.
  *   /__launcher/               the picker page, plus small JSON endpoints.
  *
+ * Every HTML page it serves also gets the play-log script injected, so each run
+ * is written to ...\Game Development\playtest-log\plays.jsonl (see playlog.js).
+ *
  * If a launcher is already running, a second double-click just reopens the
  * picker. The page has a Stop button, so no terminal is needed at all.
  */
@@ -25,6 +28,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFile, spawn, exec } = require("child_process");
 const dev = require("./dev-serve.js");
+const playlog = require("./playlog.js");
 
 const ROOT = dev.ROOT;                                  // ...\My Games-main
 const GAMEDEV = path.resolve(ROOT, "..", "..");         // ...\Game Development
@@ -34,7 +38,7 @@ const PICKER = "http://localhost:" + PORT + "/__launcher/";
 // Folders in the repo that are not games, or are frozen copies of one.
 const SKIP_REPO = /^(\.|node_modules$|scripts$|shared$|art$|concepts$|hub$|under-development$)|\.(original|pre-mp)$|-bench$/;
 // Folders next to the repo that are not standalone games.
-const SKIP_EXT = /^(\.|Active Github Repos$|archive$|reports$|research_notes$|resources$|working files$|z\. )/;
+const SKIP_EXT = /^(\.|Active Github Repos$|archive$|reports$|research_notes$|resources$|working files$|playtest-log$|z\. )/;
 
 function git(args, opts) {
   return new Promise((resolve) => {
@@ -146,7 +150,26 @@ async function api(req, res, what, query) {
       games: repoGames(""), shelf: repoGames("under-development"), ext: extGames(), branches: await branches()
     }));
   }
+  if (what === "plays") {
+    return send(res, 200, "application/json", JSON.stringify({ log: playlog.LOG, games: playlog.summary(), runs: playlog.readRuns().slice(0, 12) }));
+  }
   if (req.method !== "POST") return send(res, 405, "text/plain", "POST only");
+  if (what === "log") {
+    let body = "";
+    req.on("data", (c) => { body += c; if (body.length > 8192) req.destroy(); });
+    req.on("end", () => {
+      try {
+        const e = JSON.parse(body);
+        if (typeof e.id !== "string" || !/^(start|beat|result|end)$/.test(e.kind)) throw new Error("bad entry");
+        const clean = { id: e.id.slice(0, 32), kind: e.kind, page: String(e.page || "").slice(0, 300), title: String(e.title || "").slice(0, 120),
+          fromHub: !!e.fromHub, ms: Number(e.ms) || 0, active: Number(e.active) || 0, inputs: Number(e.inputs) || 0 };
+        if (e.result && typeof e.result === "object") clean.result = { score: Number(e.result.score) || 0, cleared: !!e.result.cleared };
+        playlog.append(clean);
+        send(res, 204, "text/plain", "");
+      } catch (err) { send(res, 400, "text/plain", "bad log entry"); }
+    });
+    return;
+  }
   if (what === "fetch") {
     const r = await git(["fetch", "--prune", "origin"]);
     return send(res, 200, "application/json", JSON.stringify({ ok: !r.err || /->/.test(r.stderr) }));
@@ -168,11 +191,34 @@ async function api(req, res, what, query) {
   send(res, 404, "text/plain", "unknown");
 }
 
+// Puts the play-log script into every HTML page served outside /__launcher/.
+const PLAYLOG_TAG = '<script src="/__launcher/playlog.js"></script>';
+function withPlaylog(res) {
+  const writeHead = res.writeHead, end = res.end;
+  let html = false;
+  res.writeHead = function (code, a, b) {
+    const h = (a && typeof a === "object") ? a : b;
+    html = code === 200 && /text\/html/i.test((h && (h["Content-Type"] || h["content-type"])) || "");
+    return writeHead.apply(this, arguments);
+  };
+  res.end = function (body, ...rest) {
+    if (html && body != null) {
+      let s = Buffer.isBuffer(body) ? body.toString("utf8") : String(body);
+      const i = s.search(/<\/head>/i);
+      body = i >= 0 ? s.slice(0, i) + PLAYLOG_TAG + s.slice(i) : PLAYLOG_TAG + s;
+    }
+    return end.call(this, body, ...rest);
+  };
+  return res;
+}
+
 function handler(req, res) {
   const url = new URL(req.url, "http://localhost");
   const p = decodeURIComponent(url.pathname);
   if (p === "/__launcher" || p === "/__launcher/") return send(res, 200, "text/html; charset=utf-8", PAGE);
+  if (p === "/__launcher/playlog.js") return send(res, 200, "text/javascript; charset=utf-8", playlog.CLIENT);
   if (p.startsWith("/__launcher/api/")) return api(req, res, p.slice(16), url.searchParams);
+  withPlaylog(res);
   if (p.startsWith("/branch/")) return serveBranch(req, res, p.slice(8));
   if (p.startsWith("/ext/")) return serveExt(req, res, p.slice(5));
   return dev.handler(req, res);
@@ -215,6 +261,8 @@ const PAGE = `<!DOCTYPE html>
   .stop{border-color:#c44;background:#300;color:#fcc;margin-left:auto}
   input{background:#011;border:1px solid #355;color:#cfe;font:inherit;padding:6px 8px;width:240px}
   .hide{display:none}
+  #plays table{border-collapse:collapse;margin-top:6px}#plays td{padding:2px 14px 2px 0;color:#9cb}#plays td:first-child{color:#cfe}
+  #plays .pt{color:#9f9}
 </style></head><body>
 <h1>PLEURA</h1><div class="sub">local playtest launcher &middot; games open in a new tab</div>
 <div class="bar">
@@ -224,6 +272,7 @@ const PAGE = `<!DOCTYPE html>
   <button id="fetch">Refresh branches from GitHub</button>
   <button class="stop" id="stop">Stop server</button>
 </div>
+<div id="plays"></div>
 <div id="out">loading...</div>
 <script>
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -241,6 +290,16 @@ async function load() {
       '<a target="_blank" href="' + esc(b.hub) + '">hub</a>' + links(b.pages), b.when + " - " + b.subject))) +
     section("SHELF (under-development)", d.shelf.map((g) => card(g.name, links(g.pages))));
   filter();
+}
+async function plays() {
+  const d = await (await fetch("api/plays")).json();
+  const t = (iso) => iso ? new Date(iso).toLocaleString([], {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}) : "";
+  const m = (ms) => Math.round(ms / 6000) / 10 + " min";
+  const rows = d.runs.map((r) => '<tr><td>' + esc(r.game + (r.build === "main" ? "" : " @ " + r.build)) + '</td><td>' + esc(t(r.start)) +
+    '</td><td' + (r.activeMs >= 60000 ? ' class="pt"' : '') + '>' + esc(m(r.activeMs)) + (r.activeMs >= 60000 ? " playtest" : "") + '</td><td>' +
+    (r.result ? esc("score " + r.result.score + (r.result.cleared ? " cleared" : "")) : "") + '</td></tr>').join("");
+  document.getElementById("plays").innerHTML = '<h2>RECENT PLAYS (logged on this laptop)</h2>' +
+    (rows ? '<table>' + rows + '</table>' : '<div class="sub">Nothing logged yet. Play anything from here and it shows up.</div>');
 }
 function filter() {
   const q = document.getElementById("q").value.toLowerCase();
@@ -261,4 +320,6 @@ document.getElementById("stop").onclick = async () => {
   document.body.innerHTML = '<h1>PLEURA</h1><p>Server stopped. Double-click the desktop shortcut to start it again.</p>';
 };
 load();
+plays();
+addEventListener("focus", plays);
 </script></body></html>`;
